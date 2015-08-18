@@ -1,0 +1,263 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3309 - in trunk/windstille: . extra
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2010-May/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3309%20-%20in%20trunk/windstille%3A%20.%20extra&In-Reply-To=%3C201005272334.o4RNYuIf007215%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002305.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3309 - in trunk/windstille: . extra</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3309%20-%20in%20trunk/windstille%3A%20.%20extra&In-Reply-To=%3C201005272334.o4RNYuIf007215%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3309 - in trunk/windstille: . extra">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri May 28 01:34:56 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002305.html">[Windstille-commit] r3308 - trunk/windstille
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2306">[ date ]</a>
+              <a href="thread.html#2306">[ thread ]</a>
+              <a href="subject.html#2306">[ subject ]</a>
+              <a href="author.html#2306">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2010-05-28 01:34:55 +0200 (Fri, 28 May 2010)
+New Revision: 3309
+
+Added:
+   trunk/windstille/extra/
+   trunk/windstille/extra/image_blur.cpp
+Log:
+Some experimentation with motionblur and lighteffects
+
+Added: trunk/windstille/extra/image_blur.cpp
+===================================================================
+--- trunk/windstille/extra/image_blur.cpp	2010-05-12 12:13:20 UTC (rev 3308)
++++ trunk/windstille/extra/image_blur.cpp	2010-05-27 23:34:55 UTC (rev 3309)
+@@ -0,0 +1,182 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2010 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &lt;SDL.h&gt;
++#include &lt;sstream&gt;
++#include &lt;stdexcept&gt;
++
++#include &quot;display/opengl_window.hpp&quot;
++#include &quot;display/surface.hpp&quot;
++#include &quot;display/surface_manager.hpp&quot;
++#include &quot;display/surface_drawing_parameters.hpp&quot;
++#include &quot;math/size.hpp&quot;
++#include &quot;math/vector2f.hpp&quot;
++
++int main(int argc, char** argv)
++{
++  if (argc != 3) 
++  {
++    std::cout &lt;&lt; &quot;Usage: &quot; &lt;&lt; argv[0] &lt;&lt; &quot; FILENAME&quot; &lt;&lt; std::endl;
++    return -1;
++  }
++
++  Uint32 flags = SDL_INIT_VIDEO | SDL_INIT_JOYSTICK;
++
++  if (SDL_Init(flags) &lt; 0)
++  {
++    std::stringstream msg;
++    msg &lt;&lt; &quot;Couldn't initialize SDL: &quot; &lt;&lt; SDL_GetError();
++    throw std::runtime_error(msg.str());
++  }
++  else
++  {
++    atexit(SDL_Quit);
++    SDL_EnableUNICODE(1);
++  }
++
++  Size window_size(1024, 768);
++  OpenGLWindow window(window_size, window_size);
++
++  SDL_ShowCursor(SDL_DISABLE);
++
++  SurfaceManager surface_manager;
++  Surface surface(Pathname(argv[1], Pathname::kSysPath));
++
++  Surface surface_2(Pathname(argv[2], Pathname::kSysPath));
++
++  float ray_length = 3.0f;
++  Vector2f pos;
++  int t = 0;
++  std::vector&lt;Vector2f&gt; buffer(16);
++  std::vector&lt;Vector2f&gt;::size_type buffer_pos = 0;
++  bool quit = false;
++  while(!quit)
++  {
++    SDL_Event event;
++    while(SDL_PollEvent(&amp;event))
++    {
++      switch(event.type)
++      {
++        case SDL_QUIT:
++          // FIXME: This should be a bit more gentle, but will do for now
++          std::cout &lt;&lt; &quot;Ctrl-c or Window-close pressed, game is going to quit&quot; &lt;&lt; std::endl;
++          quit = true;
++          break;
++
++        case SDL_KEYDOWN:
++          if (event.key.keysym.sym == SDLK_ESCAPE)
++          {
++            quit = true;
++          }
++          break;
++
++        case SDL_MOUSEBUTTONDOWN:
++          if (event.button.button == 1)
++          {
++            ray_length *= 1.0f/1.4f;
++          }
++          else if (event.button.button == 3)
++          {
++            ray_length *= 1.4f;
++          }
++          std::cout &lt;&lt; ray_length &lt;&lt; std::endl;
++          break;
++          
++        case SDL_MOUSEMOTION:
++          //std::cout &lt;&lt; event.motion.x &lt;&lt; &quot;, &quot; &lt;&lt; event.motion.y &lt;&lt; std::endl;
++          pos = Vector2f(1024.0f - static_cast&lt;float&gt;(event.motion.x),
++                         768.0f - static_cast&lt;float&gt;(event.motion.y));
++          break;
++
++        default:
++          break;
++      }
++    }
++
++    t += 30;
++    ray_length = sin(t/1000.0f);
++
++    buffer[buffer_pos % buffer.size()] = pos;
++    buffer_pos += 1;
++
++    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
++    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
++
++    if (false)
++    {
++      for(size_t i = 0; i &lt; std::min(buffer_pos, buffer.size()); ++i)
++      {
++        size_t idx = (buffer_pos - buffer.size() + i) % buffer.size();
++        pos = buffer[idx];
++
++        float n = static_cast&lt;float&gt;(buffer.size());
++
++        if (true)
++        { // after image motion blur
++          n = static_cast&lt;float&gt;(i) / ((n * n + n) / 2.0f);
++        }
++        else
++        { // simple trail, doesn't fade out
++          n = 1.0f / n;
++        }
++
++        surface.draw(SurfaceDrawingParameters()
++                     .set_scale(1.0f)
++                     .set_pos(pos - Vector2f(surface.get_width()/2, surface.get_height()/2))
++                     .set_blend_func(GL_SRC_ALPHA, GL_ONE)
++                     .set_color(Color(1.0f, 1.0f, 1.0f, n)));
++      }
++    }
++    else
++    {
++      int n = 100;
++      for(int i = 0; i &lt; n; ++i)
++      {
++        float scale = 1.0f + static_cast&lt;float&gt;(i) / static_cast&lt;float&gt;(n) * ray_length;
++        if (true)
++          surface.draw(SurfaceDrawingParameters()
++                       .set_scale(scale)
++                       .set_pos(Vector2f(512, 384) - Vector2f(surface.get_width()/2 * scale, 
++                                                              surface.get_height()/2 * scale)
++                                + (Vector2f(512, 384) - pos) * scale * 3.0f)
++                       .set_blend_func(GL_SRC_ALPHA, GL_ONE)
++                       .set_color(Color(1.0f, 1.0f, 1.0f, static_cast&lt;float&gt;(1)/static_cast&lt;float&gt;(n))));
++
++        if (false &amp;&amp; i == 1)
++        {
++          scale = 1.0f;
++          //std::cout &lt;&lt; &quot;Black: &quot; &lt;&lt; pos &lt;&lt; std::endl;
++          surface_2.draw(SurfaceDrawingParameters()
++                         .set_scale(scale)
++                         .set_pos(Vector2f(512, 384) - Vector2f(surface_2.get_width()/2 * scale, 
++                                                                surface_2.get_height()/2 * scale)
++                                  + (Vector2f(512, 384) - pos) * scale * 3.0f)
++                         .set_blend_func(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
++                         .set_color(Color(1.0f, 1.0f, 1.0f, 1.0f)));
++        }
++      }
++    }
++
++    SDL_GL_SwapBuffers();
++    SDL_Delay(15);
++  }
++
++  return 0;
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/extra/image_blur.cpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002305.html">[Windstille-commit] r3308 - trunk/windstille
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2306">[ date ]</a>
+              <a href="thread.html#2306">[ thread ]</a>
+              <a href="subject.html#2306">[ subject ]</a>
+              <a href="author.html#2306">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

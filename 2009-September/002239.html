@@ -1,0 +1,193 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3242 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3242%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909141843.n8EIhJcU005291%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002238.html">
+   <LINK REL="Next"  HREF="002240.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3242 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3242%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909141843.n8EIhJcU005291%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3242 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Sep 14 20:43:19 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002238.html">[Windstille-commit] r3241 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="002240.html">[Windstille-commit] r3243 - in trunk/windstille: . src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2239">[ date ]</a>
+              <a href="thread.html#2239">[ thread ]</a>
+              <a href="subject.html#2239">[ subject ]</a>
+              <a href="author.html#2239">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-14 20:43:18 +0200 (Mon, 14 Sep 2009)
+New Revision: 3242
+
+Modified:
+   trunk/windstille/src/editor/sector_model_builder.cpp
+   trunk/windstille/src/editor/sector_model_builder.hpp
+Log:
+Turned some local variables into member variables
+
+Modified: trunk/windstille/src/editor/sector_model_builder.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model_builder.cpp	2009-09-13 23:13:01 UTC (rev 3241)
++++ trunk/windstille/src/editor/sector_model_builder.cpp	2009-09-14 18:43:18 UTC (rev 3242)
+@@ -29,7 +29,9 @@
+ #include &quot;util/file_reader.hpp&quot;
+ 
+ SectorModelBuilder::SectorModelBuilder(const std::string&amp; filename, SectorModel&amp; sector)
+-  : m_sector(sector)
++  : m_sector(sector),
++    m_id_table(),
++    m_parent_table()
+ {
+   m_sector.get_layer_tree()-&gt;clear();
+ 
+@@ -40,9 +42,6 @@
+   }
+   else
+   {
+-    std::map&lt;std::string, ObjectModelHandle&gt; id_table;
+-    std::map&lt;ObjectModelHandle, std::string&gt; parent_table;
+-
+     FileReader reader = FileReader::parse(stream, filename);
+     if (reader.get_name() == &quot;windstille-sector&quot;)
+     {
+@@ -54,7 +53,7 @@
+ 
+       FileReader navigation_section;
+       reader.get(&quot;navigation&quot;, navigation_section);
+-      m_sector.get_nav_graph().load(navigation_section, id_table);
++      m_sector.get_nav_graph().load(navigation_section, m_id_table);
+ 
+       FileReader layers_section;
+       reader.get(&quot;layers&quot;, layers_section);
+@@ -65,7 +64,7 @@
+       {
+         if (i-&gt;get_name() == &quot;layer&quot;)
+         {
+-          load_layer(*i, id_table, parent_table);
++          load_layer(*i);
+         }
+         else
+         {
+@@ -74,10 +73,10 @@
+       }
+           
+       // Set the parents properly
+-      for(std::map&lt;ObjectModelHandle, std::string&gt;::iterator i = parent_table.begin(); i != parent_table.end(); ++i)
++      for(std::map&lt;ObjectModelHandle, std::string&gt;::iterator i = m_parent_table.begin(); i != m_parent_table.end(); ++i)
+       {
+-        std::map&lt;std::string, ObjectModelHandle&gt;::iterator j = id_table.find(i-&gt;second);
+-        if (j == id_table.end())
++        std::map&lt;std::string, ObjectModelHandle&gt;::iterator j = m_id_table.find(i-&gt;second);
++        if (j == m_id_table.end())
+         {
+           std::cout &lt;&lt; &quot;Error: Couldn't resolve 'id': &quot; &lt;&lt; i-&gt;second &lt;&lt; std::endl;
+         }
+@@ -91,9 +90,7 @@
+ }
+ 
+ void
+-SectorModelBuilder::load_layer(const FileReader&amp; reader, 
+-                               std::map&lt;std::string, ObjectModelHandle&gt;&amp; id_table,
+-                               std::map&lt;ObjectModelHandle, std::string&gt;&amp; parent_table)
++SectorModelBuilder::load_layer(const FileReader&amp; reader)
+ {
+   FileReader objects_reader;
+   FileReader layers_reader;
+@@ -119,8 +116,8 @@
+         std::string id_str;
+         if (j-&gt;get(&quot;edge&quot;, id_str))
+         {
+-          std::map&lt;std::string, ObjectModelHandle&gt;::iterator it = id_table.find(id_str);
+-          if (it == id_table.end())
++          std::map&lt;std::string, ObjectModelHandle&gt;::iterator it = m_id_table.find(id_str);
++          if (it == m_id_table.end())
+           {
+             std::cout &lt;&lt; &quot;SectorModel::load_layer: couldn't resource navgraph-edge-ref: &quot; &lt;&lt; id_str &lt;&lt; std::endl;
+           }
+@@ -139,14 +136,14 @@
+         std::string id_str;
+         if (j-&gt;read(&quot;id&quot;, id_str))
+         {
+-          id_table[id_str] = obj;
++          m_id_table[id_str] = obj;
+         }
+ 
+         std::string parent_str;
+         if (j-&gt;read(&quot;parent&quot;, parent_str))
+         {
+           if (!parent_str.empty())
+-            parent_table[obj] = parent_str;
++            m_parent_table[obj] = parent_str;
+         }
+       }
+     }
+
+Modified: trunk/windstille/src/editor/sector_model_builder.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model_builder.hpp	2009-09-13 23:13:01 UTC (rev 3241)
++++ trunk/windstille/src/editor/sector_model_builder.hpp	2009-09-14 18:43:18 UTC (rev 3242)
+@@ -31,15 +31,15 @@
+ {
+ private:
+   SectorModel&amp; m_sector;
+-  
++  std::map&lt;std::string, ObjectModelHandle&gt; m_id_table;
++  std::map&lt;ObjectModelHandle, std::string&gt; m_parent_table;
++
+ public:
+   SectorModelBuilder(const std::string&amp; filename, SectorModel&amp; sector);
+ 
+ private:
+   void load(const std::string&amp; filename);
+-  void load_layer(const FileReader&amp; filename, 
+-                  std::map&lt;std::string, ObjectModelHandle&gt;&amp; id_table,
+-                  std::map&lt;ObjectModelHandle, std::string&gt;&amp; parent_table); 
++  void load_layer(const FileReader&amp; filename);
+ 
+ private:
+   SectorModelBuilder(const SectorModelBuilder&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002238.html">[Windstille-commit] r3241 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="002240.html">[Windstille-commit] r3243 - in trunk/windstille: . src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2239">[ date ]</a>
+              <a href="thread.html#2239">[ thread ]</a>
+              <a href="subject.html#2239">[ subject ]</a>
+              <a href="author.html#2239">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

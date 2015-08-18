@@ -1,0 +1,209 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1262 - in trunk/src: . input
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-April/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1262%20-%20in%20trunk/src%3A%20.%20input&In-Reply-To=%3C200604251843.k3PIhoC1018965%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000913.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1262 - in trunk/src: . input</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1262%20-%20in%20trunk/src%3A%20.%20input&In-Reply-To=%3C200604251843.k3PIhoC1018965%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1262 - in trunk/src: . input">grumbel at berlios.de
+       </A><BR>
+    <I>Tue Apr 25 20:43:50 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000913.html">[Windstille-commit] r1261 - in trunk/src: . display sprite2d
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#914">[ date ]</a>
+              <a href="thread.html#914">[ thread ]</a>
+              <a href="subject.html#914">[ subject ]</a>
+              <a href="author.html#914">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-04-25 20:43:15 +0200 (Tue, 25 Apr 2006)
+New Revision: 1262
+
+Modified:
+   trunk/src/input/input_configurator.cpp
+   trunk/src/input/input_manager_sdl.cpp
+   trunk/src/input/input_manager_sdl.hpp
+   trunk/src/screen_manager.cpp
+Log:
+- added support for mouse buttons
+
+Modified: trunk/src/input/input_configurator.cpp
+===================================================================
+--- trunk/src/input/input_configurator.cpp	2006-04-25 04:08:56 UTC (rev 1261)
++++ trunk/src/input/input_configurator.cpp	2006-04-25 18:43:15 UTC (rev 1262)
+@@ -152,7 +152,15 @@
+       break;
+ 
+     case SDL_MOUSEBUTTONDOWN:
+-      // event.button
++      if (items.back().mode == ConfigureItem::CONFIGURE_BUTTON)
++        {
++          InputManagerSDL::current()-&gt;bind_mouse_button(items.back().event_id,
++                                                        0, // SDL only supports one mouse
++                                                        event.button.button);
++          out &lt;&lt; &quot;(mouse-button (device &quot; &lt;&lt; 0 &lt;&lt; &quot;)\n&quot;
++              &lt;&lt; &quot;              (button &quot; &lt;&lt; int(event.button.button) &lt;&lt; &quot;))&quot; &lt;&lt; std::endl;
++          next_item();
++        }
+       break;
+ 
+     case SDL_MOUSEBUTTONUP:
+
+Modified: trunk/src/input/input_manager_sdl.cpp
+===================================================================
+--- trunk/src/input/input_manager_sdl.cpp	2006-04-25 04:08:56 UTC (rev 1261)
++++ trunk/src/input/input_manager_sdl.cpp	2006-04-25 18:43:15 UTC (rev 1262)
+@@ -44,6 +44,8 @@
+   std::vector&lt;KeyboardButtonBinding&gt; keyboard_button_bindings;
+   std::vector&lt;KeyboardAxisBinding&gt;   keyboard_axis_bindings;
+ 
++  std::vector&lt;MouseButtonBinding&gt;   mouse_button_bindings;
++
+   std::vector&lt;SDL_Joystick*&gt; joysticks;
+ 
+   std::map&lt;std::string, SDLKey&gt; keyidmapping;
+@@ -229,6 +231,20 @@
+ }
+ 
+ void
++InputManagerSDL::on_mouse_button_event(const SDL_MouseButtonEvent&amp; button)
++{
++  for (std::vector&lt;MouseButtonBinding&gt;::const_iterator i = impl-&gt;mouse_button_bindings.begin();
++       i != impl-&gt;mouse_button_bindings.end();
++       ++i)
++    {
++      if (button.button == i-&gt;button)
++        {
++          add_button_event(i-&gt;event, button.state);
++        }
++    }
++}
++
++void
+ InputManagerSDL::on_joy_button_event(const SDL_JoyButtonEvent&amp; button)
+ {
+   for (std::vector&lt;JoystickButtonBinding&gt;::const_iterator i = impl-&gt;joystick_button_bindings.begin();
+@@ -319,11 +335,11 @@
+       break;
+ 
+     case SDL_MOUSEBUTTONDOWN:
+-      // event.button
++      on_mouse_button_event(event.button);
+       break;
+ 
+     case SDL_MOUSEBUTTONUP:
+-      // event.button
++      on_mouse_button_event(event.button);
+       break;
+ 
+     case SDL_JOYAXISMOTION:
+@@ -355,6 +371,18 @@
+ }
+ 
+ void
++InputManagerSDL::bind_mouse_button(int event, int device, int button)
++{
++  MouseButtonBinding binding;
++
++  binding.event  = event;
++  binding.device = device;
++  binding.button = button;
++
++  impl-&gt;mouse_button_bindings.push_back(binding); 
++}
++
++void
+ InputManagerSDL::bind_joystick_hat_axis(int event, int device, int axis)
+ {
+ }
+
+Modified: trunk/src/input/input_manager_sdl.hpp
+===================================================================
+--- trunk/src/input/input_manager_sdl.hpp	2006-04-25 04:08:56 UTC (rev 1261)
++++ trunk/src/input/input_manager_sdl.hpp	2006-04-25 18:43:15 UTC (rev 1262)
+@@ -54,6 +54,13 @@
+   int plus;
+ };
+ 
++struct MouseButtonBinding
++{
++  int event;
++  int device;
++  int button;
++};
++
+ struct KeyboardButtonBinding
+ {
+   int event;
+@@ -88,6 +95,7 @@
+ 
+   void bind_keyboard_button(int event, SDLKey key);
+   void bind_keyboard_axis(int event, SDLKey minus, SDLKey plus);
++  void bind_mouse_button(int event, int device, int button);
+   
+   void clear_bindings();
+ 
+@@ -98,6 +106,7 @@
+ 
+ private:
+   void on_key_event(const SDL_KeyboardEvent&amp; key);
++  void on_mouse_button_event(const SDL_MouseButtonEvent&amp; button);
+   void on_joy_button_event(const SDL_JoyButtonEvent&amp; button);
+   void on_joy_axis_event(const SDL_JoyAxisEvent&amp; button);
+   
+
+Modified: trunk/src/screen_manager.cpp
+===================================================================
+--- trunk/src/screen_manager.cpp	2006-04-25 04:08:56 UTC (rev 1261)
++++ trunk/src/screen_manager.cpp	2006-04-25 18:43:15 UTC (rev 1262)
+@@ -292,6 +292,7 @@
+           break;
+ 
+         case SDL_MOUSEBUTTONUP:
++        case SDL_MOUSEBUTTONDOWN:
+         case SDL_MOUSEMOTION:
+         case SDL_JOYAXISMOTION:
+         case SDL_JOYBALLMOTION:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000913.html">[Windstille-commit] r1261 - in trunk/src: . display sprite2d
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#914">[ date ]</a>
+              <a href="thread.html#914">[ thread ]</a>
+              <a href="subject.html#914">[ subject ]</a>
+              <a href="author.html#914">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

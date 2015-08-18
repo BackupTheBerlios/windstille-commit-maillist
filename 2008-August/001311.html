@@ -1,0 +1,584 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2291 - in trunk/griv/new: . math
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2291%20-%20in%20trunk/griv/new%3A%20.%20math&In-Reply-To=%3C200808082239.m78Mdghi031134%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001310.html">
+   <LINK REL="Next"  HREF="001312.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2291 - in trunk/griv/new: . math</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2291%20-%20in%20trunk/griv/new%3A%20.%20math&In-Reply-To=%3C200808082239.m78Mdghi031134%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2291 - in trunk/griv/new: . math">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Aug  9 00:39:42 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001310.html">[Windstille-commit] r2290 - trunk/griv/new
+</A></li>
+        <LI>Next message: <A HREF="001312.html">[Windstille-commit] r2292 - in trunk/griv/new: . math
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1311">[ date ]</a>
+              <a href="thread.html#1311">[ thread ]</a>
+              <a href="subject.html#1311">[ subject ]</a>
+              <a href="author.html#1311">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-09 00:39:40 +0200 (Sat, 09 Aug 2008)
+New Revision: 2291
+
+Modified:
+   trunk/griv/new/framebuffer.cpp
+   trunk/griv/new/framebuffer.hpp
+   trunk/griv/new/griv.cpp
+   trunk/griv/new/image.cpp
+   trunk/griv/new/image.hpp
+   trunk/griv/new/math/rect.cpp
+   trunk/griv/new/math/rect.hpp
+   trunk/griv/new/surface.cpp
+   trunk/griv/new/texture.cpp
+   trunk/griv/new/viewer.cpp
+   trunk/griv/new/viewer.hpp
+   trunk/griv/new/workspace.cpp
+   trunk/griv/new/workspace.hpp
+Log:
+Detecting which tiles need to get drawn looks alright now
+
+Modified: trunk/griv/new/framebuffer.cpp
+===================================================================
+--- trunk/griv/new/framebuffer.cpp	2008-08-08 17:43:12 UTC (rev 2290)
++++ trunk/griv/new/framebuffer.cpp	2008-08-08 22:39:40 UTC (rev 2291)
+@@ -27,6 +27,7 @@
+ #include &lt;X11/Xlib.h&gt;
+ #include &lt;GL/gl.h&gt;
+ #include &quot;SDL_syswm.h&quot;
++#include &quot;math/rect.hpp&quot;
+ #include &quot;framebuffer.hpp&quot;
+ 
+ SDL_SysWMinfo syswm;
+@@ -123,19 +124,30 @@
+ }
+ 
+ void
+-Framebuffer::lock()
++Framebuffer::draw_rect(const Rectf&amp; rect)
+ {
+-  syswm.info.x11.lock_func();
+-  XLockDisplay(syswm.info.x11.display);
+-  syswm.info.x11.unlock_func();
+-}
++  glEnable(GL_BLEND);
++  glDisable(GL_TEXTURE_2D);
++  glColor4f(1.0f, 0.0f, 1.0f, 0.25f);
++  glBlendFunc(GL_SRC_ALPHA, GL_ONE);
++        
++  glBegin(GL_QUADS);
++  glVertex2f(rect.left,  rect.top);
++  glVertex2f(rect.right, rect.top);
++  glVertex2f(rect.right, rect.bottom);
++  glVertex2f(rect.left,  rect.bottom);
++  glEnd();
+ 
+-void
+-Framebuffer::unlock()
+-{
+-  syswm.info.x11.lock_func();
+-  XUnlockDisplay(syswm.info.x11.display);
+-  syswm.info.x11.unlock_func();
++  glColor4f(1.0f, 1.0f, 1.0f, 0.5f);
++
++  glBegin(GL_LINE_LOOP);
++  glVertex2f(rect.left,  rect.top);
++  glVertex2f(rect.right, rect.top);
++  glVertex2f(rect.right, rect.bottom);
++  glVertex2f(rect.left,  rect.bottom);
++  glEnd();
++
++  glDisable(GL_BLEND);
+ }
+ 
+ /* EOF */
+
+Modified: trunk/griv/new/framebuffer.hpp
+===================================================================
+--- trunk/griv/new/framebuffer.hpp	2008-08-08 17:43:12 UTC (rev 2290)
++++ trunk/griv/new/framebuffer.hpp	2008-08-08 22:39:40 UTC (rev 2291)
+@@ -33,6 +33,8 @@
+ #include &lt;math.h&gt;
+ #include &quot;SDL.h&quot;
+ 
++class Rectf;
++
+ static inline void assert_gl(const char* message)
+ {
+   GLenum error = glGetError();
+@@ -65,8 +67,7 @@
+   static void flip();
+   static void clear();
+ 
+-  static void lock();
+-  static void unlock();
++  static void draw_rect(const Rectf&amp; rect);
+ };
+ 
+ #endif
+
+Modified: trunk/griv/new/griv.cpp
+===================================================================
+--- trunk/griv/new/griv.cpp	2008-08-08 17:43:12 UTC (rev 2290)
++++ trunk/griv/new/griv.cpp	2008-08-08 22:39:40 UTC (rev 2291)
+@@ -81,11 +81,11 @@
+           SoftwareSurface surface(filenames[i]);
+           std::cout &lt;&lt; &quot;Image loading&quot; &lt;&lt; std::endl;      
+ 
+-          int scale = 0;
++          int scale = 1;
+ 
+           do
+             {
+-              if (scale != 0)
++              if (scale != 1)
+                 {
+                   surface = surface.scale(Size(surface.get_width()/2, 
+                                                surface.get_height()/2));
+@@ -140,6 +140,8 @@
+         }
+     }
+ 
++  workspace.layout();
++
+   Viewer viewer;
+ 
+   Uint32 ticks = SDL_GetTicks();
+@@ -156,7 +158,7 @@
+       viewer.update(delta);
+ 
+       Framebuffer::clear();
+-      viewer.draw();
++      viewer.draw(workspace);
+       Framebuffer::flip();
+ 
+       SDL_Delay(10);
+
+Modified: trunk/griv/new/image.cpp
+===================================================================
+--- trunk/griv/new/image.cpp	2008-08-08 17:43:12 UTC (rev 2290)
++++ trunk/griv/new/image.cpp	2008-08-08 22:39:40 UTC (rev 2291)
+@@ -23,43 +23,86 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &quot;math/rect.hpp&quot;
++#include &quot;framebuffer.hpp&quot;
+ #include &quot;surface.hpp&quot;
++#include &quot;math.hpp&quot;
+ #include &quot;image.hpp&quot;
+ 
+ Image::Image(const std::string&amp; filename, const Size&amp; size)
+-  : tiles((size.width  + 255) / 256, 
++  : filename(filename),
++    size(size),
++    tiles((size.width  + 255) / 256, 
+           (size.height + 255) / 256)
+ {
+ }
+ 
+ void
+-Image::draw()
++Image::set_pos(const Vector2f&amp; pos_)
+ {
+-  for(int y = 0; y &lt; tiles.get_height(); ++y)
+-    for(int x = 0; x &lt; tiles.get_width(); ++x)
+-      {
+-        Surface* tile = tiles(x,y);
+-        if (tile)
+-          {
+-            tile-&gt;draw(Vector2f(x*256, y*256));
+-          }
+-      }
++  pos = pos_;
++}
+ 
+-#if 0
+-  for(int y = 0; y*256 &lt; entry.size.height/2; ++y)
+-    for(int x = 0; x*256 &lt; entry.size.width/2; ++x)
+-      {
+-        Tile tile;
+-        if (tile_db.get_tile(entry.fileid, 1/*scale*/, x, y, tile))
+-          {
+-            std::cout &lt;&lt; &quot;Have tile: &quot; &lt;&lt; x &lt;&lt; &quot;, &quot; &lt;&lt; y &lt;&lt; std::endl;
+-          }                
+-        else
+-          {                     
+-                    
+-          }
+-      }
+-#endif
++Vector2f
++Image::get_pos() const
++{
++  return pos;
+ }
++
++float
++Image::get_width() const
++{
++  return size.width;
++}
++
++float
++Image::get_height() const
++{
++  return size.height;
++}
++
++void
++Image::draw(const Rectf&amp; cliprect, float fscale)
++{
++  Rectf image_rect(pos, Sizef(size));
++  Rectf image_region = image_rect.clip_to(cliprect);
++
++  Framebuffer::draw_rect(image_rect);
++  //Framebuffer::draw_rect(image_region);
++
++  if (cliprect.is_overlapped(image_rect))
++    {
++      // scale factor for requesting the tile from the TileDatabase
++      int tile_scale = Math::clamp(1, static_cast&lt;int&gt;(1 / fscale), 32);
++      int scale_factor = (1 &lt;&lt; (tile_scale-1));
++
++      int scaled_width  = size.width  / scale_factor;
++      int scaled_height = size.height / scale_factor;
++
++      if (scaled_width  &lt; 256 &amp;&amp; scaled_height &lt; 256)
++        { // So small that only one tile is to be drawn
++          Framebuffer::draw_rect(Rectf(pos, size));
++        }
++      else
++        {
++          int tilesize = 256 * scale_factor;
++
++          int start_x = (image_region.left  - pos.x)/tilesize;
++          int end_x   = (image_region.right - pos.x)/tilesize + 1;
++
++          int start_y = (image_region.top    - pos.y)/tilesize;
++          int end_y   = (image_region.bottom - pos.y)/tilesize + 1;
++
++          for(int y = start_y; y &lt; end_y; y += 1)
++            for(int x = start_x; x &lt; end_x; x += 1)
++              {
++                Framebuffer::draw_rect(Rectf(pos + Vector2f(x*tilesize, y*tilesize),
++                                             Sizef(tilesize, tilesize))); //).clip_to(image_rect));
++              }
++
++          // tile_db.get_tile(entry.fileid, 1/*scale*/, x, y, tile)
++        }
++    }
++}
+ 
+ /* EOF */
+
+Modified: trunk/griv/new/image.hpp
+===================================================================
+--- trunk/griv/new/image.hpp	2008-08-08 17:43:12 UTC (rev 2290)
++++ trunk/griv/new/image.hpp	2008-08-08 22:39:40 UTC (rev 2291)
+@@ -30,8 +30,11 @@
+ #include &quot;math/vector2f.hpp&quot;
+ #include &quot;math/size.hpp&quot;
+ #include &quot;grid.hpp&quot;
+-
++
+ class Surface;
++class Size;
++class Rectf;
++class Vector2f;
+ 
+ class Image
+ {
+@@ -45,8 +48,13 @@
+ 
+ public:
+   Image(const std::string&amp; filename, const Size&amp; size);
++
++  void set_pos(const Vector2f&amp; pos);
++  void draw(const Rectf&amp; cliprect, float scale);
+   
+-  void draw();
++  Vector2f get_pos() const;
++  float get_width() const;
++  float get_height() const;
+ };
+ 
+ #endif
+
+Modified: trunk/griv/new/math/rect.cpp
+===================================================================
+--- trunk/griv/new/math/rect.cpp	2008-08-08 17:43:12 UTC (rev 2290)
++++ trunk/griv/new/math/rect.cpp	2008-08-08 22:39:40 UTC (rev 2291)
+@@ -39,4 +39,10 @@
+            &lt;&lt; rect.right &lt;&lt; &quot;, &quot; &lt;&lt; rect.bottom &lt;&lt; &quot;)&quot;;
+ }
+ 
++std::ostream&amp; operator&lt;&lt;(std::ostream&amp; s, const Rectf&amp; rect)
++{
++  return s &lt;&lt; &quot;Rect(&quot; &lt;&lt; rect.left &lt;&lt; &quot;, &quot; &lt;&lt; rect.top &lt;&lt; &quot;, &quot;
++           &lt;&lt; rect.right &lt;&lt; &quot;, &quot; &lt;&lt; rect.bottom &lt;&lt; &quot;)&quot;;
++}
++
+ /* EOF */
+
+Modified: trunk/griv/new/math/rect.hpp
+===================================================================
+--- trunk/griv/new/math/rect.hpp	2008-08-08 17:43:12 UTC (rev 2290)
++++ trunk/griv/new/math/rect.hpp	2008-08-08 22:39:40 UTC (rev 2291)
+@@ -31,6 +31,7 @@
+ #define __MATH_RECT_HPP__
+ 
+ #include &lt;iosfwd&gt;
++#include &quot;../math.hpp&quot;
+ #include &quot;origin.hpp&quot;
+ #include &quot;vector3f.hpp&quot;
+ #include &quot;size.hpp&quot;
+@@ -344,6 +345,14 @@
+                  right  + f,
+                  bottom + f);
+   }
++
++  Rectf clip_to(const Rectf&amp; cliprect) const 
++  {
++    return Rectf(Math::max(left,   cliprect.left),
++                 Math::max(top,    cliprect.top),
++                 Math::min(right,  cliprect.right),
++                 Math::min(bottom, cliprect.bottom));
++  }
+ };
+ 
+ inline Rect::Rect(const Rectf&amp; rect)
+@@ -354,6 +363,7 @@
+ {}
+ 
+ std::ostream&amp; operator&lt;&lt;(std::ostream&amp; s, const Rect&amp; r);
++std::ostream&amp; operator&lt;&lt;(std::ostream&amp; s, const Rectf&amp; r);
+ 
+ #endif
+ 
+
+Modified: trunk/griv/new/surface.cpp
+===================================================================
+--- trunk/griv/new/surface.cpp	2008-08-08 17:43:12 UTC (rev 2290)
++++ trunk/griv/new/surface.cpp	2008-08-08 22:39:40 UTC (rev 2291)
+@@ -67,7 +67,7 @@
+     if (texture)
+       {
+         texture.bind();
+-      
++        glEnable(GL_TEXTURE_2D);
+         glColor3f(1.0f, 1.0f, 1.0f);
+         
+         glBegin(GL_QUADS);
+
+Modified: trunk/griv/new/texture.cpp
+===================================================================
+--- trunk/griv/new/texture.cpp	2008-08-08 17:43:12 UTC (rev 2290)
++++ trunk/griv/new/texture.cpp	2008-08-08 22:39:40 UTC (rev 2291)
+@@ -75,8 +75,8 @@
+ 
+     assert_gl(&quot;creating texture&quot;);
+ 
+-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); //GL_LINEAR);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST); //GL_LINEAR);
+     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,     GL_CLAMP);
+     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,     GL_CLAMP);
+     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R,     GL_CLAMP);
+
+Modified: trunk/griv/new/viewer.cpp
+===================================================================
+--- trunk/griv/new/viewer.cpp	2008-08-08 17:43:12 UTC (rev 2290)
++++ trunk/griv/new/viewer.cpp	2008-08-08 22:39:40 UTC (rev 2291)
+@@ -28,6 +28,7 @@
+ #include &quot;software_surface.hpp&quot;
+ #include &quot;math/vector2f.hpp&quot;
+ #include &quot;math/rect.hpp&quot;
++#include &quot;workspace.hpp&quot;
+ #include &quot;viewer.hpp&quot;
+ 
+ ViewerState::ViewerState()
+@@ -58,9 +59,12 @@
+ }
+ 
+ Rectf
+-ViewerState::screen2world(const Rect&amp;) const
++ViewerState::screen2world(const Rect&amp; rect) const
+ {
+-  return Rectf();
++  return Rectf((rect.left   - offset.x) / scale,
++               (rect.top    - offset.y) / scale,
++               (rect.right  - offset.x) / scale,
++               (rect.bottom - offset.y) / scale);
+ }
+ 
+ Viewer::Viewer()
+@@ -146,7 +150,7 @@
+               break;
+ 
+             case SDL_BUTTON_MIDDLE:
+-              std::cout &lt;&lt; state.screen2world(mouse_pos) &lt;&lt; std::endl;
++              //std::cout &lt;&lt; state.screen2world(mouse_pos) &lt;&lt; std::endl;
+ 
+               drag_n_drop = event.button.state;
+               break;
+@@ -159,13 +163,30 @@
+ }
+ 
+ void
+-Viewer::draw()
++Viewer::draw(Workspace&amp; workspace)
+ {
++  bool clip_debug = true;
++
+   glPushMatrix();
+-  
++
++  if (clip_debug)
++    {
++      glTranslatef(Framebuffer::get_width()/2, Framebuffer::get_height()/2, 0.0f);
++      glScalef(0.5f, 0.5f, 1.0f);
++      glTranslatef(-Framebuffer::get_width()/2, -Framebuffer::get_height()/2, 0.0f);
++    }
++
+   glTranslatef(state.get_offset().x, state.get_offset().y, 0.0f);
+   glScalef(state.get_scale(), state.get_scale(), 1.0f);
+ 
++  Rectf cliprect = state.screen2world(Rect(0, 0, Framebuffer::get_width(), Framebuffer::get_height())); 
++
++  if (clip_debug)
++    Framebuffer::draw_rect(cliprect);
++  
++  workspace.draw(cliprect,
++                 state.get_scale());
++
+   surface.draw(Vector2f(0, 0));
+ 
+   glPopMatrix();
+@@ -176,11 +197,11 @@
+ {
+   if (zoom_button == -1)
+     {
+-      state.zoom(1.0f / (1.0f + 2.0f * delta), mouse_pos);
++      state.zoom(1.0f / (1.0f + 4.0f * delta), mouse_pos);
+     }
+   else if (zoom_button == 1)
+     {
+-      state.zoom(1.0f + 2.0f * delta, mouse_pos);
++      state.zoom(1.0f + 4.0f * delta, mouse_pos);
+     }
+ }
+ 
+
+Modified: trunk/griv/new/viewer.hpp
+===================================================================
+--- trunk/griv/new/viewer.hpp	2008-08-08 17:43:12 UTC (rev 2290)
++++ trunk/griv/new/viewer.hpp	2008-08-08 22:39:40 UTC (rev 2291)
+@@ -30,6 +30,8 @@
+ #include &quot;surface.hpp&quot;
+ #include &quot;math/vector2i.hpp&quot;
+ 
++class Workspace;
++
+ class ViewerState
+ {
+ private:
+@@ -66,7 +68,7 @@
+ public:
+   Viewer();
+ 
+-  void draw();
++  void draw(Workspace&amp; workspace);
+   void update(float delta);
+   void process_event(const SDL_Event&amp; event);
+   bool done() const { return quit; }
+
+Modified: trunk/griv/new/workspace.cpp
+===================================================================
+--- trunk/griv/new/workspace.cpp	2008-08-08 17:43:12 UTC (rev 2290)
++++ trunk/griv/new/workspace.cpp	2008-08-08 22:39:40 UTC (rev 2291)
+@@ -36,11 +36,25 @@
+ }
+ 
+ void
++Workspace::layout()
++{
++  if (!images.empty())
++    {
++      float x_pos = 0;
++      for(Images::iterator i = images.begin(); i != images.end(); ++i)
++        {
++          i-&gt;set_pos(Vector2f(x_pos, 0.0f));
++          x_pos += i-&gt;get_width() + 20/*spacing*/;
++        }
++    }
++}
++
++void
+ Workspace::draw(const Rectf&amp; cliprect, float scale)
+ {
+   for(Images::iterator i = images.begin(); i != images.end(); ++i)
+     {
+-      i-&gt;draw();
++      i-&gt;draw(cliprect, scale);
+     }  
+ }
+ 
+
+Modified: trunk/griv/new/workspace.hpp
+===================================================================
+--- trunk/griv/new/workspace.hpp	2008-08-08 17:43:12 UTC (rev 2290)
++++ trunk/griv/new/workspace.hpp	2008-08-08 22:39:40 UTC (rev 2291)
+@@ -42,6 +42,8 @@
+   void add_image(const std::string&amp; filename, const Size&amp; size);
+   void draw(const Rectf&amp; cliprect, float scale);
+ 
++  void layout();
++
+ private:
+   Workspace (const Workspace&amp;);
+   Workspace&amp; operator= (const Workspace&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001310.html">[Windstille-commit] r2290 - trunk/griv/new
+</A></li>
+	<LI>Next message: <A HREF="001312.html">[Windstille-commit] r2292 - in trunk/griv/new: . math
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1311">[ date ]</a>
+              <a href="thread.html#1311">[ thread ]</a>
+              <a href="subject.html#1311">[ subject ]</a>
+              <a href="author.html#1311">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

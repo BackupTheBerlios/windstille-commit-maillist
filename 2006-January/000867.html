@@ -1,0 +1,386 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1214 - in trunk/src: . display
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1214%20-%20in%20trunk/src%3A%20.%20display&In-Reply-To=%3C200601111620.k0BGKE85026453%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000866.html">
+   <LINK REL="Next"  HREF="000868.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1214 - in trunk/src: . display</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1214%20-%20in%20trunk/src%3A%20.%20display&In-Reply-To=%3C200601111620.k0BGKE85026453%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1214 - in trunk/src: . display">grumbel at berlios.de
+       </A><BR>
+    <I>Wed Jan 11 17:20:14 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000866.html">[Windstille-commit] r1213 - in trunk/src: . display font gui input lisp math particles physfs signals sprite2d sprite3d
+</A></li>
+        <LI>Next message: <A HREF="000868.html">[Windstille-commit] r1215 - in trunk/src: . display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#867">[ date ]</a>
+              <a href="thread.html#867">[ thread ]</a>
+              <a href="subject.html#867">[ subject ]</a>
+              <a href="author.html#867">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-01-11 17:20:12 +0100 (Wed, 11 Jan 2006)
+New Revision: 1214
+
+Modified:
+   trunk/src/display/display.cpp
+   trunk/src/display/display.hpp
+   trunk/src/display/scene_context.cpp
+   trunk/src/display/scene_context.hpp
+   trunk/src/screen_manager.cpp
+Log:
+- added screenshot support
+
+Modified: trunk/src/display/display.cpp
+===================================================================
+--- trunk/src/display/display.cpp	2006-01-11 16:02:25 UTC (rev 1213)
++++ trunk/src/display/display.cpp	2006-01-11 16:20:12 UTC (rev 1214)
+@@ -23,9 +23,13 @@
+ **  02111-1307, USA.
+ */
+ 
+-#include &lt;cmath&gt;
++#include &lt;png.h&gt;
++#include &lt;math.h&gt;
++#include &lt;errno.h&gt;
++#include &lt;fstream&gt;
+ #include &lt;stdexcept&gt;
+ #include &lt;SDL.h&gt;
++#include &quot;console.hpp&quot;
+ #include &quot;config.hpp&quot;
+ #include &quot;display/opengl_state.hpp&quot;
+ #include &quot;display.hpp&quot;
+@@ -360,4 +364,86 @@
+     }
+ }
+ 
++void
++Display::save_screenshot(const std::string&amp; filename)
++{
++  int len = get_width() * get_height() * 3;
++  GLbyte pixels[len];
++  glReadPixels(0, 0, get_width(), get_height(), GL_RGB, GL_UNSIGNED_BYTE, pixels);
++
++  if (0)
++    {
++      int pitch = get_width() * 3;
++
++      // save to ppm
++      std::ofstream out(filename.c_str());
++      out &lt;&lt; &quot;P6\n&quot;
++          &lt;&lt; &quot;# Windstille Screenshot\n&quot;
++          &lt;&lt; get_width() &lt;&lt; &quot; &quot; &lt;&lt; get_height() &lt;&lt; &quot;\n&quot;
++          &lt;&lt; &quot;255\n&quot;;
++      
++      for(int y = get_height()-1; y &gt;= 0; --y)
++        out.write(reinterpret_cast&lt;const char*&gt;(pixels + y*pitch), pitch);
++
++      out.close();
++    }
++  else if (0) // BMP saving
++    {
++#if SDL_BYTEORDER == SDL_BIG_ENDIAN
++      SDL_Surface* surface = SDL_CreateRGBSurfaceFrom(pixels, get_width(), get_height(), 24, get_width()*3,
++                                                      0xff000000, 0x00ff0000, 0x0000ff00, 0x000000ff);
++#else
++      SDL_Surface* surface = SDL_CreateRGBSurfaceFrom(pixels, get_width(), get_height(), 24, get_width()*3,
++                                                      0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000);
++#endif
++
++      SDL_SaveBMP(surface, filename.c_str());
++      SDL_FreeSurface(surface);
++    }
++  else // PNG saving
++    {
++      FILE* fp = fopen(filename.c_str(), &quot;w&quot;);
++
++      if (!fp)
++        {
++          console &lt;&lt; &quot;Error: Couldn't save screenshot: &quot; &lt;&lt; strerror(errno) &lt;&lt; std::endl;
++          return;
++        }
++      else
++        {
++          int pitch   = get_width() * 3;
++          png_structp png_ptr;
++          png_infop   info_ptr;
++
++          png_ptr  = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
++          info_ptr = png_create_info_struct(png_ptr);
++
++          png_init_io(png_ptr, fp);
++
++          png_set_IHDR(png_ptr, info_ptr, 
++                       get_width(), get_height(), 8 /* bitdepth */,
++                       PNG_COLOR_TYPE_RGB,
++                       PNG_INTERLACE_NONE, 
++                       PNG_COMPRESSION_TYPE_BASE, 
++                       PNG_FILTER_TYPE_BASE);
++      
++          png_set_compression_level(png_ptr, 6);
++          png_write_info(png_ptr, info_ptr);
++
++          png_uint_32 height = get_height();
++          png_bytep row_pointers[height];
++   
++          // generate row pointers
++          for (unsigned int k = 0; k &lt; height; k++)
++            row_pointers[k] = reinterpret_cast&lt;png_byte*&gt;(pixels + ((height - k - 1) * pitch));
++
++          png_write_image(png_ptr, row_pointers);
++
++          png_write_end(png_ptr, info_ptr);
++
++          fclose(fp);
++        }
++    }
++}
++
+ /* EOF */
+
+Modified: trunk/src/display/display.hpp
+===================================================================
+--- trunk/src/display/display.hpp	2006-01-11 16:02:25 UTC (rev 1213)
++++ trunk/src/display/display.hpp	2006-01-11 16:20:12 UTC (rev 1214)
+@@ -59,6 +59,8 @@
+ 
+   static void set_gamma(float r, float g, float b);
+ 
++  static void save_screenshot(const std::string&amp; filename);
++
+   static void init();
+ };
+ 
+
+Modified: trunk/src/display/scene_context.cpp
+===================================================================
+--- trunk/src/display/scene_context.cpp	2006-01-11 16:02:25 UTC (rev 1213)
++++ trunk/src/display/scene_context.cpp	2006-01-11 16:20:12 UTC (rev 1214)
+@@ -225,8 +225,53 @@
+   glEnd();
+ }
+ 
++void
++SceneContext::render_lightmap()
++{
++  // FIXME: 2006-01-09: shouldn't use Surface and just discard the
++  // borders of a power of two texture, but instead use them and
++  // set UV accordingly
++  OpenGLState state;
+ 
++  Rectf uv = impl-&gt;lightmap.get_uv();
++
++  state.bind_texture(impl-&gt;lightmap.get_texture());
++      
++  state.enable(GL_BLEND);
++  state.set_blend_func(GL_DST_COLOR, GL_ZERO);
++  state.activate();
++
++  glBegin(GL_QUADS);
++
++  glTexCoord2f(uv.left, uv.bottom);
++  glVertex2f(0, 0);
++
++  glTexCoord2f(uv.right, uv.bottom);
++  glVertex2f(impl-&gt;lightmap.get_width() * LIGHTMAP_DIV, 0);
++
++  glTexCoord2f(uv.right, uv.top);
++  glVertex2f(impl-&gt;lightmap.get_width() * LIGHTMAP_DIV,
++             impl-&gt;lightmap.get_height() * LIGHTMAP_DIV);
++
++  glTexCoord2f(uv.left, uv.top);
++  glVertex2f(0, impl-&gt;lightmap.get_height() * LIGHTMAP_DIV);
++
++  glEnd();
++}
++
+ void
++SceneContext::render_colormap()
++{
++  
++}
++
++void
++SceneContext::render_highlightmap()
++{
++  
++}
++
++void
+ SceneContext::render()
+ {
+   glClear(GL_DEPTH_BUFFER_BIT);
+@@ -281,35 +326,7 @@
+ 
+   if (impl-&gt;render_mask &amp; LIGHTMAP)
+     {
+-      // FIXME: 2006-01-09: shouldn't use Surface and just discard the
+-      // borders of a power of two texture, but instead use them and
+-      // set UV accordingly
+-      OpenGLState state;
+-
+-      Rectf uv = impl-&gt;lightmap.get_uv();
+-
+-      state.bind_texture(impl-&gt;lightmap.get_texture());
+-      
+-      state.enable(GL_BLEND);
+-      state.set_blend_func(GL_DST_COLOR, GL_ZERO);
+-      state.activate();
+-
+-      glBegin(GL_QUADS);
+-
+-      glTexCoord2f(uv.left, uv.bottom);
+-      glVertex2f(0, 0);
+-
+-      glTexCoord2f(uv.right, uv.bottom);
+-      glVertex2f(impl-&gt;lightmap.get_width() * LIGHTMAP_DIV, 0);
+-
+-      glTexCoord2f(uv.right, uv.top);
+-      glVertex2f(impl-&gt;lightmap.get_width() * LIGHTMAP_DIV,
+-                 impl-&gt;lightmap.get_height() * LIGHTMAP_DIV);
+-
+-      glTexCoord2f(uv.left, uv.top);
+-      glVertex2f(0, impl-&gt;lightmap.get_height() * LIGHTMAP_DIV);
+-
+-      glEnd();
++      render_lightmap();
+     }
+ 
+   if (impl-&gt;render_mask &amp; HIGHLIGHTMAP)
+@@ -326,6 +343,8 @@
+       glTranslatef(0, 600-(600/BLURMAP_DIV), 0);
+       glScalef(1.0f/BLURMAP_DIV, 1.0f/BLURMAP_DIV, 1.0f);
+       impl-&gt;color.render();
++      render_lightmap();
++      impl-&gt;highlight.render();
+       glPopMatrix();
+ 
+       glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);     
+@@ -402,7 +421,34 @@
+         }
+     }
+ 
++      if (0)
++        { // Zoom
++          OpenGLState state;
+ 
++          Rectf uv(300+50, 200+50, 500-50, 400-50);
++          
++          state.bind_texture(impl-&gt;blur_framebuffer.get_texture(), 0);
++          state.activate();
++
++          glBegin(GL_QUADS);
++
++          glTexCoord2f(uv.left, uv.bottom);
++          glVertex2f(300, 200);
++
++          glTexCoord2f(uv.right, uv.bottom);
++          glVertex2f(500, 200);
++
++          glTexCoord2f(uv.right, uv.top);
++          glVertex2f(500, 400);
++
++          glTexCoord2f(uv.left, uv.top);
++          glVertex2f(300, 400);
++
++          glEnd();
++
++        }
++
++
+   if (1) 
+     {
+       OpenGLState state;
+
+Modified: trunk/src/display/scene_context.hpp
+===================================================================
+--- trunk/src/display/scene_context.hpp	2006-01-11 16:02:25 UTC (rev 1213)
++++ trunk/src/display/scene_context.hpp	2006-01-11 16:20:12 UTC (rev 1214)
+@@ -91,6 +91,9 @@
+ 
+   DrawingContext&amp; get_layer(unsigned int t);
+ 
++  void render_lightmap();
++  void render_colormap();
++  void render_highlightmap();
+ private:
+   SceneContextImpl* impl;
+ 
+
+Modified: trunk/src/screen_manager.cpp
+===================================================================
+--- trunk/src/screen_manager.cpp	2006-01-11 16:02:25 UTC (rev 1213)
++++ trunk/src/screen_manager.cpp	2006-01-11 16:20:12 UTC (rev 1214)
+@@ -23,7 +23,9 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;boost/format.hpp&gt;
+ #include &lt;iostream&gt;
++#include &lt;unistd.h&gt;
+ #include &quot;game_session.hpp&quot;
+ #include &quot;input/input_manager_sdl.hpp&quot;
+ #include &quot;display/display.hpp&quot;
+@@ -242,10 +244,17 @@
+                   break;
+               
+                 case SDLK_F12:
+-                  // FIXME: Implement me for SDL
+                   {
+-                    std::string filename = &quot;screenshot.png&quot;;
+-                    std::cout &lt;&lt; &quot;Saving screenshot *NOT* to: &quot; &lt;&lt; filename &lt;&lt; std::endl;
++                    // FIXME: Replace this with Physfs stuff
++                    int count = 0;
++                    std::string filename;
++                    do {
++                      filename = (boost::format(&quot;/tmp/windstille%05d.png&quot;) % count).str();
++                      count += 1;
++                    } while(access(filename.c_str(), F_OK) == 0);
++
++                    Display::save_screenshot(filename);
++                    console &lt;&lt; &quot;Writing screenshot to: '&quot; &lt;&lt; filename &lt;&lt; &quot;'&quot; &lt;&lt; std::endl;
+                   }
+                   break;
+               
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000866.html">[Windstille-commit] r1213 - in trunk/src: . display font gui input lisp math particles physfs signals sprite2d sprite3d
+</A></li>
+	<LI>Next message: <A HREF="000868.html">[Windstille-commit] r1215 - in trunk/src: . display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#867">[ date ]</a>
+              <a href="thread.html#867">[ thread ]</a>
+              <a href="subject.html#867">[ subject ]</a>
+              <a href="author.html#867">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

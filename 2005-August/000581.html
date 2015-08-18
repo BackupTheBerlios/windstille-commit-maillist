@@ -1,0 +1,901 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r928 - in trunk/src: . input scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r928%20-%20in%20trunk/src%3A%20.%20input%20scripting&In-Reply-To=%3C200508061712.j76HCisk018555%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000580.html">
+   <LINK REL="Next"  HREF="000582.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r928 - in trunk/src: . input scripting</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r928%20-%20in%20trunk/src%3A%20.%20input%20scripting&In-Reply-To=%3C200508061712.j76HCisk018555%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r928 - in trunk/src: . input scripting">grumbel at berlios.de
+       </A><BR>
+    <I>Sat Aug  6 19:12:44 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000580.html">[Windstille-commit] r927 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000582.html">[Windstille-commit] r929 - in trunk/src: display glutil
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#581">[ date ]</a>
+              <a href="thread.html#581">[ thread ]</a>
+              <a href="subject.html#581">[ subject ]</a>
+              <a href="author.html#581">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-08-06 19:12:35 +0200 (Sat, 06 Aug 2005)
+New Revision: 928
+
+Modified:
+   trunk/src/console.cpp
+   trunk/src/controller_def.cpp
+   trunk/src/controller_def.hpp
+   trunk/src/controller_help_window.cpp
+   trunk/src/conversation.cpp
+   trunk/src/dialog_manager.cpp
+   trunk/src/game_session.cpp
+   trunk/src/game_session.hpp
+   trunk/src/input/controller.cpp
+   trunk/src/input/controller.hpp
+   trunk/src/input/input_manager.hpp
+   trunk/src/input/input_manager_sdl.cpp
+   trunk/src/player.cpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/scripting/wrapper.hpp
+Log:
+- activate keyrepeat only when console is in use
+- added some more buttons (pause, pda) and renamed some
+
+Modified: trunk/src/console.cpp
+===================================================================
+--- trunk/src/console.cpp	2005-08-06 17:03:20 UTC (rev 927)
++++ trunk/src/console.cpp	2005-08-06 17:12:35 UTC (rev 928)
+@@ -535,12 +535,16 @@
+   // Get rid of all input events so that we don't double press
+   InputManager::clear();
+   impl-&gt;active = true;
++
++  SDL_EnableKeyRepeat(SDL_DEFAULT_REPEAT_DELAY, SDL_DEFAULT_REPEAT_INTERVAL);
+ }
+ 
+ void
+ Console::deactive()
+ {
+   impl-&gt;active = false;
++
++  SDL_EnableKeyRepeat(0, SDL_DEFAULT_REPEAT_INTERVAL);
+ }
+ 
+ bool
+
+Modified: trunk/src/controller_def.cpp
+===================================================================
+--- trunk/src/controller_def.cpp	2005-08-06 17:03:20 UTC (rev 927)
++++ trunk/src/controller_def.cpp	2005-08-06 17:12:35 UTC (rev 928)
+@@ -17,83 +17,98 @@
+ //  along with this program; if not, write to the Free Software
+ //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ 
++#include &lt;stdexcept&gt;
+ #include &quot;controller_def.hpp&quot;
+ 
++ControllerDef::ControllerDef()
++{
++  add_button(&quot;primary-button&quot;,   PRIMARY_BUTTON);
++  add_button(&quot;secondary-button&quot;, SECONDARY_BUTTON);
++  add_button(&quot;tertiary-button&quot;,  TERTIARY_BUTTON);
++
++  add_button(&quot;pda-button&quot;, PDA_BUTTON);
++
++  add_button(&quot;aim-button&quot;,       AIM_BUTTON);
++  add_button(&quot;pause-button&quot;,     PAUSE_BUTTON);
++
++  add_axis(&quot;x-axis&quot;, X_AXIS);
++  add_axis(&quot;y-axis&quot;, Y_AXIS);
++}
++
++ControllerDef::~ControllerDef()
++{
++}
++
++void
++ControllerDef::add_button(const std::string&amp; name, int id)
++{
++  buttons[name] = id;
++}
++
++void
++ControllerDef::add_axis  (const std::string&amp; name, int id)
++{
++  axes[name] = id;
++}
++
+ int
+-ControllerDef::get_button_count()
++ControllerDef::get_button_count() const
+ {
+-  return 4;
++  return buttons.size();
+ }
+ 
+ int
+-ControllerDef::get_axis_count()
++ControllerDef::get_axis_count() const
+ {
+-  return 2;
++  return axes.size();
+ }
+ 
+ int
+-ControllerDef::get_keyboard_count()
++ControllerDef::get_keyboard_count() const
+ {
+   return 1;
+ }
+ 
+ std::string
+-ControllerDef::button_id2name(int id)
++ControllerDef::button_id2name(int id) const
+ {
+-  switch (id)
++  for(std::map&lt;std::string, int&gt;::const_iterator i = buttons.begin(); i != buttons.end(); ++i)
+     {
+-    case FIRE_BUTTON:
+-      return &quot;fire&quot;;
+-    case USE_BUTTON:
+-      return &quot;use&quot;;
+-    case JUMP_BUTTON:
+-      return &quot;jump&quot;;
+-    case RUN_BUTTON:
+-      return &quot;run&quot;;
+-    default:
+-      return &quot;unknown&quot;;
++      if (i-&gt;second == id)
++        return i-&gt;first;
+     }
++  throw std::runtime_error(&quot;Unknown button id&quot;);
+ }
+ 
+ int
+-ControllerDef::button_name2id(const std::string&amp; name)
++ControllerDef::button_name2id(const std::string&amp; name) const
+ {
+-  if (name == &quot;fire&quot;)
+-    return FIRE_BUTTON;
+-  else if (name == &quot;use&quot;)
+-    return USE_BUTTON;
+-  else if (name == &quot;jump&quot;)
+-    return JUMP_BUTTON;
+-  else if (name == &quot;run&quot;)
+-    return RUN_BUTTON;
+-  else
+-    return -1;
++  std::map&lt;std::string, int&gt;::const_iterator i = axes.find(name);
++  if (i == axes.end())
++    throw std::runtime_error(&quot;Unknown button id: &quot; + name);
++
++  return i-&gt;second;
+ }
+ 
+ std::string
+-ControllerDef::axis_id2name(int id)
++ControllerDef::axis_id2name(int id) const
+ {
+-  switch (id)
++  for(std::map&lt;std::string, int&gt;::const_iterator i = axes.begin(); i != axes.end(); ++i)
+     {
+-    case HORIZONTAL_AXIS:
+-      return &quot;horizontal&quot;;
+-
+-    case VERTICAL_AXIS:
+-      return &quot;vertical&quot;;
++      if (i-&gt;second == id)
++        return i-&gt;first;
+     }
+-  
+-  return &quot;&lt;unknown&gt;&quot;;
++  throw std::runtime_error(&quot;Unknown axis id&quot;);
+ }
+ 
+ int 
+-ControllerDef::axis_name2id(const std::string&amp; id)
++ControllerDef::axis_name2id(const std::string&amp; name) const
+ {
+-  if (id == &quot;horizontal&quot;)
+-    return HORIZONTAL_AXIS;
+-  else if (id == &quot;vertical&quot;)
+-    return VERTICAL_AXIS;
+-  else
+-    return -1;
++  std::map&lt;std::string, int&gt;::const_iterator i = axes.find(name);
++  if (i == axes.end())
++    throw std::runtime_error(&quot;Unknown axis name: &quot; + name);
++
++  return i-&gt;second;
+ }
+ 
+ /* EOF */
+
+Modified: trunk/src/controller_def.hpp
+===================================================================
+--- trunk/src/controller_def.hpp	2005-08-06 17:03:20 UTC (rev 927)
++++ trunk/src/controller_def.hpp	2005-08-06 17:12:35 UTC (rev 928)
+@@ -20,26 +20,52 @@
+ #ifndef HEADER_CONTROLLER_DEF_HXX
+ #define HEADER_CONTROLLER_DEF_HXX
+ 
++#include &lt;map&gt;
+ #include &lt;string&gt;
+ 
+-//enum AxisName       { ORIENTATION_AXIS, ACCELERATE_AXIS, STRAFE_AXIS };
+-enum AxisName    { HORIZONTAL_AXIS, VERTICAL_AXIS };
+-enum ButtonName  { RUN_BUTTON, JUMP_BUTTON, FIRE_BUTTON, USE_BUTTON };
++enum AxisName
++  { 
++    X_AXIS, // used to run left/right
++    Y_AXIS  // used to aim up/down
++  };
+ 
++enum ButtonName
++  { 
++    PRIMARY_BUTTON,   // used to ok a dialog or for running
++    SECONDARY_BUTTON, // used to cancel a dialog or for jumping
++    TERTIARY_BUTTON, // used to cancel a dialog or for jumping
++    PDA_BUTTON,       // display the PDA
++    
++    PAUSE_BUTTON,     // used to pause the game
++    AIM_BUTTON,       // used to draw the gun and aim
++  };
++
++#define JUMP_BUTTON SECONDARY_BUTTON
++#define RUN_BUTTON  PRIMARY_BUTTON
++
+ /** */
+ class ControllerDef
+ {
+ private:
++  std::map&lt;std::string, int&gt; buttons;
++  std::map&lt;std::string, int&gt; axes;
++
+ public:
+-  static int         get_button_count();
+-  static int         get_axis_count();
+-  static int         get_keyboard_count();
++  ControllerDef();
++  ~ControllerDef();
+ 
+-  static std::string button_id2name(int id);
+-  static int         button_name2id(const std::string&amp; name);
++  void add_button(const std::string&amp; name, int id);
++  void add_axis  (const std::string&amp; name, int id);
+ 
+-  static std::string axis_id2name(int id);
+-  static int         axis_name2id(const std::string&amp; name);
++  int         get_button_count()   const;
++  int         get_axis_count()     const;
++  int         get_keyboard_count() const;
++
++  std::string button_id2name(int id) const;
++  int         button_name2id(const std::string&amp; name) const;
++
++  std::string axis_id2name(int id) const;
++  int         axis_name2id(const std::string&amp; name) const;
+ };
+ 
+ #endif
+
+Modified: trunk/src/controller_help_window.cpp
+===================================================================
+--- trunk/src/controller_help_window.cpp	2005-08-06 17:03:20 UTC (rev 927)
++++ trunk/src/controller_help_window.cpp	2005-08-06 17:12:35 UTC (rev 928)
+@@ -45,15 +45,14 @@
+                                             Display::get_height() - height - 16),
+                                       Size(width, height)), false);
+   impl-&gt;text_area-&gt;set_font(Fonts::ttffont);
+-  impl-&gt;text_area-&gt;set_text(&quot;&lt;large&gt;Control Help&lt;/large&gt;\n&quot;
+-                            &quot;------------------------\n&quot;
++  impl-&gt;text_area-&gt;set_text(&quot;Control Help\n&quot;
++                            &quot;------------\n&quot;
+                             &quot;walk: left/right\n&quot;
+-                            &quot;duck: down\n&quot;
+-                            &quot;run:  a\n&quot;
+-                            &quot;jump: s\n&quot;
+-                            &quot;fire: d\n&quot;
+-                            &quot;use:  w\n&quot;
+-                            &quot;PDA:  z\n&quot;
++                            &quot;duck: down\n\n&quot;
++                            &quot;primary/run:    s\n&quot;
++                            &quot;secondary/jump: d\n&quot;
++                            &quot;tertiary:       a\n&quot;
++                            &quot;pda:            w\n&quot;
+                             );
+ }
+ 
+@@ -74,13 +73,13 @@
+   Display::fill_rounded_rect(crect, 10.0f, Color(1.0f, 1.0f, 1.0f, 0.2f));
+   Display::draw_rounded_rect(crect, 10.0f, Color(1.0f, 1.0f, 1.0f, 0.5f));
+ 
+-  Vector pos(crect.left + crect.get_width()/2  + controller.get_axis_state(HORIZONTAL_AXIS) * (crect.get_width()-16.0f)/2,
+-             crect.top  + crect.get_height()/2 + controller.get_axis_state(VERTICAL_AXIS)   * (crect.get_width()-16.0f)/2);
++  Vector pos(crect.left + crect.get_width()/2  + controller.get_axis_state(X_AXIS) * (crect.get_width()-16.0f)/2,
++             crect.top  + crect.get_height()/2 + controller.get_axis_state(Y_AXIS)   * (crect.get_width()-16.0f)/2);
+ 
+   Display::fill_circle(pos, 10.0f, Color(0.8f, 0, 0));
+   Display::draw_circle(pos, 10.0f, Color(1.0f, 0, 0));
+ 
+-  for(int i = 0; i &lt; 4; ++i)
++  for(int i = 0; i &lt; 6; ++i)
+     {
+       if (controller.get_button_state(i))
+         {
+
+Modified: trunk/src/conversation.cpp
+===================================================================
+--- trunk/src/conversation.cpp	2005-08-06 17:03:20 UTC (rev 927)
++++ trunk/src/conversation.cpp	2005-08-06 17:12:35 UTC (rev 928)
+@@ -83,7 +83,7 @@
+  
+       for(InputEventLst::const_iterator i = events.begin(); i != events.end(); ++i)
+         {
+-          if (i-&gt;type == AXIS_EVENT &amp;&amp; i-&gt;axis.name == VERTICAL_AXIS)
++          if (i-&gt;type == AXIS_EVENT &amp;&amp; i-&gt;axis.name == Y_AXIS)
+             {
+               if (i-&gt;axis.pos &gt; 0)
+                 {
+@@ -102,7 +102,7 @@
+             {
+               switch (i-&gt;button.name)
+                 {
+-                case FIRE_BUTTON:
++                case PRIMARY_BUTTON:
+                   visible = false;
+                   choices.clear();
+                   script_manager-&gt;fire_wakeup_event(ScriptManager::CONVERSATION_CLOSED);
+
+Modified: trunk/src/dialog_manager.cpp
+===================================================================
+--- trunk/src/dialog_manager.cpp	2005-08-06 17:03:20 UTC (rev 927)
++++ trunk/src/dialog_manager.cpp	2005-08-06 17:12:35 UTC (rev 928)
+@@ -157,7 +157,8 @@
+   text_area-&gt;update(delta);
+ 
+   delay += delta;
+-  if (InputManager::get_controller().get_button_state(FIRE_BUTTON) &amp;&amp; delay &gt; 0.2 &amp;&amp; progress * text_speed &lt; text.size())
++  if (InputManager::get_controller().get_button_state(PRIMARY_BUTTON) 
++      &amp;&amp; delay &gt; 0.2 &amp;&amp; progress * text_speed &lt; text.size())
+     progress = int(text.size()) / text_speed;
+   else
+     progress += delta;
+@@ -168,7 +169,7 @@
+     {
+       if ((*i).type == BUTTON_EVENT)
+         {
+-          if ((*i).button.name == FIRE_BUTTON &amp;&amp; (*i).button.down == true
++          if ((*i).button.name == PRIMARY_BUTTON &amp;&amp; (*i).button.down == true
+               &amp;&amp; int(progress * text_speed) &gt; int(text.size()))
+             {
+               GameSession::current()-&gt;set_game_state();
+
+Modified: trunk/src/game_session.cpp
+===================================================================
+--- trunk/src/game_session.cpp	2005-08-06 17:03:20 UTC (rev 927)
++++ trunk/src/game_session.cpp	2005-08-06 17:12:35 UTC (rev 928)
+@@ -81,6 +81,7 @@
+     script_manager-&gt;run_script_file(&quot;scripts/init_script_vars.nut&quot;);
+     
+   change_sector();
++  pause = false;
+ }
+ 
+ GameSession::~GameSession()
+@@ -133,11 +134,23 @@
+     default:
+       break;
+     }
++
++  if (pause)
++    {
++      if ((SDL_GetTicks() / 1000) % 2)
++        Fonts::ttfdialog-&gt;draw(Display::get_width()/2, Display::get_height()/2, &quot;Pause&quot;);
++    }
+ }
+ 
+ void
+ GameSession::update(float delta)
+ {  
++  if (InputManager::get_controller().button_pressed(PDA_BUTTON))
++    pda.set_visible(!pda.get_visible());
++
++  if (InputManager::get_controller().button_pressed(PAUSE_BUTTON))
++    pause = !pause;
++
+   Uint8 *keystate = SDL_GetKeyState(NULL);
+ 
+   if(keystate[SDLK_KP1])
+@@ -148,47 +161,51 @@
+     game_speed = 1.0;
+ 
+   InputManager::update(delta);
++  
+   delta *= game_speed;
+ 
+-  game_time += delta;
+-  script_manager-&gt;update();
+-
+-  view-&gt;update(delta);
+-
+-  switch (fade_state)
++  if (!pause)
+     {
+-    case FADEIN:
+-      if (fadeout_value &gt; 1.0f)
+-        fade_state = RUNNING;
+-      fadeout_value += delta;
+-      break;
+-    case FADEOUT:
+-      if (fadeout_value &gt; 1.0f)
+-        {
+-          if (target_state == LOAD_GAME_SESSION)
+-            change_sector();
+-          else
+-            game_main_state = target_state;
+-        }
+-      fadeout_value += delta;
+-      break;
++      game_time += delta;
++      script_manager-&gt;update();
+ 
+-    case RUNNING:
+-      sector-&gt;update (delta);
+-      energy_bar-&gt;update(delta);
+-      switch (control_state) 
++      view-&gt;update(delta);
++  
++      switch (fade_state)
+         {
+-        case DIALOG:
+-          dialog_manager-&gt;update(delta);
++        case FADEIN:
++          if (fadeout_value &gt; 1.0f)
++            fade_state = RUNNING;
++          fadeout_value += delta;
+           break;
+-        case GAME:
++        case FADEOUT:
++          if (fadeout_value &gt; 1.0f)
++            {
++              if (target_state == LOAD_GAME_SESSION)
++                change_sector();
++              else
++                game_main_state = target_state;
++            }
++          fadeout_value += delta;
+           break;
++
++        case RUNNING:
++          sector-&gt;update (delta);
++          energy_bar-&gt;update(delta);
++          switch (control_state) 
++            {
++            case DIALOG:
++              dialog_manager-&gt;update(delta);
++              break;
++            case GAME:
++              break;
++            }
++          break;
+         }
+-      break;
++      conversation-&gt;update(delta);
++      controller_help_window.update(delta);
++      pda.update(delta);
+     }
+-  conversation-&gt;update(delta);
+-  controller_help_window.update(delta);
+-  pda.update(delta);
+   
+   if(keystate[SDLK_ESCAPE])
+     quit();
+@@ -264,11 +281,7 @@
+                 console &lt;&lt; &quot;Collision Debugging &quot; &lt;&lt; (collision_debug ? &quot;enabled&quot; : &quot;disabled&quot;) &lt;&lt; std::endl;
+               }
+               break;
+-              
+-            case SDLK_z:
+-              pda.set_visible(!pda.get_visible());
+-              break;
+-          
++        
+             default:
+               break;
+             }
+
+Modified: trunk/src/game_session.hpp
+===================================================================
+--- trunk/src/game_session.hpp	2005-08-06 17:03:20 UTC (rev 927)
++++ trunk/src/game_session.hpp	2005-08-06 17:12:35 UTC (rev 928)
+@@ -59,6 +59,7 @@
+   EnergyBar* energy_bar;
+   DialogManager* dialog_manager;
+   Conversation*  conversation;
++  bool pause;
+ 
+   enum { FADEIN, RUNNING, FADEOUT } fade_state;
+   enum { DIALOG, GAME } control_state;
+
+Modified: trunk/src/input/controller.cpp
+===================================================================
+--- trunk/src/input/controller.cpp	2005-08-06 17:03:20 UTC (rev 927)
++++ trunk/src/input/controller.cpp	2005-08-06 17:12:35 UTC (rev 928)
+@@ -18,12 +18,15 @@
+ //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ 
+ #include &lt;assert.h&gt;
++#include &quot;controller_def.hpp&quot;
+ #include &quot;controller.hpp&quot;
+ 
+ Controller::Controller()
+ {
+-  buttons.resize(ControllerDef::get_button_count());
+-  axes.resize(ControllerDef::get_axis_count());
++  ControllerDef def;
++
++  buttons.resize(def.get_button_count());
++  axes.resize(def.get_axis_count());
+ }
+ 
+ float
+
+Modified: trunk/src/input/controller.hpp
+===================================================================
+--- trunk/src/input/controller.hpp	2005-08-06 17:03:20 UTC (rev 927)
++++ trunk/src/input/controller.hpp	2005-08-06 17:12:35 UTC (rev 928)
+@@ -21,7 +21,7 @@
+ #define HEADER_CONTROLLER_HXX
+ 
+ #include &lt;vector&gt;
+-#include &quot;../controller_def.hpp&quot;
++#include &quot;controller_def.hpp&quot;
+ #include &quot;input_event.hpp&quot;
+ 
+ /** The Controller class presents the current state of the controller
+
+Modified: trunk/src/input/input_manager.hpp
+===================================================================
+--- trunk/src/input/input_manager.hpp	2005-08-06 17:03:20 UTC (rev 927)
++++ trunk/src/input/input_manager.hpp	2005-08-06 17:12:35 UTC (rev 928)
+@@ -20,6 +20,7 @@
+ #ifndef HEADER_INPUT_MANAGER_HXX
+ #define HEADER_INPUT_MANAGER_HXX
+ 
++#include &lt;string&gt;
+ #include &lt;vector&gt;
+ #include &quot;controller.hpp&quot;
+ #include &quot;input_event.hpp&quot;
+
+Modified: trunk/src/input/input_manager_sdl.cpp
+===================================================================
+--- trunk/src/input/input_manager_sdl.cpp	2005-08-06 17:03:20 UTC (rev 927)
++++ trunk/src/input/input_manager_sdl.cpp	2005-08-06 17:12:35 UTC (rev 928)
+@@ -24,6 +24,7 @@
+ */
+ 
+ #include &lt;iostream&gt;
++#include &quot;controller_def.hpp&quot;
+ #include &quot;input_manager_sdl.hpp&quot;
+ 
+ InputManagerSDL* InputManagerSDL::current_ = 0;
+@@ -38,8 +39,6 @@
+ 
+   if (num_joysticks &gt; 0)
+     /*SDL_Joystick* joy =*/ SDL_JoystickOpen(0);
+-    
+-  SDL_EnableKeyRepeat(SDL_DEFAULT_REPEAT_DELAY, SDL_DEFAULT_REPEAT_INTERVAL);
+ }
+ 
+ InputManagerSDL::~InputManagerSDL()
+@@ -74,48 +73,57 @@
+           {
+           case SDLK_LEFT:
+             if (event.key.state)
+-              add_axis_event(HORIZONTAL_AXIS, -1.0);
++              add_axis_event(X_AXIS, -1.0);
+             else if (!keystate[SDLK_RIGHT])
+-              add_axis_event(HORIZONTAL_AXIS, 0);
++              add_axis_event(X_AXIS, 0);
+             break;
+ 
+           case SDLK_RIGHT:
+             if (event.key.state)
+-              add_axis_event(HORIZONTAL_AXIS, 1.0);
++              add_axis_event(X_AXIS, 1.0);
+             else if (!keystate[SDLK_LEFT])
+-              add_axis_event(HORIZONTAL_AXIS, 0);
++              add_axis_event(X_AXIS, 0);
+             break;
+ 
+           case SDLK_UP:
+             if (event.key.state)
+-              add_axis_event(VERTICAL_AXIS, -1.0);
++              add_axis_event(Y_AXIS, -1.0);
+             else
+-              add_axis_event(VERTICAL_AXIS, 0);
++              add_axis_event(Y_AXIS, 0);
+             break;
+ 
+           case SDLK_DOWN:
+             if (event.key.state)
+-              add_axis_event(VERTICAL_AXIS, 1.0);
++              add_axis_event(Y_AXIS, 1.0);
+             else
+-              add_axis_event(VERTICAL_AXIS, 0);
++              add_axis_event(Y_AXIS, 0);
+             break;
+ 
+           case SDLK_a:
+-            add_button_event(RUN_BUTTON, event.key.state);
++            add_button_event(TERTIARY_BUTTON, event.key.state);
+             break;
+ 
+-          case SDLK_d:
+-            add_button_event(FIRE_BUTTON, event.key.state);
++          case SDLK_s:
++            add_button_event(PRIMARY_BUTTON, event.key.state);
+             break;
+ 
+-          case SDLK_s:
+-            add_button_event(JUMP_BUTTON, event.key.state);
++          case SDLK_d:
++            add_button_event(SECONDARY_BUTTON, event.key.state);
+             break;
+ 
+           case SDLK_w:
+-            add_button_event(USE_BUTTON, event.key.state);
++            add_button_event(PDA_BUTTON, event.key.state);
+             break;
+-            
++
++          case SDLK_LSHIFT:
++            add_button_event(AIM_BUTTON, event.key.state);
++            break;
++
++          case SDLK_PAUSE:
++          case SDLK_p:
++            add_button_event(PAUSE_BUTTON, event.key.state);
++            break;
++           
+           default:
+             break;
+           }
+@@ -123,8 +131,7 @@
+       break;
+ 
+     case SDL_MOUSEMOTION:
+-      // event.motion:
+-      break;
++      // event.motion:      break;
+ 
+     case SDL_MOUSEBUTTONDOWN:
+       // event.button
+@@ -139,30 +146,30 @@
+         {
+           if (event.jaxis.value &lt; -DEAD_ZONE)
+             {
+-              add_axis_event(HORIZONTAL_AXIS, event.jaxis.value/32768.0f);
++              add_axis_event(X_AXIS, event.jaxis.value/32768.0f);
+             }
+           else if (event.jaxis.value &gt; DEAD_ZONE)
+             {
+-              add_axis_event(HORIZONTAL_AXIS, event.jaxis.value/32767.0f);
++              add_axis_event(X_AXIS, event.jaxis.value/32767.0f);
+             }
+           else
+             {
+-              add_axis_event(HORIZONTAL_AXIS, 0);
++              add_axis_event(X_AXIS, 0);
+             }
+         }
+       else if (event.jaxis.axis == 1) 
+         {
+           if (event.jaxis.value &lt; -DEAD_ZONE)
+             {
+-              add_axis_event(VERTICAL_AXIS, event.jaxis.value/32768.0f);
++              add_axis_event(Y_AXIS, event.jaxis.value/32768.0f);
+             }
+           else if (event.jaxis.value &gt; DEAD_ZONE)
+             {
+-              add_axis_event(VERTICAL_AXIS, event.jaxis.value/32767.0f);
++              add_axis_event(Y_AXIS, event.jaxis.value/32767.0f);
+             }
+           else
+             {
+-              add_axis_event(VERTICAL_AXIS, 0);
++              add_axis_event(Y_AXIS, 0);
+             }
+         }
+       break;
+@@ -179,20 +186,28 @@
+     case SDL_JOYBUTTONDOWN:
+       if (event.jbutton.button == 0)
+         {
+-          add_button_event(FIRE_BUTTON, event.jbutton.state); 
++          add_button_event(PDA_BUTTON, event.jbutton.state); 
+         }
+       else if (event.jbutton.button == 1)
+         {
+-          add_button_event(USE_BUTTON, event.jbutton.state); 
++          add_button_event(TERTIARY_BUTTON, event.jbutton.state); 
+         }
+       else if (event.jbutton.button == 2)
+         {
+-          add_button_event(JUMP_BUTTON, event.jbutton.state);
++          add_button_event(SECONDARY_BUTTON, event.jbutton.state);
+         }
+       else if (event.jbutton.button == 3)
+         {
+-          add_button_event(RUN_BUTTON, event.jbutton.state);
++          add_button_event(PRIMARY_BUTTON, event.jbutton.state);
+         }
++      else if (event.jbutton.button == 7)
++        {
++          add_button_event(AIM_BUTTON, event.jbutton.state);
++        }
++      else if (event.jbutton.button == 9)
++        {
++          add_button_event(PAUSE_BUTTON, event.jbutton.state);
++        }
+       break;
+ 
+     default:
+
+Modified: trunk/src/player.cpp
+===================================================================
+--- trunk/src/player.cpp	2005-08-06 17:03:20 UTC (rev 927)
++++ trunk/src/player.cpp	2005-08-06 17:12:35 UTC (rev 928)
+@@ -171,7 +171,7 @@
+ void
+ Player::update_walk_stand()
+ {
+-  if (controller.get_axis_state(VERTICAL_AXIS) &gt; 0) {
++  if (controller.get_axis_state(Y_AXIS) &gt; 0) {
+     set_ducking();
+     return;
+   }
+@@ -206,19 +206,19 @@
+ void
+ Player::update_stand()
+ { 
+-  if(controller.button_pressed(USE_BUTTON))
++  if(controller.button_pressed(PRIMARY_BUTTON))
+     {
+       Entity* obj = find_useable_entity();
+       if (obj)
+         obj-&gt;use();
+     }
+ 
+-  if (controller.get_axis_state(HORIZONTAL_AXIS) &lt; 0) {
++  if (controller.get_axis_state(X_AXIS) &lt; 0) {
+     if(get_direction() == WEST)
+       set_walk(WEST);
+     else
+       set_turnaround();
+-  } else if (controller.get_axis_state(HORIZONTAL_AXIS) &gt; 0) {
++  } else if (controller.get_axis_state(X_AXIS) &gt; 0) {
+     if(get_direction() == EAST)
+       set_walk(EAST);
+     else
+@@ -241,13 +241,13 @@
+ void
+ Player::update_walk()
+ {
+-  if (controller.get_axis_state(HORIZONTAL_AXIS) == 0) {
++  if (controller.get_axis_state(X_AXIS) == 0) {
+     set_stand();
+     return;
+   }
+ 
+-  if(get_direction() == WEST &amp;&amp; controller.get_axis_state(HORIZONTAL_AXIS) &gt; 0
+-     || get_direction() == EAST &amp;&amp; controller.get_axis_state(HORIZONTAL_AXIS) &lt; 0) {
++  if(get_direction() == WEST &amp;&amp; controller.get_axis_state(X_AXIS) &gt; 0
++     || get_direction() == EAST &amp;&amp; controller.get_axis_state(X_AXIS) &lt; 0) {
+     set_turnaround();
+     return;
+   }
+@@ -279,11 +279,11 @@
+     return;
+   }
+   
+-  if(!(controller.get_axis_state(VERTICAL_AXIS) &gt; 0) &amp;&amp; sprite.get_speed() &gt; 0) {
++  if(!(controller.get_axis_state(Y_AXIS) &gt; 0) &amp;&amp; sprite.get_speed() &gt; 0) {
+     sprite.set_speed(-1.0);
+     sprite.set_next_action(&quot;Stand&quot;);
+     state = STAND;
+-  } else if(controller.get_axis_state(VERTICAL_AXIS) &gt; 0 &amp;&amp; sprite.get_speed() &lt; 0) {
++  } else if(controller.get_axis_state(Y_AXIS) &gt; 0 &amp;&amp; sprite.get_speed() &lt; 0) {
+     sprite.set_speed(1.0);
+     sprite.set_next_action(&quot;Ducking&quot;);
+   }
+@@ -299,7 +299,7 @@
+ void
+ Player::update_ducked()
+ {
+-  if(!controller.get_axis_state(VERTICAL_AXIS) &gt; 0) {
++  if(!controller.get_axis_state(Y_AXIS) &gt; 0) {
+     state = DUCKING;
+     sprite.set_action(&quot;StandToDuck&quot;, -1.0);
+     sprite.set_next_action(&quot;Stand&quot;);
+@@ -326,8 +326,8 @@
+       set_walk(WEST);
+     }
+   } 
+-  if(sprite.get_rot() &amp;&amp; controller.get_axis_state(HORIZONTAL_AXIS) &gt; 0
+-     || !sprite.get_rot() &amp;&amp; controller.get_axis_state(HORIZONTAL_AXIS) &lt; 0) {
++  if(sprite.get_rot() &amp;&amp; controller.get_axis_state(X_AXIS) &gt; 0
++     || !sprite.get_rot() &amp;&amp; controller.get_axis_state(X_AXIS) &lt; 0) {
+     sprite.set_speed(-1.0);
+     sprite.set_next_action(&quot;Walk&quot;);
+     state = WALK;
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2005-08-06 17:03:20 UTC (rev 927)
++++ trunk/src/scripting/wrapper.cpp	2005-08-06 17:12:35 UTC (rev 928)
+@@ -1,6 +1,6 @@
+ /**
+  * WARNING: This file is automatically generated from:
+- *  'src/scripting/wrapper.interface.hpp'
++ *  'scripting/wrapper.interface.hpp'
+  * DO NOT CHANGE
+  */
+ #include &lt;config.h&gt;
+
+Modified: trunk/src/scripting/wrapper.hpp
+===================================================================
+--- trunk/src/scripting/wrapper.hpp	2005-08-06 17:03:20 UTC (rev 927)
++++ trunk/src/scripting/wrapper.hpp	2005-08-06 17:12:35 UTC (rev 928)
+@@ -1,6 +1,6 @@
+ /**
+  * WARNING: This file is automatically generated from:
+- *  'src/scripting/wrapper.interface.hpp'
++ *  'scripting/wrapper.interface.hpp'
+  * DO NOT CHANGE
+  */
+ #ifndef __windstille_WRAPPER_H__
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000580.html">[Windstille-commit] r927 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000582.html">[Windstille-commit] r929 - in trunk/src: display glutil
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#581">[ date ]</a>
+              <a href="thread.html#581">[ thread ]</a>
+              <a href="subject.html#581">[ subject ]</a>
+              <a href="author.html#581">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

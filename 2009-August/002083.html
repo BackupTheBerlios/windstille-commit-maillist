@@ -1,0 +1,337 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3086 - trunk/windstille/src/sprite3d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3086%20-%20trunk/windstille/src/sprite3d&In-Reply-To=%3C200908262348.n7QNmiIR000228%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002082.html">
+   <LINK REL="Next"  HREF="002084.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3086 - trunk/windstille/src/sprite3d</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3086%20-%20trunk/windstille/src/sprite3d&In-Reply-To=%3C200908262348.n7QNmiIR000228%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3086 - trunk/windstille/src/sprite3d">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Aug 27 01:48:44 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002082.html">[Windstille-commit] r3085 - trunk/windstille/src/font
+</A></li>
+        <LI>Next message: <A HREF="002084.html">[Windstille-commit] r3087 - in trunk/windstille/src: app input lisp	screen sprite3d tile util
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2083">[ date ]</a>
+              <a href="thread.html#2083">[ thread ]</a>
+              <a href="subject.html#2083">[ subject ]</a>
+              <a href="author.html#2083">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-08-27 01:48:43 +0200 (Thu, 27 Aug 2009)
+New Revision: 3086
+
+Modified:
+   trunk/windstille/src/sprite3d/data.cpp
+Log:
+Changed Sprite3D to use plain old ifstream instead of Physfs
+
+Modified: trunk/windstille/src/sprite3d/data.cpp
+===================================================================
+--- trunk/windstille/src/sprite3d/data.cpp	2009-08-26 23:16:24 UTC (rev 3085)
++++ trunk/windstille/src/sprite3d/data.cpp	2009-08-26 23:48:43 UTC (rev 3086)
+@@ -19,7 +19,10 @@
+ #include &quot;sprite3d/data.hpp&quot;
+ 
+ #include &lt;boost/scoped_array.hpp&gt;
++#include &lt;fstream&gt;
+ #include &lt;physfs.h&gt;
++#include &lt;string.h&gt;
++#include &lt;errno.h&gt;
+ #include &lt;stdexcept&gt;
+ 
+ #include &quot;util/util.hpp&quot;
+@@ -29,51 +32,51 @@
+ 
+ static const int FORMAT_VERSION = 2;
+ 
+-static inline float read_float(PHYSFS_file* file)
++static inline float read_float(std::istream&amp; in)
+ {
+   float result;
+-
+-  if(PHYSFS_readULE32(file, reinterpret_cast&lt;PHYSFS_uint32*&gt;(&amp;result)) == 0) 
++  
++  if (!in.read(reinterpret_cast&lt;char*&gt;(&amp;result), sizeof(result)))
+   {
+     std::ostringstream msg;
+-    msg &lt;&lt; &quot;Problem reading float value: &quot; &lt;&lt; PHYSFS_getLastError();
++    msg &lt;&lt; &quot;Problem reading float value: &quot; &lt;&lt; strerror(errno);
+     throw std::runtime_error(msg.str());
+   }
+   else
+   {
+-    // FIXME: is this platform independent? -&gt; should be, since
+-    // endianess is handled in readULE32
+     return result;
+   }
+ }
+ 
+-static inline uint16_t read_uint16_t(PHYSFS_file* file)
++static inline uint16_t read_uint16_t(std::istream&amp; in)
+ {
+   uint16_t result;
+-  if(PHYSFS_readULE16(file, &amp;result) == 0) 
++
++  if (!in.read(reinterpret_cast&lt;char*&gt;(&amp;result), sizeof(result)))
+   {
+     std::ostringstream msg;
+-    msg &lt;&lt; &quot;Problem reading uint16 value: &quot; &lt;&lt; PHYSFS_getLastError();
++    msg &lt;&lt; &quot;Problem reading uint16 value: &quot; &lt;&lt; strerror(errno);
+     throw std::runtime_error(msg.str());
+   }
+-  return result;
++  {
++    return result;
++  }
+ }
+ 
+-static inline std::string read_string(PHYSFS_file* file, size_t size)
++static inline std::string read_string(std::istream&amp; in, size_t size)
+ {
+   boost::scoped_array&lt;char&gt; buffer(new char[size+1]);
+-  if(PHYSFS_read(file, buffer.get(), size, 1) != 1) 
++
++  if (!in.read(reinterpret_cast&lt;char*&gt;(buffer.get()), size))
+   {
+     std::ostringstream msg;
+-    msg &lt;&lt; &quot;Problem reading string value: &quot; &lt;&lt; PHYSFS_getLastError();
++    msg &lt;&lt; &quot;Problem reading string value: &quot; &lt;&lt; strerror(errno);
+     throw std::runtime_error(msg.str());
+   }
+   else
+   {
+-    buffer[size] = 0;
+-    std::string ret = buffer.get();
+-
+-    return ret;
++    buffer[size] = '\0';
++    return std::string(buffer.get());
+   }
+ }
+ 
+@@ -82,123 +85,136 @@
+     attachment_points(),
+     actions()
+ {
+-  PHYSFS_file* file = PHYSFS_openRead(filename.get_physfs_path().c_str());
+-  if(!file) {
++  std::ifstream in(filename.get_sys_path().c_str(), std::ios::binary);
++
++  if (!in) 
++  {
+     std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't open '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot;
+-        &lt;&lt; PHYSFS_getLastError();
++    msg &lt;&lt; &quot;Couldn't open '&quot; &lt;&lt; filename &lt;&lt; &quot;'&quot;;
+     throw std::runtime_error(msg.str());
+   }
+ 
+-  try {
+-    std::string magic = read_string(file, 4);
++  try 
++  {
++    std::string magic = read_string(in, 4);
+     if(magic != &quot;W3DS&quot;)
+       throw std::runtime_error(&quot;Not a windstille 3d sprite file&quot;);
+-    uint16_t format_version = read_uint16_t(file);
++    uint16_t format_version = read_uint16_t(in);
+     if(format_version &gt; FORMAT_VERSION)
+       throw std::runtime_error(&quot;sprite file format too new&quot;);
+     if(format_version &lt; FORMAT_VERSION)
+       throw std::runtime_error(&quot;sprite file format too old&quot;);
+ 
+-    uint16_t mesh_count = read_uint16_t(file);
++    uint16_t mesh_count = read_uint16_t(in);
+     if(mesh_count == 0)
+       throw std::runtime_error(&quot;Sprite3D contains no meshs&quot;);
+-    uint16_t attachment_point_count = read_uint16_t(file);
+-    uint16_t action_count = read_uint16_t(file);
++    uint16_t attachment_point_count = read_uint16_t(in);
++    uint16_t action_count = read_uint16_t(in);
+     if(action_count == 0)
+       throw std::runtime_error(&quot;Sprite3D contains no actions&quot;);
+ 
+     // read meshs
+     meshs.resize(mesh_count);
+-    for(std::vector&lt;Mesh&gt;::iterator i = meshs.begin(); i != meshs.end(); ++i) {
++    for(std::vector&lt;Mesh&gt;::iterator i = meshs.begin(); i != meshs.end(); ++i) 
++    {
+       Mesh&amp; mesh = *i;
+ 
+-      std::string texturename = read_string(file, 64);
++      std::string texturename = read_string(in, 64);
+       texturename = filename.get_dirname().get_physfs_path() + basename(texturename);
+-      mesh.triangle_count = read_uint16_t(file);
+-      mesh.vertex_count   = read_uint16_t(file);
++      mesh.triangle_count = read_uint16_t(in);
++      mesh.vertex_count   = read_uint16_t(in);
+ 
+       mesh.texture = TextureManager::current()-&gt;get(Pathname(texturename));
+ 
+       // read triangles
+       mesh.vertex_indices.reserve(mesh.triangle_count * 3);
+-      for(uint16_t v = 0; v &lt; mesh.triangle_count * 3; ++v) {
+-        mesh.vertex_indices.push_back(read_uint16_t(file));
++      for(uint16_t v = 0; v &lt; mesh.triangle_count * 3; ++v) 
++      {
++        mesh.vertex_indices.push_back(read_uint16_t(in));
+       }
+       
+       mesh.normals.reserve(mesh.triangle_count * 3);
+-      for(uint16_t n = 0; n &lt; mesh.triangle_count * 3; ++n) {
+-        mesh.normals.push_back(read_float(file));
++      for(uint16_t n = 0; n &lt; mesh.triangle_count * 3; ++n) 
++      {
++        mesh.normals.push_back(read_float(in));
+       }
+ 
+       mesh.tex_coords.reserve(mesh.vertex_count * 2);
+-      for(uint16_t v = 0; v &lt; mesh.vertex_count * 2; ++v) {
+-        mesh.tex_coords.push_back(read_float(file));
++      for(uint16_t v = 0; v &lt; mesh.vertex_count * 2; ++v) 
++      {
++        mesh.tex_coords.push_back(read_float(in));
+       }
+     }
+ 
+     // read attachment points
+     attachment_points.reserve(attachment_point_count);
+-    for(uint16_t a = 0; a &lt; attachment_point_count; ++a) {
+-      attachment_points.push_back(read_string(file, 64));
++    for(uint16_t a = 0; a &lt; attachment_point_count; ++a) 
++    {
++      attachment_points.push_back(read_string(in, 64));
+     }
+ 
+     // read actions
+     actions.resize(action_count);
+-    for(std::vector&lt;Action&gt;::iterator i = actions.begin(); i != actions.end(); ++i) {
++    for(std::vector&lt;Action&gt;::iterator i = actions.begin(); i != actions.end(); ++i) 
++    {
+       Action&amp; action = *i;
+ 
+-      action.name = read_string(file, 64);
+-      action.speed = read_float(file);
+-      uint16_t marker_count = read_uint16_t(file);
+-      uint16_t frame_count  = read_uint16_t(file);
++      action.name = read_string(in, 64);
++      action.speed = read_float(in);
++      uint16_t marker_count = read_uint16_t(in);
++      uint16_t frame_count  = read_uint16_t(in);
+ 
+       // read markers
+       action.markers.resize(marker_count);
+-      for(uint16_t m = 0; m &lt; action.markers.size(); ++m) {
++      for(uint16_t m = 0; m &lt; action.markers.size(); ++m) 
++      {
+         Marker&amp; marker = action.markers[m];
+-        marker.name  = read_string(file, 64);
+-        marker.frame = read_uint16_t(file);
++        marker.name  = read_string(in, 64);
++        marker.frame = read_uint16_t(in);
+       }
+ 
+       // read frames
+       action.frames.resize(frame_count);
+-      for(uint16_t f = 0; f &lt; action.frames.size(); ++f) {
++      for(uint16_t f = 0; f &lt; action.frames.size(); ++f) 
++      {
+         ActionFrame&amp; frame = action.frames[f];
+         
+         frame.meshs.resize(mesh_count);
+-        for(uint16_t m = 0; m &lt; mesh_count; ++m) {
++        for(uint16_t m = 0; m &lt; mesh_count; ++m) 
++        {
+           MeshVertices&amp; mesh = frame.meshs[m];
+ 
+           mesh.vertices.resize(meshs[m].vertex_count * 3);
+-          for(uint16_t v = 0; v &lt; meshs[m].vertex_count * 3; ++v) {
+-            mesh.vertices[v] = read_float(file);
++          for(uint16_t v = 0; v &lt; meshs[m].vertex_count * 3; ++v) 
++          {
++            mesh.vertices[v] = read_float(in);
+           }
+         }
+ 
+         frame.attachment_points.resize(attachment_point_count);
+-        for(uint16_t a = 0; a &lt; attachment_point_count; ++a) {
++        for(uint16_t a = 0; a &lt; attachment_point_count; ++a) 
++        {
+           AttachmentPointPosition&amp; point = frame.attachment_points[a];
+ 
+-          point.pos.x = read_float(file);
+-          point.pos.y = read_float(file);
+-          point.pos.z = read_float(file);
++          point.pos.x = read_float(in);
++          point.pos.y = read_float(in);
++          point.pos.z = read_float(in);
+ 
+-          point.quat.w = -read_float(file);
+-          point.quat.x =  read_float(file);
+-          point.quat.y =  read_float(file);
+-          point.quat.z =  read_float(file);
++          point.quat.w = -read_float(in);
++          point.quat.x =  read_float(in);
++          point.quat.y =  read_float(in);
++          point.quat.z =  read_float(in);
+           point.quat.normalize();
+         }
+       }
+     }
+-  } catch(std::exception&amp; e) {
+-    PHYSFS_close(file);
++  }
++  catch(std::exception&amp; e) 
++  {
+     std::ostringstream msg;
+     msg &lt;&lt; &quot;Problem while reading '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot; &lt;&lt; e.what();
+     throw std::runtime_error(msg.str());
+   }
+-  PHYSFS_close(file);
+ }
+ 
+ Data::~Data()
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002082.html">[Windstille-commit] r3085 - trunk/windstille/src/font
+</A></li>
+	<LI>Next message: <A HREF="002084.html">[Windstille-commit] r3087 - in trunk/windstille/src: app input lisp	screen sprite3d tile util
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2083">[ date ]</a>
+              <a href="thread.html#2083">[ thread ]</a>
+              <a href="subject.html#2083">[ subject ]</a>
+              <a href="author.html#2083">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

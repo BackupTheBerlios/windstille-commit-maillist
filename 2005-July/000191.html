@@ -1,0 +1,200 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r535 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r535%20-%20trunk/src&In-Reply-To=%3C200507040113.j641DRhc025871%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000190.html">
+   <LINK REL="Next"  HREF="000192.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r535 - trunk/src</H1>
+    <B>Matthias Braun at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r535%20-%20trunk/src&In-Reply-To=%3C200507040113.j641DRhc025871%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r535 - trunk/src">matzebraun at berlios.de
+       </A><BR>
+    <I>Mon Jul  4 03:13:27 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000190.html">[Windstille-commit] r534 - trunk/data/3dsprites
+</A></li>
+        <LI>Next message: <A HREF="000192.html">[Windstille-commit] r536 - trunk/contrib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#191">[ date ]</a>
+              <a href="thread.html#191">[ thread ]</a>
+              <a href="subject.html#191">[ subject ]</a>
+              <a href="author.html#191">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: matzebraun
+Date: 2005-07-04 03:12:06 +0200 (Mon, 04 Jul 2005)
+New Revision: 535
+
+Modified:
+   trunk/src/sprite3d.cpp
+   trunk/src/sprite3d.hpp
+Log:
+blend animation frames
+
+Modified: trunk/src/sprite3d.cpp
+===================================================================
+--- trunk/src/sprite3d.cpp	2005-07-04 00:47:56 UTC (rev 534)
++++ trunk/src/sprite3d.cpp	2005-07-04 01:12:06 UTC (rev 535)
+@@ -209,28 +209,36 @@
+ {
+ private:
+   Sprite3D* sprite;
+-  const ActionFrame* frame;
++  const ActionFrame* frame1;
++  const ActionFrame* frame2;
++  float time;
+ 
+ public:
+-  Sprite3DDrawingRequest(Sprite3D* sprite, const ActionFrame* frame,
++  Sprite3DDrawingRequest(Sprite3D* sprite, const ActionFrame* frame1,
++      const ActionFrame* frame2, float time,
+       const CL_Vector&amp; pos, const CL_Matrix4x4&amp; modelview)
+-    : DrawingRequest(pos, modelview), sprite(sprite), frame(frame)
++    : DrawingRequest(pos, modelview), sprite(sprite), frame1(frame1),
++    frame2(frame2), time(time)
+   {
+   }
+ 
+   void draw(CL_GraphicContext* gc)
+   {
+-    sprite-&gt;render_frame(gc, frame, pos, modelview);
++    sprite-&gt;blend_frames(gc, frame1, frame2, time, pos, modelview);
+   }
+ };
+ 
+ void
+ Sprite3D::draw(SceneContext&amp; sc)
+ {
+-  int frame = (int) fmodf(game_time * 24, actions[0].frame_count);
+-  sc.color().draw(new Sprite3DDrawingRequest(this, &amp;actions[0].frames[frame],
+-                                             CL_Vector(12*32, 26*32, 100),
+-                                             sc.color().get_modelview()));
++  float animspeed = 3.0;
++  int frame = (int) fmodf(game_time * animspeed, actions[0].frame_count);
++  int nextframe = (int) fmodf(game_time * animspeed + 1.0,
++                              actions[0].frame_count);
++  float time = fmodf(game_time*animspeed, 1.0);
++  sc.color().draw(new Sprite3DDrawingRequest(this,
++        &amp;actions[0].frames[frame], &amp;actions[0].frames[nextframe], time,
++        CL_Vector(12*32, 26*32, 100), sc.color().get_modelview()));
+ }
+ 
+ void
+@@ -283,3 +291,61 @@
+   glPopMatrix();
+ }
+ 
++void
++Sprite3D::blend_frames(CL_GraphicContext* gc, const ActionFrame* frame1,
++    const ActionFrame* frame2, float time,
++    const CL_Vector&amp; pos, const CL_Matrix4x4&amp; modelview)
++{
++  assert_gl(&quot;before render_frame&quot;);
++  
++  static float angle = 0;
++  angle += 1;
++  
++  CL_OpenGLState state(gc);
++  state.set_active();
++  state.setup_2d();
++
++  glPushMatrix();
++  glMultMatrixd(modelview);
++  glTranslatef(pos.x, pos.y, pos.z);
++  // just a test
++  glRotatef(angle, 0, 1.0, 0);
++  
++  glClear(GL_DEPTH_BUFFER_BIT);
++  glEnable(GL_DEPTH_TEST);
++  glEnable(GL_TEXTURE_2D);
++
++  glEnableClientState(GL_VERTEX_ARRAY);
++  glEnableClientState(GL_TEXTURE_COORD_ARRAY);  
++
++  assert_gl(&quot;gl init before sprite&quot;);
++  
++  float t_1 = 1.0 - time;
++  for(uint16_t m = 0; m &lt; mesh_count; ++m) {
++    const Mesh&amp; mesh = meshs[m];
++    const MeshVertices&amp; vertices1 = frame1-&gt;meshs[m];
++    const MeshVertices&amp; vertices2 = frame2-&gt;meshs[m];
++    
++    float* verts = new float[mesh.vertex_count * 3];
++
++    for(uint16_t v = 0; v &lt; mesh.vertex_count*3; ++v) {
++      verts[v] = vertices1.vertices[v] * t_1 + vertices2.vertices[v] * time;
++    }
++    
++    CL_OpenGLSurface&amp; texture = const_cast&lt;CL_OpenGLSurface&amp;&gt; (mesh.texture);
++    texture.bind();
++
++    glVertexPointer(3, GL_FLOAT, 0, verts);
++    glNormalPointer(GL_FLOAT, 0, mesh.normals);
++    glTexCoordPointer(2, GL_FLOAT, 0, mesh.tex_coords);
++
++    glDrawElements(GL_TRIANGLES, mesh.triangle_count * 3, GL_UNSIGNED_SHORT,
++        mesh.vertex_indices);
++    delete[] verts;
++  }
++
++  assert_gl(&quot;rendering 3d sprite&quot;);      
++
++  glPopMatrix();
++}
++
+
+Modified: trunk/src/sprite3d.hpp
+===================================================================
+--- trunk/src/sprite3d.hpp	2005-07-04 00:47:56 UTC (rev 534)
++++ trunk/src/sprite3d.hpp	2005-07-04 01:12:06 UTC (rev 535)
+@@ -45,6 +45,11 @@
+ 
+   void render_frame(CL_GraphicContext* gc, const ActionFrame* frame,
+       const CL_Vector&amp; pos, const CL_Matrix4x4&amp; modelview);
++  // blends 2 frames
++  // time should be between 0 and 1
++  void blend_frames(CL_GraphicContext* gc, const ActionFrame* frame1,
++      const ActionFrame* frame2, float time,
++      const CL_Vector&amp; pos, const CL_Matrix4x4&amp; modelview);
+ 
+   uint16_t mesh_count;
+   Mesh* meshs;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000190.html">[Windstille-commit] r534 - trunk/data/3dsprites
+</A></li>
+	<LI>Next message: <A HREF="000192.html">[Windstille-commit] r536 - trunk/contrib
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#191">[ date ]</a>
+              <a href="thread.html#191">[ thread ]</a>
+              <a href="subject.html#191">[ subject ]</a>
+              <a href="author.html#191">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

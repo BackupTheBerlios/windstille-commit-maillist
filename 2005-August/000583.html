@@ -1,0 +1,668 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r930 - in trunk/src: . scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r930%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200508061854.j76IsQcT007868%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000582.html">
+   <LINK REL="Next"  HREF="000584.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r930 - in trunk/src: . scripting</H1>
+    <B>James Gregory at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r930%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200508061854.j76IsQcT007868%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r930 - in trunk/src: . scripting">jamesgregory at berlios.de
+       </A><BR>
+    <I>Sat Aug  6 20:54:26 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000582.html">[Windstille-commit] r929 - in trunk/src: display glutil
+</A></li>
+        <LI>Next message: <A HREF="000584.html">[Windstille-commit] r931 - in trunk/data: . images levels
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#583">[ date ]</a>
+              <a href="thread.html#583">[ thread ]</a>
+              <a href="subject.html#583">[ subject ]</a>
+              <a href="author.html#583">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: jamesgregory
+Date: 2005-08-06 20:54:25 +0200 (Sat, 06 Aug 2005)
+New Revision: 930
+
+Modified:
+   trunk/src/camera.cpp
+   trunk/src/camera.hpp
+   trunk/src/controller_help_window.cpp
+   trunk/src/controller_help_window.hpp
+   trunk/src/dialog_manager.cpp
+   trunk/src/dialog_manager.hpp
+   trunk/src/game_session.cpp
+   trunk/src/scripting/interface.cpp
+   trunk/src/scripting/interface.hpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/scripting/wrapper.hpp
+Log:
+- added set_caption and end_caption scripting functions
+- made activating a sector and running its init script the last thing that is done when sector is changed
+- added set_pos and set_active functions to camera
+- removed repetition of setting static variables in DialogManager
+
+Modified: trunk/src/camera.cpp
+===================================================================
+--- trunk/src/camera.cpp	2005-08-06 18:04:58 UTC (rev 929)
++++ trunk/src/camera.cpp	2005-08-06 18:54:25 UTC (rev 930)
+@@ -25,7 +25,8 @@
+ Camera* Camera::current_ = 0;
+ 
+ Camera::Camera()
+-  : pos(0, 0)
++  : pos(0, 0),
++    active(true)
+ {
+   current_ = this;
+ }
+@@ -33,6 +34,9 @@
+ void
+ Camera::update(float )
+ {
++  if (!active)
++    return;
++    
+   int hscroll_threshold = 100;
+   int vscroll_threshold = 150;
+ 
+@@ -69,4 +73,11 @@
+     pos.y = end_y;
+ }
+ 
++void
++Camera::set_pos(float x, float y)
++{
++  pos.x = x + Display::get_width()/2;
++  pos.y = y + Display::get_height()/2;
++}
++
+ /* EOF */
+
+Modified: trunk/src/camera.hpp
+===================================================================
+--- trunk/src/camera.hpp	2005-08-06 18:04:58 UTC (rev 929)
++++ trunk/src/camera.hpp	2005-08-06 18:54:25 UTC (rev 930)
+@@ -28,6 +28,7 @@
+ {
+ private:
+   Vector pos;
++  bool active;
+ 
+   static Camera* current_;
+ public:
+@@ -37,6 +38,8 @@
+ 
+   void update(float delta);
+   Vector get_pos() const { return pos; }
++  void set_pos(float x, float y);
++  void set_active(bool arg_active) { active = arg_active; }
+ private:
+   Camera (const Camera&amp;);
+   Camera&amp; operator= (const Camera&amp;);
+
+Modified: trunk/src/controller_help_window.cpp
+===================================================================
+--- trunk/src/controller_help_window.cpp	2005-08-06 18:04:58 UTC (rev 929)
++++ trunk/src/controller_help_window.cpp	2005-08-06 18:54:25 UTC (rev 930)
+@@ -29,18 +29,23 @@
+ #include &quot;fonts.hpp&quot;
+ #include &quot;controller_help_window.hpp&quot;
+ 
++ControllerHelpWindow* ControllerHelpWindow::current_ = 0;
++
+ class ControllerHelpWindowImpl
+ {
+ public:
+   TextArea* text_area;
++  bool active;
+ };
+ 
+ ControllerHelpWindow::ControllerHelpWindow()
+   : impl(new ControllerHelpWindowImpl)
+ {
++  current_ = this;
+   int width  = 200;
+   int height = 120;
+-
++  
++  impl-&gt;active = false;
+   impl-&gt;text_area = new TextArea(Rect(Point(Display::get_width() - width - 16,
+                                             Display::get_height() - height - 16),
+                                       Size(width, height)), false);
+@@ -59,6 +64,9 @@
+ void
+ ControllerHelpWindow::draw()
+ {
++  if (!impl-&gt;active)
++    return;
++    
+   const Rectf&amp; rect = impl-&gt;text_area-&gt;get_rect().grow(8.0f);
+ 
+   Display::fill_rounded_rect(rect, 16.0f, Color(0.3f, 0.3f, 0.5f, 0.5f));
+@@ -104,4 +112,10 @@
+   impl-&gt;text_area-&gt;update(delta);
+ }
+ 
++void
++ControllerHelpWindow::set_active(bool active)
++{
++  impl-&gt;active = active;
++}
++
+ /* EOF */
+
+Modified: trunk/src/controller_help_window.hpp
+===================================================================
+--- trunk/src/controller_help_window.hpp	2005-08-06 18:04:58 UTC (rev 929)
++++ trunk/src/controller_help_window.hpp	2005-08-06 18:54:25 UTC (rev 930)
+@@ -38,9 +38,12 @@
+ 
+   void draw();
+   void update(float delta);
++  void set_active(bool active);
++  static ControllerHelpWindow* current() { return current_; }
+ 
+ private:
+   SharedPtr&lt;ControllerHelpWindowImpl&gt; impl;
++  static ControllerHelpWindow* current_;
+ };
+ 
+ #endif
+
+Modified: trunk/src/dialog_manager.cpp
+===================================================================
+--- trunk/src/dialog_manager.cpp	2005-08-06 18:04:58 UTC (rev 929)
++++ trunk/src/dialog_manager.cpp	2005-08-06 18:54:25 UTC (rev 930)
+@@ -49,71 +49,27 @@
+   alignment = alignment_;
+   portrait  = Sprite(portrait_);
+   text      = text_;
+-
+-  static const int dialog_width = 600;
+-  static const int outer_border_x = 20;
+-  static const int outer_border_y = 20;
+-  static const int portrait_border_x = 10;
+-  static const int portrait_border_y = 10;
+-  static const int text_border_x = 10;
+-  static const int text_border_y = 10;
+-  static const int portrait_width = 180;
+-  static const int portrait_height = 192;
+-
+-  Point pos(0,0);
+-  if(alignment &amp; LEFT) {
+-    pos.x = outer_border_x;
+-  } else if(alignment &amp; RIGHT) {
+-    pos.x = config-&gt;screen_width - dialog_width - outer_border_x;
+-  } else {
+-    pos.x = (config-&gt;screen_width - dialog_width) / 2;
+-  }
+-      
+-  int text_width
+-    = dialog_width - portrait_height - portrait_border_x*2 - text_border_x;
+-  Rect text_rect = Rect(Point(pos.x + portrait_width + portrait_border_x*2, 0),
+-                        Size(500, 200)); // FIXME: use real bounding box calc
++  caption = false;
+   
+-  text_rect.bottom = text_rect.top + text_rect.get_height();
+-  text_rect.top    = pos.y + text_border_y;
++  create_text();  
++  GameSession::current()-&gt;pda.add_dialog(text);
++}
+ 
+-  int dialog_height = std::max(portrait_height + portrait_border_y*2,
+-                               text_rect.get_height() + text_border_y*2);
+-
+-  if(alignment &amp; TOP) {
+-    pos.y = outer_border_y;
+-  } else if(alignment &amp; BOTTOM) {
+-    pos.y = config-&gt;screen_height - dialog_height - outer_border_y;
+-  } else {
+-    pos.y = (config-&gt;screen_height - dialog_height) / 2;
+-  }
+-
+-  text_rect.bottom = text_rect.top + text_rect.get_height();
+-  text_rect.top = pos.y + text_border_y;
+-
+-  Size dialog_size(dialog_width, dialog_height);
+-
+-
+-  delete text_area;
+-  text_area = new TextArea(Rect(Point(text_rect.left, text_rect.top + Fonts::ttfdialog-&gt;get_height()),
+-                                Size(text_width, 200)), true);
+-  text_area-&gt;set_font(Fonts::ttfdialog);
+-  text_area-&gt;set_text(text);
++void
++DialogManager::add_caption(int alignment_, const std::string&amp; text_)
++{
++  progress  = 0;
++  delay     = 0.0;
++  alignment = alignment_;
++  text      = text_;
++  caption = true;
+   
+-  GameSession::current()-&gt;pda.add_dialog(text);
++  create_text();
+ }
+ 
+ void
+ DialogManager::draw()
+ {
+-  static const int outer_border_x = 20;
+-  static const int outer_border_y = 20;
+-  static const int portrait_border_x = 10;
+-  static const int portrait_border_y = 10;
+-  static const int dialog_width = 600;
+-  static const int portrait_height = 192;
+-  static const int text_border_y = 10;
+-
+   int dialog_height = std::max(portrait_height + portrait_border_y*2,
+                                int(text_area-&gt;get_rect().get_height()
+                                    + text_border_y * 2.0f));
+@@ -135,19 +91,21 @@
+     pos.y = (config-&gt;screen_height - dialog_height) / 2;
+   }
+ 
+-  Rectf rect(pos.x,
+-             pos.y,
+-             pos.x + dialog_width,
+-             pos.y + 200);
+-
+-  Display::fill_rounded_rect(rect, 16.0f,
+-                             Color(0, 0, 0.3f, 0.5f));
+-  Display::draw_rounded_rect(rect, 16.0f,
+-                             Color(0.6f, 1.0f, 1.0f, 0.8f));
+-
+-  portrait.draw(Vector(pos.x + portrait_border_x,
+-                       pos.y + portrait_border_y));
++  if (!caption) {
++    Rectf rect(pos.x,
++               pos.y,
++               pos.x + dialog_width,
++               pos.y + 200);
++    
++    Display::fill_rounded_rect(rect, 16.0f,
++                               Color(0, 0, 0.3f, 0.5f));
++    Display::draw_rounded_rect(rect, 16.0f,
++                               Color(0.6f, 1.0f, 1.0f, 0.8f));
+   
++    portrait.draw(Vector(pos.x + portrait_border_x,
++                         pos.y + portrait_border_y));
++  }
++  
+   text_area-&gt;draw();
+ }
+ 
+@@ -179,4 +137,53 @@
+     }
+ }
+ 
++void
++DialogManager::create_text()
++{
++  if (caption)
++    outer_border_y = 0;
++  else
++    outer_border_y = 20;
++    
++  Point pos(0,0);
++  if(alignment &amp; LEFT) {
++    pos.x = outer_border_x;
++  } else if(alignment &amp; RIGHT) {
++    pos.x = config-&gt;screen_width - dialog_width - outer_border_x;
++  } else {
++    pos.x = (config-&gt;screen_width - dialog_width) / 2;
++  }
++      
++  int text_width
++    = dialog_width - portrait_height - portrait_border_x*2 - text_border_x;
++  Rect text_rect = Rect(Point(pos.x + portrait_width + portrait_border_x*2, 0),
++                        Size(500, 200)); // FIXME: use real bounding box calc
++  
++  text_rect.bottom = text_rect.top + text_rect.get_height();
++  text_rect.top    = pos.y + text_border_y;
++
++  int dialog_height = std::max(portrait_height + portrait_border_y*2,
++                               text_rect.get_height() + text_border_y*2);
++
++  if(alignment &amp; TOP) {
++    pos.y = outer_border_y;
++  } else if(alignment &amp; BOTTOM) {
++    pos.y = config-&gt;screen_height - dialog_height - outer_border_y;
++  } else {
++    pos.y = (config-&gt;screen_height - dialog_height) / 2;
++  }
++
++  text_rect.bottom = text_rect.top + text_rect.get_height();
++  text_rect.top = pos.y + text_border_y;
++
++  Size dialog_size(dialog_width, dialog_height);
++
++
++  delete text_area;
++  text_area = new TextArea(Rect(Point(text_rect.left, text_rect.top + Fonts::ttfdialog-&gt;get_height()),
++                                Size(text_width, 200)), true);
++  text_area-&gt;set_font(Fonts::ttfdialog);
++  text_area-&gt;set_text(text);
++}
++
+ /* EOF */
+
+Modified: trunk/src/dialog_manager.hpp
+===================================================================
+--- trunk/src/dialog_manager.hpp	2005-08-06 18:04:58 UTC (rev 929)
++++ trunk/src/dialog_manager.hpp	2005-08-06 18:54:25 UTC (rev 930)
+@@ -31,6 +31,8 @@
+ class DialogManager
+ {
+ private:
++  void create_text();
++  
+   Sprite portrait;
+   std::string text;
+   float progress;
+@@ -46,6 +48,17 @@
+     BOTTOM  = 0x20
+   };
+   int alignment;
++  bool caption;
++  
++  static const int dialog_width = 600;
++  static const int portrait_border_x = 10;
++  static const int portrait_border_y = 10;
++  static const int text_border_x = 10;
++  static const int text_border_y = 10;
++  static const int portrait_width = 180;
++  static const int portrait_height = 192;
++  static const int outer_border_x = 20;
++  int outer_border_y;
+ 
+   static DialogManager* current_;
+ public:
+@@ -58,6 +71,7 @@
+   void update(float delta);
+ 
+   void add_dialog(int alignment, const std::string&amp; portrait, const std::string&amp; text);
++  void add_caption(int alignment, const std::string&amp; text);
+ };
+ 
+ #endif
+
+Modified: trunk/src/game_session.cpp
+===================================================================
+--- trunk/src/game_session.cpp	2005-08-06 18:04:58 UTC (rev 929)
++++ trunk/src/game_session.cpp	2005-08-06 18:54:25 UTC (rev 930)
+@@ -168,7 +168,7 @@
+     {
+       game_time += delta;
+       script_manager-&gt;update();
+-
++      
+       view-&gt;update(delta);
+   
+       switch (fade_state)
+@@ -218,18 +218,18 @@
+     delete sector;
+ 
+   sector = new Sector(filename);
++  fade_state = FADEIN;
++  fadeout_value = 0;
++  control_state = GAME;
++  target_state = RUN_GAME;
++  GameObject::set_world(sector);
+   
++  //FIXME: does the TestObject class still need to exist?
+   //sector-&gt;add(new TestObject());
+   
++  sector-&gt;spawn_player(&quot;default&quot;);
+   sector-&gt;activate();
+-  sector-&gt;spawn_player(&quot;default&quot;);
+   
+-  GameObject::set_world(sector);
+-  
+-  fade_state = FADEIN;
+-  fadeout_value = 0;
+-  control_state = GAME;
+-  target_state = RUN_GAME;
+   if (debug) std::cout &lt;&lt; &quot;Finished changing sector&quot; &lt;&lt; std::endl;
+ }
+ 
+
+Modified: trunk/src/scripting/interface.cpp
+===================================================================
+--- trunk/src/scripting/interface.cpp	2005-08-06 18:04:58 UTC (rev 929)
++++ trunk/src/scripting/interface.cpp	2005-08-06 18:54:25 UTC (rev 930)
+@@ -9,6 +9,8 @@
+ #include &quot;sector.hpp&quot;
+ #include &quot;fonts.hpp&quot;
+ #include &quot;serialize.hpp&quot;
++#include &quot;camera.hpp&quot;
++#include &quot;controller_help_window.hpp&quot;
+ 
+ namespace Scripting
+ {
+@@ -33,6 +35,32 @@
+   sound_manager-&gt;play(soundfile);
+ }
+ 
++void add_caption(int alignment, const std::string&amp; text)
++{
++  DialogManager::current()-&gt;add_caption(alignment, text);
++  GameSession::current()-&gt;set_dialog_state();
++}
++
++void end_caption()
++{
++  GameSession::current()-&gt;set_game_state();
++}
++
++void set_view(float x, float y)
++{
++  Camera::current()-&gt;set_pos(x, y);
++}
++
++void set_camera_active(bool active)
++{
++  Camera::current()-&gt;set_active(active);
++}
++
++void set_controller_help_active(bool active)
++{
++  ControllerHelpWindow::current()-&gt;set_active(active);
++}
++
+ void wait(HSQUIRRELVM vm, float time)
+ {
+   script_manager-&gt;set_wakeup_event(vm, ScriptManager::TIME, time);
+
+Modified: trunk/src/scripting/interface.hpp
+===================================================================
+--- trunk/src/scripting/interface.hpp	2005-08-06 18:04:58 UTC (rev 929)
++++ trunk/src/scripting/interface.hpp	2005-08-06 18:54:25 UTC (rev 930)
+@@ -17,6 +17,13 @@
+ 
+ void play_sound(const std::string&amp; soundfile);
+ 
++void add_caption(int alignment, const std::string&amp; text);
++void end_caption();
++
++void set_view(float x, float y);
++void set_camera_active(bool active);
++void set_controller_help_active(bool active);
++
+ // dialog alignment constants
+ static const int VCENTER = 0x00;
+ static const int LEFT    = 0x01;
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2005-08-06 18:04:58 UTC (rev 929)
++++ trunk/src/scripting/wrapper.cpp	2005-08-06 18:54:25 UTC (rev 930)
+@@ -1,6 +1,6 @@
+ /**
+  * WARNING: This file is automatically generated from:
+- *  'scripting/wrapper.interface.hpp'
++ *  'src/scripting/wrapper.interface.hpp'
+  * DO NOT CHANGE
+  */
+ #include &lt;config.h&gt;
+@@ -326,6 +326,59 @@
+   return 0;
+ }
+ 
++static int add_caption_wrapper(HSQUIRRELVM v)
++{
++  int arg0;
++  sq_getinteger(v, 2, &amp;arg0);
++  const char* arg1;
++  sq_getstring(v, 3, &amp;arg1);
++  
++  Scripting::add_caption(arg0, arg1);
++  
++  return 0;
++}
++
++static int end_caption_wrapper(HSQUIRRELVM v)
++{
++  (void) v;
++  
++  Scripting::end_caption();
++  
++  return 0;
++}
++
++static int set_view_wrapper(HSQUIRRELVM v)
++{
++  float arg0;
++  sq_getfloat(v, 2, &amp;arg0);
++  float arg1;
++  sq_getfloat(v, 3, &amp;arg1);
++  
++  Scripting::set_view(arg0, arg1);
++  
++  return 0;
++}
++
++static int set_camera_active_wrapper(HSQUIRRELVM v)
++{
++  SQBool arg0;
++  sq_getbool(v, 2, &amp;arg0);
++  
++  Scripting::set_camera_active(arg0);
++  
++  return 0;
++}
++
++static int set_controller_help_active_wrapper(HSQUIRRELVM v)
++{
++  SQBool arg0;
++  sq_getbool(v, 2, &amp;arg0);
++  
++  Scripting::set_controller_help_active(arg0);
++  
++  return 0;
++}
++
+ static int dialog_show_wrapper(HSQUIRRELVM v)
+ {
+   int arg0;
+@@ -605,6 +658,46 @@
+     throw SquirrelError(v, msg.str());
+   }
+ 
++  sq_pushstring(v, &quot;add_caption&quot;, -1);
++  sq_newclosure(v, &amp;add_caption_wrapper, 0);
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'add_caption'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  sq_pushstring(v, &quot;end_caption&quot;, -1);
++  sq_newclosure(v, &amp;end_caption_wrapper, 0);
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'end_caption'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  sq_pushstring(v, &quot;set_view&quot;, -1);
++  sq_newclosure(v, &amp;set_view_wrapper, 0);
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'set_view'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  sq_pushstring(v, &quot;set_camera_active&quot;, -1);
++  sq_newclosure(v, &amp;set_camera_active_wrapper, 0);
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'set_camera_active'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  sq_pushstring(v, &quot;set_controller_help_active&quot;, -1);
++  sq_newclosure(v, &amp;set_controller_help_active_wrapper, 0);
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'set_controller_help_active'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
+   sq_pushstring(v, &quot;dialog_show&quot;, -1);
+   sq_newclosure(v, &amp;dialog_show_wrapper, 0);
+   if(sq_createslot(v, -3) &lt; 0) {
+
+Modified: trunk/src/scripting/wrapper.hpp
+===================================================================
+--- trunk/src/scripting/wrapper.hpp	2005-08-06 18:04:58 UTC (rev 929)
++++ trunk/src/scripting/wrapper.hpp	2005-08-06 18:54:25 UTC (rev 930)
+@@ -1,6 +1,6 @@
+ /**
+  * WARNING: This file is automatically generated from:
+- *  'scripting/wrapper.interface.hpp'
++ *  'src/scripting/wrapper.interface.hpp'
+  * DO NOT CHANGE
+  */
+ #ifndef __windstille_WRAPPER_H__
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000582.html">[Windstille-commit] r929 - in trunk/src: display glutil
+</A></li>
+	<LI>Next message: <A HREF="000584.html">[Windstille-commit] r931 - in trunk/data: . images levels
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#583">[ date ]</a>
+              <a href="thread.html#583">[ thread ]</a>
+              <a href="subject.html#583">[ subject ]</a>
+              <a href="author.html#583">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

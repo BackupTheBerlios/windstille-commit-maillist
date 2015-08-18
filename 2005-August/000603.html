@@ -1,0 +1,348 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r950 - in trunk/src: . badguy
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r950%20-%20in%20trunk/src%3A%20.%20badguy&In-Reply-To=%3C200508091817.j79IHK5t025980%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000602.html">
+   <LINK REL="Next"  HREF="000604.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r950 - in trunk/src: . badguy</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r950%20-%20in%20trunk/src%3A%20.%20badguy&In-Reply-To=%3C200508091817.j79IHK5t025980%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r950 - in trunk/src: . badguy">grumbel at berlios.de
+       </A><BR>
+    <I>Tue Aug  9 20:17:20 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000602.html">[Windstille-commit] r949 - in trunk/src: . input scripting
+</A></li>
+        <LI>Next message: <A HREF="000604.html">[Windstille-commit] r951 - in trunk: data/levels data/scripts src src/collision src/lisp src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#603">[ date ]</a>
+              <a href="thread.html#603">[ thread ]</a>
+              <a href="subject.html#603">[ subject ]</a>
+              <a href="author.html#603">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-08-09 20:17:19 +0200 (Tue, 09 Aug 2005)
+New Revision: 950
+
+Added:
+   trunk/src/badguy/swarm.cpp
+   trunk/src/badguy/swarm.hpp
+Modified:
+   trunk/src/badguy/Jamfile
+   trunk/src/pda.cpp
+   trunk/src/sector.cpp
+Log:
+- added some bad looking swarm
+
+Modified: trunk/src/badguy/Jamfile
+===================================================================
+--- trunk/src/badguy/Jamfile	2005-08-09 13:03:14 UTC (rev 949)
++++ trunk/src/badguy/Jamfile	2005-08-09 18:17:19 UTC (rev 950)
+@@ -7,6 +7,8 @@
+   hedgehog.hpp
+   spider_mine.cpp
+   spider_mine.hpp
++  swarm.hpp
++  swarm.cpp
+   vrdummy.hpp
+   vrdummy.cpp
+ ;
+
+Added: trunk/src/badguy/swarm.cpp
+===================================================================
+--- trunk/src/badguy/swarm.cpp	2005-08-09 13:03:14 UTC (rev 949)
++++ trunk/src/badguy/swarm.cpp	2005-08-09 18:17:19 UTC (rev 950)
+@@ -0,0 +1,136 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &quot;globals.hpp&quot;
++#include &quot;player.hpp&quot;
++#include &quot;sector.hpp&quot;
++#include &quot;hedgehog.hpp&quot;
++#include &quot;lisp/properties.hpp&quot;
++#include &quot;game_session.hpp&quot;
++#include &quot;view.hpp&quot;
++#include &quot;windstille_getters.hpp&quot;
++#include &quot;display/vertex_array_drawing_request.hpp&quot;
++#include &quot;random.hpp&quot;
++#include &quot;swarm.hpp&quot;
++
++Swarm::Swarm(const lisp::Lisp* lisp)
++{
++  int count = 100;
++  turn_speed = 7.0f;
++
++  lisp::Properties props(lisp);
++  props.get(&quot;name&quot;,  name);
++  props.get(&quot;pos&quot;,   pos);
++  props.get(&quot;count&quot;, count);
++  props.get(&quot;turn-speed&quot;, turn_speed);
++  props.print_unused_warnings(&quot;swarm&quot;);
++
++  agents.resize(count);
++
++  for(Agents::iterator i = agents.begin(); i != agents.end(); ++i)
++    {
++      i-&gt;pos.x = pos.x + rnd.drand(-100, 100);
++      i-&gt;pos.y = pos.y + rnd.drand(-100, 100);
++
++      i-&gt;angle = rnd.drand(-M_PI, M_PI);
++      i-&gt;speed = rnd.drand(50.0f, 200.0f);
++
++      i-&gt;max_speed = rnd.drand(150.0f, 200.0f);
++
++      i-&gt;last_pos = i-&gt;pos;
++    }
++}
++
++void
++Swarm::draw(SceneContext&amp; sc)
++{
++  VertexArrayDrawingRequest* array = new VertexArrayDrawingRequest(Vector(0, 0), 
++                                                                   1000.0f, sc.highlight().get_modelview());
++
++  array-&gt;set_mode(GL_LINES);
++  array-&gt;set_blend_func(GL_ONE, GL_ZERO);
++
++  Color begin_color(1.0f, 1.0f, 1.0f);
++  Color end_color(0.0f, 0.0f, 0.0f);
++
++  for(Agents::const_iterator i = agents.begin(); i != agents.end(); ++i)
++    {
++      array-&gt;color(begin_color);
++      array-&gt;vertex(i-&gt;last_pos.x, i-&gt;last_pos.y);
++
++      array-&gt;color(end_color);
++      array-&gt;vertex(i-&gt;pos.x, i-&gt;pos.y);
++    }
++
++  sc.highlight().draw(array);
++}
++
++void
++Swarm::update(float delta)
++{
++  int x, y;
++  SDL_GetMouseState(&amp;x, &amp;y);
++  
++  target = GameSession::current()-&gt;get_view()-&gt;screen_to_world(Vector(x, y));
++
++  for(Agents::iterator i = agents.begin(); i != agents.end(); ++i)
++    {
++      i-&gt;last_pos = i-&gt;pos;
++
++      float dx = target.x - i-&gt;pos.x;
++      float dy = target.y - i-&gt;pos.y;
++
++      float target_angle   = atan2f(dy, dx);
++      float relative_angle = target_angle - i-&gt;angle;
++      
++
++      if (sqrt(dx*dx + dy*dy) &gt; 50.0f) // swarm range
++        {
++          if (fabs(relative_angle) &lt; 1.0f)
++            {
++              //i-&gt;angle += rnd.drand(-1.0f, 1.0f) * delta;
++              if (i-&gt;speed &lt; i-&gt;max_speed) 
++                i-&gt;speed += 10.0f * delta;
++            }
++          else
++            {
++              if (fmod(relative_angle, 2*M_PI) &gt; 0 &amp;&amp; fmod(relative_angle, 2*M_PI) &lt; M_PI)
++                i-&gt;angle += turn_speed * delta;
++              else
++                i-&gt;angle -= turn_speed * delta;
++            }
++        }
++      else
++        {
++          //i-&gt;angle += rnd.drand(-15.0f, 15.0f) * delta;
++          //i-&gt;speed += 150.0f - fabs(i-&gt;angle);
++        }
++
++      i-&gt;pos.x += i-&gt;speed * cos(i-&gt;angle) * delta;
++      i-&gt;pos.y += i-&gt;speed * sin(i-&gt;angle) * delta;
++    }
++}
++
++/* EOF */
+
+Added: trunk/src/badguy/swarm.hpp
+===================================================================
+--- trunk/src/badguy/swarm.hpp	2005-08-09 13:03:14 UTC (rev 949)
++++ trunk/src/badguy/swarm.hpp	2005-08-09 18:17:19 UTC (rev 950)
+@@ -0,0 +1,64 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_SWARM_HPP
++#define HEADER_SWARM_HPP
++
++#include &quot;entity.hpp&quot;
++
++class SwarmAgent
++{
++public:
++  Vector pos;
++  Vector last_pos;
++  float  angle;
++  float  speed;
++  float  max_speed;
++};
++
++/** */
++class Swarm : public Entity
++{
++private:
++  typedef std::vector&lt;SwarmAgent&gt; Agents;
++  Agents agents;
++
++  Vector target;
++
++  float turn_speed; 
++public:
++  Swarm(const lisp::Lisp* lisp);
++  
++  void draw(SceneContext&amp; sc);
++  void update(float delta);
++
++private:
++  Swarm (const Swarm&amp;);
++  Swarm&amp; operator= (const Swarm&amp;);
++};
++
++#endif
++
++/* EOF */
+
+Modified: trunk/src/pda.cpp
+===================================================================
+--- trunk/src/pda.cpp	2005-08-09 13:03:14 UTC (rev 949)
++++ trunk/src/pda.cpp	2005-08-09 18:17:19 UTC (rev 950)
+@@ -48,11 +48,15 @@
+   if (!active)
+     return;
+     
+-  const Rectf&amp; rect = text_area-&gt;get_rect().grow(8.0f);
++  if (text_area)
++    {
++      const Rectf&amp; rect = text_area-&gt;get_rect().grow(8.0f);
+ 
+-  Display::fill_rounded_rect(rect, 16.0f, Color(0.3f, 0.3f, 0.5f, 0.5f));
+-  Display::draw_rounded_rect(rect, 16.0f, Color(1.0f, 1.0f, 1.0f, 0.5f));
+-  text_area-&gt;draw();
++      Display::fill_rounded_rect(rect, 16.0f, Color(0.3f, 0.3f, 0.5f, 0.5f));
++      Display::draw_rounded_rect(rect, 16.0f, Color(1.0f, 1.0f, 1.0f, 0.5f));
++
++      text_area-&gt;draw();
++    }
+ }
+ 
+ void
+
+Modified: trunk/src/sector.cpp
+===================================================================
+--- trunk/src/sector.cpp	2005-08-09 13:03:14 UTC (rev 949)
++++ trunk/src/sector.cpp	2005-08-09 18:17:19 UTC (rev 950)
+@@ -41,6 +41,7 @@
+ #include &quot;elevator.hpp&quot;
+ #include &quot;nightvision.hpp&quot;
+ #include &quot;character.hpp&quot;
++#include &quot;badguy/swarm.hpp&quot;
+ #include &quot;badguy/hedgehog.hpp&quot;
+ #include &quot;badguy/spider_mine.hpp&quot;
+ #include &quot;box.hpp&quot;
+@@ -157,6 +158,8 @@
+     add(new ScriptableObject(lisp));
+   } else if (name == &quot;vrdummy&quot;) {
+     add(new VRDummy(lisp));
++  } else if (name == &quot;swarm&quot;) {
++    add(new Swarm(lisp));
+   } else {
+     std::cout &lt;&lt; &quot;Skipping unknown Object: &quot; &lt;&lt; name &lt;&lt; &quot;\n&quot;;
+   }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000602.html">[Windstille-commit] r949 - in trunk/src: . input scripting
+</A></li>
+	<LI>Next message: <A HREF="000604.html">[Windstille-commit] r951 - in trunk: data/levels data/scripts src src/collision src/lisp src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#603">[ date ]</a>
+              <a href="thread.html#603">[ thread ]</a>
+              <a href="subject.html#603">[ subject ]</a>
+              <a href="author.html#603">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

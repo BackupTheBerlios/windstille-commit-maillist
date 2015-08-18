@@ -1,0 +1,364 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2570 - trunk/windstille/src/engine
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2570%20-%20trunk/windstille/src/engine&In-Reply-To=%3C200903081910.n28JAZfp011718%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001566.html">
+   <LINK REL="Next"  HREF="001568.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2570 - trunk/windstille/src/engine</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2570%20-%20trunk/windstille/src/engine&In-Reply-To=%3C200903081910.n28JAZfp011718%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2570 - trunk/windstille/src/engine">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Mar  8 20:10:35 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001566.html">[Windstille-commit] r2569 - in trunk/windstille/src: engine	scripting
+</A></li>
+        <LI>Next message: <A HREF="001568.html">[Windstille-commit] r2571 - trunk/windstille/src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1567">[ date ]</a>
+              <a href="thread.html#1567">[ thread ]</a>
+              <a href="subject.html#1567">[ subject ]</a>
+              <a href="author.html#1567">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-08 20:10:34 +0100 (Sun, 08 Mar 2009)
+New Revision: 2570
+
+Modified:
+   trunk/windstille/src/engine/script_manager.cpp
+   trunk/windstille/src/engine/script_manager.hpp
+   trunk/windstille/src/engine/sector.cpp
+   trunk/windstille/src/engine/sector.hpp
+Log:
+Moved expose/remove_object_from_squirrel to ScriptManager, properly create empty 'objects' table on startup
+
+Modified: trunk/windstille/src/engine/script_manager.cpp
+===================================================================
+--- trunk/windstille/src/engine/script_manager.cpp	2009-03-08 18:36:20 UTC (rev 2569)
++++ trunk/windstille/src/engine/script_manager.cpp	2009-03-08 19:10:34 UTC (rev 2570)
+@@ -36,8 +36,11 @@
+ #include &quot;scripting/squirrel_error.hpp&quot;
+ #include &quot;physfs/physfs_stream.hpp&quot;
+ 
+-using namespace Scripting;
++using Scripting::SquirrelError;
+ 
++// The table (works like a namespace here) where the game objects will appear
++static const char* OBJECTS_TABLE = &quot;objects&quot;;
++
+ ScriptManager* ScriptManager::current_ = 0;
+ 
+ static void printfunc(HSQUIRRELVM, const char* str, ...)
+@@ -91,6 +94,13 @@
+   
+       // register windstille API
+       Scripting::register_windstille_wrapper(vm);
++
++      // Create the &quot;objects&quot; table
++      sq_pushroottable(vm);
++      sq_pushstring(vm, OBJECTS_TABLE, -1);
++      sq_newtable(vm);
++      sq_newslot(vm, -3, SQFalse);
++      sq_pop(vm, 1);
+     }
+ }
+ 
+@@ -200,4 +210,85 @@
+     return true;
+ }
+ 
++void
++ScriptManager::remove_object_from_squirrel(boost::shared_ptr&lt;GameObject&gt; object)
++{
++  // get objects table
++  HSQUIRRELVM v = ScriptManager::current()-&gt;get_vm();
++  sq_pushroottable(v);
++  sq_pushstring(v, OBJECTS_TABLE, -1);
++  if(SQ_FAILED(sq_get(v, -2)))
++  {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't get objects table '&quot; &lt;&lt; OBJECTS_TABLE &lt;&lt; &quot;'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  // remove object from table
++  sq_pushstring(v, object-&gt;get_name().c_str(), object-&gt;get_name().size());
++  if(SQ_FAILED(sq_deleteslot(v, -2, SQFalse))) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't remove squirrel object for '&quot; &lt;&lt; object-&gt;get_name()
++        &lt;&lt; &quot;'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++  
++  // pop objects and root table
++  sq_pop(v, 2);
++}
++
++// tries to find out the &quot;real&quot; class of an gameobject by some dynamic casting
++// and creates a matching squirrel instance for that object
++static inline void create_squirrel_instance(HSQUIRRELVM v, boost::shared_ptr&lt;GameObject&gt; object)
++{
++  if (dynamic_cast&lt;ScriptableObject*&gt;(object.get()))
++    {
++      create_squirrel_instance(v, new Scripting::ScriptableObject(object),
++                               true);
++      return;
++    }
++  
++  if (dynamic_cast&lt;TestObject*&gt;(object.get()))
++    {
++      create_squirrel_instance(v, new Scripting::TestObject(object), true);
++      return;
++    }                                                                             
++
++  if (dynamic_cast&lt;Player*&gt;(object.get()))
++    {
++      create_squirrel_instance(v, new Scripting::Player(object), true);
++      return;
++    }
++
++  create_squirrel_instance(v, new Scripting::GameObject(object), true);
++}
++
++void
++ScriptManager::expose_object_to_squirrel(boost::shared_ptr&lt;GameObject&gt; object)
++{
++  // get objects table
++  HSQUIRRELVM v = ScriptManager::current()-&gt;get_vm();
++  sq_pushroottable(v);
++  sq_pushstring(v, OBJECTS_TABLE, -1);
++  if(SQ_FAILED(sq_get(v, -2)))
++  {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't get objects table '&quot; &lt;&lt; OBJECTS_TABLE &lt;&lt; &quot;'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++  
++  // create squirrel instance and register in table
++  sq_pushstring(v, object-&gt;get_name().c_str(), object-&gt;get_name().size());
++  create_squirrel_instance(v, object);
++  if(SQ_FAILED(sq_createslot(v, -3)))
++  {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register object in objects tab&#246;e&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  // pop roottable and objects table
++  sq_pop(v, 2);
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/engine/script_manager.hpp
+===================================================================
+--- trunk/windstille/src/engine/script_manager.hpp	2009-03-08 18:36:20 UTC (rev 2569)
++++ trunk/windstille/src/engine/script_manager.hpp	2009-03-08 19:10:34 UTC (rev 2570)
+@@ -102,6 +102,9 @@
+   void fire_wakeup_event(WakeupEvent event);
+   void fire_wakeup_event(WakeupData  event);
+   
++  void expose_object_to_squirrel(boost::shared_ptr&lt;GameObject&gt; object);
++  void remove_object_from_squirrel(boost::shared_ptr&lt;GameObject&gt; object);
++
+   /** Returns true if the given vm as been used in a run_script() call
+       before, if the vm is run for the first time return true */
+   bool run_before(HSQUIRRELVM vm);
+
+Modified: trunk/windstille/src/engine/sector.cpp
+===================================================================
+--- trunk/windstille/src/engine/sector.cpp	2009-03-08 18:36:20 UTC (rev 2569)
++++ trunk/windstille/src/engine/sector.cpp	2009-03-08 19:10:34 UTC (rev 2570)
+@@ -50,21 +50,12 @@
+ 
+ #include &quot;sector.hpp&quot;
+ 
+-// The table (works like a namespace here) where the game objects will appear
+-#define OBJECTS_TABLE &quot;objects&quot;
+-
+ Sector* Sector::current_ = 0;
+ 
+ Sector::Sector(const std::string&amp; arg_filename)
+   : filename(arg_filename),
+     player(0)    
+-{
+-  // make sure squirrel has an &quot;objects&quot; table
+-  ScriptManager::current()-&gt;run_script(
+-      &quot;if(! (\&quot;&quot; OBJECTS_TABLE &quot;\&quot; in this)) {&quot;
+-      &quot;  &quot; OBJECTS_TABLE &quot; &lt;- {};&quot;
+-      &quot;}&quot;, &quot;&quot;);
+-  
++{ 
+   if (debug) std::cout &lt;&lt; &quot;Creating new Sector&quot; &lt;&lt; std::endl;
+   collision_engine = std::auto_ptr&lt;CollisionEngine&gt;(new CollisionEngine());
+   navigation_graph = std::auto_ptr&lt;NavigationGraph&gt;(new NavigationGraph());
+@@ -187,7 +178,7 @@
+   commit_removes();
+ 
+   sound_manager-&gt;play_music(music);
+-  if (init_script != &quot;&quot;)
++  if (!init_script.empty())
+     ScriptManager::current()-&gt;run_script_file(get_directory() + init_script);
+ }
+ 
+@@ -237,7 +228,7 @@
+         {
+           if(object-&gt;get_name() != &quot;&quot;) 
+             {
+-              remove_object_from_squirrel(object);
++              ScriptManager::current()-&gt;remove_object_from_squirrel(object);
+             }
+ 
+           i = objects.erase(i);
+@@ -255,95 +246,10 @@
+ 
+   if(obj-&gt;get_name() != &quot;&quot;) 
+     {
+-      expose_object_to_squirrel(new_objects.back());
++      ScriptManager::current()-&gt;expose_object_to_squirrel(new_objects.back());
+     }
+ }
+ 
+-void
+-Sector::remove_object_from_squirrel(boost::shared_ptr&lt;GameObject&gt; object)
+-{
+-  using namespace Scripting;
+-
+-  // get objects table
+-  HSQUIRRELVM v = ScriptManager::current()-&gt;get_vm();
+-  sq_pushroottable(v);
+-  sq_pushstring(v, OBJECTS_TABLE, -1);
+-  if(SQ_FAILED(sq_get(v, -2)))
+-  {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't get objects table '&quot; &lt;&lt; OBJECTS_TABLE &lt;&lt; &quot;'&quot;;
+-    throw SquirrelError(v, msg.str());
+-  }
+-
+-  // remove object from table
+-  sq_pushstring(v, object-&gt;get_name().c_str(), object-&gt;get_name().size());
+-  if(SQ_FAILED(sq_deleteslot(v, -2, SQFalse))) {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't remove squirrel object for '&quot; &lt;&lt; object-&gt;get_name()
+-        &lt;&lt; &quot;'&quot;;
+-    throw SquirrelError(v, msg.str());
+-  }
+-  
+-  // pop objects and root table
+-  sq_pop(v, 2);
+-}
+-
+-// tries to find out the &quot;real&quot; class of an gameobject by some dynamic casting
+-// and creates a matching squirrel instance for that object
+-static inline void create_squirrel_instance(HSQUIRRELVM v, boost::shared_ptr&lt;GameObject&gt; object)
+-{
+-  if (dynamic_cast&lt;ScriptableObject*&gt;(object.get()))
+-    {
+-      create_squirrel_instance(v, new Scripting::ScriptableObject(object),
+-                               true);
+-      return;
+-    }
+-  
+-  if (dynamic_cast&lt;TestObject*&gt;(object.get()))
+-    {
+-      create_squirrel_instance(v, new Scripting::TestObject(object), true);
+-      return;
+-    }                                                                             
+-
+-  if (dynamic_cast&lt;Player*&gt;(object.get()))
+-    {
+-      create_squirrel_instance(v, new Scripting::Player(object), true);
+-      return;
+-    }
+-
+-  create_squirrel_instance(v, new Scripting::GameObject(object), true);
+-}
+-
+-void
+-Sector::expose_object_to_squirrel(boost::shared_ptr&lt;GameObject&gt; object)
+-{
+-  using namespace Scripting;
+-
+-  // get objects table
+-  HSQUIRRELVM v = ScriptManager::current()-&gt;get_vm();
+-  sq_pushroottable(v);
+-  sq_pushstring(v, OBJECTS_TABLE, -1);
+-  if(SQ_FAILED(sq_get(v, -2)))
+-  {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't get objects table '&quot; &lt;&lt; OBJECTS_TABLE &lt;&lt; &quot;'&quot;;
+-    throw SquirrelError(v, msg.str());
+-  }
+-  
+-  // create squirrel instance and register in table
+-  sq_pushstring(v, object-&gt;get_name().c_str(), object-&gt;get_name().size());
+-  create_squirrel_instance(v, object);
+-  if(SQ_FAILED(sq_createslot(v, -3)))
+-  {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't register object in objects tab&#246;e&quot;;
+-    throw SquirrelError(v, msg.str());
+-  }
+-
+-  // pop roottable and objects table
+-  sq_pop(v, 2);
+-}
+-
+ GameObject*
+ Sector::get_object(const std::string&amp; name) const
+ {
+
+Modified: trunk/windstille/src/engine/sector.hpp
+===================================================================
+--- trunk/windstille/src/engine/sector.hpp	2009-03-08 18:36:20 UTC (rev 2569)
++++ trunk/windstille/src/engine/sector.hpp	2009-03-08 19:10:34 UTC (rev 2570)
+@@ -71,9 +71,6 @@
+   void commit_adds();
+   void commit_removes();
+ 
+-  void expose_object_to_squirrel(boost::shared_ptr&lt;GameObject&gt; object);
+-  void remove_object_from_squirrel(boost::shared_ptr&lt;GameObject&gt; object);
+-
+ public:
+   Sector(const std::string&amp; filename);
+   ~Sector();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001566.html">[Windstille-commit] r2569 - in trunk/windstille/src: engine	scripting
+</A></li>
+	<LI>Next message: <A HREF="001568.html">[Windstille-commit] r2571 - trunk/windstille/src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1567">[ date ]</a>
+              <a href="thread.html#1567">[ thread ]</a>
+              <a href="subject.html#1567">[ subject ]</a>
+              <a href="author.html#1567">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

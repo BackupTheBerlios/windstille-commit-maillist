@@ -1,0 +1,195 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r873 - in trunk/src: . glutil
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r873%20-%20in%20trunk/src%3A%20.%20glutil&In-Reply-To=%3C200508011249.j71CnfPa021616%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000525.html">
+   <LINK REL="Next"  HREF="000527.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r873 - in trunk/src: . glutil</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r873%20-%20in%20trunk/src%3A%20.%20glutil&In-Reply-To=%3C200508011249.j71CnfPa021616%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r873 - in trunk/src: . glutil">grumbel at berlios.de
+       </A><BR>
+    <I>Mon Aug  1 14:49:41 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000525.html">[Windstille-commit] r872 - in trunk/src: . display sprite2d
+</A></li>
+        <LI>Next message: <A HREF="000527.html">[Windstille-commit] r874 - in trunk/data: . images/tiles levels
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#526">[ date ]</a>
+              <a href="thread.html#526">[ thread ]</a>
+              <a href="subject.html#526">[ subject ]</a>
+              <a href="author.html#526">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-08-01 14:49:33 +0200 (Mon, 01 Aug 2005)
+New Revision: 873
+
+Modified:
+   trunk/src/glutil/texture.cpp
+   trunk/src/glutil/texture.hpp
+   trunk/src/nightvision.cpp
+Log:
+- fixed handling of non RGBA images
+
+Modified: trunk/src/glutil/texture.cpp
+===================================================================
+--- trunk/src/glutil/texture.cpp	2005-08-01 00:51:12 UTC (rev 872)
++++ trunk/src/glutil/texture.cpp	2005-08-01 12:49:33 UTC (rev 873)
+@@ -70,7 +70,7 @@
+   std::cout &lt;&lt; &quot;Filename: &quot; &lt;&lt; filename &lt;&lt; &quot; -&gt; &quot; &lt;&lt; get_handle() &lt;&lt; std::endl;
+ }
+ 
+-Texture::Texture(int width, int height)
++Texture::Texture(int width, int height, GLint format)
+   : impl(new TextureImpl())
+ {
+   impl-&gt;width  = width;
+@@ -80,7 +80,7 @@
+   state.set_active(); 
+   
+   glBindTexture(GL_TEXTURE_2D, impl-&gt;handle);
+-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA,
++  glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, GL_RGBA,
+                GL_UNSIGNED_BYTE, 0);
+ 
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+@@ -95,7 +95,7 @@
+   return (v &amp; (v-1)) == 0;
+ }
+ 
+-Texture::Texture(SDL_Surface* image)
++Texture::Texture(SDL_Surface* image, GLint glformat)
+   : impl(new TextureImpl())
+ {
+   impl-&gt;width  = image-&gt;w;
+@@ -121,11 +121,25 @@
+       if(image-&gt;w &gt; maxt || image-&gt;h &gt; maxt)
+         throw std::runtime_error(&quot;Texture size not supported&quot;);
+ 
++      GLint sdl_format;
++      if (format-&gt;BytesPerPixel == 3)
++        {
++          sdl_format = GL_RGB;
++        }
++      else if (format-&gt;BytesPerPixel == 4)
++        {
++          sdl_format = GL_RGBA;
++        }
++      else
++        {
++          throw std::runtime_error(&quot;Texture: Image format not supported&quot;);
++        }
++
+       glBindTexture(GL_TEXTURE_2D, impl-&gt;handle);
+       glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+       glPixelStorei(GL_UNPACK_ROW_LENGTH, image-&gt;pitch/format-&gt;BytesPerPixel);
+-      glTexImage2D(GL_TEXTURE_2D, 0, format-&gt;BytesPerPixel,
+-                   image-&gt;w, image-&gt;h, 0, GL_RGBA,
++      glTexImage2D(GL_TEXTURE_2D, 0, glformat,
++                   image-&gt;w, image-&gt;h, 0, sdl_format,
+                    GL_UNSIGNED_BYTE, image-&gt;pixels);
+ 
+       assert_gl(&quot;creating texture&quot;);
+@@ -172,6 +186,20 @@
+   CL_OpenGLState state(CL_Display::get_current_window()-&gt;get_gc());
+   state.set_active(); 
+ 
++  GLint sdl_format;
++  if (image-&gt;format-&gt;BytesPerPixel == 3)
++    {
++      sdl_format = GL_RGB;
++    }
++  else if (image-&gt;format-&gt;BytesPerPixel == 4)
++    {
++      sdl_format = GL_RGBA;
++    }
++  else
++    {
++      throw std::runtime_error(&quot;Texture: Image format not supported&quot;);
++    }
++
+   // FIXME: Add some checks here to make sure image has the right format 
+   glBindTexture(GL_TEXTURE_2D, impl-&gt;handle);
+   glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+@@ -179,7 +207,7 @@
+                 image-&gt;pitch / image-&gt;format-&gt;BytesPerPixel);
+ 
+   glTexSubImage2D(GL_TEXTURE_2D, 0, x, y,
+-                  image-&gt;w, image-&gt;h, GL_RGBA, GL_UNSIGNED_BYTE,
++                  image-&gt;w, image-&gt;h, sdl_format, GL_UNSIGNED_BYTE,
+                   image-&gt;pixels);
+ }
+ 
+
+Modified: trunk/src/glutil/texture.hpp
+===================================================================
+--- trunk/src/glutil/texture.hpp	2005-08-01 00:51:12 UTC (rev 872)
++++ trunk/src/glutil/texture.hpp	2005-08-01 12:49:33 UTC (rev 873)
+@@ -47,12 +47,12 @@
+    * Upload an SDL_Surface onto an OpenGL texture. The surface must have power
+    * of 2 dimensions
+    * */
+-  explicit Texture(SDL_Surface* image);
++  explicit Texture(SDL_Surface* image, GLint format = GL_RGBA);
+ 
+   /** 
+    * Create an empty Texture with the given dimensions
+    */
+-  explicit Texture(int width, int height);
++  explicit Texture(int width, int height, GLint format = GL_RGBA);
+ 
+   ~Texture();
+ 
+
+Modified: trunk/src/nightvision.cpp
+===================================================================
+--- trunk/src/nightvision.cpp	2005-08-01 00:51:12 UTC (rev 872)
++++ trunk/src/nightvision.cpp	2005-08-01 12:49:33 UTC (rev 873)
+@@ -104,7 +104,6 @@
+           array-&gt;vertex(0, 600, 1.0f);
+         }
+ 
+-      //std::cout &lt;&lt; &quot;Drawing night&quot; &lt;&lt; std::endl;
+       sc.light().draw(array);
+     }
+   sc.light().pop_modelview();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000525.html">[Windstille-commit] r872 - in trunk/src: . display sprite2d
+</A></li>
+	<LI>Next message: <A HREF="000527.html">[Windstille-commit] r874 - in trunk/data: . images/tiles levels
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#526">[ date ]</a>
+              <a href="thread.html#526">[ thread ]</a>
+              <a href="subject.html#526">[ subject ]</a>
+              <a href="author.html#526">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

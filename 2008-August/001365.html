@@ -1,0 +1,594 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2368 - in trunk/griv: . src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2368%20-%20in%20trunk/griv%3A%20.%20src&In-Reply-To=%3C200808300233.m7U2XSBO015777%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001364.html">
+   <LINK REL="Next"  HREF="001366.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2368 - in trunk/griv: . src</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2368%20-%20in%20trunk/griv%3A%20.%20src&In-Reply-To=%3C200808300233.m7U2XSBO015777%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2368 - in trunk/griv: . src">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Aug 30 04:33:28 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001364.html">[Windstille-commit] r2367 - in trunk/griv: . src
+</A></li>
+        <LI>Next message: <A HREF="001366.html">[Windstille-commit] r2369 - trunk/griv/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1365">[ date ]</a>
+              <a href="thread.html#1365">[ thread ]</a>
+              <a href="subject.html#1365">[ subject ]</a>
+              <a href="author.html#1365">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-30 04:33:27 +0200 (Sat, 30 Aug 2008)
+New Revision: 2368
+
+Modified:
+   trunk/griv/TODO
+   trunk/griv/src/database_thread.cpp
+   trunk/griv/src/file_entry.hpp
+   trunk/griv/src/griv.cpp
+   trunk/griv/src/image.cpp
+   trunk/griv/src/image.hpp
+   trunk/griv/src/software_surface.cpp
+   trunk/griv/src/software_surface.hpp
+   trunk/griv/src/tile_database.cpp
+   trunk/griv/src/tile_database.hpp
+   trunk/griv/src/viewer.cpp
+   trunk/griv/src/viewer.hpp
+   trunk/griv/src/viewer_thread.cpp
+   trunk/griv/src/workspace.cpp
+   trunk/griv/src/workspace.hpp
+Log:
+Added dynamic image movement and changed the database format a bit
+
+Modified: trunk/griv/TODO
+===================================================================
+--- trunk/griv/TODO	2008-08-29 17:48:21 UTC (rev 2367)
++++ trunk/griv/TODO	2008-08-30 02:33:27 UTC (rev 2368)
+@@ -1,5 +1,7 @@
+ [[ Griv ToDo ]]
+ 
++* hide mouse cursor on rejuest
++
+ * build &quot;scons configure&quot; like stuff, see Pingus for reference
+ 
+ * allow rotation of view, maybe later of images
+
+Modified: trunk/griv/src/database_thread.cpp
+===================================================================
+--- trunk/griv/src/database_thread.cpp	2008-08-29 17:48:21 UTC (rev 2367)
++++ trunk/griv/src/database_thread.cpp	2008-08-30 02:33:27 UTC (rev 2368)
+@@ -335,7 +335,6 @@
+       if (queue.empty() &amp;&amp; // FIXME UGLY: to make load on demand somewhat usable
+           TileGeneratorThread::current() &amp;&amp; !TileGeneratorThread::current()-&gt;is_working())
+         {
+-
+           if (!tile_queue.empty())
+             TileGeneratorThread::current()-&gt;request_tiles(tile_queue.back()-&gt;file_entry,
+                                                           tile_queue.back()-&gt;tilescale,
+
+Modified: trunk/griv/src/file_entry.hpp
+===================================================================
+--- trunk/griv/src/file_entry.hpp	2008-08-29 17:48:21 UTC (rev 2367)
++++ trunk/griv/src/file_entry.hpp	2008-08-30 02:33:27 UTC (rev 2368)
+@@ -57,6 +57,10 @@
+   /** The size of the image in pixels */
+   Size size;
+ 
++  /** The maximum scale for which a tile is generated, any tile
++      smaller then this will not be generated */
++  int max_tiledb_scale;
++
+   /** The average color of the image, it can also be thought of as a
+       1x1 thumbnail, it is used when drawing the place holder rect
+       when no Tile is available */
+
+Modified: trunk/griv/src/griv.cpp
+===================================================================
+--- trunk/griv/src/griv.cpp	2008-08-29 17:48:21 UTC (rev 2367)
++++ trunk/griv/src/griv.cpp	2008-08-30 02:33:27 UTC (rev 2368)
+@@ -123,8 +123,10 @@
+   SQLiteConnection db(database);
+ 
+   FileDatabase file_db(&amp;db);
++  TileDatabase tile_db(&amp;db);
+ 
+   file_db.check();
++  tile_db.check();
+ }
+ 
+ void
+
+Modified: trunk/griv/src/image.cpp
+===================================================================
+--- trunk/griv/src/image.cpp	2008-08-29 17:48:21 UTC (rev 2367)
++++ trunk/griv/src/image.cpp	2008-08-30 02:33:27 UTC (rev 2368)
+@@ -48,6 +48,8 @@
+ 
+   int min_keep_scale; 
+   Vector2f pos;
++  Vector2f last_pos;
++  Vector2f target_pos;
+ 
+   Image::Cache cache;
+   Image::Jobs jobs;  
+@@ -75,7 +77,7 @@
+ 
+   int size  = Math::max(file_entry.size.width, file_entry.size.height);
+   impl-&gt;min_keep_scale = 0;
+-  while(size &gt; 32) 
++  while(size &gt; 8) 
+     {
+       size /= 2;
+       impl-&gt;min_keep_scale +=1 ;
+@@ -84,9 +86,11 @@
+ }
+ 
+ void
+-Image::set_pos(const Vector2f&amp; pos_)
++Image::set_pos(const Vector2f&amp; pos)
+ {
+-  impl-&gt;pos = pos_;
++  impl-&gt;pos        = pos;
++  impl-&gt;last_pos   = pos;
++  impl-&gt;target_pos = pos;
+ }
+ 
+ Vector2f
+@@ -96,6 +100,29 @@
+ }
+ 
+ void
++Image::set_target_pos(const Vector2f&amp; target_pos)
++{
++  impl-&gt;last_pos   = impl-&gt;pos;
++  impl-&gt;target_pos = target_pos;
++}
++
++void
++Image::update_pos(float progress)
++{
++  assert(progress &gt;= 0.0f &amp;&amp;
++         progress &lt;= 1.0f);
++
++  if (progress == 1.0f)
++    {
++      set_pos(impl-&gt;target_pos);
++    }
++  else
++    {
++      impl-&gt;pos = (impl-&gt;last_pos * (1.0f - progress)) + (impl-&gt;target_pos * progress);
++    }
++}
++
++void
+ Image::set_scale(float f)
+ {
+   impl-&gt;scale = f;
+
+Modified: trunk/griv/src/image.hpp
+===================================================================
+--- trunk/griv/src/image.hpp	2008-08-29 17:48:21 UTC (rev 2367)
++++ trunk/griv/src/image.hpp	2008-08-30 02:33:27 UTC (rev 2368)
+@@ -73,6 +73,10 @@
+   void draw_tiles(const Rect&amp; rect, int tiledb_scale, const Vector2f&amp; pos, float scale);
+   void draw(const Rectf&amp; cliprect, float scale);
+ 
++  void update_pos(float progress);
++
++  void set_target_pos(const Vector2f&amp; target_pos);
++
+   void set_pos(const Vector2f&amp; pos);
+   Vector2f get_pos() const;
+ 
+
+Modified: trunk/griv/src/software_surface.cpp
+===================================================================
+--- trunk/griv/src/software_surface.cpp	2008-08-29 17:48:21 UTC (rev 2367)
++++ trunk/griv/src/software_surface.cpp	2008-08-30 02:33:27 UTC (rev 2368)
+@@ -31,9 +31,13 @@
+ #include &quot;math.hpp&quot;
+ #include &quot;jpeg.hpp&quot;
+ #include &quot;math/rect.hpp&quot;
++#include &quot;math/rgb.hpp&quot;
+ #include &quot;math/size.hpp&quot;
+ 
+ #include &quot;software_surface.hpp&quot;
++
++// FIXME: Stuff in this file is currently written to just work, not to
++// be fast
+ 
+ class SoftwareSurfaceImpl
+ {
+@@ -69,25 +73,25 @@
+ }
+ 
+ void
+-SoftwareSurface::put_pixel(int x, int y, uint8_t r, uint8_t g, uint8_t b)
++SoftwareSurface::put_pixel(int x, int y, const RGB&amp; rgb)
+ {
+   assert(x &gt;= 0 &amp;&amp; x &lt; impl-&gt;size.width &amp;&amp;
+          y &gt;= 0 &amp;&amp; y &lt; impl-&gt;size.height);
+ 
+-  impl-&gt;pixels[y * impl-&gt;pitch + x*3 + 0] = r;
+-  impl-&gt;pixels[y * impl-&gt;pitch + x*3 + 1] = g;
+-  impl-&gt;pixels[y * impl-&gt;pitch + x*3 + 2] = b;
++  impl-&gt;pixels[y * impl-&gt;pitch + x*3 + 0] = rgb.r;
++  impl-&gt;pixels[y * impl-&gt;pitch + x*3 + 1] = rgb.g;
++  impl-&gt;pixels[y * impl-&gt;pitch + x*3 + 2] = rgb.b;
+ }
+ 
+ void
+-SoftwareSurface::get_pixel(int x, int y, uint8_t* r, uint8_t* g, uint8_t* b) const
++SoftwareSurface::get_pixel(int x, int y, RGB&amp; rgb) const
+ {
+   assert(x &gt;= 0 &amp;&amp; x &lt; impl-&gt;size.width &amp;&amp;
+          y &gt;= 0 &amp;&amp; y &lt; impl-&gt;size.height);
+ 
+-  *r = impl-&gt;pixels[y * impl-&gt;pitch + x*3 + 0];
+-  *g = impl-&gt;pixels[y * impl-&gt;pitch + x*3 + 1];
+-  *b = impl-&gt;pixels[y * impl-&gt;pitch + x*3 + 2];
++  rgb.r = impl-&gt;pixels[y * impl-&gt;pitch + x*3 + 0];
++  rgb.g = impl-&gt;pixels[y * impl-&gt;pitch + x*3 + 1];
++  rgb.b = impl-&gt;pixels[y * impl-&gt;pitch + x*3 + 2];
+ }
+ 
+ SoftwareSurface
+@@ -102,15 +106,15 @@
+   SoftwareSurface surface(size);
+   // Very much non-fast, needs replacement with proper
+ 
+-  uint8_t r,g,b;
++  RGB rgb;
+   for(int y = 0; y &lt; surface.get_height(); ++y)
+     for(int x = 0; x &lt; surface.get_width(); ++x)
+       {
+         get_pixel(x * impl-&gt;size.width  / surface.impl-&gt;size.width,
+                   y * impl-&gt;size.height / surface.impl-&gt;size.height,
+-                  &amp;r, &amp;g, &amp;b);
++                  rgb);
+ 
+-        surface.put_pixel(x, y, r, g, b);
++        surface.put_pixel(x, y, rgb);
+       }
+ 
+   return surface;
+@@ -202,5 +206,32 @@
+   return impl-&gt;pixels + (y * impl-&gt;pitch);
+   
+ }
++
++RGB
++SoftwareSurface::get_average_color() const
++{
++  // Only works for smaller surfaces, else we would run into integer overflows
++  assert(get_width() &gt; 256 || get_height() &gt; 256); // random limit, but should be enough for griv
++
++  unsigned int r = 0;
++  unsigned int g = 0;
++  unsigned int b = 0;
++
++  for(int y = 0; y &lt; get_height(); ++y)
++    for(int x = 0; x &lt; get_width(); ++x)
++      {
++        RGB rgb;
++        get_pixel(x, y, rgb);
++
++        r += rgb.r;
++        g += rgb.g;
++        b += rgb.b;
++      }
++
++  int num_pixels = get_width() * get_height();
++  return RGB(r / num_pixels,
++             g / num_pixels,
++             b / num_pixels);
++}
+   
+ /* EOF */
+
+Modified: trunk/griv/src/software_surface.hpp
+===================================================================
+--- trunk/griv/src/software_surface.hpp	2008-08-29 17:48:21 UTC (rev 2367)
++++ trunk/griv/src/software_surface.hpp	2008-08-30 02:33:27 UTC (rev 2368)
+@@ -29,6 +29,7 @@
+ #include &lt;boost/shared_ptr.hpp&gt;
+ #include &quot;blob.hpp&quot;
+ 
++class RGB;
+ class Rect;
+ class Size;
+ class SoftwareSurfaceImpl;
+@@ -57,12 +58,14 @@
+   static SoftwareSurface from_data(const Blob&amp; blob);
+   static SoftwareSurface from_file(const std::string&amp; filename);
+  
+-  void put_pixel(int x, int y, uint8_t r, uint8_t g, uint8_t b);
+-  void get_pixel(int x, int y, uint8_t* r, uint8_t* g, uint8_t* b) const;
++  void put_pixel(int x, int y, const RGB&amp; rgb);
++  void get_pixel(int x, int y, RGB&amp; rgb) const;
+ 
+   uint8_t* get_data() const;
+   uint8_t* get_row_data(int y) const;
+ 
++  RGB get_average_color() const;
++
+   operator bool() const { return impl.get(); }
+ 
+ private:
+
+Modified: trunk/griv/src/tile_database.cpp
+===================================================================
+--- trunk/griv/src/tile_database.cpp	2008-08-29 17:48:21 UTC (rev 2367)
++++ trunk/griv/src/tile_database.cpp	2008-08-30 02:33:27 UTC (rev 2368)
+@@ -32,6 +32,7 @@
+   : db(db),
+     store_stmt(db),
+     get_stmt(db),
++    get_all_stmt(db),
+     has_stmt(db)
+ {
+   db-&gt;exec(&quot;CREATE TABLE IF NOT EXISTS tiles (&quot;
+@@ -39,16 +40,19 @@
+            &quot;scale   INTEGER, &quot; // zoom level
+            &quot;x       INTEGER, &quot; // X position in tiles
+            &quot;y       INTEGER, &quot; // Y position in tiles
+-           &quot;data    BLOB     &quot; // the image data, JPEG
++           &quot;data    BLOB,    &quot; // the image data, JPEG
++           &quot;quality INTEGER  &quot; // the quality of the tile (default: 0)
+            &quot;);&quot;);
+ 
+   db-&gt;exec(&quot;CREATE INDEX IF NOT EXISTS tiles_index ON tiles ( fileid, x, y, scale );&quot;);
+ 
+   // FIXME: This is brute force and doesn't handle collisions
+-  store_stmt.prepare(&quot;INSERT into tiles (fileid, scale, x, y, data) VALUES (?1, ?2, ?3, ?4, ?5);&quot;);
++  store_stmt.prepare(&quot;INSERT into tiles (fileid, scale, x, y, data, quality) VALUES (?1, ?2, ?3, ?4, ?5, ?6);&quot;);
+ 
+   get_stmt.prepare(&quot;SELECT * FROM tiles WHERE fileid = ?1 AND scale = ?2 AND x = ?3 AND y = ?4;&quot;);
+   has_stmt.prepare(&quot;SELECT (rowid) FROM tiles WHERE fileid = ?1 AND scale = ?2 AND x = ?3 AND y = ?4;&quot;);
++
++  get_all_stmt.prepare(&quot;SELECT * FROM tiles ORDER BY fileid;&quot;);
+ }
+ 
+ bool
+@@ -90,7 +94,7 @@
+       tile.pos.x   = reader.get_int (2);
+       tile.pos.y   = reader.get_int (3);
+ 
+-      // FIXME: Do this in the JPEGDecoderThread
++      // FIXME: Do this in a JPEGDecoderThread
+       tile.surface = SoftwareSurface::from_data(reader.get_blob(4));
+ 
+       return true;
+@@ -115,6 +119,7 @@
+   store_stmt.bind_int (3, tile.pos.x);
+   store_stmt.bind_int (4, tile.pos.y);
+   store_stmt.bind_blob(5, blob);
++  store_stmt.bind_int (6, 0);
+ 
+   store_stmt.execute();
+ }
+@@ -122,7 +127,18 @@
+ void
+ TileDatabase::check()
+ {
+-  
++  SQLiteReader reader = get_all_stmt.execute_query();
++
++  while(reader.next())
++    {
++      /*
++        int fileid = reader.get_int(0);
++        int scale  = reader.get_int(1);
++        int x      = reader.get_int(2);
++        int y      = reader.get_int(3);
++        Blob blob  = reader.get_blob(4);
++      */
++    }
+ }
+   
+ /* EOF */
+
+Modified: trunk/griv/src/tile_database.hpp
+===================================================================
+--- trunk/griv/src/tile_database.hpp	2008-08-29 17:48:21 UTC (rev 2367)
++++ trunk/griv/src/tile_database.hpp	2008-08-30 02:33:27 UTC (rev 2368)
+@@ -32,12 +32,15 @@
+ 
+ class TileEntry;
+ 
++/** 
++ */
+ class TileDatabase
+ {
+ private:
+   SQLiteConnection* db;
+   SQLiteStatement store_stmt;
+   SQLiteStatement get_stmt;
++  SQLiteStatement get_all_stmt;
+   SQLiteStatement has_stmt;
+ 
+ public:
+
+Modified: trunk/griv/src/viewer.cpp
+===================================================================
+--- trunk/griv/src/viewer.cpp	2008-08-29 17:48:21 UTC (rev 2367)
++++ trunk/griv/src/viewer.cpp	2008-08-30 02:33:27 UTC (rev 2368)
+@@ -231,7 +231,7 @@
+ }
+ 
+ void
+-Viewer::update(float delta)
++Viewer::update(Workspace&amp; workspace, float delta)
+ {
+   if (zoom_button == -1)
+     {
+@@ -241,6 +241,8 @@
+     {
+       state.zoom(1.0f + 4.0f * delta, mouse_pos);
+     }
++
++  workspace.update(delta);
+ }
+ 
+ /* EOF */
+
+Modified: trunk/griv/src/viewer.hpp
+===================================================================
+--- trunk/griv/src/viewer.hpp	2008-08-29 17:48:21 UTC (rev 2367)
++++ trunk/griv/src/viewer.hpp	2008-08-30 02:33:27 UTC (rev 2368)
+@@ -73,7 +73,7 @@
+   Viewer();
+ 
+   void draw(Workspace&amp; workspace);
+-  void update(float delta);
++  void update(Workspace&amp; workspace, float delta);
+   void process_event(Workspace&amp; workspace, const SDL_Event&amp; event);
+   bool done() const { return quit; }
+ 
+
+Modified: trunk/griv/src/viewer_thread.cpp
+===================================================================
+--- trunk/griv/src/viewer_thread.cpp	2008-08-29 17:48:21 UTC (rev 2367)
++++ trunk/griv/src/viewer_thread.cpp	2008-08-30 02:33:27 UTC (rev 2368)
+@@ -86,7 +86,7 @@
+       float delta = (cticks - ticks) / 1000.0f;
+       ticks = cticks;
+ 
+-      viewer.update(delta);
++      viewer.update(workspace, delta);
+ 
+       if (1) // if something has changed, redraw
+         {
+
+Modified: trunk/griv/src/workspace.cpp
+===================================================================
+--- trunk/griv/src/workspace.cpp	2008-08-29 17:48:21 UTC (rev 2367)
++++ trunk/griv/src/workspace.cpp	2008-08-30 02:33:27 UTC (rev 2368)
+@@ -31,6 +31,7 @@
+ {
+   next_pos = Vector2i(0, 0);
+   row_width = 100;
++  progress = 0.0f;
+ }
+ 
+ void
+@@ -63,23 +64,26 @@
+ 
+       for(int i = 0; i &lt; int(images.size()); ++i)
+         {
++          // Offset that positions the image in the center of the 1000x1000 rectangle
++          Vector2f off((1000.0f - images[i].get_scaled_width()) / 2,
++                       (1000.0f - images[i].get_scaled_height()) / 2);
++
+           if ((i/w) % 2 == 0)
+             {
+-              images[i].set_pos(Vector2f((i % w) * 1024.0f,
+-                                         (i / w) * 1024.0f));
++              images[i].set_target_pos(Vector2f((i % w) * 1024.0f,
++                                         (i / w) * 1024.0f) + off);
+             }
+           else
+             {
+-              images[i].set_pos(Vector2f((w - (i % w)-1) * 1024.0f,
+-                                         (i / w)         * 1024.0f));
++              images[i].set_target_pos(Vector2f((w - (i % w)-1) * 1024.0f,
++                                         (i / w)         * 1024.0f) + off);
+             }
+ 
+-          images[i].set_pos(images[i].get_pos() + Vector2f((1000.0f - images[i].get_scaled_width()) / 2,
+-                                                           (1000.0f - images[i].get_scaled_height()) / 2));
+-
+           next_pos = Vector2i(i % w, i / w);
+         }
+     }
++
++  progress = 0.0f;
+ }
+ 
+ void
+@@ -92,5 +96,22 @@
+       i-&gt;draw(cliprect, scale);
+     }  
+ }
++
++void
++Workspace::update(float delta)
++{
++  if (progress != 1.0f)
++    {
++      progress += delta * 2.0f;
++
++      if (progress &gt; 1.0f)
++        progress = 1.0f;
++
++      for(Images::iterator i = images.begin(); i != images.end(); ++i)
++        {
++          i-&gt;update_pos(progress);
++        }
++    }
++}
+ 
+ /* EOF */
+
+Modified: trunk/griv/src/workspace.hpp
+===================================================================
+--- trunk/griv/src/workspace.hpp	2008-08-29 17:48:21 UTC (rev 2367)
++++ trunk/griv/src/workspace.hpp	2008-08-30 02:33:27 UTC (rev 2368)
+@@ -37,12 +37,14 @@
+   Images images;
+   Vector2i next_pos;
+   int row_width;
++  float progress;
+   
+ public:
+   Workspace();
+ 
+   void add_image(const FileEntry&amp; file_entry);
+   void draw(const Rectf&amp; cliprect, float scale);
++  void update(float delta);
+ 
+   void layout(float aspect_w, float aspect_h);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001364.html">[Windstille-commit] r2367 - in trunk/griv: . src
+</A></li>
+	<LI>Next message: <A HREF="001366.html">[Windstille-commit] r2369 - trunk/griv/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1365">[ date ]</a>
+              <a href="thread.html#1365">[ thread ]</a>
+              <a href="subject.html#1365">[ subject ]</a>
+              <a href="author.html#1365">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

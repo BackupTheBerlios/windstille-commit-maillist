@@ -1,0 +1,194 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3114 - in trunk/windstille/src: engine	scenegraph
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3114%20-%20in%20trunk/windstille/src%3A%20engine%0A%09scenegraph&In-Reply-To=%3C200908282116.n7SLGJ4I023197%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002109.html">
+   <LINK REL="Next"  HREF="002111.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3114 - in trunk/windstille/src: engine	scenegraph</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3114%20-%20in%20trunk/windstille/src%3A%20engine%0A%09scenegraph&In-Reply-To=%3C200908282116.n7SLGJ4I023197%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3114 - in trunk/windstille/src: engine	scenegraph">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Aug 28 23:16:19 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002109.html">[Windstille-commit] r3113 - trunk/windstille/src/engine
+</A></li>
+        <LI>Next message: <A HREF="002111.html">[Windstille-commit] r3115 - in trunk/windstille/src: scenegraph	sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2110">[ date ]</a>
+              <a href="thread.html#2110">[ thread ]</a>
+              <a href="subject.html#2110">[ subject ]</a>
+              <a href="author.html#2110">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-08-28 23:16:19 +0200 (Fri, 28 Aug 2009)
+New Revision: 3114
+
+Added:
+   trunk/windstille/src/scenegraph/navigation_graph_drawable.hpp
+Modified:
+   trunk/windstille/src/engine/sector.cpp
+Log:
+Load and draw NavigationGraph
+
+Modified: trunk/windstille/src/engine/sector.cpp
+===================================================================
+--- trunk/windstille/src/engine/sector.cpp	2009-08-28 18:43:00 UTC (rev 3113)
++++ trunk/windstille/src/engine/sector.cpp	2009-08-28 21:16:19 UTC (rev 3114)
+@@ -40,6 +40,7 @@
+ #include &quot;objects/trigger.hpp&quot;
+ #include &quot;objects/vrdummy.hpp&quot;
+ #include &quot;scenegraph/scene_graph.hpp&quot;
++#include &quot;scenegraph/navigation_graph_drawable.hpp&quot;
+ #include &quot;sound/sound_manager.hpp&quot;
+ #include &quot;tile/tile_map.hpp&quot;
+ 
+@@ -78,6 +79,8 @@
+   add(player);
+ 
+   player-&gt;set_pos(Vector2f(300,200));
++
++  scene_graph-&gt;add_drawable(boost::shared_ptr&lt;Drawable&gt;(new NavigationGraphDrawable(navigation_graph.get())));
+ }
+ 
+ Sector::~Sector()
+@@ -95,7 +98,7 @@
+     std::ostringstream msg;
+     msg &lt;&lt; &quot;'&quot; &lt;&lt; filename_ &lt;&lt; &quot;' is not a windstille-sector file&quot;;
+     throw std::runtime_error(msg.str());
+-  } 
++  }
+   else
+   {
+     int version = 1;
+@@ -111,8 +114,10 @@
+     reader.get(&quot;ambient-color&quot;, ambient_light);
+   
+     FileReader objects_reader;
+-    if(reader.get(&quot;objects&quot;, objects_reader) == false)
++    if (!reader.get(&quot;objects&quot;, objects_reader))
++    {
+       throw std::runtime_error(&quot;No objects specified&quot;);
++    }
+ 
+     std::vector&lt;FileReader&gt; objects_readers = objects_reader.get_sections();
+     for(std::vector&lt;FileReader&gt;::iterator i = objects_readers.begin(); i != objects_readers.end(); ++i)
+@@ -134,6 +139,12 @@
+       }
+     }
+ 
++    FileReader navgraph_reader;
++    if (reader.get(&quot;navigation&quot;, navgraph_reader))
++    {
++      navigation_graph-&gt;load(navgraph_reader);
++    }
++
+     if (debug) std::cout &lt;&lt; &quot;Finished parsing&quot; &lt;&lt; std::endl;
+   }
+ }
+
+Added: trunk/windstille/src/scenegraph/navigation_graph_drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/navigation_graph_drawable.hpp	2009-08-28 18:43:00 UTC (rev 3113)
++++ trunk/windstille/src/scenegraph/navigation_graph_drawable.hpp	2009-08-28 21:16:19 UTC (rev 3114)
+@@ -0,0 +1,54 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_NAVIGATION_GRAPH_DRAWABLE_HPP
++#define HEADER_NAVIGATION_GRAPH_DRAWABLE_HPP
++
++#include &quot;display/display.hpp&quot;
++#include &quot;scenegraph/drawable.hpp&quot;
++
++class NavigationGraph;
++
++class NavigationGraphDrawable : public Drawable
++{
++private:
++  NavigationGraph* m_navgraph;
++
++public:
++  NavigationGraphDrawable(NavigationGraph* navgraph)
++    : Drawable(Vector2f(), 1000.0f, Matrix::identity()),
++      m_navgraph(navgraph)
++  {}
++
++  void draw(const Texture&amp; /*tmp_texture*/)
++  {
++    //Display::fill_rect(Rectf(-100, -100, 100, 1000), Color(1.0f, 0.0f, 0.0f));
++
++    glLineWidth(4.0f);
++    m_navgraph-&gt;draw();
++    glLineWidth(1.0f);
++  }
++
++private:
++  NavigationGraphDrawable(const NavigationGraphDrawable&amp;);
++  NavigationGraphDrawable&amp; operator=(const NavigationGraphDrawable&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/scenegraph/navigation_graph_drawable.hpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002109.html">[Windstille-commit] r3113 - trunk/windstille/src/engine
+</A></li>
+	<LI>Next message: <A HREF="002111.html">[Windstille-commit] r3115 - in trunk/windstille/src: scenegraph	sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2110">[ date ]</a>
+              <a href="thread.html#2110">[ thread ]</a>
+              <a href="subject.html#2110">[ subject ]</a>
+              <a href="author.html#2110">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

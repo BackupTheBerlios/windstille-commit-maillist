@@ -1,0 +1,246 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2356 - in trunk/griv: . src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2356%20-%20in%20trunk/griv%3A%20.%20src&In-Reply-To=%3C200808271908.m7RJ8h9X030082%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001352.html">
+   <LINK REL="Next"  HREF="001354.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2356 - in trunk/griv: . src</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2356%20-%20in%20trunk/griv%3A%20.%20src&In-Reply-To=%3C200808271908.m7RJ8h9X030082%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2356 - in trunk/griv: . src">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Aug 27 21:08:43 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001352.html">[Windstille-commit] r2355 - in trunk/griv: . src
+</A></li>
+        <LI>Next message: <A HREF="001354.html">[Windstille-commit] r2357 - in trunk/griv: . src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1353">[ date ]</a>
+              <a href="thread.html#1353">[ thread ]</a>
+              <a href="subject.html#1353">[ subject ]</a>
+              <a href="author.html#1353">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-27 21:08:42 +0200 (Wed, 27 Aug 2008)
+New Revision: 2356
+
+Modified:
+   trunk/griv/README
+   trunk/griv/src/image.cpp
+   trunk/griv/src/viewer_thread.cpp
+   trunk/griv/src/viewer_thread.hpp
+Log:
+Removed some old code, fixed crash at startup, added some bugs in the readme
+
+Modified: trunk/griv/README
+===================================================================
+--- trunk/griv/README	2008-08-27 17:03:00 UTC (rev 2355)
++++ trunk/griv/README	2008-08-27 19:08:42 UTC (rev 2356)
+@@ -33,17 +33,54 @@
+ Running:
+ ========
+ 
++griv comes with a number of sub commands, allowing the user to either
++view images or pre generate thumbnails. The most basic command is:
+ 
++ ./griv view [FILES]...
+ 
++Which display the given files. To pregenerate only the small
++thumbnails you use:
+ 
++ ./griv thumbgen [FILES]...
++
++To generate not only the small thumbnails, but all tiles you use:
++
++ ./griv prepare [FILES]...
++
++The other available commands are mostly for debugging and have little
++actualy use.
++
++When you do not supply a list of files griv will display all files in
++the database.
++
++Via the -d flag you can specifiy a database, so that you can have
++different databases for different files.
++
++
+ Bugs:
+ =====
+ 
+ When zooming into an images beyond its original size one will see
+-noticable seams at the areas where the tiles meet. A possible fix for
+-this would be to add a 1px width border to the tiles, but that would
+-slow down the tile generation process from JPEG data, so it might
+-never get implemented.
++noticable seams at the areas where the tiles meet. This is an artifact
++caused by OpenGLs linear filtering that can't work across tile
++borders, but only on a single tile. A possible fix for this would be
++to add a 1px width border to the tiles, but that would slow down the
++tile generation process from JPEG data, so it is unclear if it ever
++will be implemented.
+ 
++Jobs are currently not prioritized properly so unimportant ones might
++be executed before important ones, not harmfull, but its unpleasing to
++see images on the edge of the screen being generated before images in
++the center of the screen.
+ 
++griv can only handle JPEG files, no other format is supported. 
++
++Jobs are only canceled when the image is no longer visible, but not
++when the images zoom level has changed.
++
++There is no handling of tile collisions in the database, so one might
++end up with duplicate entries for the same tile. Tile generation is
++also not optimal, since some data gets discarded.
++
++
+ # EOF #
+
+Modified: trunk/griv/src/image.cpp
+===================================================================
+--- trunk/griv/src/image.cpp	2008-08-27 17:03:00 UTC (rev 2355)
++++ trunk/griv/src/image.cpp	2008-08-27 19:08:42 UTC (rev 2356)
+@@ -142,8 +142,12 @@
+ 
+   if (i == impl-&gt;cache.end())
+     {
++      // Important: it must be '*this', not 'this', since the 'this'
++      // pointer might disappear any time, its only the impl that
++      // stays and which we can link to by making a copy of the Image
++      // object via *this.
+       impl-&gt;jobs.push_back(DatabaseThread::current()-&gt;request_tile(impl-&gt;file_entry, tile_scale, Vector2i(x, y), 
+-                                                                   boost::bind(&amp;Image::receive_tile, this, _1)));
++                                                                   boost::bind(&amp;Image::receive_tile, *this, _1)));
+ 
+       // FIXME: Something to try: Request the next smaller tile too,
+       // so we get a lower quality image fast and a higher quality one
+@@ -153,7 +157,7 @@
+       // res tiles at once, instead of one by one, since that eats up
+       // the possible speed up
+       //impl-&gt;jobs.push_back(DatabaseThread::current()-&gt;request_tile(impl-&gt;file_entry, tile_scale+1, Vector2i(x, y), 
+-      //                                                             boost::bind(&amp;Image::receive_tile, this, _1)));
++      //                                                             boost::bind(&amp;Image::receive_tile, *this, _1)));
+ 
+       SurfaceStruct s;
+       
+@@ -345,6 +349,7 @@
+ void
+ Image::receive_tile(const TileEntry&amp; tile)
+ {
++  assert(impl.get());
+   impl-&gt;tile_queue.push(tile);
+ }
+ 
+
+Modified: trunk/griv/src/viewer_thread.cpp
+===================================================================
+--- trunk/griv/src/viewer_thread.cpp	2008-08-27 17:03:00 UTC (rev 2355)
++++ trunk/griv/src/viewer_thread.cpp	2008-08-27 19:08:42 UTC (rev 2356)
+@@ -48,17 +48,6 @@
+ {
+   file_queue.push(entry);
+ }
+-
+-void
+-ViewerThread::receive_tile(const Image&amp; image, const TileEntry&amp; tile)
+-{
+-  TileMessage msg;
+-  
+-  msg.image = image;
+-  msg.tile  = tile;
+-
+-  tile_queue.push(msg);
+-}
+ 
+ int
+ ViewerThread::run()
+@@ -81,15 +70,6 @@
+           file_queue.pop();
+         }
+ 
+-      while (!tile_queue.empty())
+-        {
+-          TileMessage msg = tile_queue.front();
+-
+-          msg.image.receive_tile(msg.tile);
+-
+-          tile_queue.pop();
+-        }
+-
+       SDL_Event event;
+       while (SDL_PollEvent(&amp;event))
+         {
+
+Modified: trunk/griv/src/viewer_thread.hpp
+===================================================================
+--- trunk/griv/src/viewer_thread.hpp	2008-08-27 17:03:00 UTC (rev 2355)
++++ trunk/griv/src/viewer_thread.hpp	2008-08-27 19:08:42 UTC (rev 2356)
+@@ -36,12 +36,6 @@
+ class FileEntry;
+ class Image;
+ class TileEntry;
+-
+-struct TileMessage
+-{
+-  Image     image;
+-  TileEntry tile;
+-};
+ 
+ class ViewerThread
+ {
+@@ -52,7 +46,6 @@
+   
+ private:
+   ThreadMessageQueue&lt;FileEntry&gt;   file_queue;
+-  ThreadMessageQueue&lt;TileMessage&gt; tile_queue;
+ 
+ public:
+   ViewerThread();
+@@ -61,7 +54,6 @@
+   int run();
+ 
+   void receive_file(const FileEntry&amp; entry);
+-  void receive_tile(const Image&amp; image, const TileEntry&amp; tile);
+ 
+ private:
+   ViewerThread (const ViewerThread&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001352.html">[Windstille-commit] r2355 - in trunk/griv: . src
+</A></li>
+	<LI>Next message: <A HREF="001354.html">[Windstille-commit] r2357 - in trunk/griv: . src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1353">[ date ]</a>
+              <a href="thread.html#1353">[ thread ]</a>
+              <a href="subject.html#1353">[ subject ]</a>
+              <a href="author.html#1353">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

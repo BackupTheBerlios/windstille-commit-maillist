@@ -1,0 +1,183 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1531 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1531%20-%20trunk/griv&In-Reply-To=%3C200711122254.lACMsEkf009859%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001180.html">
+   <LINK REL="Next"  HREF="001182.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1531 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1531%20-%20trunk/griv&In-Reply-To=%3C200711122254.lACMsEkf009859%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1531 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Nov 12 23:54:14 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001180.html">[Windstille-commit] r1530 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001182.html">[Windstille-commit] r1532 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1181">[ date ]</a>
+              <a href="thread.html#1181">[ thread ]</a>
+              <a href="subject.html#1181">[ subject ]</a>
+              <a href="author.html#1181">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-12 23:54:14 +0100 (Mon, 12 Nov 2007)
+New Revision: 1531
+
+Modified:
+   trunk/griv/image.hpp
+   trunk/griv/workspace.hpp
+Log:
+- fixed race condition
+
+Modified: trunk/griv/image.hpp
+===================================================================
+--- trunk/griv/image.hpp	2007-11-12 22:09:07 UTC (rev 1530)
++++ trunk/griv/image.hpp	2007-11-12 22:54:14 UTC (rev 1531)
+@@ -67,31 +67,48 @@
+   SDL_Surface* surface;
+   int res;
+   bool image_requested;
+-  
++
++  SDL_mutex* mutex;
++
++
+   Image(const std::string&amp; uid) 
+     : uid(uid),
+       surface(0),
+       res(0),
+       image_requested(false)
+   {
++    mutex = SDL_CreateMutex();
+   }
+ 
++  ~Image()
++  {
++    SDL_DestroyMutex(mutex);
++  }
++
+   void receive(SDL_Surface* new_surface)
+-  {
++  { 
++    SDL_LockMutex(mutex);
+     if (new_surface)
+       {
+         if (surface)
+-          SDL_FreeSurface(surface);    
+-    
+-        //std::cout &lt;&lt; &quot;Image recieved: &quot; &lt;&lt; new_surface &lt;&lt; std::endl;
+-        surface = new_surface;
++          {
++            SDL_Surface* old_surface = surface;
++            surface = new_surface;
++            SDL_FreeSurface(old_surface); 
++          }
++        else
++          {
++            surface = new_surface;
++          }
+         force_redraw = true;
+       }
+     image_requested = false;
++    SDL_UnlockMutex(mutex);
+   }
+ 
+   void draw(int x, int y, int res)
+   {
++    SDL_LockMutex(mutex);
+     if (x &gt; screen-&gt;w ||
+         y &gt; screen-&gt;h ||
+         x &lt; -res || 
+@@ -123,6 +140,7 @@
+         else if (image_requested)
+           SDL_BlitSurface(placeholder(res), NULL, screen, &amp;dstrect);        
+       }
++    SDL_UnlockMutex(mutex);
+   }
+ };
+ 
+
+Modified: trunk/griv/workspace.hpp
+===================================================================
+--- trunk/griv/workspace.hpp	2007-11-12 22:09:07 UTC (rev 1530)
++++ trunk/griv/workspace.hpp	2007-11-12 22:54:14 UTC (rev 1531)
+@@ -43,7 +43,7 @@
+ class Workspace
+ {
+ public:
+-  std::vector&lt;Image&gt; images;
++  std::vector&lt;Image*&gt; images;
+   int res;
+   
+ public:
+@@ -57,9 +57,9 @@
+     int w = int(sqrt(4 * images.size() / 3));
+     for(int i = 0; i &lt; int(images.size()); ++i)
+       {
+-        images[i].draw((i % w) * res + x_offset + screen-&gt;w/2,
+-                       (i / w) * res + y_offset + screen-&gt;h/2,
+-                       res);
++        images[i]-&gt;draw((i % w) * res + x_offset + screen-&gt;w/2,
++                        (i / w) * res + y_offset + screen-&gt;h/2,
++                        res);
+       }
+   }
+ 
+@@ -75,12 +75,14 @@
+             add(*i);
+           }
+       }
+-    else if (has_suffix(filename, &quot;.jpg&quot;))
++    else if (has_suffix(filename, &quot;.jpg&quot;) ||
++             has_suffix(filename, &quot;.JPG&quot;)
++             )
+       {
+         std::string md5 = getxattr(filename);
+         if (!md5.empty())
+           {
+-            images.push_back(Image(md5));
++            images.push_back(new Image(md5));
+           }
+         else
+           {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001180.html">[Windstille-commit] r1530 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001182.html">[Windstille-commit] r1532 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1181">[ date ]</a>
+              <a href="thread.html#1181">[ thread ]</a>
+              <a href="subject.html#1181">[ subject ]</a>
+              <a href="author.html#1181">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

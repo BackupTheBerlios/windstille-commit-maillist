@@ -1,0 +1,390 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r477 - in trunk: data/levels src src/scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r477%20-%20in%20trunk%3A%20data/levels%20src%20src/scripting&In-Reply-To=%3C200506291008.j5TA8mRm009916%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000133.html">
+   <LINK REL="Next"  HREF="000135.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r477 - in trunk: data/levels src src/scripting</H1>
+    <B>Matthias Braun at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r477%20-%20in%20trunk%3A%20data/levels%20src%20src/scripting&In-Reply-To=%3C200506291008.j5TA8mRm009916%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r477 - in trunk: data/levels src src/scripting">matzebraun at sheep.berlios.de
+       </A><BR>
+    <I>Wed Jun 29 12:08:48 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000133.html">[Windstille-commit] r476 - in trunk: . data data/locale src src/display src/input src/lisp src/physfs src/scripting src/sound src/tinygettext
+</A></li>
+        <LI>Next message: <A HREF="000135.html">[Windstille-commit] r478 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#134">[ date ]</a>
+              <a href="thread.html#134">[ thread ]</a>
+              <a href="subject.html#134">[ subject ]</a>
+              <a href="author.html#134">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: matzebraun
+Date: 2005-06-29 12:08:43 +0200 (Wed, 29 Jun 2005)
+New Revision: 477
+
+Modified:
+   trunk/data/levels/newformat2.wst
+   trunk/src/game_session.cxx
+   trunk/src/scripting/interface.cpp
+   trunk/src/scripting/interface.hpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/sector.cxx
+   trunk/src/sector.hxx
+Log:
+cleanup Sector code a bit, add ability to have init scripts
+
+Modified: trunk/data/levels/newformat2.wst
+===================================================================
+--- trunk/data/levels/newformat2.wst	2005-06-29 08:27:54 UTC (rev 476)
++++ trunk/data/levels/newformat2.wst	2005-06-29 10:08:43 UTC (rev 477)
+@@ -2,8 +2,16 @@
+ (windstille-sector
+   (version 2)
+   (name   &quot;&quot;)
+-  (music  &quot;&quot;)
++  (music  &quot;music/techdemo.ogg&quot;)
+   (ambient-color 170 170 170)
++  (init-script &quot;
++show_dialog(\&quot;human/portrait\&quot;,
++\&quot;Welcome to the VR training programm. Here you \&quot; +
++\&quot;will learn the basic manovering abilities of your \&quot; +
++\&quot;powersuit, jumping, running, climbing and shooting.\&quot; +
++\&quot;We will start with climbing. See the block infront \&quot; +
++\&quot;of you? Press [Right] and [Jump] to hang on the ledge.\&quot;);
++&quot;)
+   (objects
+     (trigger
+       (x 768)
+
+Modified: trunk/src/game_session.cxx
+===================================================================
+--- trunk/src/game_session.cxx	2005-06-29 08:27:54 UTC (rev 476)
++++ trunk/src/game_session.cxx	2005-06-29 10:08:43 UTC (rev 477)
+@@ -233,11 +233,10 @@
+   slots.push_back(CL_Keyboard::sig_key_down().connect(this, &amp;GameSession::on_key_down));
+   slots.push_back(CL_Mouse::sig_key_down().connect(this, &amp;GameSession::on_mouse_down));
+ 
+-  sound_manager-&gt;play_music(&quot;music/techdemo.ogg&quot;);
+   blink = 0.0f;
+ 
+   GameObject::set_world (world);
+-  
++
+   player = new Player();
+   view   = new View();
+   
+@@ -251,15 +250,6 @@
+ 
+   if (1)
+     {
+-      // FIXME: Move this thing into the scripting part
+-      DialogManager::current()-&gt;add_dialog(&quot;human/portrait&quot;, 
+-                                           &quot;Welcome to the VR training programm. Here you&quot;
+-                                           &quot;will learn the basic manovering abilities of your &quot;
+-                                           &quot;powersuit, jumping, running, climbing and shooting.&quot;
+-                                           &quot;We will start with climbing, see the block infront of&quot;
+-                                           &quot;you? Press [Right] and [Jump] to hang on the ledge.&quot;);
+-      set_dialog_state();
+-
+       world-&gt;add(new Door(24, 6));
+       world-&gt;add(new Door(32, 14));
+       world-&gt;add(new Door(8, 22));
+@@ -309,6 +299,8 @@
+     }
+   
+   world-&gt;add(new Sprite3D(&quot;3dsprites/3dsprites&quot;));
++
++  world-&gt;activate();
+ }
+ 
+ void
+
+Modified: trunk/src/scripting/interface.cpp
+===================================================================
+--- trunk/src/scripting/interface.cpp	2005-06-29 08:27:54 UTC (rev 476)
++++ trunk/src/scripting/interface.cpp	2005-06-29 10:08:43 UTC (rev 477)
+@@ -17,7 +17,7 @@
+   sound_manager-&gt;play(soundfile);
+ }
+ 
+-void create_dialog(const std::string&amp; portrait, const std::string&amp; text)
++void show_dialog(const std::string&amp; portrait, const std::string&amp; text)
+ {
+   DialogManager::current()-&gt;add_dialog(portrait, text);
+   GameSession::current()-&gt;set_dialog_state();
+
+Modified: trunk/src/scripting/interface.hpp
+===================================================================
+--- trunk/src/scripting/interface.hpp	2005-06-29 08:27:54 UTC (rev 476)
++++ trunk/src/scripting/interface.hpp	2005-06-29 10:08:43 UTC (rev 477)
+@@ -13,7 +13,7 @@
+ 
+ void play_sound(const std::string&amp; soundfile);
+ 
+-void create_dialog(const std::string&amp; portrait, const std::string&amp; text);
++void show_dialog(const std::string&amp; portrait, const std::string&amp; text);
+ 
+ void clear_dialog();
+ 
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2005-06-29 08:27:54 UTC (rev 476)
++++ trunk/src/scripting/wrapper.cpp	2005-06-29 10:08:43 UTC (rev 477)
+@@ -34,14 +34,14 @@
+   return 0;
+ }
+ 
+-static int create_dialog_wrapper(HSQUIRRELVM v)
++static int show_dialog_wrapper(HSQUIRRELVM v)
+ {
+   const char* arg0;
+   sq_getstring(v, 2, &amp;arg0);
+   const char* arg1;
+   sq_getstring(v, 3, &amp;arg1);
+   
+-  Scripting::create_dialog(arg0, arg1);
++  Scripting::show_dialog(arg0, arg1);
+   
+   return 0;
+ }
+@@ -69,7 +69,7 @@
+ WrappedFunction windstille_global_functions[] = {
+   { &quot;play_music&quot;, &amp;play_music_wrapper },
+   { &quot;play_sound&quot;, &amp;play_sound_wrapper },
+-  { &quot;create_dialog&quot;, &amp;create_dialog_wrapper },
++  { &quot;show_dialog&quot;, &amp;show_dialog_wrapper },
+   { &quot;clear_dialog&quot;, &amp;clear_dialog_wrapper },
+   { &quot;wait&quot;, &amp;wait_wrapper },
+   { 0, 0 }
+
+Modified: trunk/src/sector.cxx
+===================================================================
+--- trunk/src/sector.cxx	2005-06-29 08:27:54 UTC (rev 476)
++++ trunk/src/sector.cxx	2005-06-29 10:08:43 UTC (rev 477)
+@@ -29,6 +29,8 @@
+ #include &quot;player.hxx&quot;
+ #include &quot;trigger.hxx&quot;
+ #include &quot;sector.hxx&quot;
++#include &quot;sound/sound_manager.hpp&quot;
++#include &quot;script_manager.hpp&quot;
+ 
+ Sector* Sector::current_ = 0;
+ 
+@@ -58,15 +60,20 @@
+     throw std::runtime_error(msg.str());
+   }
+ 
+-  std::vector&lt;std::string&gt; scripts;
+   std::vector&lt;int&gt; ambient_colors;
+   
+   lisp::ListIterator iter(sector);
+   while(iter.next()) {
+-    if(iter.item() == &quot;name&quot;) {
++    if(iter.item() == &quot;version&quot;) {
++      if(iter.value().get_int() &gt; 2) {
++        std::cerr &lt;&lt; &quot;Warning: Levelformat is newer than game.\n&quot;;
++      }
++    } else if(iter.item() == &quot;name&quot;) {
+       name = iter.value().get_string();
+-    } else if(iter.item() == &quot;scripts&quot;) {
+-      iter.value().get_vector(scripts);
++    } else if(iter.item() == &quot;music&quot;) {
++      music = iter.value().get_string();
++    } else if(iter.item() == &quot;init-script&quot;) {
++      init_script = iter.value().get_string();
+     } else if(iter.item() == &quot;ambient-color&quot;) {
+       iter.lisp()-&gt;get_vector(ambient_colors);
+       if(ambient_colors.size() != 3)
+@@ -90,20 +97,29 @@
+ {
+   if(name == &quot;tilemap&quot;) {
+     TileMap* tilemap = new TileMap(lisp);
+-    objects.push_back(tilemap);
++    add(tilemap);
+     if (tilemap-&gt;get_name() == &quot;interactive&quot;)
+       interactive_tilemap = tilemap;
+   } else if(name == &quot;background&quot;) {
+     // TODO
+   } else if(name == &quot;trigger&quot;) {
+-    Trigger* trigger = new Trigger(lisp);
+-    objects.push_back(trigger);
++    add(new Trigger(lisp));
+   } else {
+     std::cout &lt;&lt; &quot;Skipping unknown Object: &quot; &lt;&lt; name &lt;&lt; &quot;\n&quot;;
+   }
+ }
+ 
+ void
++Sector::activate()
++{
++  commit_adds();
++  commit_removes();
++
++  sound_manager-&gt;play_music(music);
++  script_manager-&gt;run_script(init_script, &quot;sector-init&quot;);
++}
++
++void
+ Sector::draw(SceneContext&amp; sc)
+ {
+   sc.light().fill_screen(ambient_light);
+@@ -114,28 +130,45 @@
+     }
+ }
+ 
+-void
+-Sector::update(float delta)
++void Sector::commit_adds()
+ {
+-  Objects tmpobjects = objects;
+-  for(Objects::iterator i = tmpobjects.begin(); i != tmpobjects.end(); ++i)
+-    {
+-      (*i)-&gt;update(delta);
+-    }
++  // Add new game objects
++  for(Objects::iterator i = new_objects.begin(); i != new_objects.end(); ++i) {
++    objects.push_back(*i);
++  }
++  new_objects.clear();
+ }
+ 
++void Sector::update(float delta)
++{
++  commit_adds();
++  for(Objects::iterator i = objects.begin(); i != objects.end(); ++i) {
++    GameObject* object = *i;
++    object-&gt;update(delta);
++  }
++  commit_removes();
++}
++
+ void
+-Sector::add(GameObject* obj)
++Sector::commit_removes()
+ {
+-  // FIXME: This is not save to call in update(), should be changed accordingly
+-  objects.push_back(obj);
++  // remove objects
++  for(Objects::iterator i = objects.begin(); i != objects.end(); ) {
++    GameObject* object = *i;
++    if(object-&gt;is_removable()) {
++      delete object;
++      i = objects.erase(i);
++      continue;
++    }
++
++    ++i;
++  }
+ }
+ 
+ void
+-Sector::remove(GameObject* obj)
++Sector::add(GameObject* obj)
+ {
+-  (void) obj;
+-  // not implemented
++  new_objects.push_back(obj);
+ }
+ 
+ int
+
+Modified: trunk/src/sector.hxx
+===================================================================
+--- trunk/src/sector.hxx	2005-06-29 08:27:54 UTC (rev 476)
++++ trunk/src/sector.hxx	2005-06-29 10:08:43 UTC (rev 477)
+@@ -35,9 +35,15 @@
+ {
+ private:
+   std::string name;
++  std::string music;
++  std::string init_script;
+ 
+   typedef std::vector&lt;GameObject*&gt; Objects;
+   Objects objects;
++  /** container for newly created GameObjects (they'll be added once per frame
++   * in the update function
++   */
++  Objects new_objects;
+ 
+   CL_Color ambient_light;
+ 
+@@ -47,8 +53,12 @@
+   Player* player;
+ 
+   void parse_file(const std::string&amp; filename);
++  void parse_object(const std::string&amp; name, const lisp::Lisp* lisp);
+ 
+   static Sector* current_;
++
++  void commit_adds();
++  void commit_removes();
+ public:
+   Sector(const std::string&amp; filename);
+   ~Sector();
+@@ -58,18 +68,20 @@
+   void draw(SceneContext&amp; gc);
+   void update(float delta);
+ 
++  /**
++   * activates the sector. (Runs init script, changes music)
++   */
++  void activate();
++
+   int get_width () const;
+   int get_height () const;
+ 
+   void add(GameObject*);
+-  void remove(GameObject*);
+ 
+   std::vector&lt;GameObject*&gt;* get_objects() { return &objects; }
+   TileMap* get_tilemap() { return interactive_tilemap; }
+   
+ private:
+-  void parse_object(const std::string&amp; name, const lisp::Lisp* lisp);
+-  
+   Sector (const Sector&amp;);
+   Sector&amp; operator= (const Sector&amp;);
+ };
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000133.html">[Windstille-commit] r476 - in trunk: . data data/locale src src/display src/input src/lisp src/physfs src/scripting src/sound src/tinygettext
+</A></li>
+	<LI>Next message: <A HREF="000135.html">[Windstille-commit] r478 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#134">[ date ]</a>
+              <a href="thread.html#134">[ thread ]</a>
+              <a href="subject.html#134">[ subject ]</a>
+              <a href="author.html#134">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

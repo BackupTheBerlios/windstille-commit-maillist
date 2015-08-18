@@ -1,0 +1,378 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r473 - in trunk/src: . scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r473%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200506290031.j5T0VLfi013339%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000129.html">
+   <LINK REL="Next"  HREF="000131.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r473 - in trunk/src: . scripting</H1>
+    <B>Matthias Braun at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r473%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200506290031.j5T0VLfi013339%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r473 - in trunk/src: . scripting">matzebraun at sheep.berlios.de
+       </A><BR>
+    <I>Wed Jun 29 02:31:21 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000129.html">[Windstille-commit] r472 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000131.html">[Windstille-commit] r474 - in trunk: data/levels src src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#130">[ date ]</a>
+              <a href="thread.html#130">[ thread ]</a>
+              <a href="subject.html#130">[ subject ]</a>
+              <a href="author.html#130">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: matzebraun
+Date: 2005-06-29 02:30:50 +0200 (Wed, 29 Jun 2005)
+New Revision: 473
+
+Modified:
+   trunk/src/dialog_manager.cxx
+   trunk/src/game_session.cxx
+   trunk/src/script_manager.cpp
+   trunk/src/script_manager.hpp
+   trunk/src/scripting/interface.cpp
+   trunk/src/scripting/interface.hpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/scripting/wrapper_util.cpp
+   trunk/src/trigger.cxx
+Log:
+cleanup some squirrel code and fix memory leaks
+
+Modified: trunk/src/dialog_manager.cxx
+===================================================================
+--- trunk/src/dialog_manager.cxx	2005-06-28 22:55:58 UTC (rev 472)
++++ trunk/src/dialog_manager.cxx	2005-06-29 00:30:50 UTC (rev 473)
+@@ -43,7 +43,7 @@
+ DialogManager::add_dialog(const std::string&amp; portrait, const std::string&amp; text)
+ {
+   dialogs.push_back(Dialog(portrait, text));
+-  current_dialog = 0;
++  current_dialog = dialogs.size()-1;
+ }
+ 
+ void
+
+Modified: trunk/src/game_session.cxx
+===================================================================
+--- trunk/src/game_session.cxx	2005-06-28 22:55:58 UTC (rev 472)
++++ trunk/src/game_session.cxx	2005-06-29 00:30:50 UTC (rev 473)
+@@ -385,12 +385,12 @@
+   int i = str.length();
+   const char* buffer = str.c_str();
+ 
++  HSQUIRRELVM vm = script_manager-&gt;get_vm();
++  int oldtop=sq_gettop(vm); 
+   try {
+     int retval = 0;
+-    HSQUIRRELVM vm = script_manager-&gt;create_coroutine();
+ 
+     if(i&gt;0){
+-      int oldtop=sq_gettop(vm);
+       if(SQ_SUCCEEDED(sq_compilebuffer(vm,buffer,i,_SC(&quot;interactive console&quot;),SQTrue))){
+         sq_pushroottable(vm);
+         if(SQ_SUCCEEDED(sq_call(vm,1, retval))) {
+@@ -404,16 +404,12 @@
+           scprintf(_SC(&quot;\n&quot;));
+         }
+       }
+-
+-      sq_settop(vm,oldtop);
+     }
+-
+-    // FIXME: leads to crashs...
+-    //sq_close(vm);
+   } catch(std::exception&amp; e) {
+     std::cerr &lt;&lt; &quot;Couldn't execute command '&quot; &lt;&lt; str_ &lt;&lt; &quot;': &quot;
+       &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
+   }
++  sq_settop(vm,oldtop);
+ }
+ 
+ /* EOF */
+
+Modified: trunk/src/script_manager.cpp
+===================================================================
+--- trunk/src/script_manager.cpp	2005-06-28 22:55:58 UTC (rev 472)
++++ trunk/src/script_manager.cpp	2005-06-29 00:30:50 UTC (rev 473)
+@@ -74,7 +74,7 @@
+ 
+ void
+ ScriptManager::run_script(const std::string&amp; script,
+-        const std::string&amp; sourcename)
++    const std::string&amp; sourcename)
+ {
+   std::istringstream stream(script);
+   run_script(stream, sourcename);
+@@ -83,20 +83,26 @@
+ void
+ ScriptManager::run_script(std::istream&amp; in, const std::string&amp; sourcename)
+ {
+-  HSQUIRRELVM vm = create_coroutine();
++  HSQUIRRELVM vm = sq_newthread(v, 1024);
++  if(vm == 0)
++    throw SquirrelError(v, &quot;Couldn't create new VM&quot;);
++
++  // retrieve reference to thread from stack and increase refcounter
++  HSQOBJECT vm_obj;
++  sq_resetobject(&amp;vm_obj);
++  if(sq_getstackobj(v, -1, &amp;vm_obj) &lt; 0)
++    throw SquirrelError(v, &quot;Couldn't get coroutine vm from stack&quot;);
++  sq_addref(v, &amp;vm_obj);
++  sq_pop(v, 1);
+   
+-  printf(&quot;Stackbefore:\n&quot;);
+-  print_squirrel_stack(vm);
+   if(sq_compile(vm, squirrel_read_char, &amp;in, sourcename.c_str(), true) &lt; 0)
+     throw SquirrelError(vm, &quot;Couldn't parse script&quot;);
+- 
+-  sq_push(vm, -2);
++
++  sq_pushroottable(vm);
+   if(sq_call(vm, 1, false) &lt; 0)
+     throw SquirrelError(vm, &quot;Couldn't start script&quot;);
+-  cleanup_coroutine(vm);
+ 
+-  printf(&quot;After:\n&quot;);
+-  print_squirrel_stack(vm);
++  handle_suspends(vm, vm_obj);
+ }
+ 
+ void
+@@ -133,25 +139,24 @@
+ }
+ 
+ void
+-ScriptManager::cleanup_coroutine(HSQUIRRELVM vm)
++ScriptManager::handle_suspends(HSQUIRRELVM vm, HSQOBJECT vm_obj)
+ {
+-  if(sq_getvmstate(vm) != SQ_VMSTATE_SUSPENDED) {
+-    // FIXME
+-    // sq_close(vm);
+-  } else {
++  if(sq_getvmstate(vm) == SQ_VMSTATE_SUSPENDED) {
+     bool found = false;
+     for(WaitingVMs::iterator i = waiting_vms.begin();
+         i != waiting_vms.end(); ++i) {
+       if(i-&gt;vm == vm) {
++        i-&gt;vm_obj = vm_obj;
+         found = true;
+         break;
+       }
+     }
+     if(!found) {
+       std::cerr &lt;&lt; &quot;Warning: Script suspended but not in wakeup list!\n&quot;;
+-      // FIXME
+-      //sq_close(vm);
++      sq_release(vm, &amp;vm_obj);
+     }  
++  } else {
++    sq_release(vm, &amp;vm_obj);
+   }
+ }
+ 
+@@ -166,11 +171,13 @@
+         if(sq_wakeupvm(waiting_vm.vm, false, false) &lt; 0) {
+           throw SquirrelError(waiting_vm.vm, &quot;Couldn't resume script&quot;);
+         }
+-
+-        cleanup_coroutine(waiting_vm.vm);
+       } catch(std::exception&amp; e) {
++        sq_release(waiting_vm.vm, &amp;waiting_vm.vm_obj);
+         std::cerr &lt;&lt; &quot;Problem executing script: &quot; &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
++        i = waiting_vms.erase(i);
++        continue;
+       }
++      handle_suspends(waiting_vm.vm, waiting_vm.vm_obj);
+ 
+       // remove (but check that the script hasn't set a new wakeup_time)
+       if(game_time &gt;= waiting_vm.wakeup_time)
+@@ -201,13 +208,3 @@
+   waiting_vms.push_back(waiting_vm);
+ }
+ 
+-
+-HSQUIRRELVM
+-ScriptManager::create_coroutine()
+-{
+-  HSQUIRRELVM vm = sq_newthread(v, 1024);
+-  if(vm == 0)
+-    throw SquirrelError(v, &quot;Couldn't create new VM&quot;);
+-
+-  return vm;
+-}
+
+Modified: trunk/src/script_manager.hpp
+===================================================================
+--- trunk/src/script_manager.hpp	2005-06-28 22:55:58 UTC (rev 472)
++++ trunk/src/script_manager.hpp	2005-06-29 00:30:50 UTC (rev 473)
+@@ -21,15 +21,19 @@
+   void expose_object(void* object, const std::string&amp; name,
+                      const std::string&amp; type);
+ 
+-  HSQUIRRELVM create_coroutine();
++  HSQUIRRELVM get_vm()
++  {
++    return v;
++  }
+ 
+   void set_wakeup_time(HSQUIRRELVM vm, float time);
+ 
+ private:
+-  void cleanup_coroutine(HSQUIRRELVM vm);
++  void handle_suspends(HSQUIRRELVM vm, HSQOBJECT vm_obj);
+   
+   struct WaitingVM {
+     HSQUIRRELVM vm;
++    HSQOBJECT vm_obj;
+     float wakeup_time;
+   };
+   typedef std::list&lt;WaitingVM&gt; WaitingVMs;
+
+Modified: trunk/src/scripting/interface.cpp
+===================================================================
+--- trunk/src/scripting/interface.cpp	2005-06-28 22:55:58 UTC (rev 472)
++++ trunk/src/scripting/interface.cpp	2005-06-29 00:30:50 UTC (rev 473)
+@@ -20,18 +20,15 @@
+ void create_dialog(const std::string&amp; portrait, const std::string&amp; text)
+ {
+   DialogManager::current()-&gt;add_dialog(portrait, text);
++  GameSession::current()-&gt;set_dialog_state();
+ }
+ 
+ void clear_dialog()
+ {
+   DialogManager::current()-&gt;clear();
++  GameSession::current()-&gt;set_game_state();
+ }
+ 
+-void show_dialog()
+-{
+-  GameSession::current()-&gt;set_dialog_state();
+-}
+-
+ void set_wakeup_time(HSQUIRRELVM vm, float time)
+ {
+   script_manager-&gt;set_wakeup_time(vm, time);
+
+Modified: trunk/src/scripting/interface.hpp
+===================================================================
+--- trunk/src/scripting/interface.hpp	2005-06-28 22:55:58 UTC (rev 472)
++++ trunk/src/scripting/interface.hpp	2005-06-29 00:30:50 UTC (rev 473)
+@@ -17,8 +17,6 @@
+ 
+ void clear_dialog();
+ 
+-void show_dialog();
+-
+ void set_wakeup_time(HSQUIRRELVM vm, float time);
+ 
+ }
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2005-06-28 22:55:58 UTC (rev 472)
++++ trunk/src/scripting/wrapper.cpp	2005-06-29 00:30:50 UTC (rev 473)
+@@ -55,15 +55,6 @@
+   return 0;
+ }
+ 
+-static int show_dialog_wrapper(HSQUIRRELVM v)
+-{
+-  (void) v;
+-  
+-  Scripting::show_dialog();
+-  
+-  return 0;
+-}
+-
+ static int set_wakeup_time_wrapper(HSQUIRRELVM v)
+ {
+   HSQUIRRELVM arg0 = v;
+@@ -80,7 +71,6 @@
+   { &quot;play_sound&quot;, &amp;play_sound_wrapper },
+   { &quot;create_dialog&quot;, &amp;create_dialog_wrapper },
+   { &quot;clear_dialog&quot;, &amp;clear_dialog_wrapper },
+-  { &quot;show_dialog&quot;, &amp;show_dialog_wrapper },
+   { &quot;set_wakeup_time&quot;, &amp;set_wakeup_time_wrapper },
+   { 0, 0 }
+ };
+
+Modified: trunk/src/scripting/wrapper_util.cpp
+===================================================================
+--- trunk/src/scripting/wrapper_util.cpp	2005-06-28 22:55:58 UTC (rev 472)
++++ trunk/src/scripting/wrapper_util.cpp	2005-06-29 00:30:50 UTC (rev 473)
+@@ -89,6 +89,9 @@
+             case OT_USERPOINTER:
+                 printf(&quot;userpointer&quot;);
+                 break;
++            case OT_THREAD:
++                printf(&quot;thread&quot;);
++                break;
+             case OT_CLASS:
+                 printf(&quot;class&quot;);
+                 break;
+@@ -112,7 +115,11 @@
+   msg &lt;&lt; &quot;SQuirrel error: &quot; &lt;&lt; message &lt;&lt; &quot; (&quot;;
+   const char* lasterr;
+   sq_getlasterror(v);
+-  sq_getstring(v, -1, &amp;lasterr);
++  if(sq_gettype(v, -1) != OT_STRING) {
++    lasterr = &quot;no error info&quot;;
++  } else {
++    sq_getstring(v, -1, &amp;lasterr);
++  }
+   sq_pop(v, 1);
+   msg &lt;&lt; lasterr &lt;&lt; &quot;)&quot;;
+   this-&gt;message = msg.str();
+
+Modified: trunk/src/trigger.cxx
+===================================================================
+--- trunk/src/trigger.cxx	2005-06-28 22:55:58 UTC (rev 472)
++++ trunk/src/trigger.cxx	2005-06-29 00:30:50 UTC (rev 473)
+@@ -87,6 +87,7 @@
+   if(last_trigger == false) {
+     triggered = true;
+     try {
++      //for(int i = 0; i &lt; 1000; ++i)
+       script_manager-&gt;run_script(script, &quot;TriggerObject&quot;);
+     } catch(std::exception&amp; e) {
+       std::cerr &lt;&lt; &quot;Couldn't run trigger-script: &quot; &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000129.html">[Windstille-commit] r472 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000131.html">[Windstille-commit] r474 - in trunk: data/levels src src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#130">[ date ]</a>
+              <a href="thread.html#130">[ thread ]</a>
+              <a href="subject.html#130">[ subject ]</a>
+              <a href="author.html#130">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

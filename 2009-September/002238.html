@@ -1,0 +1,524 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3241 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3241%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909132313.n8DND3UI028510%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002237.html">
+   <LINK REL="Next"  HREF="002239.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3241 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3241%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909132313.n8DND3UI028510%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3241 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Sep 14 01:13:03 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002237.html">[Windstille-commit] r3240 - in trunk/windstille/src: display editor	engine
+</A></li>
+        <LI>Next message: <A HREF="002239.html">[Windstille-commit] r3242 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2238">[ date ]</a>
+              <a href="thread.html#2238">[ thread ]</a>
+              <a href="subject.html#2238">[ subject ]</a>
+              <a href="author.html#2238">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-14 01:13:01 +0200 (Mon, 14 Sep 2009)
+New Revision: 3241
+
+Added:
+   trunk/windstille/src/editor/sector_model_builder.cpp
+   trunk/windstille/src/editor/sector_model_builder.hpp
+Modified:
+   trunk/windstille/src/editor/layer_manager_columns.hpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+Log:
+Separated loading out into SectorModelBuilder
+
+Modified: trunk/windstille/src/editor/layer_manager_columns.hpp
+===================================================================
+--- trunk/windstille/src/editor/layer_manager_columns.hpp	2009-09-13 22:53:26 UTC (rev 3240)
++++ trunk/windstille/src/editor/layer_manager_columns.hpp	2009-09-13 23:13:01 UTC (rev 3241)
+@@ -19,6 +19,10 @@
+ #ifndef HEADER_WINDSTILLE_EDITOR_LAYER_MANAGER_COLUMNS_HPP
+ #define HEADER_WINDSTILLE_EDITOR_LAYER_MANAGER_COLUMNS_HPP
+ 
++#include &lt;gtkmm/treemodelcolumn.h&gt;
++
++#include &quot;layer.hpp&quot;
++
+ class LayerManagerColumns : public Gtk::TreeModel::ColumnRecord
+ {
+ private:
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-09-13 22:53:26 UTC (rev 3240)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-09-13 23:13:01 UTC (rev 3241)
+@@ -29,10 +29,11 @@
+ #include &quot;editor/layer_manager_columns.hpp&quot;
+ #include &quot;editor/navgraph_edge_object_model.hpp&quot;
+ #include &quot;editor/navgraph_node_object_model.hpp&quot;
++#include &quot;editor/navigation_graph_model.hpp&quot;
+ #include &quot;editor/object_model_factory.hpp&quot;
+ #include &quot;editor/sector_model.hpp&quot;
++#include &quot;editor/sector_model_builder.hpp&quot;
+ #include &quot;editor/windstille_widget.hpp&quot;
+-#include &quot;editor/navigation_graph_model.hpp&quot;
+ #include &quot;navigation/node.hpp&quot;
+ #include &quot;scenegraph/scene_graph.hpp&quot;
+ #include &quot;util/file_reader.hpp&quot;
+@@ -46,7 +47,7 @@
+     ambient_color()
+ {
+   register_callbacks();
+-  load(filename);
++  SectorModelBuilder(filename, *this);
+ }
+ 
+ SectorModel::SectorModel()
+@@ -350,143 +351,6 @@
+ }
+ 
+ void
+-SectorModel::load_layer(const FileReader&amp; reader, 
+-                        std::map&lt;std::string, ObjectModelHandle&gt;&amp; id_table,
+-                        std::map&lt;ObjectModelHandle, std::string&gt;&amp; parent_table)
+-{
+-  FileReader objects_reader;
+-  FileReader layers_reader;
+-
+-  std::string name = &quot;New Layer&quot;;
+-  bool visible = true;;
+-  bool locked  = false;
+-
+-  reader.get(&quot;name&quot;,    name);
+-  reader.get(&quot;visible&quot;, visible);
+-  reader.get(&quot;locked&quot;,  locked);
+-  reader.get(&quot;objects&quot;, objects_reader);
+-
+-  LayerHandle layer = LayerHandle(new Layer(*this));
+-
+-  const std::vector&lt;FileReader&gt;&amp; objects_sections = objects_reader.get_sections();
+-  for(std::vector&lt;FileReader&gt;::const_iterator j = objects_sections.begin(); j != objects_sections.end(); ++j)
+-  {
+-    try 
+-    {
+-      if (j-&gt;get_name() == &quot;navgraph-edge-ref&quot;)
+-      {
+-        std::string id_str;
+-        if (j-&gt;get(&quot;edge&quot;, id_str))
+-        {
+-          std::map&lt;std::string, ObjectModelHandle&gt;::iterator it = id_table.find(id_str);
+-          if (it == id_table.end())
+-          {
+-            std::cout &lt;&lt; &quot;SectorModel::load_layer: couldn't resource navgraph-edge-ref: &quot; &lt;&lt; id_str &lt;&lt; std::endl;
+-          }
+-          else
+-          {
+-            layer-&gt;add(it-&gt;second);
+-          }
+-        }
+-      }
+-      else
+-      {
+-        ObjectModelHandle obj = ObjectModelFactory::create(*j);
+-
+-        layer-&gt;add(obj);
+-
+-        std::string id_str;
+-        if (j-&gt;read(&quot;id&quot;, id_str))
+-        {
+-          id_table[id_str] = obj;
+-        }
+-
+-        std::string parent_str;
+-        if (j-&gt;read(&quot;parent&quot;, parent_str))
+-        {
+-          if (!parent_str.empty())
+-            parent_table[obj] = parent_str;
+-        }
+-      }
+-    }
+-    catch(std::exception&amp; err)
+-    {
+-      std::cout &lt;&lt; &quot;SectorModel::load_layer: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
+-    }
+-  }
+-
+-  // Append the layer to the tree
+-  Gtk::ListStore::iterator it = layer_tree-&gt;append();
+-
+-  (*it)[LayerManagerColumns::instance().type_icon] = Gdk::Pixbuf::create_from_file(&quot;data/editor/type.png&quot;);
+-  (*it)[LayerManagerColumns::instance().name]      = name;
+-  (*it)[LayerManagerColumns::instance().visible]   = visible; 
+-  (*it)[LayerManagerColumns::instance().locked]    = locked; 
+-  (*it)[LayerManagerColumns::instance().layer]     = layer;
+-
+-  layer-&gt;sync(*it);
+-}
+-
+-void
+-SectorModel::load(const std::string&amp; filename)
+-{
+-  layer_tree-&gt;clear();
+-
+-  std::ifstream stream(filename.c_str());
+-  if (!stream)
+-  {
+-    throw std::runtime_error(&quot;File not found &quot; + filename);
+-  }
+-  else
+-  {
+-    std::map&lt;std::string, ObjectModelHandle&gt; id_table;
+-    std::map&lt;ObjectModelHandle, std::string&gt; parent_table;
+-
+-    FileReader reader = FileReader::parse(stream, filename);
+-    if (reader.get_name() == &quot;windstille-sector&quot;)
+-    {
+-      ambient_color = Color(0,0,0,1);
+-      reader.get(&quot;ambient-color&quot;, ambient_color);
+-
+-      FileReader navigation_section;
+-      reader.get(&quot;navigation&quot;, navigation_section);
+-      nav_graph-&gt;load(navigation_section, id_table);
+-
+-      FileReader layers_section;
+-      reader.get(&quot;layers&quot;, layers_section);
+-
+-      const std::vector&lt;FileReader&gt;&amp; sections = layers_section.get_sections();
+-      // Load layer in reversed order, as ListStore is in reverse
+-      for(std::vector&lt;FileReader&gt;::const_reverse_iterator i = sections.rbegin(); i != sections.rend(); ++i)
+-      {
+-        if (i-&gt;get_name() == &quot;layer&quot;)
+-        {
+-          load_layer(*i, id_table, parent_table);
+-        }
+-        else
+-        {
+-          std::cout &lt;&lt; &quot;SectorModel::load: ignoring unknown type '&quot; &lt;&lt; i-&gt;get_name() &lt;&lt; &quot;'&quot; &lt;&lt; std::endl;
+-        }
+-      }
+-          
+-      // Set the parents properly
+-      for(std::map&lt;ObjectModelHandle, std::string&gt;::iterator i = parent_table.begin(); i != parent_table.end(); ++i)
+-      {
+-        std::map&lt;std::string, ObjectModelHandle&gt;::iterator j = id_table.find(i-&gt;second);
+-        if (j == id_table.end())
+-        {
+-          std::cout &lt;&lt; &quot;Error: Couldn't resolve 'id': &quot; &lt;&lt; i-&gt;second &lt;&lt; std::endl;
+-        }
+-        else
+-        {
+-          i-&gt;first-&gt;set_parent(j-&gt;second, false);
+-        }
+-      }
+-    }
+-  }
+-}
+-
+-void
+ SectorModel::write(FileWriter&amp; writer) const
+ {
+   writer.write_raw(&quot;;; -*- scheme -*-\n&quot;);
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-09-13 22:53:26 UTC (rev 3240)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-09-13 23:13:01 UTC (rev 3241)
+@@ -101,10 +101,6 @@
+   void rebuild_scene_graph(SceneGraph&amp; sg);
+ 
+ private:
+-  void load(const std::string&amp; filename);
+-  void load_layer(const FileReader&amp; filename, 
+-                  std::map&lt;std::string, ObjectModelHandle&gt;&amp; id_table,
+-                  std::map&lt;ObjectModelHandle, std::string&gt;&amp; parent_table); 
+   void register_callbacks();
+ 
+ private:
+
+Added: trunk/windstille/src/editor/sector_model_builder.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model_builder.cpp	2009-09-13 22:53:26 UTC (rev 3240)
++++ trunk/windstille/src/editor/sector_model_builder.cpp	2009-09-13 23:13:01 UTC (rev 3241)
+@@ -0,0 +1,171 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &quot;editor/sector_model_builder.hpp&quot;
++
++#include &lt;fstream&gt;
++#include &lt;stdexcept&gt;
++
++#include &quot;display/color.hpp&quot;
++#include &quot;editor/layer_manager_columns.hpp&quot;
++#include &quot;editor/navigation_graph_model.hpp&quot;
++#include &quot;editor/object_model_factory.hpp&quot;
++#include &quot;editor/sector_model.hpp&quot;
++#include &quot;util/file_reader.hpp&quot;
++
++SectorModelBuilder::SectorModelBuilder(const std::string&amp; filename, SectorModel&amp; sector)
++  : m_sector(sector)
++{
++  m_sector.get_layer_tree()-&gt;clear();
++
++  std::ifstream stream(filename.c_str());
++  if (!stream)
++  {
++    throw std::runtime_error(&quot;File not found &quot; + filename);
++  }
++  else
++  {
++    std::map&lt;std::string, ObjectModelHandle&gt; id_table;
++    std::map&lt;ObjectModelHandle, std::string&gt; parent_table;
++
++    FileReader reader = FileReader::parse(stream, filename);
++    if (reader.get_name() == &quot;windstille-sector&quot;)
++    {
++      Color ambient_color;
++      if (reader.get(&quot;ambient-color&quot;, ambient_color))
++      {
++        m_sector.set_ambient_color(ambient_color);
++      }
++
++      FileReader navigation_section;
++      reader.get(&quot;navigation&quot;, navigation_section);
++      m_sector.get_nav_graph().load(navigation_section, id_table);
++
++      FileReader layers_section;
++      reader.get(&quot;layers&quot;, layers_section);
++
++      const std::vector&lt;FileReader&gt;&amp; sections = layers_section.get_sections();
++      // Load layer in reversed order, as ListStore is in reverse
++      for(std::vector&lt;FileReader&gt;::const_reverse_iterator i = sections.rbegin(); i != sections.rend(); ++i)
++      {
++        if (i-&gt;get_name() == &quot;layer&quot;)
++        {
++          load_layer(*i, id_table, parent_table);
++        }
++        else
++        {
++          std::cout &lt;&lt; &quot;SectorModel::load: ignoring unknown type '&quot; &lt;&lt; i-&gt;get_name() &lt;&lt; &quot;'&quot; &lt;&lt; std::endl;
++        }
++      }
++          
++      // Set the parents properly
++      for(std::map&lt;ObjectModelHandle, std::string&gt;::iterator i = parent_table.begin(); i != parent_table.end(); ++i)
++      {
++        std::map&lt;std::string, ObjectModelHandle&gt;::iterator j = id_table.find(i-&gt;second);
++        if (j == id_table.end())
++        {
++          std::cout &lt;&lt; &quot;Error: Couldn't resolve 'id': &quot; &lt;&lt; i-&gt;second &lt;&lt; std::endl;
++        }
++        else
++        {
++          i-&gt;first-&gt;set_parent(j-&gt;second, false);
++        }
++      }
++    }
++  }
++}
++
++void
++SectorModelBuilder::load_layer(const FileReader&amp; reader, 
++                               std::map&lt;std::string, ObjectModelHandle&gt;&amp; id_table,
++                               std::map&lt;ObjectModelHandle, std::string&gt;&amp; parent_table)
++{
++  FileReader objects_reader;
++  FileReader layers_reader;
++
++  std::string name = &quot;New Layer&quot;;
++  bool visible = true;;
++  bool locked  = false;
++
++  reader.get(&quot;name&quot;,    name);
++  reader.get(&quot;visible&quot;, visible);
++  reader.get(&quot;locked&quot;,  locked);
++  reader.get(&quot;objects&quot;, objects_reader);
++
++  LayerHandle layer = LayerHandle(new Layer(m_sector));
++
++  const std::vector&lt;FileReader&gt;&amp; objects_sections = objects_reader.get_sections();
++  for(std::vector&lt;FileReader&gt;::const_iterator j = objects_sections.begin(); j != objects_sections.end(); ++j)
++  {
++    try 
++    {
++      if (j-&gt;get_name() == &quot;navgraph-edge-ref&quot;)
++      {
++        std::string id_str;
++        if (j-&gt;get(&quot;edge&quot;, id_str))
++        {
++          std::map&lt;std::string, ObjectModelHandle&gt;::iterator it = id_table.find(id_str);
++          if (it == id_table.end())
++          {
++            std::cout &lt;&lt; &quot;SectorModel::load_layer: couldn't resource navgraph-edge-ref: &quot; &lt;&lt; id_str &lt;&lt; std::endl;
++          }
++          else
++          {
++            layer-&gt;add(it-&gt;second);
++          }
++        }
++      }
++      else
++      {
++        ObjectModelHandle obj = ObjectModelFactory::create(*j);
++
++        layer-&gt;add(obj);
++
++        std::string id_str;
++        if (j-&gt;read(&quot;id&quot;, id_str))
++        {
++          id_table[id_str] = obj;
++        }
++
++        std::string parent_str;
++        if (j-&gt;read(&quot;parent&quot;, parent_str))
++        {
++          if (!parent_str.empty())
++            parent_table[obj] = parent_str;
++        }
++      }
++    }
++    catch(std::exception&amp; err)
++    {
++      std::cout &lt;&lt; &quot;SectorModel::load_layer: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
++    }
++  }
++
++  // Append the layer to the tree
++  Gtk::ListStore::iterator it = m_sector.get_layer_tree()-&gt;append();
++
++  (*it)[LayerManagerColumns::instance().type_icon] = Gdk::Pixbuf::create_from_file(&quot;data/editor/type.png&quot;);
++  (*it)[LayerManagerColumns::instance().name]      = name;
++  (*it)[LayerManagerColumns::instance().visible]   = visible; 
++  (*it)[LayerManagerColumns::instance().locked]    = locked; 
++  (*it)[LayerManagerColumns::instance().layer]     = layer;
++
++  layer-&gt;sync(*it);
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/sector_model_builder.cpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/editor/sector_model_builder.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model_builder.hpp	2009-09-13 22:53:26 UTC (rev 3240)
++++ trunk/windstille/src/editor/sector_model_builder.hpp	2009-09-13 23:13:01 UTC (rev 3241)
+@@ -0,0 +1,51 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_EDITOR_SECTOR_MODEL_BUILDER_HPP
++#define HEADER_WINDSTILLE_EDITOR_SECTOR_MODEL_BUILDER_HPP
++
++#include &lt;string&gt;
++#include &lt;map&gt;
++
++#include &quot;object_model.hpp&quot;
++
++class SectorModel;
++class FileReader;
++
++class SectorModelBuilder
++{
++private:
++  SectorModel&amp; m_sector;
++  
++public:
++  SectorModelBuilder(const std::string&amp; filename, SectorModel&amp; sector);
++
++private:
++  void load(const std::string&amp; filename);
++  void load_layer(const FileReader&amp; filename, 
++                  std::map&lt;std::string, ObjectModelHandle&gt;&amp; id_table,
++                  std::map&lt;ObjectModelHandle, std::string&gt;&amp; parent_table); 
++
++private:
++  SectorModelBuilder(const SectorModelBuilder&amp;);
++  SectorModelBuilder&amp; operator=(const SectorModelBuilder&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/sector_model_builder.hpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002237.html">[Windstille-commit] r3240 - in trunk/windstille/src: display editor	engine
+</A></li>
+	<LI>Next message: <A HREF="002239.html">[Windstille-commit] r3242 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2238">[ date ]</a>
+              <a href="thread.html#2238">[ thread ]</a>
+              <a href="subject.html#2238">[ subject ]</a>
+              <a href="author.html#2238">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

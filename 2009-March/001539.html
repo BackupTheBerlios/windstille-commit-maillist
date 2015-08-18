@@ -1,0 +1,176 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2542 - trunk/windstille/src/hud
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2542%20-%20trunk/windstille/src/hud&In-Reply-To=%3C200903031554.n23Fspfd030461%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001538.html">
+   <LINK REL="Next"  HREF="001540.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2542 - trunk/windstille/src/hud</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2542%20-%20trunk/windstille/src/hud&In-Reply-To=%3C200903031554.n23Fspfd030461%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2542 - trunk/windstille/src/hud">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Mar  3 16:54:51 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001538.html">[Windstille-commit] r2541 - trunk/windstille/src/font
+</A></li>
+        <LI>Next message: <A HREF="001540.html">[Windstille-commit] r2543 - trunk/windstille/src/hud
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1539">[ date ]</a>
+              <a href="thread.html#1539">[ thread ]</a>
+              <a href="subject.html#1539">[ subject ]</a>
+              <a href="author.html#1539">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-03 16:54:51 +0100 (Tue, 03 Mar 2009)
+New Revision: 2542
+
+Modified:
+   trunk/windstille/src/hud/speech_manager.cpp
+   trunk/windstille/src/hud/speech_manager.hpp
+Log:
+Added that Speech disappears after some time on the screen
+
+Modified: trunk/windstille/src/hud/speech_manager.cpp
+===================================================================
+--- trunk/windstille/src/hud/speech_manager.cpp	2009-03-03 12:57:11 UTC (rev 2541)
++++ trunk/windstille/src/hud/speech_manager.cpp	2009-03-03 15:54:51 UTC (rev 2542)
+@@ -21,6 +21,14 @@
+ 
+ SpeechManager* SpeechManager::current_ = 0;
+ 
++SpeechManager::Speech::Speech(const std::string&amp; text, const Vector2f&amp; pos, const Color&amp; color)
++  : text(text),
++    pos(pos),
++    color(color),
++    seconds_passed(0.0f)
++{
++}
++
+ void 
+ SpeechManager::Speech::draw()
+ {
+@@ -30,14 +38,25 @@
+ void
+ SpeechManager::Speech::update(float delta)
+ {
++  seconds_passed += delta;
+ }
++
++bool
++SpeechManager::Speech::is_done() const
++{
++  float words = 1 + text.size() / 5.0f;
++  float words_per_minute = 150.0f;
++  float words_per_second = words_per_minute / 60.0f;
++  
++  return (seconds_passed * words_per_second) &gt; words;
++}
+ 
+ SpeechManager::SpeechManager()
+ {
+   assert(current_ == 0);
+   current_ = this;
+ 
+-  add(&quot;Hello World&quot;, Vector2f(320, 200));
++  add(&quot;Hello World&quot;, Vector2f(320, 200), Color(255, 255, 0));
+ }
+ 
+ SpeechManager::~SpeechManager()
+@@ -58,7 +77,8 @@
+ {
+   for(Speeches::iterator i= speeches.begin(); i != speeches.end(); ++i)
+     {
+-      (*i)-&gt;draw();
++      if (*i)
++        (*i)-&gt;draw();
+     }  
+ }
+ 
+@@ -67,8 +87,21 @@
+ {
+   for(Speeches::iterator i= speeches.begin(); i != speeches.end(); ++i)
+     {
+-      (*i)-&gt;update(delta);
++      if (*i)
++        (*i)-&gt;update(delta);
+     }
++
++  for(Speeches::iterator i= speeches.begin(); i != speeches.end(); ++i)
++    {  
++      if ((*i)-&gt;is_done())
++        {
++          delete *i;
++          *i = 0;
++        }
++    }
++
++  speeches.erase(std::remove(speeches.begin(), speeches.end(), (Speech*)0),
++                 speeches.end());
+ }
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/hud/speech_manager.hpp
+===================================================================
+--- trunk/windstille/src/hud/speech_manager.hpp	2009-03-03 12:57:11 UTC (rev 2541)
++++ trunk/windstille/src/hud/speech_manager.hpp	2009-03-03 15:54:51 UTC (rev 2542)
+@@ -43,15 +43,14 @@
+     std::string text;
+     Vector2f    pos;
+     Color       color;
++    float       seconds_passed;
++    float       wpm;
+ 
+-    Speech(const std::string&amp; text, const Vector2f&amp; pos, const Color&amp; color)
+-      : text(text),
+-        pos(pos),
+-        color(color)
+-    {}
++    Speech(const std::string&amp; text, const Vector2f&amp; pos, const Color&amp; color);
+     
+     void draw();
+     void update(float delta);
++    bool is_done() const;
+   };
+ 
+   typedef std::vector&lt;Speech*&gt; Speeches;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001538.html">[Windstille-commit] r2541 - trunk/windstille/src/font
+</A></li>
+	<LI>Next message: <A HREF="001540.html">[Windstille-commit] r2543 - trunk/windstille/src/hud
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1539">[ date ]</a>
+              <a href="thread.html#1539">[ thread ]</a>
+              <a href="subject.html#1539">[ subject ]</a>
+              <a href="author.html#1539">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

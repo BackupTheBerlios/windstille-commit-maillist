@@ -1,0 +1,324 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1551 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1551%20-%20trunk/griv&In-Reply-To=%3C200711152312.lAFNCGmM022069%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001200.html">
+   <LINK REL="Next"  HREF="001203.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1551 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1551%20-%20trunk/griv&In-Reply-To=%3C200711152312.lAFNCGmM022069%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1551 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Nov 16 00:12:16 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001200.html">[Windstille-commit] r1550 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001203.html">[Windstille-commit] r1552 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1201">[ date ]</a>
+              <a href="thread.html#1201">[ thread ]</a>
+              <a href="subject.html#1201">[ subject ]</a>
+              <a href="author.html#1201">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-16 00:12:15 +0100 (Fri, 16 Nov 2007)
+New Revision: 1551
+
+Modified:
+   trunk/griv/display.hpp
+   trunk/griv/griv.cpp
+   trunk/griv/image.cpp
+   trunk/griv/texture.cpp
+   trunk/griv/workspace.cpp
+   trunk/griv/workspace.hpp
+Log:
+- added a little bit rotation support
+- fixed pitch issue
+
+Modified: trunk/griv/display.hpp
+===================================================================
+--- trunk/griv/display.hpp	2007-11-15 18:06:46 UTC (rev 1550)
++++ trunk/griv/display.hpp	2007-11-15 23:12:15 UTC (rev 1551)
+@@ -30,6 +30,7 @@
+ #include &lt;GL/glu.h&gt;
+ #include &lt;sstream&gt;
+ #include &lt;stdexcept&gt;
++#include &lt;math.h&gt;
+ #include &quot;SDL.h&quot;
+ 
+ static inline void assert_gl(const char* message)
+@@ -58,6 +59,7 @@
+ 
+   static int get_width()  { return screen-&gt;w; }
+   static int get_height() { return screen-&gt;h; }
++  static float get_diagonal() { return sqrt(screen-&gt;w*screen-&gt;w + screen-&gt;h*screen-&gt;h); }
+   static SDL_Surface* get_screen() { return screen; }
+   static void resize(int w, int h);
+   static void flip();
+
+Modified: trunk/griv/griv.cpp
+===================================================================
+--- trunk/griv/griv.cpp	2007-11-15 18:06:46 UTC (rev 1550)
++++ trunk/griv/griv.cpp	2007-11-15 23:12:15 UTC (rev 1551)
+@@ -106,6 +106,16 @@
+               {
+                 workspace-&gt;set_zoom(128.0f);
+               }
++            else if (event.key.keysym.sym == SDLK_UP)
++              {
++                workspace-&gt;rotation = 0.0f;
++                force_redraw = true;
++              }
++            else if (event.key.keysym.sym == SDLK_DOWN)
++              {
++                workspace-&gt;rotation += 90.0f;
++                force_redraw = true;
++              }
+             else if (event.key.keysym.sym == SDLK_b)
+               {
+                 std::cout &lt;&lt; x_offset &lt;&lt; &quot;, &quot; &lt;&lt; y_offset &lt;&lt; std::endl;
+@@ -161,7 +171,22 @@
+             break;
+         }
+     } 
++  
++  int numkeys;
++  Uint8* keys = SDL_GetKeyState(&amp;numkeys);
+ 
++  if (keys[SDLK_LEFT])
++    {
++      workspace-&gt;rotation -= 200.0f * delta;
++      force_redraw = true;
++    }
++  
++  if (keys[SDLK_RIGHT])
++    {
++      workspace-&gt;rotation += 200.0f * delta;
++      force_redraw = true;
++    }
++
+   float zoom_speed = 3.0f;
+ 
+   if (zoom_out_pressed &amp;&amp; !zoom_in_pressed)
+
+Modified: trunk/griv/image.cpp
+===================================================================
+--- trunk/griv/image.cpp	2007-11-15 18:06:46 UTC (rev 1550)
++++ trunk/griv/image.cpp	2007-11-15 23:12:15 UTC (rev 1551)
+@@ -179,20 +179,40 @@
+ int
+ Image::round_res(int r)
+ {
+-  if (r &lt;= 32)
+-    return 16;
+-  else if (r &lt;= 64)
+-    return 32;
+-  else if (r &lt;= 128)
+-    return 64;
+-  else if (r &lt;= 256)
+-    return 128;
+-  else if (r &lt;= 512)
+-    return 256;
+-  else if (r &lt; 1024)
+-    return 512;
+-  else // if (r &lt;= 1024) // zoom limit, 2048 textures make the thing crash
+-    return 1024;
++  if (0)
++    { // low quality
++      if (r &lt;= 32)
++        return 16;
++      else if (r &lt;= 64)
++        return 32;
++      else if (r &lt;= 128)
++        return 64;
++      else if (r &lt;= 256)
++        return 128;
++      else if (r &lt;= 512)
++        return 256;
++      else if (r &lt; 1024)
++        return 512;
++      else // if (r &lt;= 1024) // zoom limit, 2048 textures make the thing crash
++        return 1024;
++    }
++  else
++    { // high quality
++      if (r &lt;= 16)
++        return 16;
++      else if (r &lt;= 32)
++        return 32;
++      else if (r &lt;= 64)
++        return 64;
++      else if (r &lt;= 128)
++        return 128;
++      else if (r &lt;= 256)
++        return 256;
++      else if (r &lt; 512)
++        return 512;
++      else // if (r &lt;= 1024) // zoom limit, 2048 textures make the thing crash
++        return 1024;      
++    }
+ }
+ 
+ void
+
+Modified: trunk/griv/texture.cpp
+===================================================================
+--- trunk/griv/texture.cpp	2007-11-15 18:06:46 UTC (rev 1550)
++++ trunk/griv/texture.cpp	2007-11-15 23:12:15 UTC (rev 1551)
+@@ -25,6 +25,7 @@
+ 
+ #include &lt;iostream&gt;
+ #include &lt;stdexcept&gt;
++#include &lt;boost/format.hpp&gt;
+ #include &lt;string.h&gt;
+ #include &quot;display.hpp&quot;
+ #include &quot;texture.hpp&quot;
+@@ -33,6 +34,37 @@
+   : surface(surface),
+     handle(0)
+ {
++  if (0)
++  std::cout &lt;&lt; boost::format(&quot;,----------------------------\n&quot;
++                             &quot;| Pointer: 0x%p\n&quot;
++                             &quot;| Size:    %dx%d\n&quot;
++                             &quot;| Pitch:   %d vs %d\n&quot;
++                             &quot;| Rmask:   0x%08x\n&quot;
++                             &quot;| Gmask:   0x%08x\n&quot;
++                             &quot;| Bmask:   0x%08x\n&quot;
++                             &quot;| Amask:   0x%08x\n&quot;
++                             &quot;| Flags:   0x%08x -&gt; %s%s%s%s\n&quot;
++                             &quot;| Palette: 0x%08x\n&quot;
++                             &quot;| BitsPerPixel: %d\n&quot;
++                             &quot;`----------------------------\n&quot;
++                             )
++    % surface
++    % surface-&gt;w
++    % surface-&gt;h
++    % surface-&gt;pitch
++    % (surface-&gt;w*3)
++    % surface-&gt;format-&gt;Rmask
++    % surface-&gt;format-&gt;Gmask
++    % surface-&gt;format-&gt;Bmask
++    % surface-&gt;format-&gt;Amask
++    % surface-&gt;flags
++    % ((surface-&gt;flags &amp; SDL_HWSURFACE) ? &quot;HWSURFACE &quot; : &quot;&quot;)
++    % ((surface-&gt;flags &amp; SDL_SWSURFACE) ? &quot;SWSURFACE &quot; : &quot;&quot;)
++    % ((surface-&gt;flags &amp; SDL_SRCCOLORKEY) ? &quot;SRCCOLORKEY &quot; : &quot;&quot;)
++    % ((surface-&gt;flags &amp; SDL_SRCALPHA) ? &quot;SRCALPHA &quot; : &quot;&quot;)
++    % surface-&gt;format-&gt;palette
++    % static_cast&lt;int&gt;(surface-&gt;format-&gt;BitsPerPixel);
++
+   glGenTextures(1, &amp;handle);
+ 
+   width  = surface-&gt;w;
+@@ -67,8 +99,7 @@
+   glBindTexture(GL_TEXTURE_2D, handle);
+   glEnable(GL_TEXTURE_2D);
+ 
+-  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+-  glPixelStorei(GL_UNPACK_ROW_LENGTH, surface-&gt;pitch/format-&gt;BytesPerPixel);
++  glPixelStorei(GL_PACK_ROW_LENGTH, surface-&gt;pitch/format-&gt;BytesPerPixel);
+ 
+   {
+     int res = std::max(surface-&gt;w, surface-&gt;h);
+@@ -84,6 +115,7 @@
+                  dummy);
+   }
+   
++  glPixelStorei(GL_PACK_ROW_LENGTH, surface-&gt;pitch);
+   glTexSubImage2D(GL_TEXTURE_2D, 0, 
+                   0, 0, surface-&gt;w, surface-&gt;h, sdl_format,
+                   GL_UNSIGNED_BYTE, surface-&gt;pixels);
+
+Modified: trunk/griv/workspace.cpp
+===================================================================
+--- trunk/griv/workspace.cpp	2007-11-15 18:06:46 UTC (rev 1550)
++++ trunk/griv/workspace.cpp	2007-11-15 23:12:15 UTC (rev 1551)
+@@ -38,13 +38,23 @@
+ Workspace::Workspace()
+ {
+   res = 4;
++  rotation = 0.0f;
+ }
+ 
+ void
+ Workspace::draw()
+ {
+   glPushMatrix();
+-  glRotatef(0.0f, 0.0f, 1.0f, 45.0f);
++  if (rotation != 0.0f)
++    {
++      glTranslatef(Framebuffer::get_width()/2, 
++                   Framebuffer::get_height()/2, 
++                   0.0f);
++      glRotatef(rotation, 0.0f, 0.0f, 1.0f);
++      glTranslatef(-Framebuffer::get_width()/2, 
++                   -Framebuffer::get_height()/2,
++                   0.0f);
++    }
+ 
+   for(int i = 0; i &lt; int(images.size()); ++i)
+     {
+
+Modified: trunk/griv/workspace.hpp
+===================================================================
+--- trunk/griv/workspace.hpp	2007-11-15 18:06:46 UTC (rev 1550)
++++ trunk/griv/workspace.hpp	2007-11-15 23:12:15 UTC (rev 1551)
+@@ -38,7 +38,8 @@
+   float res;
+   bool   reorganize;
+   Uint32 reorganize_start;
+-  
++  float rotation;
++
+ public:
+   Workspace();
+ 
+@@ -53,6 +54,7 @@
+ 
+   int size() { return images.size(); }
+   void layout(int w, int h);
++
+ };
+ 
+ #endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001200.html">[Windstille-commit] r1550 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001203.html">[Windstille-commit] r1552 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1201">[ date ]</a>
+              <a href="thread.html#1201">[ thread ]</a>
+              <a href="subject.html#1201">[ subject ]</a>
+              <a href="author.html#1201">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,433 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3098 - in trunk/windstille/src: display engine	objects scenegraph
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3098%20-%20in%20trunk/windstille/src%3A%20display%20engine%0A%09objects%20scenegraph&In-Reply-To=%3C200908281449.n7SEnSrr020424%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002094.html">
+   <LINK REL="Next"  HREF="002096.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3098 - in trunk/windstille/src: display engine	objects scenegraph</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3098%20-%20in%20trunk/windstille/src%3A%20display%20engine%0A%09objects%20scenegraph&In-Reply-To=%3C200908281449.n7SEnSrr020424%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3098 - in trunk/windstille/src: display engine	objects scenegraph">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Aug 28 16:49:28 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002094.html">[Windstille-commit] r3097 - in trunk/windstille/src: display engine	objects scenegraph
+</A></li>
+        <LI>Next message: <A HREF="002096.html">[Windstille-commit] r3099 - trunk/windstille/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2095">[ date ]</a>
+              <a href="thread.html#2095">[ thread ]</a>
+              <a href="subject.html#2095">[ subject ]</a>
+              <a href="author.html#2095">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-08-28 16:49:27 +0200 (Fri, 28 Aug 2009)
+New Revision: 3098
+
+Modified:
+   trunk/windstille/src/display/surface_drawing_request.hpp
+   trunk/windstille/src/engine/game_object.hpp
+   trunk/windstille/src/engine/sector.cpp
+   trunk/windstille/src/engine/sector.hpp
+   trunk/windstille/src/objects/decal.cpp
+   trunk/windstille/src/objects/decal.hpp
+   trunk/windstille/src/scenegraph/scene_graph.cpp
+Log:
+Implemented some half broken support for parenting
+
+Modified: trunk/windstille/src/display/surface_drawing_request.hpp
+===================================================================
+--- trunk/windstille/src/display/surface_drawing_request.hpp	2009-08-28 14:22:23 UTC (rev 3097)
++++ trunk/windstille/src/display/surface_drawing_request.hpp	2009-08-28 14:49:27 UTC (rev 3098)
+@@ -40,6 +40,8 @@
+   virtual ~SurfaceDrawingRequest()
+   {}
+ 
++  SurfaceDrawingParameters&amp; get_params() { return params; }
++
+   void draw(const Texture&amp; /*tmp_texture*/) 
+   {
+     glPushMatrix();
+
+Modified: trunk/windstille/src/engine/game_object.hpp
+===================================================================
+--- trunk/windstille/src/engine/game_object.hpp	2009-08-28 14:22:23 UTC (rev 3097)
++++ trunk/windstille/src/engine/game_object.hpp	2009-08-28 14:49:27 UTC (rev 3098)
+@@ -109,6 +109,8 @@
+   static void set_world (Sector* w) { world = w; }
+   Sector* get_world () const { return world; }
+ 
++  virtual void set_parent(GameObject* /*parent*/) {}
++
+ private:
+   GameObject (const GameObject&amp;);
+   GameObject&amp; operator= (const GameObject&amp;);
+
+Modified: trunk/windstille/src/engine/sector.cpp
+===================================================================
+--- trunk/windstille/src/engine/sector.cpp	2009-08-28 14:22:23 UTC (rev 3097)
++++ trunk/windstille/src/engine/sector.cpp	2009-08-28 14:49:27 UTC (rev 3098)
+@@ -57,7 +57,9 @@
+     ambient_light(),
+     interactive_tilemap(0),
+     interactivebackground_tilemap(0),
+-    player(0)
++    player(0),
++    id_table(),
++    parent_table()
+ {
+   if (debug) std::cout &lt;&lt; &quot;Creating new Sector&quot; &lt;&lt; std::endl;
+   
+@@ -118,6 +120,20 @@
+       add_object(*i);
+     }
+ 
++    // Set the parents properly
++    for(std::map&lt;GameObject*, std::string&gt;::iterator i = parent_table.begin(); i != parent_table.end(); ++i)
++    {
++      std::map&lt;std::string, GameObject*&gt;::iterator j = id_table.find(i-&gt;second);
++      if (j == id_table.end())
++      {
++        std::cout &lt;&lt; &quot;Error: Couldn't resolve 'id': &quot; &lt;&lt; i-&gt;second &lt;&lt; std::endl;
++      }
++      else
++      {
++        i-&gt;first-&gt;set_parent(j-&gt;second);
++      }
++    }
++
+     if (debug) std::cout &lt;&lt; &quot;Finished parsing&quot; &lt;&lt; std::endl;
+   }
+ }
+@@ -125,7 +141,9 @@
+ void
+ Sector::add_object(FileReader&amp; reader)
+ {
+-  if(reader.get_name() == &quot;tilemap&quot;) {
++  GameObject* obj;
++  if(reader.get_name() == &quot;tilemap&quot;) 
++  {
+     std::auto_ptr&lt;TileMap&gt; tilemap(new TileMap(reader));
+ 
+     if (tilemap-&gt;get_name() == &quot;interactive&quot;)
+@@ -133,48 +151,104 @@
+     else if (tilemap-&gt;get_name() == &quot;interactivebackground&quot;)
+       interactivebackground_tilemap = tilemap.get();
+ 
+-    add(tilemap.release());
+-  } else if(reader.get_name() == &quot;background&quot;) {
++    obj = tilemap.release();
++  }
++  else if(reader.get_name() == &quot;background&quot;)
++  {
+     // TODO
+-  } else if (reader.get_name() == &quot;background-gradient&quot;) {
+-    add(new BackgroundGradient(reader));
+-  } else if(reader.get_name() == &quot;trigger&quot;) {
+-    add(new Trigger(reader));
+-  } else if(reader.get_name() == &quot;box&quot;) {
+-    add(new Box(reader));
+-  } else if(reader.get_name() == &quot;shockwave&quot;) {
+-    add(new Shockwave(reader));
+-  } else if(reader.get_name() == &quot;elevator&quot;) {
+-    add(new Elevator(reader));
+-  } else if(reader.get_name() == &quot;character&quot;) {    
+-    add(new Character(reader));
+-  } else if(reader.get_name() == &quot;spider-mine&quot;) {
+-    add(new SpiderMine(reader));
+-  } else if(reader.get_name() == &quot;hedgehog&quot;) {
+-    add(new Hedgehog(reader));
+-  } else if(reader.get_name() == &quot;test-object&quot;) {
+-    add(new TestObject(reader));
+-  } else if (reader.get_name() == &quot;nightvision&quot;) {
+-    add(new Nightvision(reader));
+-  } else if (reader.get_name() == &quot;particle-system&quot;) {
+-    // FIXME: disabled due to work on the editor: add(new ParticleSystem(reader));
+-  } else if(reader.get_name() == &quot;scriptable-object&quot;) {    
+-    add(new ScriptableObject(reader));
+-  } else if(reader.get_name() == &quot;decal&quot;) {    
+-    add(new Decal(reader));
+-  } else if(reader.get_name() == &quot;layer&quot;) {    
+-    add(new Layer(reader));
+-  } else if (reader.get_name() == &quot;vrdummy&quot;) {
+-    add(new VRDummy(reader));
+-  } else if (reader.get_name() == &quot;swarm&quot;) {
+-    add(new Swarm(reader));
+-  } else if (reader.get_name() == &quot;laserpointer&quot;) {
+-    add(new LaserPointer());
+-  } else if (reader.get_name() == &quot;liquid&quot;) {
+-    add(new Liquid(reader));
+-  } else {
++  }
++  else if (reader.get_name() == &quot;background-gradient&quot;)
++  {
++    obj = new BackgroundGradient(reader);
++  }
++  else if(reader.get_name() == &quot;trigger&quot;)
++  {
++    obj = new Trigger(reader);
++  }
++  else if(reader.get_name() == &quot;box&quot;)
++  {
++    obj = new Box(reader);
++  }
++  else if(reader.get_name() == &quot;shockwave&quot;)
++  {
++    obj = new Shockwave(reader);
++  }
++  else if(reader.get_name() == &quot;elevator&quot;)
++  {
++    obj = new Elevator(reader);
++  }
++  else if(reader.get_name() == &quot;character&quot;)
++  {    
++    obj = new Character(reader);
++  }
++  else if(reader.get_name() == &quot;spider-mine&quot;)
++  {
++    obj = new SpiderMine(reader);
++  }
++  else if(reader.get_name() == &quot;hedgehog&quot;)
++  {
++    obj = new Hedgehog(reader);
++  }
++  else if(reader.get_name() == &quot;test-object&quot;)
++  {
++    obj = new TestObject(reader);
++  }
++  else if (reader.get_name() == &quot;nightvision&quot;)
++  {
++    obj = new Nightvision(reader);
++  }
++  else if (reader.get_name() == &quot;particle-system&quot;)
++  {
++    // FIXME: disabled due to work on the editor: obj = new ParticleSystem(reader);
++  }
++  else if(reader.get_name() == &quot;scriptable-object&quot;)
++  {    
++    obj = new ScriptableObject(reader);
++  }
++  else if(reader.get_name() == &quot;decal&quot;)
++  {    
++    obj = new Decal(reader);
++  }
++  else if(reader.get_name() == &quot;layer&quot;)
++  {    
++    obj = new Layer(reader);
++  }
++  else if (reader.get_name() == &quot;vrdummy&quot;)
++  {
++    obj = new VRDummy(reader);
++  }
++  else if (reader.get_name() == &quot;swarm&quot;)
++  {
++    obj = new Swarm(reader);
++  }
++  else if (reader.get_name() == &quot;laserpointer&quot;)
++  {
++    obj = new LaserPointer();
++  }
++  else if (reader.get_name() == &quot;liquid&quot;)
++  {
++    obj = new Liquid(reader);
++  } 
++  else 
++  {
+     std::cout &lt;&lt; &quot;Skipping unknown Object: &quot; &lt;&lt; reader.get_name() &lt;&lt; &quot;\n&quot;;
+   }
++
++  if (obj)
++  {
++    std::string id_str;
++    if (reader.read(&quot;id&quot;, id_str))
++    {
++      id_table[id_str] = obj;
++    }
++
++    std::string parent_str;
++    if (reader.read(&quot;parent&quot;, parent_str))
++    {
++      if (!parent_str.empty())
++        parent_table[obj] = parent_str;
++    }
++  }
+ }
+ 
+ void
+@@ -186,11 +260,11 @@
+   SoundManager::current()-&gt;play_music(music);
+ 
+   if (!init_script.empty())
+-    {
+-      Pathname path = get_directory();
+-      path.append_path(init_script);
+-      vm = ScriptManager::current()-&gt;run_script_file(path);
+-    }
++  {
++    Pathname path = get_directory();
++    path.append_path(init_script);
++    vm = ScriptManager::current()-&gt;run_script_file(path);
++  }
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/engine/sector.hpp
+===================================================================
+--- trunk/windstille/src/engine/sector.hpp	2009-08-28 14:22:23 UTC (rev 3097)
++++ trunk/windstille/src/engine/sector.hpp	2009-08-28 14:49:27 UTC (rev 3098)
+@@ -69,6 +69,9 @@
+ 
+   Player* player;
+ 
++  std::map&lt;std::string, GameObject*&gt; id_table;
++  std::map&lt;GameObject*, std::string&gt; parent_table;
++
+ private:
+   void parse_file(const Pathname&amp; filename);
+ 
+
+Modified: trunk/windstille/src/objects/decal.cpp
+===================================================================
+--- trunk/windstille/src/objects/decal.cpp	2009-08-28 14:22:23 UTC (rev 3097)
++++ trunk/windstille/src/objects/decal.cpp	2009-08-28 14:49:27 UTC (rev 3098)
+@@ -25,6 +25,7 @@
+ #include &quot;display/scene_context.hpp&quot;
+ 
+ Decal::Decal(const FileReader&amp; reader)
++  : drawable()
+ {
+   std::string path;
+   Vector2f pos;
+@@ -56,16 +57,19 @@
+     case 2: params.set_blend_func(GL_SRC_ALPHA, GL_ONE); break;
+   }
+ 
+-  boost::shared_ptr&lt;SurfaceDrawingRequest&gt; drawable(new SurfaceDrawingRequest(surface,
+-                                                                              params
+-                                                                              .set_pos(pos)
+-                                                                              .set_angle(angle)
+-                                                                              .set_hflip(hflip)
+-                                                                              .set_vflip(vflip)
+-                                                                              .set_scale(scale),
+-                                                                              0, 
+-                                                                              Matrix::identity()));
++  Vector2f center_offset(-surface.get_width() /2,
++                         -surface.get_height()/2);
+ 
++  drawable.reset(new SurfaceDrawingRequest(surface,
++                                           params
++                                           .set_pos(pos + center_offset)
++                                           .set_angle(angle)
++                                           .set_hflip(hflip)
++                                           .set_vflip(vflip)
++                                           .set_scale(scale),
++                                           0, 
++                                           Matrix::identity()));
++
+   switch(map_type)
+   {
+     // FIXME: Evil hardcoded constans
+@@ -98,4 +102,15 @@
+ {
+ }
+ 
++void
++Decal::set_parent(GameObject* parent)
++{
++  Decal* decal = dynamic_cast&lt;Decal*&gt;(parent);
++  if (decal)
++  { // FIXME: Not going to work with double parenting
++    drawable-&gt;get_params().set_pos(drawable-&gt;get_params().pos +
++                                   decal-&gt;drawable-&gt;get_params().pos);
++  }
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/objects/decal.hpp
+===================================================================
+--- trunk/windstille/src/objects/decal.hpp	2009-08-28 14:22:23 UTC (rev 3097)
++++ trunk/windstille/src/objects/decal.hpp	2009-08-28 14:49:27 UTC (rev 3098)
+@@ -19,13 +19,17 @@
+ #ifndef HEADER_WINDSTILLE_OBJECTS_DECAL_HPP
+ #define HEADER_WINDSTILLE_OBJECTS_DECAL_HPP
+ 
++#include &lt;boost/shared_ptr.hpp&gt;
++
+ #include &quot;display/surface.hpp&quot;
+ #include &quot;engine/game_object.hpp&quot;
+ 
++class SurfaceDrawingRequest;
++
+ class Decal : public GameObject
+ {
+ private:
+-  
++  boost::shared_ptr&lt;SurfaceDrawingRequest&gt; drawable;
+ 
+ public:
+   Decal(const FileReader&amp; reader);
+@@ -34,6 +38,8 @@
+   void draw (SceneContext&amp; context);
+   void update (float delta);
+ 
++  void set_parent(GameObject* parent);
++
+ private:
+   Decal(const Decal&amp;);
+   Decal&amp; operator=(const Decal&amp;);
+
+Modified: trunk/windstille/src/scenegraph/scene_graph.cpp
+===================================================================
+--- trunk/windstille/src/scenegraph/scene_graph.cpp	2009-08-28 14:22:23 UTC (rev 3097)
++++ trunk/windstille/src/scenegraph/scene_graph.cpp	2009-08-28 14:49:27 UTC (rev 3098)
+@@ -40,7 +40,7 @@
+ void
+ SceneGraph::draw(const Texture&amp; tmp_texture, unsigned int mask)
+ {
+-  for(DrawingRequests::iterator i = m_drawing_requests.begin(); i != m_drawing_requests.end(); ++i)
++  for(DrawingRequests::reverse_iterator i = m_drawing_requests.rbegin(); i != m_drawing_requests.rend(); ++i)
+   {
+     if ((*i)-&gt;get_render_mask() &amp; mask)
+       (*i)-&gt;draw(tmp_texture);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002094.html">[Windstille-commit] r3097 - in trunk/windstille/src: display engine	objects scenegraph
+</A></li>
+	<LI>Next message: <A HREF="002096.html">[Windstille-commit] r3099 - trunk/windstille/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2095">[ date ]</a>
+              <a href="thread.html#2095">[ thread ]</a>
+              <a href="subject.html#2095">[ subject ]</a>
+              <a href="author.html#2095">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,267 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2783 - in trunk/windstille: . src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2783%20-%20in%20trunk/windstille%3A%20.%20src/editor&In-Reply-To=%3C200903271708.n2RH8fpQ007521%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001779.html">
+   <LINK REL="Next"  HREF="001781.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2783 - in trunk/windstille: . src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2783%20-%20in%20trunk/windstille%3A%20.%20src/editor&In-Reply-To=%3C200903271708.n2RH8fpQ007521%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2783 - in trunk/windstille: . src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Mar 27 18:08:41 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001779.html">[Windstille-commit] r2782 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="001781.html">[Windstille-commit] r2784 -	trunk/windstille/data/sectors/trainstation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1780">[ date ]</a>
+              <a href="thread.html#1780">[ thread ]</a>
+              <a href="subject.html#1780">[ subject ]</a>
+              <a href="author.html#1780">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-27 18:08:40 +0100 (Fri, 27 Mar 2009)
+New Revision: 2783
+
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/object_tree.cpp
+   trunk/windstille/src/editor/object_tree.hpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+Log:
+Hooked up some stuff Layer mangement stuff
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-03-27 16:22:33 UTC (rev 2782)
++++ trunk/windstille/TODO	2009-03-27 17:08:40 UTC (rev 2783)
+@@ -501,6 +501,8 @@
+ Editor
+ ======
+ 
++* drawing is broken after loading a level, only get fixed when toggling Light layer
++
+ * background pattern goes away when Color pattern is disabled, since
+   its draw to the Colormap
+ 
+@@ -544,7 +546,9 @@
+ * add way to refresh content of ObjectSelector
+ 
+ * highlight map is problematic, since objects don't cover highlights,
+-  maybe rendering a stencil mask might help
++  maybe rendering a stencil mask might help, other alternative would
++  be occulsion querys, but they only work for Geforce3 and Up. Have to
++  wait and see how much of a problem that is in practice
+ 
+ * add Blender like EmptyObjectModel
+ 
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-03-27 16:22:33 UTC (rev 2782)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-03-27 17:08:40 UTC (rev 2783)
+@@ -694,6 +694,12 @@
+   if (WindstilleWidget* wst = get_windstille_widget())
+     {
+       std::cout &lt;&lt; &quot;Deleting layer: &quot; &lt;&lt; wst &lt;&lt; std::endl;
++      Gtk::TreeModel::Path path;
++      Gtk::TreeViewColumn* focus_column;
++
++      object_tree.get_treeview().get_cursor(path, focus_column);
++
++      wst-&gt;get_sector_model()-&gt;delete_layer(path);
+     }
+ }
+ 
+@@ -703,7 +709,15 @@
+   if (WindstilleWidget* wst = get_windstille_widget())
+     {
+       std::cout &lt;&lt; &quot;Adding layer&quot; &lt;&lt; std::endl;
+-      wst-&gt;get_sector_model()-&gt;add_layer(&quot;New Layer&quot;);
++
++      Gtk::TreeModel::Path path;
++      Gtk::TreeViewColumn* focus_column;
++
++      object_tree.get_treeview().get_cursor(path, focus_column);
++
++      wst-&gt;get_sector_model()-&gt;add_layer(&quot;New Layer&quot;, path);
++
++      object_tree.get_treeview().expand_all();
+     }
+ }
+ 
+
+Modified: trunk/windstille/src/editor/object_tree.cpp
+===================================================================
+--- trunk/windstille/src/editor/object_tree.cpp	2009-03-27 16:22:33 UTC (rev 2782)
++++ trunk/windstille/src/editor/object_tree.cpp	2009-03-27 17:08:40 UTC (rev 2783)
+@@ -29,7 +29,7 @@
+ 
+ ObjectTree::ObjectTree(EditorWindow&amp; editor_)
+   : editor(editor_),
+-    label(&quot;Scene Tree&quot;, Gtk::ALIGN_LEFT)
++    label(&quot;Layer Manager&quot;, Gtk::ALIGN_LEFT)
+ {
+   //treeview.set_headers_clickable();
+   treeview.set_headers_visible(false);
+@@ -37,7 +37,7 @@
+   treeview.set_reorderable();
+ 
+   treeview.append_column(&quot;Type&quot;, ObjectTreeColumns::instance().type_icon);
+-  treeview.append_column(&quot;Name&quot;, ObjectTreeColumns::instance().name);
++  treeview.append_column_editable(&quot;Name&quot;, ObjectTreeColumns::instance().name);
+   treeview.append_column_editable(&quot;Visible&quot;, ObjectTreeColumns::instance().visible);
+ 
+   treeview.expand_all();
+@@ -56,11 +56,15 @@
+                                  &quot;  &lt;toolbar  name='ToolBar'&gt;&quot;
+                                  &quot;    &lt;toolitem action='NewLayer'/&gt;&quot;
+                                  &quot;    &lt;toolitem action='DeleteLayer'/&gt;&quot;
++                                 &quot;    &lt;separator/&gt;&quot;
+                                  &quot;  &lt;/toolbar&gt;&quot;
+                                  &quot;&lt;/ui&gt;&quot;);
+   
+   Gtk::Toolbar&amp; toolbar = dynamic_cast&lt;Gtk::Toolbar&amp;&gt;(*ui_manager-&gt;get_widget(&quot;/ToolBar&quot;));
+ 
++  treeview.signal_cursor_changed().connect(sigc::mem_fun(*this, &amp;ObjectTree::on_cursor_changed));
++  treeview.signal_columns_changed().connect(sigc::mem_fun(*this, &amp;ObjectTree::on_columns_changed));
++
+   toolbar.set_icon_size(Gtk::ICON_SIZE_MENU);
+ 
+   scrolled.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_ALWAYS);
+@@ -83,11 +87,29 @@
+     {
+       treeview.set_model(model-&gt;get_objects_tree());
+       treeview.expand_all();
++      treeview.set_cursor(Gtk::TreeModel::Path(&quot;0&quot;));
+     }
+   else
+     {
+       treeview.set_model(Glib::RefPtr&lt;Gtk::TreeStore&gt;());
+     }
+ }
++
++void
++ObjectTree::on_cursor_changed()
++{
++  Gtk::TreeModel::Path path;
++  Gtk::TreeViewColumn* focus_column;
++  treeview.get_cursor(path, focus_column);
++  
++  std::cout &lt;&lt; &quot;on_cursor_changed: &quot; &lt;&lt; path.to_string() &lt;&lt; std::endl;
++}
++
++void
++ObjectTree::on_columns_changed()
++{
++  std::cout &lt;&lt; &quot;ObjectTree::on_columns_changed()&quot; &lt;&lt; std::endl;
++  treeview.expand_all();
++}
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/object_tree.hpp
+===================================================================
+--- trunk/windstille/src/editor/object_tree.hpp	2009-03-27 16:22:33 UTC (rev 2782)
++++ trunk/windstille/src/editor/object_tree.hpp	2009-03-27 17:08:40 UTC (rev 2783)
+@@ -47,6 +47,11 @@
+ 
+   void set_model(SectorModel* model);
+ 
++  void on_cursor_changed();
++  void on_columns_changed();
++
++  Gtk::TreeView&amp; get_treeview() { return treeview; }
++
+ private:
+   ObjectTree(const ObjectTree&amp;);
+   ObjectTree&amp; operator=(const ObjectTree&amp;);
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-03-27 16:22:33 UTC (rev 2782)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-03-27 17:08:40 UTC (rev 2783)
+@@ -49,9 +49,10 @@
+ }
+ 
+ void
+-SectorModel::add_layer(const std::string&amp; name)
++SectorModel::add_layer(const std::string&amp; name, const Gtk::TreeModel::Path&amp; path)
+ {
+-  Gtk::TreeStore::iterator it = objects_tree-&gt;append(root_it-&gt;children());
++  Gtk::TreeStore::iterator it = objects_tree-&gt;append(objects_tree-&gt;get_iter(path)-&gt;children());
++
+   (*it)[ObjectTreeColumns::instance().type_icon] = Gdk::Pixbuf::create_from_file(&quot;data/editor/type.png&quot;);
+   (*it)[ObjectTreeColumns::instance().name]      = name;
+   (*it)[ObjectTreeColumns::instance().visible]   = false; 
+@@ -60,6 +61,12 @@
+ }
+ 
+ void
++SectorModel::delete_layer(Gtk::TreeModel::Path&amp; path)
++{
++  objects_tree-&gt;erase(objects_tree-&gt;get_iter(path));
++}
++
++void
+ SectorModel::add(const ObjectModelHandle&amp; object)  
+ {
+   root_layer-&gt;add(object);
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-03-27 16:22:33 UTC (rev 2782)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-03-27 17:08:40 UTC (rev 2783)
+@@ -72,7 +72,8 @@
+   void draw(SceneContext&amp; sc, const Layers&amp; layers);
+   void update(float delta);
+ 
+-  void add_layer(const std::string&amp; name);
++  void add_layer(const std::string&amp; name, const Gtk::TreeModel::Path&amp; path);
++  void delete_layer(Gtk::TreeModel::Path&amp; path);
+ 
+   void add(const ObjectModelHandle&amp; object);
+   void remove(const ObjectModelHandle&amp; object);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001779.html">[Windstille-commit] r2782 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="001781.html">[Windstille-commit] r2784 -	trunk/windstille/data/sectors/trainstation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1780">[ date ]</a>
+              <a href="thread.html#1780">[ thread ]</a>
+              <a href="subject.html#1780">[ subject ]</a>
+              <a href="author.html#1780">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

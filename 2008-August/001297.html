@@ -1,0 +1,508 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2277 - trunk/griv/new
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2277%20-%20trunk/griv/new&In-Reply-To=%3C200808062135.m76LZNi7016686%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001296.html">
+   <LINK REL="Next"  HREF="001298.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2277 - trunk/griv/new</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2277%20-%20trunk/griv/new&In-Reply-To=%3C200808062135.m76LZNi7016686%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2277 - trunk/griv/new">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Aug  6 23:35:23 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001296.html">[Windstille-commit] r2276 - trunk/griv/new
+</A></li>
+        <LI>Next message: <A HREF="001298.html">[Windstille-commit] r2278 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1297">[ date ]</a>
+              <a href="thread.html#1297">[ thread ]</a>
+              <a href="subject.html#1297">[ subject ]</a>
+              <a href="author.html#1297">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-06 23:35:22 +0200 (Wed, 06 Aug 2008)
+New Revision: 2277
+
+Modified:
+   trunk/griv/new/file_database.cpp
+   trunk/griv/new/file_database.hpp
+   trunk/griv/new/griv.cpp
+   trunk/griv/new/software_surface.cpp
+   trunk/griv/new/software_surface.hpp
+   trunk/griv/new/sqlite.cpp
+   trunk/griv/new/sqlite.hpp
+   trunk/griv/new/tile_database.cpp
+   trunk/griv/new/tile_database.hpp
+Log:
+Some more SQLite code for TileDatabase and FileDatabase
+
+Modified: trunk/griv/new/file_database.cpp
+===================================================================
+--- trunk/griv/new/file_database.cpp	2008-08-06 18:27:12 UTC (rev 2276)
++++ trunk/griv/new/file_database.cpp	2008-08-06 21:35:22 UTC (rev 2277)
+@@ -74,27 +74,44 @@
+   return sqlite3_last_insert_rowid(db-&gt;get_db());
+ }
+ 
+-FileEntry
+-FileDatabase::get_file_entry(const std::string&amp; filename)
++bool
++FileDatabase::get_file_entry(const std::string&amp; filename, FileEntry&amp; entry)
+ {
+-  std::cout &lt;&lt; &quot;Trying to retrieve: &quot; &lt;&lt; filename &lt;&lt; std::endl;
++  //std::cout &lt;&lt; &quot;Trying to retrieve: &quot; &lt;&lt; filename &lt;&lt; std::endl;
+   get_by_filename_stmt.bind_text(1, filename);
+-  get_by_filename_stmt.execute_query();
+-  
+-  // If nothing is found, query the file system and store the results
++  SQLiteReader reader = get_by_filename_stmt.execute_query();
+ 
+-  return FileEntry();
++  if (reader.next())
++    {
++      if (0)
++        std::cout &lt;&lt; &quot;Row: &quot; 
++                  &lt;&lt; reader.get_column_name(0) &lt;&lt; &quot; &quot;
++                  &lt;&lt; reader.get_text(0)
++                  &lt;&lt; std::endl;
++
++      entry.filename = reader.get_text(0);
++      entry.md5      = reader.get_text(1);
++      entry.filesize = reader.get_int(2);
++      entry.width    = reader.get_int(3);
++      entry.height   = reader.get_int(4);
++
++      return true;
++    }
++  else
++    {
++      return false;
++    }
+ }
+ 
+-FileEntry
+-FileDatabase::get_file_entry(uint32_t file_id)
++bool
++FileDatabase::get_file_entry(uint32_t file_id, FileEntry&amp; entry)
+ {
+   get_by_file_id_stmt.bind_int(1, file_id);
+   get_by_file_id_stmt.execute_query();
+ 
+   // If nothing is found, query the file system and store the results
+ 
+-  return FileEntry();
++  return false;
+ }
+ 
+ /* EOF */
+
+Modified: trunk/griv/new/file_database.hpp
+===================================================================
+--- trunk/griv/new/file_database.hpp	2008-08-06 18:27:12 UTC (rev 2276)
++++ trunk/griv/new/file_database.hpp	2008-08-06 21:35:22 UTC (rev 2277)
+@@ -33,6 +33,8 @@
+ struct FileEntry 
+ {
+   std::string filename; // 
++  std::string md5;      //
++  int         filesize; //
+   uint32_t    mtime;    // mtime of the file
+   int         width;    // image width
+   int         height;   // image height
+@@ -55,8 +57,8 @@
+   FileDatabase(SQLiteConnection* db);
+   ~FileDatabase();
+   
+-  FileEntry get_file_entry(const std::string&amp; filename);
+-  FileEntry get_file_entry(uint32_t file_id);
++  bool get_file_entry(const std::string&amp; filename, FileEntry&amp; entry);
++  bool get_file_entry(uint32_t file_id, FileEntry&amp; entry);
+ 
+ private:
+   FileDatabase (const FileDatabase&amp;);
+
+Modified: trunk/griv/new/griv.cpp
+===================================================================
+--- trunk/griv/new/griv.cpp	2008-08-06 18:27:12 UTC (rev 2276)
++++ trunk/griv/new/griv.cpp	2008-08-06 21:35:22 UTC (rev 2277)
+@@ -36,8 +36,9 @@
+ #include &quot;url.hpp&quot;
+ #include &quot;sqlite.hpp&quot;
+ #include &quot;software_surface.hpp&quot;
++#include &quot;file_database.hpp&quot;
++#include &quot;tile_database.hpp&quot;
+ #include &quot;griv.hpp&quot;
+-#include &quot;file_database.hpp&quot;
+ 
+ Griv::Griv()
+ {
+@@ -69,6 +70,7 @@
+   SQLiteConnection db(&quot;test.sqlite&quot;);
+ 
+   FileDatabase file_db(&amp;db);
++  TileDatabase tile_db(&amp;db);
+ 
+   for(std::vector&lt;std::string&gt;::size_type i = 0; i &lt; rest.size(); ++i)
+     {
+@@ -104,8 +106,11 @@
+         }
+       else  // Data base test
+         {
+-          FileEntry entry = file_db.get_file_entry(rest[i]);
+-          std::cout &lt;&lt; entry &lt;&lt; std::endl;
++          FileEntry entry;
++          if (file_db.get_file_entry(rest[i], entry))
++            std::cout &lt;&lt; entry &lt;&lt; std::endl;
++          else
++            std::cout &lt;&lt; &quot;Couldn't find entry for &quot; &lt;&lt; rest[i] &lt;&lt; std::endl;
+         }
+     }
+ 
+
+Modified: trunk/griv/new/software_surface.cpp
+===================================================================
+--- trunk/griv/new/software_surface.cpp	2008-08-06 18:27:12 UTC (rev 2276)
++++ trunk/griv/new/software_surface.cpp	2008-08-06 21:35:22 UTC (rev 2277)
+@@ -160,6 +160,24 @@
+     }
+ }
+ 
++std::string
++SoftwareSurface::get_data() const
++{
++  FIMEMORY* mem = FreeImage_OpenMemory();
++  FreeImage_SaveToMemory(FIF_JPEG, impl-&gt;bitmap, mem, 0);
++
++  BYTE* data;
++  DWORD len;
++
++  FreeImage_AcquireMemory(mem, &amp;data, &amp;len);
++
++  std::string data_str(reinterpret_cast&lt;char*&gt;(data), len);
++
++  FreeImage_CloseMemory(mem);
++
++  return data_str;
++}
++
+ // FreeImage_OpenMemory(BYTE *data FI_DEFAULT(0), DWORD size_in_bytes FI_DEFAULT(0));
+ // hmem = FreeImage_OpenMemory();
+ // FreeImage_SaveToMemory(fif, dib, hmem, 0);
+
+Modified: trunk/griv/new/software_surface.hpp
+===================================================================
+--- trunk/griv/new/software_surface.hpp	2008-08-06 18:27:12 UTC (rev 2276)
++++ trunk/griv/new/software_surface.hpp	2008-08-06 21:35:22 UTC (rev 2277)
+@@ -51,6 +51,8 @@
+ 
+   void save(const std::string&amp; filename) const;
+ 
++  std::string get_data() const;
++
+ private:
+   boost::shared_ptr&lt;SoftwareSurfaceImpl&gt; impl;
+ };
+
+Modified: trunk/griv/new/sqlite.cpp
+===================================================================
+--- trunk/griv/new/sqlite.cpp	2008-08-06 18:27:12 UTC (rev 2276)
++++ trunk/griv/new/sqlite.cpp	2008-08-06 21:35:22 UTC (rev 2277)
+@@ -52,7 +52,7 @@
+ {
+   char* errmsg;
+ 
+-  std::cout &lt;&lt; &quot;SQLiteConnection::exec: &quot; &lt;&lt; sqlstmt &lt;&lt; std::endl;
++  //std::cout &lt;&lt; &quot;SQLiteConnection::exec: &quot; &lt;&lt; sqlstmt &lt;&lt; std::endl;
+ 
+   if (sqlite3_exec(db, sqlstmt.c_str(), 0, 0, &amp;errmsg) != SQLITE_OK)
+     {
+@@ -96,7 +96,7 @@
+       != SQLITE_OK)
+     {
+       std::ostringstream str;
+-      str &lt;&lt; &quot;SQLiteStatement: &quot; &lt;&lt; sqlite3_errmsg(db-&gt;get_db());
++      str &lt;&lt; &quot;SQLiteStatement::prepare: &quot; &lt;&lt; sqlite3_errmsg(db-&gt;get_db()) &lt;&lt; &quot;:\n&quot; &lt;&lt; sqlstmt;
+       throw SQLiteError(str.str());
+     }
+ }
+@@ -160,37 +160,84 @@
+   reset();
+ }
+ 
+-void
++SQLiteReader
+ SQLiteStatement::execute_query()
+ {
++  return SQLiteReader(db, stmt);
++}
++
++SQLiteReader::SQLiteReader(SQLiteConnection* db, sqlite3_stmt* stmt)
++  : db(db),
++    stmt(stmt)
++{
++}
++
++SQLiteReader::~SQLiteReader()
++{  
++  // FIXME: Not good, we likely clean up twice
++  
++  sqlite3_clear_bindings(stmt);  
++
++  if (sqlite3_reset(stmt) != SQLITE_OK)
++    {
++      std::ostringstream str;
++      str &lt;&lt; &quot;SQLiteStatement: &quot; &lt;&lt; sqlite3_errmsg(db-&gt;get_db());
++      throw SQLiteError(str.str());
++    }
++}
++
++bool
++SQLiteReader::next()
++{
+   switch(sqlite3_step(stmt))
+     {
+       case SQLITE_DONE:
+-        // No results
+-        break;
++        // cleanup here or in the destructor?!
++        return false;
+ 
+       case SQLITE_ROW:
+-        // Some results
+-        do
+-          {
+-            std::cout &lt;&lt; &quot;Result: &quot; &lt;&lt; sqlite3_column_text(stmt, 0) &lt;&lt; std::endl;
+-          }
+-        while (sqlite3_step(stmt) == SQLITE_ROW);
+-        break;
++        return true;
+ 
+       case SQLITE_BUSY:
+         throw SQLiteError(&quot;BUSY&quot;);
+-        break;
++        return false;
+ 
+       default:
+         {
+           std::ostringstream str;
+           str &lt;&lt; &quot;SQLiteStatement::execute_query: &quot; &lt;&lt; sqlite3_errmsg(db-&gt;get_db());
+           throw SQLiteError(str.str());     
++          return false;
+         }
+     }
++}
+ 
+-  reset();
++int
++SQLiteReader::get_int(int column)
++{
++  return sqlite3_column_int(stmt, column);
+ }
++
++std::string
++SQLiteReader::get_text(int column)
++{
++  const void* data = sqlite3_column_text(stmt, column);
++  int len = sqlite3_column_bytes(stmt, column);
++  return std::string(static_cast&lt;const char*&gt;(data), len);
++}
++
++std::string
++SQLiteReader::get_blob(int column)
++{
++  const void* data = sqlite3_column_blob(stmt, column);
++  int len = sqlite3_column_bytes(stmt, column);
++  return std::string(static_cast&lt;const char*&gt;(data), len);
++}
++
++std::string
++SQLiteReader::get_column_name(int column)
++{
++  return sqlite3_column_name(stmt, column);
++}
+ 
+ /* EOF */
+
+Modified: trunk/griv/new/sqlite.hpp
+===================================================================
+--- trunk/griv/new/sqlite.hpp	2008-08-06 18:27:12 UTC (rev 2276)
++++ trunk/griv/new/sqlite.hpp	2008-08-06 21:35:22 UTC (rev 2277)
+@@ -55,6 +55,25 @@
+   sqlite3* get_db() const { return db; }
+ };
+ 
++class SQLiteReader
++{
++private:
++  SQLiteConnection* db;
++  sqlite3_stmt*   stmt;
++  
++public:
++  SQLiteReader(SQLiteConnection* db, sqlite3_stmt* stmt);
++  ~SQLiteReader();
++
++  bool next();
++
++  int         get_int(int column);
++  std::string get_text(int column);
++  std::string get_blob(int column);
++
++  std::string get_column_name(int column);
++};
++
+ class SQLiteStatement
+ {
+ private:
+@@ -75,7 +94,7 @@
+   void bind_blob(int n, const std::string&amp;);
+ 
+   void execute();
+-  void execute_query();
++  SQLiteReader execute_query();
+ };
+ 
+ #endif
+
+Modified: trunk/griv/new/tile_database.cpp
+===================================================================
+--- trunk/griv/new/tile_database.cpp	2008-08-06 18:27:12 UTC (rev 2276)
++++ trunk/griv/new/tile_database.cpp	2008-08-06 21:35:22 UTC (rev 2277)
+@@ -25,21 +25,57 @@
+ 
+ #include &quot;tile_database.hpp&quot;
+ 
+-TileDatabase::TileDatabase()
++TileDatabase::TileDatabase(SQLiteConnection* db)
++  : db(db),
++    store_stmt(db),
++    get_stmt(db)
+ {
+-  
++  db-&gt;exec(&quot;CREATE TABLE IF NOT EXISTS tiles (&quot;
++           &quot;fileid  INTEGER, &quot; // link to to files.rowid
++           &quot;scale   INTEGER, &quot; // zoom level
++           &quot;x       INTEGER, &quot; // X position in tiles
++           &quot;y       INTEGER, &quot; // Y position in tiles
++           &quot;data    BLOB     &quot; // the image data, JPEG
++           &quot;);&quot;);
++
++  store_stmt.prepare(&quot;INSERT into tiles (fileid, zoom, x, y, width, height, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7);&quot;);
++  get_stmt.prepare(&quot;SELECT (data) FROM tiles WHERE fileid = ?1 AND zoom = ?2 AND x = ?3 AND y = ?4;&quot;);
+ }
+ 
+ SoftwareSurface
+-TileDatabase::get_tile(uint32_t file_id, int tile_size, int scale, int x, int y)
++TileDatabase::get_tile(uint32_t file_id, int scale, int x, int y)
+ {
+-  return SoftwareSurface();
++  get_stmt.bind_int(1, file_id);
++  get_stmt.bind_int(2, scale);
++  get_stmt.bind_int(3, x);
++  get_stmt.bind_int(4, y);
++
++  SQLiteReader reader = get_stmt.execute_query();
++
++  if (reader.next())
++    {
++      reader.get_blob(0);
++      // create surface from blob and return it
++      return SoftwareSurface();
++    }
++  else
++    {
++      return SoftwareSurface();
++    }
+ }
+ 
+ void
+-TileDatabase::store_tile(uint32_t file_id, int tile_size, int scale, int x, int y, const SoftwareSurface&amp; surface)
++TileDatabase::store_tile(uint32_t file_id, int scale, int x, int y, const SoftwareSurface&amp; surface)
+ {
++  store_stmt.bind_int(1, file_id);
++  store_stmt.bind_int(2, scale);
++  store_stmt.bind_int(3, x);
++  store_stmt.bind_int(4, y);
++  //store_stmt.bind_int(5, surface.get_width());
++  //store_stmt.bind_int(6, surface.get_height());
++  store_stmt.bind_blob(5, surface.get_data());
++
++  store_stmt.execute();
++}
+   
+-}
+-
+ /* EOF */
+
+Modified: trunk/griv/new/tile_database.hpp
+===================================================================
+--- trunk/griv/new/tile_database.hpp	2008-08-06 18:27:12 UTC (rev 2276)
++++ trunk/griv/new/tile_database.hpp	2008-08-06 21:35:22 UTC (rev 2277)
+@@ -26,20 +26,22 @@
+ #ifndef HEADER_TILE_DATABASE_HPP
+ #define HEADER_TILE_DATABASE_HPP
+ 
+-#include &lt;sqlite3.h&gt;
++#include &quot;sqlite.hpp&quot;
+ #include &quot;software_surface.hpp&quot;
+ 
+ /** */
+ class TileDatabase
+ {
+ private:
+-  
++  SQLiteConnection* db;
++  SQLiteStatement store_stmt;
++  SQLiteStatement get_stmt;
+ 
+ public:
+-  TileDatabase();
++  TileDatabase(SQLiteConnection* db);
+   
+-  SoftwareSurface get_tile(uint32_t file_id, int tile_size, int scale, int x, int y);
+-  void store_tile(uint32_t file_id, int tile_size, int scale, int x, int y, const SoftwareSurface&amp; surface);
++  SoftwareSurface get_tile(uint32_t file_id, int scale, int x, int y);
++  void store_tile(uint32_t file_id, int scale, int x, int y, const SoftwareSurface&amp; surface);
+   
+ private:
+   TileDatabase (const TileDatabase&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001296.html">[Windstille-commit] r2276 - trunk/griv/new
+</A></li>
+	<LI>Next message: <A HREF="001298.html">[Windstille-commit] r2278 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1297">[ date ]</a>
+              <a href="thread.html#1297">[ thread ]</a>
+              <a href="subject.html#1297">[ subject ]</a>
+              <a href="author.html#1297">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

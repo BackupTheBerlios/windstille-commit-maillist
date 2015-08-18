@@ -1,0 +1,208 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r502 - trunk/src/scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r502%20-%20trunk/src/scripting&In-Reply-To=%3C200507012155.j61Ltncm027617%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000157.html">
+   <LINK REL="Next"  HREF="000668.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r502 - trunk/src/scripting</H1>
+    <B>Matthias Braun at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r502%20-%20trunk/src/scripting&In-Reply-To=%3C200507012155.j61Ltncm027617%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r502 - trunk/src/scripting">matzebraun at sheep.berlios.de
+       </A><BR>
+    <I>Fri Jul  1 23:55:49 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000157.html">[Windstille-commit] r501 - in trunk/data/blender: . barkeeper shuttle
+</A></li>
+        <LI>Next message: <A HREF="000668.html">[Windstille-commit] r503 - in trunk: . data data/levels src src/display src/input src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#159">[ date ]</a>
+              <a href="thread.html#159">[ thread ]</a>
+              <a href="subject.html#159">[ subject ]</a>
+              <a href="author.html#159">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: matzebraun
+Date: 2005-07-01 23:55:48 +0200 (Fri, 01 Jul 2005)
+New Revision: 502
+
+Modified:
+   trunk/src/scripting/wrapper_util.cpp
+   trunk/src/scripting/wrapper_util.hpp
+Log:
+needed for new miniswig
+
+Modified: trunk/src/scripting/wrapper_util.cpp
+===================================================================
+--- trunk/src/scripting/wrapper_util.cpp	2005-07-01 19:12:00 UTC (rev 501)
++++ trunk/src/scripting/wrapper_util.cpp	2005-07-01 21:55:48 UTC (rev 502)
+@@ -8,25 +8,40 @@
+ {
+     sq_pushstring(v, name, -1);
+     sq_newclosure(v, func, 0); //create a new function
+-    sq_createslot(v, -3);
++    if(sq_createslot(v, -3) &lt; 0) {
++        std::stringstream msg;
++        msg &lt;&lt; &quot;Couldn't register function '&quot; &lt;&lt; name &lt;&lt; &quot;'&quot;;
++        throw SquirrelError(v, msg.str());
++    }
+ }
+ 
++static void _register_functions(HSQUIRRELVM v, WrappedFunction* functions)
++{
++    for(WrappedFunction* func = functions; func-&gt;name != 0; ++func) {
++        register_function(v, func-&gt;f, func-&gt;name);
++    }
++}
++
+ static void register_class(HSQUIRRELVM v, WrappedClass* wclass)
+ {
+     sq_pushstring(v, wclass-&gt;name, -1);
+     sq_newclass(v, false);
+-    for(WrappedFunction* func = wclass-&gt;functions; func-&gt;name != 0; ++func) {
+-        register_function(v, func-&gt;f, func-&gt;name);
++    _register_functions(v, wclass-&gt;functions);
++    _register_constants(v, wclass-&gt;int_consts);
++    _register_constants(v, wclass-&gt;float_consts);
++    _register_constants(v, wclass-&gt;string_consts);
++
++    if(sq_createslot(v, -3) &lt; 0) {
++        std::stringstream msg;
++        msg &lt;&lt; &quot;Couldn't register function '&quot; &lt;&lt; wclass-&gt;name &lt;&lt; &quot;'&quot;;
++        throw SquirrelError(v, msg.str());
+     }
+-    sq_createslot(v, -3);
+ }
+ 
+ void register_functions(HSQUIRRELVM v, WrappedFunction* functions)
+ {
+     sq_pushroottable(v);
+-    for(WrappedFunction* func = functions; func-&gt;name != 0; ++func) {
+-        register_function(v, func-&gt;f, func-&gt;name);
+-    }
++    _register_functions(v, functions);
+     sq_pop(v, 1);
+ }
+ 
+@@ -39,6 +54,7 @@
+     sq_pop(v, 1);
+ }
+ 
++
+ void print_squirrel_stack(HSQUIRRELVM v)
+ {
+     printf(&quot;--------------------------------------------------------------\n&quot;);
+
+Modified: trunk/src/scripting/wrapper_util.hpp
+===================================================================
+--- trunk/src/scripting/wrapper_util.hpp	2005-07-01 19:12:00 UTC (rev 501)
++++ trunk/src/scripting/wrapper_util.hpp	2005-07-01 21:55:48 UTC (rev 502)
+@@ -3,15 +3,26 @@
+ 
+ #include &lt;squirrel.h&gt;
+ #include &lt;exception&gt;
++#include &lt;sstream&gt;
+ #include &lt;string&gt;
+ 
+ struct WrappedFunction {
+     const char* name;
+     SQFUNCTION f;
+ };
++
++template&lt;typename T&gt;
++struct WrappedConstant {
++    const char* name;
++    T value;
++};
++
+ struct WrappedClass {
+     const char* name;
+     WrappedFunction* functions;
++    WrappedConstant&lt;int&gt;* int_consts;
++    WrappedConstant&lt;float&gt;* float_consts;
++    WrappedConstant&lt;const char*&gt;* string_consts;
+ };
+ 
+ class SquirrelError : public std::exception
+@@ -28,6 +39,43 @@
+ void register_functions(HSQUIRRELVM v, WrappedFunction* functions);
+ void register_classes(HSQUIRRELVM v, WrappedClass* classes);
+ 
++static inline void push_value(HSQUIRRELVM v, int val)
++{
++    sq_pushinteger(v, val);
++}
++
++static inline void push_value(HSQUIRRELVM v, float val)
++{
++    sq_pushfloat(v, val);
++}
++
++static inline void push_value(HSQUIRRELVM v, const char* str)
++{
++    sq_pushstring(v, str, -1);
++}
++
++template&lt;typename T&gt;
++void _register_constants(HSQUIRRELVM v, WrappedConstant&lt;T&gt;* constants)
++{
++    for(WrappedConstant&lt;T&gt;* c = constants; c-&gt;name != 0; ++c) {
++        sq_pushstring(v, c-&gt;name, -1);
++        push_value(v, c-&gt;value);
++        if(sq_createslot(v, -3) &lt; 0) {
++            std::stringstream msg;
++            msg &lt;&lt; &quot;Couldn't register int constant '&quot; &lt;&lt; c-&gt;name &lt;&lt; &quot;'&quot;;
++            throw SquirrelError(v, msg.str());
++        }
++    }
++}
++
++template&lt;typename T&gt;
++void register_constants(HSQUIRRELVM v, WrappedConstant&lt;T&gt;* constants)
++{
++    sq_pushroottable(v);
++    _register_constants(v, constants);
++    sq_pop(v, 1);
++}
++
+ void print_squirrel_stack(HSQUIRRELVM v);
+ 
+ #endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000157.html">[Windstille-commit] r501 - in trunk/data/blender: . barkeeper shuttle
+</A></li>
+	<LI>Next message: <A HREF="000668.html">[Windstille-commit] r503 - in trunk: . data data/levels src src/display src/input src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#159">[ date ]</a>
+              <a href="thread.html#159">[ thread ]</a>
+              <a href="subject.html#159">[ subject ]</a>
+              <a href="author.html#159">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

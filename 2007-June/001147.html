@@ -1,0 +1,437 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1495 - in trunk/windstille: src/display tools
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1495%20-%20in%20trunk/windstille%3A%20src/display%20tools&In-Reply-To=%3C200706222000.l5MK0CNX010789%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001146.html">
+   <LINK REL="Next"  HREF="001148.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1495 - in trunk/windstille: src/display tools</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1495%20-%20in%20trunk/windstille%3A%20src/display%20tools&In-Reply-To=%3C200706222000.l5MK0CNX010789%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1495 - in trunk/windstille: src/display tools">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Jun 22 22:00:12 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001146.html">[Windstille-commit] r1494 - trunk/windstille/tools
+</A></li>
+        <LI>Next message: <A HREF="001148.html">[Windstille-commit] r1496 - trunk/windstille/tools
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1147">[ date ]</a>
+              <a href="thread.html#1147">[ thread ]</a>
+              <a href="subject.html#1147">[ subject ]</a>
+              <a href="author.html#1147">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-06-22 22:00:08 +0200 (Fri, 22 Jun 2007)
+New Revision: 1495
+
+Modified:
+   trunk/windstille/src/display/vertex_array_drawing_request.cpp
+   trunk/windstille/tools/bone_test.blend
+   trunk/windstille/tools/mesh_export.py
+   trunk/windstille/tools/model_test.blend
+   trunk/windstille/tools/pose_export.py
+   trunk/windstille/tools/windstille_export.py
+Log:
+- made mesh exporter working (untested)
+
+Modified: trunk/windstille/src/display/vertex_array_drawing_request.cpp
+===================================================================
+--- trunk/windstille/src/display/vertex_array_drawing_request.cpp	2007-06-22 05:14:33 UTC (rev 1494)
++++ trunk/windstille/src/display/vertex_array_drawing_request.cpp	2007-06-22 20:00:08 UTC (rev 1495)
+@@ -94,7 +94,7 @@
+   state.disable_client_state(GL_NORMAL_ARRAY);
+   state.enable_client_state(GL_VERTEX_ARRAY);
+ 
+-  glVertexPointer  (3, GL_FLOAT, 0, &amp;*vertices.begin());
++  glVertexPointer(3, GL_FLOAT, 0, &amp;*vertices.begin());
+ 
+   state.activate();
+ 
+
+Modified: trunk/windstille/tools/bone_test.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/windstille/tools/mesh_export.py
+===================================================================
+--- trunk/windstille/tools/mesh_export.py	2007-06-22 05:14:33 UTC (rev 1494)
++++ trunk/windstille/tools/mesh_export.py	2007-06-22 20:00:08 UTC (rev 1495)
+@@ -1,40 +1,183 @@
+ import Blender
+ from Blender import *
++
++class MeshData:
++    &quot;&quot;&quot;Data structure that holds a list of faces&quot;&quot;&quot;
+ 
+-print &quot;---------------------------------------------------&quot;
++    def __init__(self, texture_filename):
++        # Filename of the used texture
++        self.texture_filename = texture_filename
+ 
+-def export_mesh(out, mesh):
+-	print &quot;&quot;
++        # [FaceData, ...]
++        self.faces            = []
++
++    def add(self, face):
++        self.faces.append(face)
++
++    def finalize(self):
++        &quot;&quot;&quot;Reorders vertex indexes and merge vertexes which have the
++        same UV coordinates, thus bringing the MeshData into a stage
++        where it is ready to be written out to file&quot;&quot;&quot;
+ 
+-	out.write(&quot;  (vertices\n&quot;)
+-	for v in mesh.verts:
+-		out.write(&quot;    %f %f %f ;; %d\n&quot; % (v.co[0], v.co[1], v.co[2], v.index))
+-	out.write(&quot;   ) ;; vertices\n&quot;)
++        # Generate a list of uniq vertices
++        uniq_vertices = {}
++        for face in self.faces:
++            for vert in face.verts:
++                uniq_vertices[vert.key()] = vert
+ 
+-	out.write(&quot;  (texcoords\n&quot;)
+-	for v in mesh.verts:
+-		out.write(&quot;    %f %f&quot; % (v.uvco.x, v.uvco.y))	
+-	out.write(&quot;   ) ;; texcoords\n&quot;)
++        # Merge duplicate vertices
++        for face in self.faces:
++            for i in xrange(0, len(face.verts)):
++                face.verts[i] = uniq_vertices[face.verts[i].key()]
+ 
+-	out.write(&quot;  (faces\n&quot;)
+-	for face in mesh.faces:	
+-		out.write(&quot;    &quot;)
+-		for v in face.verts:
+-			out.write(&quot;%d &quot; % v.index)
+-		out.write(&quot;\n&quot;)
+-	out.write(&quot;   ) ;; faces\n&quot;)
++        # Generate new index numbering
++        self.vertices = uniq_vertices.values()
++        for i, vert in enumerate(self.vertices):
++            vert.index = i
+ 
+-print &quot;Windstille Mesh Exporter:&quot;
+-for mesh in Blender.Mesh.Get():
+-	filename = &quot;/tmp/mesh-%s.scm&quot; % mesh.name
+-	out = file(filename, &quot;w&quot;)
+-	print &quot;  - exporting to '%s'...&quot; % filename,
+- 	export_mesh(out, mesh)
+- 	out.close()
+-	print &quot;done&quot;
+-print
++        ## Remove '//' infront of the filename that Blender inserts there
++        self.texture_filename = self.texture_filename[2:]
++      
++class FaceData:
++    def __init__(self, verts):
++        self.verts   = verts
++
++class VertexData:
++    def __init__(self, co, uv, normal):
++        self.co        = co
++        self.uv        = uv
++        self.normal    = normal
++        self.index     = -1
+ 
++    def key(self):
++        return (self.co[1], self.co[2],
++                self.normal[0], self.normal[1], self.normal[2],
++                self.uv[0], self.uv[1])
++    
++
++class WindstilleModel:
++    &quot;&quot;&quot;WindstilleMesh is used to collect data vertex and face data
++    from Blender internals and convert it to a form usable by
++    OpenGL/Windstille&quot;&quot;&quot;  
++
++    def __init__(self):
++        # dictionary of { &quot;texture_filename.png&quot; : MeshData, ... } 
++        self.mesh_data   = {}
++
++    def add(self, blender_mesh):
++        &quot;&quot;&quot;Convert Blender data structures into something that is used by
++        this export script&quot;&quot;&quot;
+ 
++        for face in blender_mesh.faces:
++            if face.image:
++                texture_filename = face.image.filename
++            else:
++                texture_filename = &quot;//404.png&quot;
++            
++            if not self.mesh_data.has_key(texture_filename):
++                mesh = self.mesh_data[texture_filename] = MeshData(texture_filename)
++            else:
++                mesh = self.mesh_data[texture_filename]
++
++            if face.uv == []:
++                raise &quot;Face doesn't have UV&quot;
++
++            verts = []
++            for i in [0, 1, 2]:
++                verts.append(VertexData([face.v[i].co[0], face.v[i].co[1], face.v[i].co[2]],
++                                        [face.uv[i][0], 1.0 - face.uv[i][1]],
++                                        [face.v[i].no[1], -face.v[i].no[2], -face.v[i].no[0]]))
++            mesh.add(FaceData(verts))
++
++            # Write out another triangle in case we have a quad
++            if len(face.v) == 4:
++                verts = []
++                for i in [0, 2, 3]:
++                    verts.append(VertexData([face.v[i].co[0], face.v[i].co[1], face.v[i].co[2]],
++                                            [face.uv[i][0], 1.0 - face.uv[i][1]],
++                                            [face.v[i].no[1], -face.v[i].no[2], -face.v[i].no[0]]))
++                mesh.add(FaceData(verts))
++
++    def finalize(self):
++        for (texture, mesh) in self.mesh_data.iteritems():
++            mesh.finalize()
++
++    def write(self, out):
++        out.write(&quot;;; -*- scheme -*-\n&quot;)
++        out.write(&quot;(windstille-model\n&quot;)
++        out.write(&quot;  (name \&quot;\&quot;)\n&quot;)
++    
++        for (texture, mesh) in self.mesh_data.iteritems():
++            out.write(&quot;  (mesh\n&quot;)
++            out.write(&quot;    (name \&quot;\&quot;)\n&quot;)
++            out.write(&quot;    (texture \&quot;%s\&quot;)\n\n&quot; % texture)
++            out.write(&quot;    (vertices\n&quot;)
++            for v in mesh.vertices:
++                out.write(&quot;      %10f %10f %10f ;; %d\n&quot; % (v.co[0], v.co[1], v.co[2], v.index))
++            out.write(&quot;     ) ;; vertices\n\n&quot;)
++
++            out.write(&quot;    (normals\n&quot;) 
++            for vert in mesh.vertices:
++                out.write(&quot;      %9f %9f %9f\n&quot; % (vert.normal[0],
++                                              vert.normal[1],
++                                              vert.normal[2]))
++            out.write(&quot;     ) ;; normals\n\n&quot;)
++
++            out.write(&quot;    (texcoords\n&quot;)
++            for vert in mesh.vertices:
++                out.write(&quot;      %f %f\n&quot; % (vert.uv[0], vert.uv[1]))
++            out.write(&quot;     ) ;; texcoords\n\n&quot;)
++
++            out.write(&quot;    (triangles\n&quot;)
++            for face in mesh.faces:
++                out.write(&quot;      %d %d %d\n&quot; % (face.verts[0].index,
++                                                face.verts[1].index,
++                                                face.verts[2].index))
++            out.write(&quot;     ) ;; triangles\n\n&quot;)
++            out.write(&quot;   ) ;; mesh\n\n&quot;)
++        out.write(&quot; ) ;; windstille-model\n&quot;)
++        out.write(&quot;\n;; EOF ;;\n&quot;)
++
++    def print_stats(self):
++        &quot;&quot;&quot;Print some stats, vertex count, face count and such&quot;&quot;&quot;
++        print &quot;+====================================================================&quot;
++        print &quot;| WindstilleSprite&quot;
++        print &quot;+====================================================================&quot;
++        print &quot;| Model:&quot; 
++        for i, mesh in enumerate(self.mesh_data.values()):
++            print &quot;|   Mesh:        %d/%d&quot; % (i+1, len(self.mesh_data))
++            print &quot;|     Texture:  &quot;, mesh.texture_filename
++            print &quot;|     Faces:    &quot;, len(mesh.faces)
++            print &quot;|     Vertices: &quot;, len(mesh.vertices)
++            print &quot;|&quot;
++        print &quot;+====================================================================&quot;
++
++
++def export(filename):
++    model = WindstilleModel()
++
++    layers = Blender.Scene.getCurrent().Layers
++
++    for obj in Blender.Object.Get():
++        mesh = obj.getData()
++        if (type(mesh) is not Blender.Types.NMeshType) or not mesh.faces:
++            pass # ignore anything that isn't a mesh
++        elif (obj.Layers &amp; layers) == 0:
++            print &quot;Skipping \&quot;%s\&quot; because it is on an inactive layer&quot; % obj.getName()
++        else:
++            model.add(mesh)
++
++    model.finalize()
++
++    file = open(filename, &quot;w&quot;)
++
++    model.write(file)
++    file.close()
++
++    model.print_stats()
++
++export(&quot;/tmp/mesh.scm&quot;)
++
+ # Draw.PupMenu(&quot;Export ok&quot;)
+ 
+-# EOF #
+\ No newline at end of file
++# EOF #
+
+Modified: trunk/windstille/tools/model_test.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/windstille/tools/pose_export.py
+===================================================================
+--- trunk/windstille/tools/pose_export.py	2007-06-22 05:14:33 UTC (rev 1494)
++++ trunk/windstille/tools/pose_export.py	2007-06-22 20:00:08 UTC (rev 1495)
+@@ -4,6 +4,9 @@
+ def is_identity(quat):
+     return quat.w == 1.0 and quat.x == 0.0 and quat.y == 0.0 and quat.z == 0.0
+ 
++def is_null_loc(loc):
++    return loc.x == 0 and loc.y == 0 and loc.z == 0
++
+ def export_pose(out, obj):
+     pose = obj.getPose()
+ 
+@@ -13,12 +16,14 @@
+     out.write(&quot;  (bones\n&quot;)
+     for bone in pose.bones.values():
+         if bone.name[:3] == &quot;IK_&quot;:
+-            out.write(&quot;    ;; ignoring '%s' due to being IK control bone\n&quot; % bone.name)
+-        elif is_identity(bone.quat):
+-            out.write(&quot;    ;; ignoring '%s' due to having the identity Quaternion\n&quot; % bone.name)        
++            out.write(&quot;    ;; ignoring '%s', IK control bone\n&quot; % bone.name)
++        elif is_identity(bone.quat) and is_null_loc(bone.loc):
++            out.write(&quot;    ;; ignoring '%s', neutral position\n&quot; % bone.name)        
+         else: 
+             out.write(&quot;    (bone\n&quot;)
+             out.write(&quot;      (name \&quot;%s\&quot;)\n&quot; % bone.name)
++            out.write(&quot;      (loc %f %f %f)\n&quot; %
++                      (bone.loc.x, bone.loc.y, bone.loc.z))
+             out.write(&quot;      (quat %f %f %f %f))\n&quot; % 
+                       (bone.quat.w, bone.quat.x, bone.quat.y, bone.quat.z))
+     out.write(&quot;   ) ;; bones\n&quot;)
+
+Modified: trunk/windstille/tools/windstille_export.py
+===================================================================
+--- trunk/windstille/tools/windstille_export.py	2007-06-22 05:14:33 UTC (rev 1494)
++++ trunk/windstille/tools/windstille_export.py	2007-06-22 20:00:08 UTC (rev 1495)
+@@ -52,7 +52,7 @@
+ SPEED_MULTIPLIER = 9.8
+ # DO NOT change this
+ FORMAT_VERSION = 2
+-
++
+ def progress(percent, str):
+ #    print &quot;%3.2f%% - %s&quot; % (percent*100, str)
+     Window.DrawProgressBar(percent, str)
+@@ -101,8 +101,7 @@
+   sin_a = math.sqrt(1.0 - cos_a * cos_a)
+   if(sin_a &lt; .0005 or sin_a &gt; .0005): sin_a = 1
+   return angle, q[1]/sin_a, q[2]/sin_a, q[3]/sin_a
+-
+-##########################################################
++
+ def get_text(textname):
+   &quot;&quot;&quot;Little shortcut function to return the content of
+   Blender.Text.get(textname) as a single string and do a little error
+@@ -114,7 +113,7 @@
+     return &quot;&quot;
+   else:
+     return string.join(textobj.asLines(), &quot;\n&quot;)
+-
++
+ ### Data Structures to hold the Mesh ###
+ class MeshData:
+   def __init__(self, texture_filename):
+@@ -180,7 +179,7 @@
+         self.uv        = uv
+         self.normal    = normal
+         self.new_index = -1
+-
++
+ class AttachmentPointData:
+     &quot;&quot;&quot;Data for an attachment point, its location and its rotation&quot;&quot;&quot;
+     def __init__(self, loc, quat):
+@@ -195,8 +194,7 @@
+ 
+         # [AttachmentPointData, ...]
+         self.attachment_points = attachment_points
+-
+-
++
+ class ActionConfig:
+     &quot;&quot;&quot;ActionConfig handles the properties of a single
+     action, ie. when it starts, when it stops, its speed, how many
+@@ -283,7 +281,7 @@
+ 
+         return actionconfig
+     parse = staticmethod(parse)
+-
++
+ class ActionData:
+   def __init__(self, name, config, frame_data):
+     # name as string
+@@ -296,7 +294,7 @@
+     self.frame_data = frame_data
+ 
+ ### end: Data Structures to hold the Mesh ###
+-
++
+ class WindstilleSprite:
+   ########################################################
+   def __init__(self):
+@@ -406,7 +404,7 @@
+     self.mesh_data = {}
+     for obj in self.mesh_objects:
+       ### Convert mesh_objects to MeshData and merge all meshes with
+-      ### the same texture     
++      ### the same texture
+       for (texture, mesh) in self.collect_mesh_data(obj).iteritems():
+         if self.mesh_data.has_key(texture):
+           self.mesh_data[texture].merge(mesh)
+@@ -597,8 +595,7 @@
+     file.close()
+ 
+     data.print_stats()
+-
+-########################################################
++
+ def fs_callback(filename):
+     print &quot;=== Exporting: %s ===&quot; % (filename)
+     export(filename)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001146.html">[Windstille-commit] r1494 - trunk/windstille/tools
+</A></li>
+	<LI>Next message: <A HREF="001148.html">[Windstille-commit] r1496 - trunk/windstille/tools
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1147">[ date ]</a>
+              <a href="thread.html#1147">[ thread ]</a>
+              <a href="subject.html#1147">[ subject ]</a>
+              <a href="author.html#1147">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

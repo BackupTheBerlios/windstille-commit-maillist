@@ -1,0 +1,425 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1498 - in trunk/windstille: src src/armature	tools
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1498%20-%20in%20trunk/windstille%3A%20src%20src/armature%0A%09tools&In-Reply-To=%3C200706222354.l5MNsLxX006341%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001149.html">
+   <LINK REL="Next"  HREF="001151.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1498 - in trunk/windstille: src src/armature	tools</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1498%20-%20in%20trunk/windstille%3A%20src%20src/armature%0A%09tools&In-Reply-To=%3C200706222354.l5MNsLxX006341%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1498 - in trunk/windstille: src src/armature	tools">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Jun 23 01:54:21 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001149.html">[Windstille-commit] r1497 - trunk/windstille/tools
+</A></li>
+        <LI>Next message: <A HREF="001151.html">[Windstille-commit] r1499 - in trunk/windstille: src src/armature	tools
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1150">[ date ]</a>
+              <a href="thread.html#1150">[ thread ]</a>
+              <a href="subject.html#1150">[ subject ]</a>
+              <a href="author.html#1150">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-06-23 01:54:19 +0200 (Sat, 23 Jun 2007)
+New Revision: 1498
+
+Added:
+   trunk/windstille/src/armature/mesh.cpp
+   trunk/windstille/src/armature/mesh.hpp
+   trunk/windstille/src/armature/model.cpp
+   trunk/windstille/src/armature/model.hpp
+Modified:
+   trunk/windstille/src/SConscript
+   trunk/windstille/tools/mesh_export.py
+Log:
+- mesh/model loading code (untested)
+
+Modified: trunk/windstille/src/SConscript
+===================================================================
+--- trunk/windstille/src/SConscript	2007-06-22 21:31:06 UTC (rev 1497)
++++ trunk/windstille/src/SConscript	2007-06-22 23:54:19 UTC (rev 1498)
+@@ -44,6 +44,8 @@
+ env.Program('../windstille', [
+ 'armature_test.cpp',
+ 'armature/armature.cpp',
++'armature/mesh.cpp',
++'armature/model.cpp',
+ 'armature/pose.cpp',
+ 'armature/bone.cpp',
+ 'baby_xml.cpp',
+
+Added: trunk/windstille/src/armature/mesh.cpp
+===================================================================
+--- trunk/windstille/src/armature/mesh.cpp	2007-06-22 21:31:06 UTC (rev 1497)
++++ trunk/windstille/src/armature/mesh.cpp	2007-06-22 23:54:19 UTC (rev 1498)
+@@ -0,0 +1,91 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &lt;assert.h&gt;
++#include &quot;util.hpp&quot;
++#include &quot;display/opengl_state.hpp&quot;
++#include &lt;stdexcept&gt;
++#include &quot;file_reader.hpp&quot;
++#include &quot;mesh.hpp&quot;
++
++Mesh::Mesh(FileReader&amp; reader)
++  : blend_sfactor(GL_ONE),
++    blend_dfactor(GL_ZERO)
++{
++  if (reader.get_name() != &quot;mesh&quot;)
++    throw std::runtime_error(&quot;Not a 'mesh' type, its '&quot; + reader.get_name() + &quot;'&quot;);
++  
++  reader.get(&quot;name&quot;,      name);
++  reader.get(&quot;vertices&quot;,  vertices);
++  reader.get(&quot;normals&quot;,   normals);
++  reader.get(&quot;texcoords&quot;, texcoords);
++  reader.get(&quot;triangles&quot;, triangles);
++  
++  // FIXME: add 'influences' tag parsing
++
++  // Check that all vectors have the same right modulo
++  assert(vertices.size()  % 3 == 0);
++  assert(normals.size()   % 3 == 0);
++  assert(texcoords.size() % 2 == 0);
++
++  // Check that all vectors contain enough values for the given number
++  // of vertices
++  assert(vertices.size()/3 == normals.size()/3);
++  assert(vertices.size()/3 == texcoords.size()/2);
++}
++
++Mesh::~Mesh()
++{
++  
++}
++
++void
++Mesh::draw()
++{
++  OpenGLState state;
++
++  if (blend_sfactor != GL_ONE || blend_dfactor != GL_ZERO)
++    {
++      state.enable(GL_BLEND);
++      state.set_blend_func(blend_sfactor, blend_dfactor);
++    }
++  else
++    {
++      state.enable(GL_DEPTH_TEST);
++    }
++
++  state.enable_client_state(GL_VERTEX_ARRAY);
++  state.enable_client_state(GL_NORMAL_ARRAY);
++  state.enable_client_state(GL_TEXTURE_COORD_ARRAY);  
++
++  assert_gl(&quot;gl init before sprite&quot;);
++
++  glVertexPointer(3, GL_FLOAT, 0, &amp;*vertices.begin());
++  glNormalPointer(GL_FLOAT, 0, &amp;*normals.begin());
++  glTexCoordPointer(2, GL_FLOAT, 0, &amp;*texcoords.begin());
++  glDrawElements(GL_TRIANGLES, triangles.size(), GL_INT, &amp;*triangles.begin());
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/armature/mesh.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/armature/mesh.hpp
+===================================================================
+--- trunk/windstille/src/armature/mesh.hpp	2007-06-22 21:31:06 UTC (rev 1497)
++++ trunk/windstille/src/armature/mesh.hpp	2007-06-22 23:54:19 UTC (rev 1498)
+@@ -0,0 +1,62 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_MESH_HPP
++#define HEADER_MESH_HPP
++
++#include &lt;GL/glew.h&gt;
++#include &lt;GL/gl.h&gt;
++#include &lt;string&gt;
++#include &lt;vector&gt;
++
++class FileReader;
++
++/** */
++class Mesh
++{
++private:
++  std::string name;
++
++  std::vector&lt;float&gt; vertices;
++  std::vector&lt;float&gt; normals;
++  std::vector&lt;float&gt; texcoords;
++  std::vector&lt;int&gt;   triangles;
++
++  GLenum blend_sfactor;
++  GLenum blend_dfactor;
++
++public:
++  Mesh(FileReader&amp; reader);
++  ~Mesh();
++
++  void draw();
++private:
++  Mesh (const Mesh&amp;);
++  Mesh&amp; operator= (const Mesh&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/armature/mesh.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/armature/model.cpp
+===================================================================
+--- trunk/windstille/src/armature/model.cpp	2007-06-22 21:31:06 UTC (rev 1497)
++++ trunk/windstille/src/armature/model.cpp	2007-06-22 23:54:19 UTC (rev 1498)
+@@ -0,0 +1,57 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &quot;file_reader.hpp&quot;
++#include &quot;mesh.hpp&quot;
++#include &quot;model.hpp&quot;
++
++Model::Model(FileReader&amp; reader)
++{
++  reader.get(&quot;name&quot;, name);
++
++  std::vector&lt;FileReader&gt; sections = reader.get_sections();
++  for(std::vector&lt;FileReader&gt;::iterator i = sections.begin(); i != sections.end(); ++i)
++    {
++      Mesh* mesh = new Mesh(*i);
++      meshes.push_back(mesh);
++    }
++}
++
++Model::~Model()
++{
++  for(Meshes::iterator i = meshes.begin(); i != meshes.end(); ++i)
++    delete *i;
++}
++
++void
++Model::draw()
++{
++  for(Meshes::iterator i = meshes.begin(); i != meshes.end(); ++i)
++    {
++      (*i)-&gt;draw();
++    }
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/armature/model.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/armature/model.hpp
+===================================================================
+--- trunk/windstille/src/armature/model.hpp	2007-06-22 21:31:06 UTC (rev 1497)
++++ trunk/windstille/src/armature/model.hpp	2007-06-22 23:54:19 UTC (rev 1498)
+@@ -0,0 +1,55 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_MODEL_HPP
++#define HEADER_MODEL_HPP
++
++#include &lt;string&gt;
++#include &lt;vector&gt;
++
++class FileReader;
++class Mesh;
++
++/** */
++class Model
++{
++private:
++  std::string name;
++  typedef std::vector&lt;Mesh*&gt; Meshes;
++  Meshes meshes;
++
++public:
++  Model(FileReader&amp; reader);
++  ~Model();
++
++  void draw();
++private:
++  Model (const Model&amp;);
++  Model&amp; operator= (const Model&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/armature/model.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/windstille/tools/mesh_export.py
+===================================================================
+--- trunk/windstille/tools/mesh_export.py	2007-06-22 21:31:06 UTC (rev 1497)
++++ trunk/windstille/tools/mesh_export.py	2007-06-22 23:54:19 UTC (rev 1498)
+@@ -168,7 +168,7 @@
+                     out.write(&quot;        (index %d)\n&quot; % vert.index)
+                     out.write(&quot;        (influeces&quot;)
+                     for (bone, weight) in vert.influences:
+-                        out.write(&quot;\n          (influence (weigth %f) (bone \&quot;%s\&quot;))&quot; % (weight, bone))
++                        out.write(&quot;\n          (influence (weight %f) (bone \&quot;%s\&quot;))&quot; % (weight, bone))
+                     out.write(&quot;))\n&quot;)
+             out.write(&quot;     ) ;; influencs\n\n&quot;)
+             
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001149.html">[Windstille-commit] r1497 - trunk/windstille/tools
+</A></li>
+	<LI>Next message: <A HREF="001151.html">[Windstille-commit] r1499 - in trunk/windstille: src src/armature	tools
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1150">[ date ]</a>
+              <a href="thread.html#1150">[ thread ]</a>
+              <a href="subject.html#1150">[ subject ]</a>
+              <a href="author.html#1150">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

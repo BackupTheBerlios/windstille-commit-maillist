@@ -1,0 +1,213 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r724 - in trunk/src: . collision
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r724%20-%20in%20trunk/src%3A%20.%20collision&In-Reply-To=%3C200507231550.j6NFosnO014218%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000376.html">
+   <LINK REL="Next"  HREF="000378.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r724 - in trunk/src: . collision</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r724%20-%20in%20trunk/src%3A%20.%20collision&In-Reply-To=%3C200507231550.j6NFosnO014218%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r724 - in trunk/src: . collision">grumbel at berlios.de
+       </A><BR>
+    <I>Sat Jul 23 17:50:54 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000376.html">[Windstille-commit] r723 - in trunk/src: . collision
+</A></li>
+        <LI>Next message: <A HREF="000378.html">[Windstille-commit] r725 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#377">[ date ]</a>
+              <a href="thread.html#377">[ thread ]</a>
+              <a href="subject.html#377">[ subject ]</a>
+              <a href="author.html#377">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-07-23 17:50:49 +0200 (Sat, 23 Jul 2005)
+New Revision: 724
+
+Modified:
+   trunk/src/box.cpp
+   trunk/src/collision/collision_engine.cpp
+   trunk/src/collision/collision_engine.hpp
+Log:
+- minor cleanup in collision engine
+- added width/height to the box and correct y handling
+
+Modified: trunk/src/box.cpp
+===================================================================
+--- trunk/src/box.cpp	2005-07-23 15:19:58 UTC (rev 723)
++++ trunk/src/box.cpp	2005-07-23 15:50:49 UTC (rev 724)
+@@ -27,10 +27,12 @@
+ #define BOX_HEIGHT 16
+ 
+ Box::Box(const lisp::Lisp* lisp)
+-  : sprite(&quot;box&quot;, resources),
+-    colobj(new CollisionObject(CL_Rect(0, 0, 64, 64)))
++  : sprite(&quot;box&quot;, resources)
+ {
+   gravity = 0.0f;
++  float width  = 64.0f;
++  float height = 64.0f;
++
+   std::string spritename = &quot;box&quot;;
+   CL_Vector vel;
+   lisp::ListIterator iter(lisp);
+@@ -41,6 +43,10 @@
+       pos.x = iter.value().get_float();
+     } else if(iter.item() == &quot;y&quot;) {
+       pos.y = iter.value().get_float();
++    } else if(iter.item() == &quot;width&quot;) {
++      width = iter.value().get_float();
++    } else if(iter.item() == &quot;height&quot;) {
++      height = iter.value().get_float();
+     } else if (iter.item() == &quot;vx&quot;) {
+       vel.x = iter.value().get_float();
+     } else if (iter.item() == &quot;vy&quot;) {
+@@ -55,15 +61,15 @@
+     }
+   }
+ 
+-  if(spritename == &quot;&quot;)
+-    throw std::runtime_error(&quot;No sprite name specified in Box&quot;);
+-  sprite = CL_Sprite(spritename, resources);
++  if (!spritename.empty())
++    sprite = CL_Sprite(spritename, resources);
+ 
+-  Sector::current()-&gt;get_collision_engine()-&gt;add(colobj);
+-
++  colobj = new CollisionObject(CL_Rectf(0, 0, width, height));
+   colobj-&gt;set_velocity(vel);
+   colobj-&gt;set_pos(CL_Vector(pos.x, pos.y));
+ 
++  Sector::current()-&gt;get_collision_engine()-&gt;add(colobj);
++
+   slot = colobj-&gt;sig_collision().connect(this, &amp;Box::collision);
+ }
+ 
+@@ -76,8 +82,14 @@
+   if ((data.direction.x &gt; 0 &amp;&amp; colobj-&gt;get_velocity().x &lt; 0) ||
+       (data.direction.x &lt; 0 &amp;&amp; colobj-&gt;get_velocity().x &gt; 0))
+     {
+-      colobj-&gt;set_velocity(CL_Vector(-colobj-&gt;get_velocity().x, 0));
++      colobj-&gt;set_velocity(CL_Vector(-colobj-&gt;get_velocity().x, colobj-&gt;get_velocity().y));
+     }
++  
++  if ((data.direction.y &gt; 0 &amp;&amp; colobj-&gt;get_velocity().y &lt; 0) ||
++      (data.direction.y &lt; 0 &amp;&amp; colobj-&gt;get_velocity().y &gt; 0))
++    {
++      colobj-&gt;set_velocity(CL_Vector(colobj-&gt;get_velocity().x, -colobj-&gt;get_velocity().y));
++    }
+ }
+ 
+ void 
+@@ -93,7 +105,8 @@
+ void 
+ Box::draw(SceneContext&amp; sc)
+ {
+-  sc.color().draw(sprite, colobj-&gt;get_pos().x, colobj-&gt;get_pos().y, 10);
++  if (sprite)
++    sc.color().draw(sprite, colobj-&gt;get_pos().x, colobj-&gt;get_pos().y, 10);
+ }
+ 
+ /* EOF */
+
+Modified: trunk/src/collision/collision_engine.cpp
+===================================================================
+--- trunk/src/collision/collision_engine.cpp	2005-07-23 15:19:58 UTC (rev 723)
++++ trunk/src/collision/collision_engine.cpp	2005-07-23 15:50:49 UTC (rev 724)
+@@ -103,10 +103,11 @@
+ void
+ CollisionEngine::update(float delta)
+ {
++  if (objects.empty())
++    return; 
++  
+   for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
+     {
+-      bool moved = false;
+-      
+       for(Objects::iterator j = i + 1; j != objects.end(); ++j)
+         {
+           if (i != j)
+@@ -115,15 +116,13 @@
+ 	      if(r.state!=CollisionData::NONE)
+ 		{
+ 		  collision(**i, **j, r, delta);
+-
+-		  if(r.col_time &gt; 0)
+-		    moved=true;
+ 		}
+             }
+         }
+       
+       update(**i, delta);
+     }
++
+   //  return;
+   // check penetration and resolve
+   bool penetration = true;
+
+Modified: trunk/src/collision/collision_engine.hpp
+===================================================================
+--- trunk/src/collision/collision_engine.hpp	2005-07-23 15:19:58 UTC (rev 723)
++++ trunk/src/collision/collision_engine.hpp	2005-07-23 15:50:49 UTC (rev 724)
+@@ -26,7 +26,10 @@
+ 
+ class CollisionEngine
+ {
++private:
+   typedef std::vector&lt;CollisionObject*&gt; Objects;
++  Objects objects;
++  float unstuck_velocity;
+ 
+ public:
+   CollisionEngine();
+@@ -41,9 +44,6 @@
+   void remove(CollisionObject *obj);
+ 
+ private:
+-  Objects objects;
+-  float unstuck_velocity;
+-
+   void unstuck(CollisionObject&amp; a, CollisionObject&amp; b, float delta);
+   CollisionData collide(CollisionObject&amp; a, CollisionObject&amp; b, float delta);
+   CollisionData collide(const CL_Rectf&amp; b1, const CL_Rectf&amp; b2,
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000376.html">[Windstille-commit] r723 - in trunk/src: . collision
+</A></li>
+	<LI>Next message: <A HREF="000378.html">[Windstille-commit] r725 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#377">[ date ]</a>
+              <a href="thread.html#377">[ thread ]</a>
+              <a href="subject.html#377">[ subject ]</a>
+              <a href="author.html#377">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

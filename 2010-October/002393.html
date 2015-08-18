@@ -1,0 +1,198 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3396 - trunk/windstille/src/display
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2010-October/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3396%20-%20trunk/windstille/src/display&In-Reply-To=%3C20101024144527.26B44480EDC%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002392.html">
+   <LINK REL="Next"  HREF="002394.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3396 - trunk/windstille/src/display</H1>
+    <B>grumbel at mail.berlios.de</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3396%20-%20trunk/windstille/src/display&In-Reply-To=%3C20101024144527.26B44480EDC%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3396 - trunk/windstille/src/display">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Oct 24 16:45:27 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002392.html">[Windstille-commit] r3395 - trunk/windstille/src/util
+</A></li>
+        <LI>Next message: <A HREF="002394.html">[Windstille-commit] r3397 - trunk/windstille/extra/lensflare
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2393">[ date ]</a>
+              <a href="thread.html#2393">[ thread ]</a>
+              <a href="subject.html#2393">[ subject ]</a>
+              <a href="author.html#2393">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2010-10-24 16:45:26 +0200 (Sun, 24 Oct 2010)
+New Revision: 3396
+
+Modified:
+   trunk/windstille/src/display/compositor.cpp
+   trunk/windstille/src/display/surface_manager.cpp
+   trunk/windstille/src/display/texture.cpp
+   trunk/windstille/src/display/texture.hpp
+   trunk/windstille/src/display/texture_packer.cpp
+Log:
+Enabled alternative code path for older hardware
+
+Modified: trunk/windstille/src/display/compositor.cpp
+===================================================================
+--- trunk/windstille/src/display/compositor.cpp	2010-10-24 13:38:21 UTC (rev 3395)
++++ trunk/windstille/src/display/compositor.cpp	2010-10-24 14:45:26 UTC (rev 3396)
+@@ -26,7 +26,7 @@
+ Compositor::Compositor(const Size&amp; window, const Size&amp; viewport) :
+   impl()
+ {
+-  if (GLEW_VERSION_3_2)
++  if (GLEW_ARB_framebuffer_object)
+   {
+     std::cout  &lt;&lt; &quot;Display:: framebuffer_object extension is supported&quot; &lt;&lt; std::endl;
+     impl.reset(new FramebufferCompositorImpl(window, viewport));
+
+Modified: trunk/windstille/src/display/surface_manager.cpp
+===================================================================
+--- trunk/windstille/src/display/surface_manager.cpp	2010-10-24 13:38:21 UTC (rev 3395)
++++ trunk/windstille/src/display/surface_manager.cpp	2010-10-24 14:45:26 UTC (rev 3396)
+@@ -26,9 +26,16 @@
+ 
+ 
+ SurfaceManager::SurfaceManager() :
+-  texture_packer(0), // (new TexturePacker(Size(2048, 2048))),
++  texture_packer(0),
+   surfaces()
+ {
++  // NPOV should be ok with OpenGL2.0 in theory, but in practice there
++  // is hardware that does OpenGL2.0, but not NPOV, see:
++  // <A HREF="http://www.opengl.org/wiki/NPOT_Texture">http://www.opengl.org/wiki/NPOT_Texture</A>
++  if (!GLEW_ARB_texture_non_power_of_two)
++  {
++    texture_packer.reset(new TexturePacker(Size(2048, 2048)));
++  }
+ }
+ 
+ SurfaceManager::~SurfaceManager()
+
+Modified: trunk/windstille/src/display/texture.cpp
+===================================================================
+--- trunk/windstille/src/display/texture.cpp	2010-10-24 13:38:21 UTC (rev 3395)
++++ trunk/windstille/src/display/texture.cpp	2010-10-24 14:45:26 UTC (rev 3396)
+@@ -67,6 +67,14 @@
+   m_width(width),
+   m_height(height)
+ {
++  if (!GLEW_ARB_texture_non_power_of_two)
++  {
++    if (!is_power_of_2(width) || !is_power_of_2(height))
++    {
++      throw std::runtime_error(&quot;image has non power of two size&quot;);
++    }
++  }
++
+   glGenTextures(1, &amp;m_handle);
+   assert_gl(&quot;Texture::Texture()&quot;); 
+ 
+@@ -80,6 +88,8 @@
+   glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+   glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+   glTexParameteri(target, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
++
++  assert_gl(&quot;Texture::Texture() 2&quot;); 
+ }
+ 
+ Texture::Texture(SoftwareSurfacePtr image, GLint glformat) :
+@@ -91,9 +101,13 @@
+   glGenTextures(1, &amp;m_handle);
+   assert_gl(&quot;Texture::Texture()&quot;); 
+ 
+-  // Should be ok with OpenGL2.0
+-  //if(!is_power_of_2(image-&gt;get_width()) || !is_power_of_2(image-&gt;get_height()))
+-  //throw std::runtime_error(&quot;image has no power of 2 size&quot;);
++  if (!GLEW_ARB_texture_non_power_of_two)
++  {
++    if (!is_power_of_2(image-&gt;get_width()) || !is_power_of_2(image-&gt;get_height()))
++    {
++      throw std::runtime_error(&quot;image has non power of two size&quot;);
++    }
++  }
+ 
+   if (image-&gt;get_bits_per_pixel() != 24 &amp;&amp; image-&gt;get_bits_per_pixel() != 32)
+     throw std::runtime_error(&quot;image has not 24 or 32 bit color depth&quot;);
+
+Modified: trunk/windstille/src/display/texture.hpp
+===================================================================
+--- trunk/windstille/src/display/texture.hpp	2010-10-24 13:38:21 UTC (rev 3395)
++++ trunk/windstille/src/display/texture.hpp	2010-10-24 14:45:26 UTC (rev 3396)
+@@ -40,15 +40,10 @@
+   /** Load a texture from file */
+   static TexturePtr create(const Pathname&amp; filename);
+ 
+-  /**
+-   * Upload an SoftwareSurface onto an OpenGL texture. The surface must have power
+-   * of 2 dimensions
+-   * */
++  /** Upload an SoftwareSurface onto an OpenGL texture. */
+   static TexturePtr create(SoftwareSurfacePtr image, GLint format = GL_RGBA);
+   
+-  /** 
+-   * Create an empty Texture with the given dimensions
+-   */
++  /** Create an empty Texture with the given dimensions */
+   static TexturePtr create(GLenum target, int width, int height, GLint format = GL_RGBA);
+   
+ private:
+
+Modified: trunk/windstille/src/display/texture_packer.cpp
+===================================================================
+--- trunk/windstille/src/display/texture_packer.cpp	2010-10-24 13:38:21 UTC (rev 3395)
++++ trunk/windstille/src/display/texture_packer.cpp	2010-10-24 14:45:26 UTC (rev 3396)
+@@ -91,9 +91,9 @@
+   TextureSpace   space;
+ 
+ public:
+-  TexturePackerTexture(const Size&amp; size)
+-    : texture(Texture::create(GL_TEXTURE_2D, size.width, size.height)),
+-      space(Rect(Point(0, 0), size))
++  TexturePackerTexture(const Size&amp; size) :
++    texture(Texture::create(GL_TEXTURE_2D, size.width, size.height)),
++    space(Rect(Point(0, 0), size))
+   {
+   }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002392.html">[Windstille-commit] r3395 - trunk/windstille/src/util
+</A></li>
+	<LI>Next message: <A HREF="002394.html">[Windstille-commit] r3397 - trunk/windstille/extra/lensflare
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2393">[ date ]</a>
+              <a href="thread.html#2393">[ thread ]</a>
+              <a href="subject.html#2393">[ subject ]</a>
+              <a href="author.html#2393">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

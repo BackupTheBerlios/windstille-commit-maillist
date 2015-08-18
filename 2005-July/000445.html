@@ -1,0 +1,1786 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r792 - in trunk/src: . display glutil lisp particles sprite2d sprite3d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r792%20-%20in%20trunk/src%3A%20.%20display%20glutil%20lisp%20particles%20sprite2d%20sprite3d&In-Reply-To=%3C200507261704.j6QH44hG025919%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000444.html">
+   <LINK REL="Next"  HREF="000446.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r792 - in trunk/src: . display glutil lisp particles sprite2d sprite3d</H1>
+    <B>Matthias Braun at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r792%20-%20in%20trunk/src%3A%20.%20display%20glutil%20lisp%20particles%20sprite2d%20sprite3d&In-Reply-To=%3C200507261704.j6QH44hG025919%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r792 - in trunk/src: . display glutil lisp particles sprite2d sprite3d">matzebraun at berlios.de
+       </A><BR>
+    <I>Tue Jul 26 19:04:04 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000444.html">[Windstille-commit] r791 - in trunk/src: . display particles
+</A></li>
+        <LI>Next message: <A HREF="000446.html">[Windstille-commit] r793 - trunk/src/sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#445">[ date ]</a>
+              <a href="thread.html#445">[ thread ]</a>
+              <a href="subject.html#445">[ subject ]</a>
+              <a href="author.html#445">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: matzebraun
+Date: 2005-07-26 19:03:54 +0200 (Tue, 26 Jul 2005)
+New Revision: 792
+
+Added:
+   trunk/src/glutil/texture_manager.cpp
+   trunk/src/glutil/texture_manager.hpp
+Modified:
+   trunk/src/display/drawing_context.cpp
+   trunk/src/display/drawing_context.hpp
+   trunk/src/display/drawing_request.hpp
+   trunk/src/display/vertex_array_drawing_request.cpp
+   trunk/src/display/vertex_array_drawing_request.hpp
+   trunk/src/elevator.cpp
+   trunk/src/game_session.cpp
+   trunk/src/glutil/Jamfile
+   trunk/src/glutil/surface.cpp
+   trunk/src/glutil/surface.hpp
+   trunk/src/glutil/surface_manager.cpp
+   trunk/src/glutil/surface_manager.hpp
+   trunk/src/glutil/texture.cpp
+   trunk/src/glutil/texture.hpp
+   trunk/src/lisp/getters.hpp
+   trunk/src/lisp/properties.hpp
+   trunk/src/lisp/property_iterator.hpp
+   trunk/src/particles/surface_drawer.cpp
+   trunk/src/particles/surface_drawer.hpp
+   trunk/src/player.cpp
+   trunk/src/player.hpp
+   trunk/src/ref.hpp
+   trunk/src/refcounter.hpp
+   trunk/src/sprite2d/data.cpp
+   trunk/src/sprite2d/data.hpp
+   trunk/src/sprite2d/sprite.cpp
+   trunk/src/sprite3d/data.cpp
+   trunk/src/sprite3d/data.hpp
+   trunk/src/sprite3d/sprite.cpp
+   trunk/src/text_area.cpp
+   trunk/src/ttf_font.cpp
+   trunk/src/ttf_font.hpp
+   trunk/src/windstille_main.cpp
+Log:
+- TextureManager is back but is only responsible for loading/creating power of 2
+  textures now
+- SurfaceManager handles loading of arbitrarily sized 2d bitmaps, added Surface
+  class and a draw(Surface, ...) function to DrawingContext
+  
+
+
+Modified: trunk/src/display/drawing_context.cpp
+===================================================================
+--- trunk/src/display/drawing_context.cpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/display/drawing_context.cpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -22,10 +22,13 @@
+ #include &lt;ClanLib/Display/display.h&gt;
+ #include &lt;ClanLib/Display/display_window.h&gt;
+ #include &lt;ClanLib/Display/graphic_context.h&gt;
++#include &lt;ClanLib/gl.h&gt;
++#include &lt;ClanLib/display.h&gt;
+ #include &lt;iostream&gt;
+ #include &lt;iosfwd&gt;
+ #include &quot;fonts.hpp&quot;
+ #include &quot;drawing_context.hpp&quot;
++#include &quot;glutil/surface.hpp&quot;
+ 
+ std::ostream&amp; operator&lt;&lt;(std::ostream&amp; s, const Matrix&amp; m)
+ {
+@@ -88,17 +91,17 @@
+   }
+ };
+ 
+-class SurfaceDrawingRequest : public DrawingRequest
++class CLSurfaceDrawingRequest : public DrawingRequest
+ {
+ private:
+   CL_Surface sprite;
+ 
+ public:
+-  SurfaceDrawingRequest(const CL_Surface&amp; sprite_, const Vector&amp; pos_, const Matrix&amp; modelview_)
++  CLSurfaceDrawingRequest(const CL_Surface&amp; sprite_, const Vector&amp; pos_, const Matrix&amp; modelview_)
+     : DrawingRequest(pos_, modelview_),
+       sprite(sprite_)
+   {}
+-  virtual ~SurfaceDrawingRequest() {}
++  virtual ~CLSurfaceDrawingRequest() {}
+ 
+   void draw(CL_GraphicContext* gc) {
+     // FIXME: frequent push/pops might be slow
+@@ -130,6 +133,59 @@
+   }
+ };
+ 
++class SurfaceDrawingRequest : public DrawingRequest
++{
++private:
++  const Surface* surface;
++  float alpha;
++
++public:
++  SurfaceDrawingRequest(const Surface* surface, const Vector&amp; pos,
++                        const Matrix modelview, float alpha)
++    : DrawingRequest(pos, modelview), surface(surface), alpha(alpha)
++  {}
++  virtual ~SurfaceDrawingRequest()
++  {}
++
++  void draw(CL_GraphicContext* gc) {
++    static const float rectvertices[12]
++      = { 0, 0, 0,
++          1, 0, 0,
++          1, 1, 0,
++          0, 1, 0 };
++
++    CL_OpenGLState state(gc);
++    state.set_active();
++    state.setup_2d();
++
++    glEnable(GL_TEXTURE_2D);
++    glEnable(GL_BLEND);
++    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++
++    glPushMatrix();
++    glMultMatrixd(modelview);
++    glTranslatef(pos.x, pos.y, 0);
++    glScalef(surface-&gt;get_width(), surface-&gt;get_height(), 1.0);
++
++    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
++    glEnableClientState(GL_VERTEX_ARRAY);
++    glDisableClientState(GL_NORMAL_ARRAY);
++
++    if(alpha != 0.0)
++      glColor4f(1.0, 1.0, 1.0, alpha);
++    
++    glBindTexture(GL_TEXTURE_2D, surface-&gt;get_texture());
++    
++    glVertexPointer(3, GL_FLOAT, 0, rectvertices);
++    glTexCoordPointer(2, GL_FLOAT, 0, surface-&gt;get_texcoords());
++    glDrawArrays(GL_QUADS, 0, 4);
++
++    if(alpha != 0.0)
++      glColor4f(1.0, 1.0, 1.0, 0.0);
++    glPopMatrix();
++  }
++};
++
+ DrawingContext::DrawingContext()
+ {
+   modelview_stack.push_back(Matrix(true));
+@@ -176,7 +232,7 @@
+ DrawingContext::draw(const CL_Surface&amp;   sprite,  float x, float y, float z)
+ { // FIXME: This should get flattend down to a simple texture draw
+   // command for easier sorting after texture-id/alpha
+-  draw(new SurfaceDrawingRequest(sprite, Vector(x, y, z), modelview_stack.back()));
++  draw(new CLSurfaceDrawingRequest(sprite, Vector(x, y, z), modelview_stack.back()));
+ }
+ 
+ void
+@@ -187,6 +243,13 @@
+ }
+ 
+ void
++DrawingContext::draw(const Surface* surface, float x, float y, float z, float a)
++{
++  draw(new SurfaceDrawingRequest(surface, Vector(x, y, z),
++                                 modelview_stack.back(), a));
++}
++
++void
+ DrawingContext::draw(const std::string&amp; text,    float x, float y, float z)
+ { 
+   draw(new TextDrawingRequest(text, Vector(x, y, z), modelview_stack.back()));
+
+Modified: trunk/src/display/drawing_context.hpp
+===================================================================
+--- trunk/src/display/drawing_context.hpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/display/drawing_context.hpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -29,6 +29,7 @@
+ 
+ class CL_Surface;
+ class CL_Sprite;
++class Surface;
+ 
+ /** The DrawingContext collects all DrawingRequests and allows you to
+     flush them all down to the graphics card in one run, this has the
+@@ -64,6 +65,7 @@
+   void draw(const CL_Sprite&amp;   sprite,  float x, float y, float z = 0);
+   void draw(const CL_Surface&amp;   sprite,  float x, float y, float z = 0);
+   void draw(const std::string&amp; text,    float x, float y, float z = 0);
++  void draw(const Surface* surface, float x, float y, float z = 0, float alpha = 0);
+   /*} */
+   
+   /** Translate the drawing context */
+
+Modified: trunk/src/display/drawing_request.hpp
+===================================================================
+--- trunk/src/display/drawing_request.hpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/display/drawing_request.hpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -34,7 +34,8 @@
+   Matrix modelview;
+ public:
+   DrawingRequest(const Vector&amp; pos_, const Matrix&amp; modelview_ = Matrix(true))
+-    : pos(pos_), modelview(modelview_) {}
++    : pos(pos_), modelview(modelview_)
++  {}
+   virtual ~DrawingRequest() {}
+   
+   virtual void draw(CL_GraphicContext* gc) = 0;
+
+Modified: trunk/src/display/vertex_array_drawing_request.cpp
+===================================================================
+--- trunk/src/display/vertex_array_drawing_request.cpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/display/vertex_array_drawing_request.cpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -16,6 +16,7 @@
+ //  You should have received a copy of the GNU General Public License
+ //  along with this program; if not, write to the Free Software
+ //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++#include &lt;config.h&gt;
+ 
+ #include &lt;assert.h&gt;
+ 
+@@ -119,6 +120,16 @@
+ }
+ 
+ void
++VertexArrayDrawingRequest::add_texcoords(const float* coords, size_t n)
++{
++  assert(n % 2 == 0);
++  for(size_t i = 0; i &lt; n; ++i)
++  {
++    texcoords.push_back(coords[i]);
++  }
++}
++
++void
+ VertexArrayDrawingRequest::color(const Color&amp; color)
+ {
+   colors.push_back(static_cast&lt;int&gt;(color.r * 255));
+
+Modified: trunk/src/display/vertex_array_drawing_request.hpp
+===================================================================
+--- trunk/src/display/vertex_array_drawing_request.hpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/display/vertex_array_drawing_request.hpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -49,6 +49,7 @@
+   void vertex(float x, float y, float z = 0.0f);
+   void texcoord(float u, float v);
+   void color(const Color&amp; color);
++  void add_texcoords(const float* coords, size_t n);
+ 
+   int num_vertices() const;
+ 
+
+Modified: trunk/src/elevator.cpp
+===================================================================
+--- trunk/src/elevator.cpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/elevator.cpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -21,12 +21,13 @@
+ **  along with this program; if not, write to the Free Software
+ **  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ */
++#include &lt;config.h&gt;
+ 
+ #include &quot;sector.hpp&quot;
+ #include &quot;collision/collision_engine.hpp&quot;
+ #include &quot;elevator.hpp&quot;
+ 
+-Elevator::Elevator(const lisp::Lisp* lisp)
++Elevator::Elevator(const lisp::Lisp* )
+ {
+   pos.x = 1312;
+   pos.y =  832;
+@@ -44,13 +45,13 @@
+ }
+ 
+ void
+-Elevator::draw(SceneContext&amp; sc)
++Elevator::draw(SceneContext&amp; )
+ {
+   
+ }
+ 
+ void
+-Elevator::update(float delta)
++Elevator::update(float )
+ {
+   
+ }
+
+Modified: trunk/src/game_session.cpp
+===================================================================
+--- trunk/src/game_session.cpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/game_session.cpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -240,8 +240,6 @@
+   if (1)
+     {
+       std::cout &lt;&lt; &quot;Adding test objects to sector&quot; &lt;&lt; std::endl;
+-      const Surface* smoke  = surface_manager-&gt;get(&quot;images/particles/smoke.png&quot;);
+-      const Surface* smoke2 = surface_manager-&gt;get(&quot;images/particles/smoke2.png&quot;);
+       
+       ParticleSystem* psystem2 = new ParticleSystem();
+       psystem2-&gt;set_drawer(new SparkDrawer());
+@@ -254,6 +252,7 @@
+       ParticleSystem* psystem3 = new ParticleSystem();
+       psystem3-&gt;set_lifetime(8);
+       psystem3-&gt;set_count(30);
++      Surface* smoke2 = surface_manager-&gt;get(&quot;images/particles/smoke2.png&quot;);
+       SurfaceDrawer* drawer = new SurfaceDrawer(smoke2);
+       drawer-&gt;set_blendfuncs(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+       psystem3-&gt;set_drawer(drawer);
+@@ -266,6 +265,7 @@
+  
+       ParticleSystem* psystem = new ParticleSystem();
+       psystem-&gt;set_count(100);
++      Surface* smoke = surface_manager-&gt;get(&quot;images/particles/smoke.png&quot;);
+       drawer = new SurfaceDrawer(smoke);
+       drawer-&gt;set_blendfuncs(GL_SRC_ALPHA, GL_ONE);
+       psystem-&gt;set_drawer(drawer);
+
+Modified: trunk/src/glutil/Jamfile
+===================================================================
+--- trunk/src/glutil/Jamfile	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/glutil/Jamfile	2005-07-26 17:03:54 UTC (rev 792)
+@@ -7,6 +7,8 @@
+     surface.cpp
+     surface_manager.cpp
+     surface_manager.hpp
++    texture_manager.cpp
++    texture_manager.hpp
+ ;
+ 
+ TRANSLATABLE_SOURCES += [ SearchSource $(sources) ] ;
+
+Modified: trunk/src/glutil/surface.cpp
+===================================================================
+--- trunk/src/glutil/surface.cpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/glutil/surface.cpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -22,12 +22,28 @@
+ **  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
+ **  02111-1307, USA.
+ */
++#include &lt;config.h&gt;
+ 
+ #include &quot;surface.hpp&quot;
++#include &quot;surface_manager.hpp&quot;
+ 
+-Surface::Surface(const Texture&amp; texture_, const Rect&amp; uv_, int width_, int height_)
+-  : texture(texture_), uv(uv_), width(width_), height(height_)
++Surface::Surface()
+ {
+ }
+ 
+-/* EOF */
++Surface::~Surface()
++{
++  glDeleteTextures(1, &amp;texture);
++  if(surface_manager == 0)
++    return;
++
++  for(SurfaceManager::Surfaces::iterator i = surface_manager-&gt;surfaces.begin();
++      i != surface_manager-&gt;surfaces.end(); ++i)
++  {
++    if(i-&gt;second == this)                                               
++    {
++      surface_manager-&gt;surfaces.erase(i);
++      return;
++    }
++  }
++}
+
+Modified: trunk/src/glutil/surface.hpp
+===================================================================
+--- trunk/src/glutil/surface.hpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/glutil/surface.hpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -22,35 +22,48 @@
+ **  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
+ **  02111-1307, USA.
+ */
+-
+ #ifndef HEADER_SURFACE_HPP
+ #define HEADER_SURFACE_HPP
+ 
+ #include &quot;math/rect.hpp&quot;
+ #include &quot;texture.hpp&quot;
++#include &quot;refcounter.hpp&quot;
+ 
+-/** */
+-class Surface
++/**
++ * Surface class. This class basically holds a reference to an opengl texture
++ * along with texture coordinates that specify a rectangle on that texture.
++ * Several surface may share a single texture (but have different texture
++ * coordinates then)
++ */
++class Surface : public RefCounter
+ {
+-public:
+-  Texture texture;
+-
+ private:
+-  Rect  uv;
+-  int   width;
+-  int   height;
++  GLuint texture;
++  float texcoords[8];
+ 
++  int width;
++  int height;
++  
++  friend class SurfaceManager;
++  Surface();
++
+ public:
+-  Surface(const Texture&amp; texture, const Rect&amp; uv_, int width, int height);
++  virtual ~Surface();
++  
++  int get_width()  const
++  { return width;  }
++  
++  int get_height() const
++  { return height; }
+ 
+-  int get_width()  const { return width;  }
+-  int get_height() const { return height; }
++  GLuint get_texture() const
++  { return texture; }
+ 
+-  const Rect&amp; get_uv() const { return uv; }
++  /** Returns texture coordinates for the Surface rectangle (float[8]) */
++  const float* get_texcoords() const
++  { return texcoords; }
+ };
+ 
+-typedef const Surface* SurfaceHandle;
+-
+ #endif
+ 
+ /* EOF */
+
+Modified: trunk/src/glutil/surface_manager.cpp
+===================================================================
+--- trunk/src/glutil/surface_manager.cpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/glutil/surface_manager.cpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -15,6 +15,7 @@
+ #include &quot;globals.hpp&quot;
+ #include &quot;texture.hpp&quot;
+ #include &quot;surface.hpp&quot;
++#include &quot;texture_manager.hpp&quot;
+ #include &quot;physfs/physfs_sdl.hpp&quot;
+ 
+ SurfaceManager::SurfaceManager* surface_manager = 0;
+@@ -25,42 +26,119 @@
+ 
+ SurfaceManager::~SurfaceManager()
+ {
+-  for(Surfaces::iterator i = textures.begin(); i != textures.end(); ++i) {
+-    delete i-&gt;second;
++  if(debug)
++  {
++    for(Surfaces::iterator i = surfaces.begin(); i != surfaces.end(); ++i)
++    {
++      std::cerr &lt;&lt; &quot;Warning: Surface '&quot; &lt;&lt; i-&gt;first &lt;&lt; &quot;' not released.\n&quot;;
++    }
+   }
+ }
+ 
+-const Surface*
++Surface*
+ SurfaceManager::get(const std::string&amp; filename)
+ {
+-  Surfaces::iterator i = textures.find(filename);
+-  if(i != textures.end())
++  Surfaces::iterator i = surfaces.find(filename);
++  if(i != surfaces.end())
+     return i-&gt;second;
+ 
+   SDL_Surface* image = IMG_Load_RW(get_physfs_SDLRWops(filename), 1);
+-  if(!image) {
++  if(!image)
++  {
+     std::ostringstream msg;
+     msg &lt;&lt; &quot;Couldn't load image '&quot; &lt;&lt; filename &lt;&lt; &quot;' :&quot; &lt;&lt; SDL_GetError();
+     throw std::runtime_error(msg.str());
+   }
+ 
+-  std::cerr &lt;&lt; filename &lt;&lt; &quot; loaded.\n&quot;;
+-  Surface* result;
+-  try {
+-    result = create(image);
+-  } catch(std::exception&amp; e) {
++  float maxu, maxv;
++  GLuint handle;
++  try
++  {
++    create_texture(image, handle, maxu, maxv);
++  }
++  catch(std::exception&amp; e)
++  {
+     SDL_FreeSurface(image);
+     std::ostringstream msg;
+     msg &lt;&lt; &quot;Couldn't create texture for '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot; &lt;&lt; e.what();
+     throw std::runtime_error(msg.str());
+   }
+ 
++  Surface* result = new Surface();
++  result-&gt;texture = handle;
++  result-&gt;width = image-&gt;w;
++  result-&gt;height = image-&gt;h;
++  float* texcoords = result-&gt;texcoords;
++  texcoords[0] = 0;
++  texcoords[1] = 0;
++  texcoords[2] = maxu;
++  texcoords[3] = 0;
++  texcoords[4] = maxu;                                                      
++  texcoords[5] = maxv;
++  texcoords[6] = 0;
++  texcoords[7] = maxv;
++
+   SDL_FreeSurface(image);
+-  textures.insert(std::make_pair(filename, result));
++  surfaces.insert(std::make_pair(filename, result));
+   
+   return result;
+ }
+ 
++void
++SurfaceManager::load_grid(const std::string&amp; filename,
++                          std::vector&lt; Ref&lt;Surface&gt; &gt;&amp; surfaces,
++                          int width, int height)
++{
++  SDL_Surface* image = IMG_Load_RW(get_physfs_SDLRWops(filename), 1);
++  if(!image)
++  {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't load image '&quot; &lt;&lt; filename &lt;&lt; &quot;' :&quot; &lt;&lt; SDL_GetError();
++    throw std::runtime_error(msg.str());
++  }
++
++  float maxu, maxv;
++  GLuint handle;
++  try
++  {                                                                       
++    create_texture(image, handle, maxu, maxv);
++  }
++  catch(std::exception&amp; e)
++  {
++    SDL_FreeSurface(image);
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't create texture for '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot; &lt;&lt; e.what();
++    throw std::runtime_error(msg.str());                                      
++  }
++
++  for(int y = 0; y &lt;= image-&gt;h - height + 1; y += height)
++  {
++    for(int x = 0; x &lt;= image-&gt;w - width + 1; x += width)
++    {
++      Surface* surface = new Surface();
++      surface-&gt;texture = handle;
++      surface-&gt;width = width;
++      surface-&gt;height = height;
++      
++      float s_min_u = maxu * x / static_cast&lt;float&gt;(image-&gt;w);
++      float s_max_u = (maxu * (x + width)) / static_cast&lt;float&gt;(image-&gt;w);
++      float s_min_v = maxv * x / static_cast&lt;float&gt;(image-&gt;h);
++      float s_max_v = (maxv * (x + height)) / static_cast&lt;float&gt;(image-&gt;h);
++      float* texcoords = surface-&gt;texcoords;
++      texcoords[0] = s_min_u;
++      texcoords[1] = s_min_v;
++      texcoords[2] = s_max_u;
++      texcoords[3] = s_min_v;
++      texcoords[4] = s_max_u;
++      texcoords[5] = s_max_v;
++      texcoords[6] = s_min_u;
++      texcoords[7] = s_max_v;
++      surfaces.push_back(surface);  
++    }
++  }
++  SDL_FreeSurface(image);
++}
++
+ static int power_of_two(int val) {
+   int result = 1;
+   while(result &lt; val)
+@@ -68,21 +146,16 @@
+   return result;
+ }
+ 
+-Surface*
+-SurfaceManager::create(SDL_Surface* image)
++void
++SurfaceManager::create_texture(SDL_Surface* image, GLuint&amp; handle,
++                               float&amp; maxu, float&amp; maxv)
+ {
+   CL_OpenGLState state(CL_Display::get_current_window()-&gt;get_gc());
+   state.set_active();
+   state.setup_2d();
+-  
++
+   int texture_w = power_of_two(image-&gt;w);
+   int texture_h = power_of_two(image-&gt;h);
+-
+-  GLint maxt;
+-  glGetIntegerv(GL_MAX_TEXTURE_SIZE, &amp;maxt);
+-  if(texture_w &gt; maxt || texture_h &gt; maxt)
+-      throw std::runtime_error(&quot;Texture too big&quot;);
+-
+ #if SDL_BYTEORDER == SDL_BIG_ENDIAN
+   SDL_Surface* convert = SDL_CreateRGBSurface(SDL_SWSURFACE,
+       texture_w, texture_h, 32,
+@@ -93,36 +166,25 @@
+       0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000);
+ #endif
+ 
+-  if(convert == 0)
++  if(convert == 0) 
++  {
+     throw std::runtime_error(&quot;Couldn't create texture: out of memory&quot;);
++  }
+   SDL_SetAlpha(image, 0, 0);
+   SDL_BlitSurface(image, 0, convert, 0);
+ 
+-  GLuint handle;
+-  glGenTextures(1, &amp;handle);
+-
+-  SDL_PixelFormat* format = convert-&gt;format;
+-
+-  glBindTexture(GL_TEXTURE_2D, handle);
+-  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+-  glPixelStorei(GL_UNPACK_ROW_LENGTH, convert-&gt;pitch/format-&gt;BytesPerPixel);
+-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
+-      convert-&gt;w, convert-&gt;h, 0, GL_RGBA,
+-      GL_UNSIGNED_BYTE, convert-&gt;pixels);
+-
+-  assert_gl(&quot;creating texture&quot;);
+-
+-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP);
+-
+-  assert_gl(&quot;setting texture parameters&quot;);
+-
++  try 
++  {
++    handle = TextureManager::create_texture_from_surface(convert);
++  }
++  catch(...) 
++  {
++    SDL_FreeSurface(convert);
++    throw;
++  }
+   SDL_FreeSurface(convert);
+   
+-  Surface* result = new Surface(Texture(handle), Rect(0, 0, image-&gt;w, image-&gt;h), image-&gt;w, image-&gt;h);
+-  return result;
++  maxu = static_cast&lt;float&gt;(image-&gt;w)/static_cast&lt;float&gt;(texture_w);
++  maxv = static_cast&lt;float&gt;(image-&gt;h)/static_cast&lt;float&gt;(texture_h);
+ }
+ 
+
+Modified: trunk/src/glutil/surface_manager.hpp
+===================================================================
+--- trunk/src/glutil/surface_manager.hpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/glutil/surface_manager.hpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -1,29 +1,39 @@
+-#ifndef __TEXTURE_MANAGER_H__
+-#define __TEXTURE_MANAGER_H__
++#ifndef __SURFACE_MANAGER_H__
++#define __SURFACE_MANAGER_H__
+ 
+ #include &lt;string&gt;
++#include &lt;vector&gt;
+ #include &lt;map&gt;
+ #include &lt;SDL.h&gt;
++#include &lt;GL/gl.h&gt;
++#include &quot;ref.hpp&quot;
+ 
+-#include &lt;ClanLib/Display/pixel_buffer.h&gt;
+-
+ class Surface;
+ 
++/**
++ * This class keeps a list of loaded surfaces and manages loading new ones
++ */
+ class SurfaceManager
+ {
+ public:
+   SurfaceManager();
+   ~SurfaceManager();
+ 
+-  /** returns a texture containing the image specified with filename
+-   * Note: You must NOT delete the returned Texture
++  /** returns a surface containing the image specified with filename */
++  Surface* get(const std::string&amp; filename);
++  /**
++   * Loads an image and splits it into several Surfaces sized width and height.
++   * The created surfaces will be added to the surfaces vector.
+    */
+-  const Surface* get(const std::string&amp; filename);
++  void load_grid(const std::string&amp; filename,
++      std::vector&lt; Ref&lt;Surface&gt; &gt;&amp; surfaces, int width, int height);
+ 
+-  Surface* create(SDL_Surface* surface);
++  friend class Surface;
++  void create_texture(SDL_Surface* image, GLuint&amp; handle,
++                      float&amp; maxu, float&amp; maxv);
+   
+   typedef std::map&lt;std::string, Surface*&gt; Surfaces;
+-  Surfaces textures;
++  Surfaces surfaces;
+ };
+ 
+ extern SurfaceManager* surface_manager;
+
+Modified: trunk/src/glutil/texture.cpp
+===================================================================
+--- trunk/src/glutil/texture.cpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/glutil/texture.cpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -7,6 +7,6 @@
+ 
+ Texture::~Texture()
+ {
+-  //glDeleteTextures(1, &amp;handle);
++  glDeleteTextures(1, &amp;handle);
+ }
+ 
+
+Modified: trunk/src/glutil/texture.hpp
+===================================================================
+--- trunk/src/glutil/texture.hpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/glutil/texture.hpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -2,8 +2,9 @@
+ #define __TEXTURE_HPP__
+ 
+ #include &lt;GL/gl.h&gt;
++#include &quot;refcounter.hpp&quot;
+ 
+-class Texture
++class Texture : public RefCounter
+ {
+ public:
+   GLuint handle;
+
+Added: trunk/src/glutil/texture_manager.cpp
+===================================================================
+--- trunk/src/glutil/texture_manager.cpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/glutil/texture_manager.cpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -0,0 +1,143 @@
++#include &lt;config.h&gt;
++
++#include &quot;texture_manager.hpp&quot;
++
++#include &lt;iostream&gt;
++#include &lt;sstream&gt;
++#include &lt;stdexcept&gt;
++#include &lt;SDL_image.h&gt;
++#include &lt;ClanLib/GL/opengl_state.h&gt;
++#include &lt;ClanLib/Display/display.h&gt;
++#include &lt;ClanLib/Display/display_window.h&gt;
++#include &lt;GL/gl.h&gt;
++#include &lt;GL/glext.h&gt;
++#include &quot;util.hpp&quot;
++#include &quot;globals.hpp&quot;
++#include &quot;texture.hpp&quot;
++#include &quot;physfs/physfs_sdl.hpp&quot;
++
++TextureManager::TextureManager* texture_manager = 0;
++
++TextureManager::TextureManager()
++{
++}
++
++TextureManager::~TextureManager()
++{
++  if(debug)
++  {
++    for(Textures::iterator i = textures.begin(); i != textures.end(); ++i) {
++      std::cerr &lt;&lt; &quot;Warning: Texture '&quot; &lt;&lt; i-&gt;first &lt;&lt; &quot;' not released.\n&quot;;
++    }
++  }
++}
++
++class TextureManagerTexture : public Texture
++{
++public:
++  TextureManagerTexture(GLuint handle)
++    : Texture(handle)
++  { }
++  ~TextureManagerTexture()
++  {
++    if(!texture_manager)
++      return;
++      
++    for(TextureManager::Textures::iterator i = texture_manager-&gt;textures.begin();
++        i != texture_manager-&gt;textures.end(); ++i)
++    {
++      if(i-&gt;second == this)
++      {
++        texture_manager-&gt;textures.erase(i);
++        return;
++      }
++    }
++  }
++};
++
++Texture*
++TextureManager::get(const std::string&amp; filename)
++{
++  Textures::iterator i = textures.find(filename);
++  if(i != textures.end())
++    return i-&gt;second;
++
++  SDL_Surface* image = IMG_Load_RW(get_physfs_SDLRWops(filename), 1);
++  if(!image) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't load image '&quot; &lt;&lt; filename &lt;&lt; &quot;' :&quot; &lt;&lt; SDL_GetError();
++    throw std::runtime_error(msg.str());
++  }
++
++  CL_OpenGLState state(CL_Display::get_current_window()-&gt;get_gc());
++  state.set_active();                                                
++  state.setup_2d();
++
++  GLuint handle;
++  try {
++    handle = create_texture_from_surface(image);
++  } catch(std::exception&amp; e) {
++    SDL_FreeSurface(image);
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't create texture for '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot; &lt;&lt; e.what();
++    throw std::runtime_error(msg.str());
++  }
++
++  SDL_FreeSurface(image);
++  
++  Texture* result = new TextureManagerTexture(handle);
++  textures.insert(std::make_pair(filename, result));
++  return result;
++}
++
++static inline bool is_power_of_2(int v)
++{
++  return (v &amp; (v-1)) == 0;
++}
++
++GLuint
++TextureManager::create_texture_from_surface(SDL_Surface* image)
++{
++  const SDL_PixelFormat* format = image-&gt;format;
++  if(!is_power_of_2(image-&gt;w) || !is_power_of_2(image-&gt;h))
++    throw std::runtime_error(&quot;image has no power of 2 size&quot;);
++  if(format-&gt;BitsPerPixel != 24 &amp;&amp; format-&gt;BitsPerPixel != 32)
++    throw std::runtime_error(&quot;image has not 24 or 32 bit color depth&quot;);
++
++  glEnable(GL_TEXTURE_2D);
++
++  GLuint handle;
++  glGenTextures(1, &amp;handle);
++  assert_gl(&quot;creating texture handle.&quot;);
++
++  try {
++    GLint maxt;
++    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &amp;maxt);
++    if(image-&gt;w &gt; maxt || image-&gt;h &gt; maxt)
++        throw std::runtime_error(&quot;Texture size not supported&quot;);
++
++    glBindTexture(GL_TEXTURE_2D, handle);
++    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
++    glPixelStorei(GL_UNPACK_ROW_LENGTH, image-&gt;pitch/format-&gt;BytesPerPixel);
++    glTexImage2D(GL_TEXTURE_2D, 0, format-&gt;BytesPerPixel,
++        image-&gt;w, image-&gt;h, 0, GL_RGBA,
++        GL_UNSIGNED_BYTE, image-&gt;pixels);
++
++    assert_gl(&quot;creating texture&quot;);
++
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP);
++
++    assert_gl(&quot;setting texture parameters&quot;);
++  }
++  catch(...)
++  {
++    glDeleteTextures(1, &amp;handle);
++  }
++
++  return handle;
++}
++
+
+Added: trunk/src/glutil/texture_manager.hpp
+===================================================================
+--- trunk/src/glutil/texture_manager.hpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/glutil/texture_manager.hpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -0,0 +1,46 @@
++#ifndef __TEXTURE_MANAGER_H__
++#define __TEXTURE_MANAGER_H__
++
++#include &lt;string&gt;
++#include &lt;map&gt;
++#include &lt;SDL.h&gt;
++#include &lt;GL/gl.h&gt;
++
++class Texture;
++
++/**
++ * This class manages a map of image files to OpenGL textures.
++ */
++class TextureManager
++{
++public:
++  TextureManager();
++  ~TextureManager();
++
++  /**
++   * returns a texture containing the image specified with filename
++   * The TextureManager keeps track of loaded Textures and might return a
++   * reference to an existing texture.
++   * Only textures with power of 2 dimensions are supported here. Use
++   * SurfaceManager for images with other dimensions.
++   * Note: Texture is a refcounted class, store it with Ref&lt;Texture&gt;
++   */
++  Texture* get(const std::string&amp; filename);
++
++  /**
++   * Upload an SDL_Surface onto an OpenGL texture. The surface must have power
++   * of 2 dimensions
++   * */
++  static GLuint create_texture_from_surface(SDL_Surface* surface);
++
++private:
++  friend class TextureManagerTexture;
++  
++  typedef std::map&lt;std::string, Texture*&gt; Textures;
++  Textures textures;
++};
++
++extern TextureManager* texture_manager;
++
++#endif
++
+
+Modified: trunk/src/lisp/getters.hpp
+===================================================================
+--- trunk/src/lisp/getters.hpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/lisp/getters.hpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -23,7 +23,7 @@
+ bool get(const Lisp* lisp, std::string&amp; val);
+ bool get(const Lisp* lisp, const Lisp*&amp; val);
+ 
+-template&lt;class T&gt;
++template&lt;typename T&gt;
+ static inline bool property_get(const Lisp* lisp, T&amp; val)
+ {
+   const Lisp* el = lisp-&gt;get_list_elem(1);
+@@ -36,7 +36,7 @@
+   return true;
+ }
+ 
+-template&lt;class T&gt;
++template&lt;typename T&gt;
+ static inline bool property_get(const Lisp* lisp, std::vector&lt;T&gt;&amp; list)
+ {
+   list.clear();
+
+Modified: trunk/src/lisp/properties.hpp
+===================================================================
+--- trunk/src/lisp/properties.hpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/lisp/properties.hpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -20,7 +20,7 @@
+    * You have to define get() or property_get() functions to support new
+    * datatypes. See getters.hpp for details
+    */
+-  template&lt;class T&gt;
++  template&lt;typename T&gt;
+   bool get(const std::string&amp; name, T&amp; val)
+   {
+     PropertyMap::iterator i = properties.find(name);
+@@ -35,7 +35,7 @@
+   /**
+    * returns an iterator over all properties with a certain name
+    */
+-  template&lt;class T&gt;
++  template&lt;typename T&gt;
+   bool get_iter(const std::string&amp; name, PropertyIterator&lt;T&gt;&amp; iter)
+   {
+     PropertyMap::iterator beg = properties.lower_bound(name);
+
+Modified: trunk/src/lisp/property_iterator.hpp
+===================================================================
+--- trunk/src/lisp/property_iterator.hpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/lisp/property_iterator.hpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -17,7 +17,7 @@
+ };
+ typedef std::multimap&lt;std::string, ListEntry&gt; PropertyMap;
+ 
+-template&lt;class T&gt;
++template&lt;typename T&gt;
+ class PropertyIterator
+ {
+ public:
+
+Modified: trunk/src/particles/surface_drawer.cpp
+===================================================================
+--- trunk/src/particles/surface_drawer.cpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/particles/surface_drawer.cpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -21,8 +21,8 @@
+ #include &quot;particle_system.hpp&quot;
+ #include &quot;surface_drawer.hpp&quot;
+ 
+-SurfaceDrawer::SurfaceDrawer(SurfaceHandle surface_)
+-  : surface(surface_)
++SurfaceDrawer::SurfaceDrawer(Surface* surface)
++  : surface(surface)
+ {
+ }
+ 
+@@ -31,9 +31,9 @@
+ }
+   
+ void
+-SurfaceDrawer::set_texture(SurfaceHandle surface_)
++SurfaceDrawer::set_texture(Surface* surface)
+ {
+-  surface = surface_;
++  this-&gt;surface = surface;
+ }
+ 
+ void
+@@ -47,11 +47,11 @@
+ SurfaceDrawer::draw(SceneContext&amp; sc, ParticleSystem&amp; psys) 
+ {          
+   VertexArrayDrawingRequest* buffer 
+-    = new VertexArrayDrawingRequest(CL_Vector(psys.get_x_pos(), psys.get_y_pos(), 0), // FIXME: add zpos
++    = new VertexArrayDrawingRequest(Vector(psys.get_x_pos(), psys.get_y_pos(), 0), // FIXME: add zpos
+                                     sc.color().get_modelview());
+ 
+   buffer-&gt;set_mode(GL_QUADS);
+-  buffer-&gt;set_texture(surface-&gt;texture.handle);
++  buffer-&gt;set_texture(surface-&gt;get_texture());
+   buffer-&gt;set_blend_func(blendfunc_src, blendfunc_dest);
+ 
+   for(ParticleSystem::Particles::iterator i = psys.begin(); i != psys.end(); ++i)
+@@ -82,20 +82,18 @@
+               y_rot = (width/2) * s + (height/2) * c;
+             }
+ 
++          buffer-&gt;add_texcoords(surface-&gt;get_texcoords(), 8);
++
+           buffer-&gt;color(color);
+-          buffer-&gt;texcoord(0, 0);
+           buffer-&gt;vertex(i-&gt;x - x_rot, i-&gt;y - y_rot);
+ 
+           buffer-&gt;color(color);
+-          buffer-&gt;texcoord(1, 0);
+           buffer-&gt;vertex(i-&gt;x + y_rot, i-&gt;y - x_rot);
+ 
+           buffer-&gt;color(color);
+-          buffer-&gt;texcoord(1, 1);
+           buffer-&gt;vertex(i-&gt;x + x_rot, i-&gt;y + y_rot);
+ 
+           buffer-&gt;color(color);
+-          buffer-&gt;texcoord(0, 1);
+           buffer-&gt;vertex(i-&gt;x - y_rot, i-&gt;y + x_rot);
+         }
+     }
+
+Modified: trunk/src/particles/surface_drawer.hpp
+===================================================================
+--- trunk/src/particles/surface_drawer.hpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/particles/surface_drawer.hpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -21,20 +21,21 @@
+ #define HEADER_SURFACE_DRAWER_HXX
+ 
+ #include &quot;glutil/surface.hpp&quot;
++#include &quot;ref.hpp&quot;
+ #include &quot;drawer.hpp&quot;
+ 
+ class SurfaceDrawer : public Drawer
+ {
+ private:
+-  SurfaceHandle surface;
++  Ref&lt;Surface&gt; surface;
+   GLenum blendfunc_src;
+   GLenum blendfunc_dest;
+   
+ public:
+-  SurfaceDrawer(SurfaceHandle surface);
++  SurfaceDrawer(Surface* );
+   virtual ~SurfaceDrawer();
+   
+-  void set_texture(SurfaceHandle surface);
++  void set_texture(Surface* surface);
+   void set_blendfuncs(GLenum blendfunc_src, GLenum blendfunc_dst);
+   void draw(SceneContext&amp; sc, ParticleSystem&amp; psys);
+ };
+
+Modified: trunk/src/player.cpp
+===================================================================
+--- trunk/src/player.cpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/player.cpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -27,6 +27,7 @@
+ #include &quot;bomb.hpp&quot;
+ #include &quot;globals.hpp&quot;
+ #include &quot;sprite3d/manager.hpp&quot;
++#include &quot;glutil/surface_manager.hpp&quot;
+ #include &quot;collision/collision_engine.hpp&quot;
+ 
+ static const int MAX_ENERGY = 16;
+@@ -36,7 +37,7 @@
+ Player* Player::current_ = 0;
+ 
+ Player::Player () :
+-  light    (&quot;hero/light&quot;, resources),
++  light(&quot;hero/light&quot;, resources),
+   state (STAND)
+ {
+   pos.x = 320;
+@@ -45,7 +46,6 @@
+   name = &quot;player&quot;;
+   sprite = sprite3d_manager-&gt;create(&quot;3dsprites/heroken.wsprite&quot;);
+   grenade = sprite3d_manager-&gt;create(&quot;3dsprites/grenade.wsprite&quot;);
+-  light.set_blend_func(blend_src_alpha, blend_one);
+ 
+   jumping = false;
+   energy = MAX_ENERGY;
+
+Modified: trunk/src/player.hpp
+===================================================================
+--- trunk/src/player.hpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/player.hpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -29,6 +29,8 @@
+ #include &quot;math/vector.hpp&quot;
+ #include &quot;globals.hpp&quot;
+ #include &quot;entity.hpp&quot;
++#include &quot;ref.hpp&quot;
++#include &quot;glutil/surface.hpp&quot;
+ 
+ class Controller;
+ 
+@@ -36,7 +38,7 @@
+ {
+ private:
+   Controller controller;
+- 
++
+   CL_Sprite light;
+   sprite3d::Sprite* sprite;
+   sprite3d::Sprite* grenade;
+
+Modified: trunk/src/ref.hpp
+===================================================================
+--- trunk/src/ref.hpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/ref.hpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -1,22 +1,37 @@
+ #ifndef __REF_HPP__
+ #define __REF_HPP__
+ 
++/** This class behaves like a pointer to a refcounted object, but increments the
++ * reference count when new objects are assigned and decrements the refcounter
++ * when it's lifetime has experied. (similar to std::auto_ptr)
++ */
+ template&lt;typename T&gt;
+ class Ref
+ {
+ public:
+-  Ref(T* object)
++  Ref(T* object = 0)
+     : object(object)
+   {
+     if(object)
+       object-&gt;ref();
+   }
++  Ref(const Ref&lt;T&gt;&amp; other)
++    : object(other.object)
++  {
++    if(object)
++      object-&gt;ref();
++  }
+   ~Ref()
+   {
+     if(object)
+       object-&gt;unref();
+   }
+ 
++  void operator= (const Ref&lt;T&gt;&amp; other)
++  {
++    *this = other.get();
++  }
++
+   void operator= (T* object)
+   {
+     if(object)
+@@ -36,6 +51,11 @@
+     return *object;
+   }
+ 
++  operator const T* () const
++  {
++    return object;
++  }
++
+   T* get() const
+   {
+     return object;
+
+Modified: trunk/src/refcounter.hpp
+===================================================================
+--- trunk/src/refcounter.hpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/refcounter.hpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -3,21 +3,24 @@
+ 
+ #include &lt;assert.h&gt;
+ 
++/**
++ * A base class that provides reference counting facilities
++ */
+ class RefCounter
+ {
+ public:
+   RefCounter()
+     : refcount(0)
+   { }
+-  virtual ~RefCounter()
+-  {
+-    assert(refcount == 0);
+-  }
+ 
++  /** increases reference count */
+   void ref()
+   {
+     refcount++;
+   }
++  /** decreases reference count. Destroys the object if the reference count
++   * reaches 0
++   */
+   void unref()
+   {
+     refcount--;
+@@ -27,6 +30,12 @@
+     }
+   }
+ 
++protected:
++  virtual ~RefCounter()
++  {
++    assert(refcount == 0);
++  }
++
+ private:
+   int refcount;
+ };
+
+Modified: trunk/src/sprite2d/data.cpp
+===================================================================
+--- trunk/src/sprite2d/data.cpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/sprite2d/data.cpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -75,7 +75,7 @@
+   
+   if(action-&gt;name == &quot;&quot;)
+     throw std::runtime_error(&quot;No Name defined for action&quot;);
+-  if(action-&gt;images.size() == 0) {
++  if(action-&gt;surfaces.size() == 0) {
+     std::ostringstream msg;
+     msg &lt;&lt; &quot;Action '&quot; &lt;&lt; action-&gt;name &lt;&lt; &quot;' contains no images&quot;;
+     throw std::runtime_error(msg.str());
+@@ -89,20 +89,8 @@
+ {
+   for(size_t n = 1; n &lt; lisp-&gt;get_list_size(); ++n) {
+     std::string file = lisp-&gt;get_list_elem(n)-&gt;get_string();
+-    const Surface* surface = surface_manager-&gt;get(dir + &quot;/&quot; + file);
+-    ActionImage image;
+-    image.surface      = surface;
+-    image.width        = surface-&gt;get_width();
+-    image.height       = surface-&gt;get_height();
+-    image.texcoords[0] = surface-&gt;get_uv().left;
+-    image.texcoords[1] = surface-&gt;get_uv().top;
+-    image.texcoords[2] = surface-&gt;get_uv().right;
+-    image.texcoords[3] = surface-&gt;get_uv().top;
+-    image.texcoords[4] = surface-&gt;get_uv().right;
+-    image.texcoords[5] = surface-&gt;get_uv().bottom;
+-    image.texcoords[6] = surface-&gt;get_uv().left;
+-    image.texcoords[7] = surface-&gt;get_uv().bottom;
+-    action-&gt;images.push_back(image);
++    Surface* surface = surface_manager-&gt;get(dir + &quot;/&quot; + file);
++    action-&gt;surfaces.push_back(surface);
+   }
+ }
+ 
+@@ -125,39 +113,8 @@
+   if(filename == &quot;&quot; || x_size &lt;= 0 || y_size &lt;= 0)
+     throw std::runtime_error(&quot;Invalid or too few data in image-grid&quot;);
+ 
+-  const Surface* surface = surface_manager-&gt;get(dir + &quot;/&quot; + filename);
+-
+-  if(surface-&gt;get_width() % x_size != 0 || surface-&gt;get_height() % y_size != 0) {
+-    std::cerr &lt;&lt; &quot;Warning texture '&quot; &lt;&lt; filename
+-              &lt;&lt; &quot;' doesn't match a grid size.\n&quot;;
+-  }
+-
+-  for(int y = 0; y &lt;= surface-&gt;get_height() - y_size; y += y_size) {
+-    for(int x = 0; x &lt;= surface-&gt;get_width() - x_size; x += x_size) {
+-      ActionImage image;
+-      image.surface = surface;
+-      image.width   = x_size;
+-      image.height  = y_size;
+-
+-      // TODO: check if (x + x_size - 1) is correct or (x + x_size)
+-      float min_u = (surface-&gt;get_uv().right * x) / static_cast&lt;float&gt;(surface-&gt;get_width());
+-      float max_u = (surface-&gt;get_uv().right * (x + x_size)) / static_cast&lt;float&gt;(surface-&gt;get_width());
+-      float min_v = (surface-&gt;get_uv().bottom * y) / static_cast&lt;float&gt;(surface-&gt;get_height());
+-      float max_v = (surface-&gt;get_uv().bottom * (y + y_size)) / static_cast&lt;float&gt;(surface-&gt;get_height());
+-      
+-      float* uvs = image.texcoords;
+-      uvs[0] = min_u;
+-      uvs[1] = min_v;
+-      uvs[2] = max_u;
+-      uvs[3] = min_v;
+-      uvs[4] = max_u;
+-      uvs[5] = max_v;
+-      uvs[6] = min_u;
+-      uvs[7] = max_v;
+-
+-      action-&gt;images.push_back(image);
+-    }
+-  }
++  surface_manager-&gt;load_grid(dir + &quot;/&quot; + filename,
++                             action-&gt;surfaces, x_size, y_size);
+ }
+  
+ }
+
+Modified: trunk/src/sprite2d/data.hpp
+===================================================================
+--- trunk/src/sprite2d/data.hpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/sprite2d/data.hpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -7,6 +7,7 @@
+ #include &quot;math/vector.hpp&quot;
+ #include &quot;glutil/surface.hpp&quot;
+ #include &quot;lisp/lisp.hpp&quot;
++#include &quot;ref.hpp&quot;
+ 
+ namespace sprite2d
+ {
+@@ -31,21 +32,13 @@
+                         const lisp::Lisp* lisp); 
+ };
+ 
+-struct ActionImage
+-{
+-  const Surface* surface;
+-  int   width;
+-  int   height;
+-  float texcoords[8];
+-};
+-
+ struct Action
+ {
+   std::string name;
+   float speed;
+   Vector offset;
+-  typedef std::vector&lt;ActionImage&gt; Images;
+-  Images images;
++  typedef std::vector&lt; Ref&lt;Surface&gt; &gt; Surfaces;
++  Surfaces surfaces;
+ };
+ 
+ }
+
+Modified: trunk/src/sprite2d/sprite.cpp
+===================================================================
+--- trunk/src/sprite2d/sprite.cpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/sprite2d/sprite.cpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -37,8 +37,8 @@
+   if(reverse)
+     step = -step;
+ 
+-  frame = fmodf(frame + current_action-&gt;images.size() + step,
+-      current_action-&gt;images.size());
++  frame = fmodf(frame + current_action-&gt;surfaces.size() + step,
++      current_action-&gt;surfaces.size());
+ }
+ 
+ void
+@@ -112,86 +112,12 @@
+   return alpha;
+ }
+ 
+-class SpriteDrawingRequest : public DrawingRequest
+-{
+-private:
+-  Sprite* sprite;
+-  
+-public:
+-  SpriteDrawingRequest(Sprite* sprite, const Vector&amp; pos,
+-      const Matrix&amp; modelview)
+-    : DrawingRequest(pos, modelview), sprite(sprite)
+-  {
+-  }
+-
+-  void draw(CL_GraphicContext* gc)
+-  {
+-    sprite-&gt;draw(gc, pos, modelview);
+-  }
+-};
+-
+ void
+-Sprite::draw(CL_GraphicContext* gc, const Vector&amp; pos, const Matrix&amp; modelview)
+-{
+-  static const float rectvertices[12] 
+-    = { 0, 0, 0,
+-        1, 0, 0,
+-        1, 1, 0, 
+-        0, 1, 0 };
+-
+-  CL_OpenGLState state(gc);
+-  state.set_active();
+-  state.setup_2d();
+-
+-  glPushMatrix();
+-  glMultMatrixd(modelview);
+-  glTranslatef(pos.x, pos.y, 0);
+-  if(vflip)
+-    glRotatef(180, 0, 1.0, 0);
+-  
+-  // TODO: move alot of this state management to DrawingContext class...
+-  glDisable(GL_DEPTH_TEST);
+-  glEnable(GL_TEXTURE_2D);
+-  glEnable(GL_BLEND);
+-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+-
+-#if 1
+-  glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+-  glEnableClientState(GL_VERTEX_ARRAY);
+-  glDisableClientState(GL_NORMAL_ARRAY);
+-#endif
+-  glColor4f(1.0, 1.0, 1.0, alpha);
+-
+-  const ActionImage&amp; image 
+-    = current_action-&gt;images[ static_cast&lt;int&gt; (frame) ];
+-  glScalef(image.width, image.height, 1.0);
+-
+-  glBindTexture(GL_TEXTURE_2D, image.surface-&gt;texture.handle);
+-
+-  // TODO find out which of the 2 is faster
+-#if 1
+-  glVertexPointer(3, GL_FLOAT, 0, rectvertices);
+-  glTexCoordPointer(2, GL_FLOAT, 0, image.texcoords);
+-  glDrawArrays(GL_QUADS, 0, 4);
+-#else
+-  glBegin(GL_QUADS);
+-  for(int i = 0; i &lt; 4; ++i) {
+-    glVertex3f(rectvertices[i*3], rectvertices[i*3+1], rectvertices[i*3+2]);
+-    glTexCoord2d(image.texcoords[i*2], image.texcoords[i*2+1]);
+-  }
+-  glEnd();
+-#endif
+-
+-  glPopMatrix();
+-
+-  assert_gl(&quot;drawing 2d sprite&quot;);
+-}
+-
+-void
+ Sprite::draw(SceneContext&amp; sc, const Vector&amp; pos)
+ {
+-  sc.color().draw(
+-    new SpriteDrawingRequest(this, pos, sc.color().get_modelview()));
++  const Surface* surface
++    = current_action-&gt;surfaces[ static_cast&lt;int&gt; (frame) ];
++  sc.color().draw(surface, pos.x, pos.y, pos.z, alpha);
+ }
+ 
+ }
+
+Modified: trunk/src/sprite3d/data.cpp
+===================================================================
+--- trunk/src/sprite3d/data.cpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/sprite3d/data.cpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -8,8 +8,8 @@
+ #include &lt;stdexcept&gt;
+ #include &quot;util.hpp&quot;
+ #include &quot;globals.hpp&quot;
+-#include &quot;glutil/surface_manager.hpp&quot;
+-#include &quot;glutil/surface.hpp&quot;
++#include &quot;glutil/texture_manager.hpp&quot;
++#include &quot;glutil/texture.hpp&quot;
+ 
+ namespace sprite3d
+ {
+@@ -93,8 +93,7 @@
+       mesh.triangle_count = read_uint16_t(file);
+       mesh.vertex_count = read_uint16_t(file);
+ 
+-      const Surface* surface = surface_manager-&gt;get(texturename);
+-      mesh.texture = surface-&gt;texture.handle;
++      mesh.texture = texture_manager-&gt;get(texturename);
+ 
+       // read triangles
+       mesh.vertex_indices = new uint16_t[mesh.triangle_count * 3];
+@@ -259,5 +258,10 @@
+   throw std::runtime_error(msg.str());
+ }
+ 
++Mesh::Mesh()
++  : vertex_indices(0), tex_coords(0), normals(0)
++{
+ }
+ 
++}
++
+
+Modified: trunk/src/sprite3d/data.hpp
+===================================================================
+--- trunk/src/sprite3d/data.hpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/sprite3d/data.hpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -21,6 +21,8 @@
+ #include &lt;stdint.h&gt;
+ #include &lt;string&gt;
+ #include &lt;GL/gl.h&gt;
++#include &quot;ref.hpp&quot;
++#include &quot;glutil/texture.hpp&quot;
+ 
+ namespace sprite3d
+ {
+@@ -61,11 +63,9 @@
+ 
+ struct Mesh
+ {
+-  Mesh()
+-    : vertex_indices(0), tex_coords(0), normals(0)
+-  { }
++  Mesh();
+ 
+-  GLuint texture;
++  Ref&lt;Texture&gt; texture;
+   uint16_t triangle_count;
+   uint16_t* vertex_indices;
+   float* tex_coords;
+
+Modified: trunk/src/sprite3d/sprite.cpp
+===================================================================
+--- trunk/src/sprite3d/sprite.cpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/sprite3d/sprite.cpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -347,6 +347,7 @@
+   glEnable(GL_TEXTURE_2D);
+ 
+   glEnableClientState(GL_VERTEX_ARRAY);
++  glEnableClientState(GL_NORMAL_ARRAY);
+   glEnableClientState(GL_TEXTURE_COORD_ARRAY);  
+ 
+   assert_gl(&quot;gl init before sprite&quot;);
+@@ -361,7 +362,7 @@
+     const MeshVertices&amp; vertices2 = aframe2.meshs[m];
+ 
+     // set texture
+-    glBindTexture(GL_TEXTURE_2D, mesh.texture);
++    glBindTexture(GL_TEXTURE_2D, mesh.texture-&gt;handle);
+     
+     // blend between frame1 + frame2
+     float* verts = new float[mesh.vertex_count * 3];
+
+Modified: trunk/src/text_area.cpp
+===================================================================
+--- trunk/src/text_area.cpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/text_area.cpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -132,7 +132,7 @@
+   glEnable(GL_BLEND);
+   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+ 
+-  glBindTexture(GL_TEXTURE_2D, impl-&gt;font-&gt;get_surface().handle);
++  glBindTexture(GL_TEXTURE_2D, impl-&gt;font-&gt;get_texture());
+ 
+   glPushMatrix();
+   glTranslatef(impl-&gt;rect.left, impl-&gt;rect.top, 0);
+
+Modified: trunk/src/ttf_font.cpp
+===================================================================
+--- trunk/src/ttf_font.cpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/ttf_font.cpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -34,10 +34,10 @@
+ #include FT_GLYPH_H
+ 
+ #include &quot;physfs/physfs_stream.hpp&quot;
+-#include &quot;glutil/surface_manager.hpp&quot;
+-#include &quot;glutil/surface.hpp&quot;
++#include &quot;glutil/texture_manager.hpp&quot;
+ #include &quot;blitter.hpp&quot;
+ #include &quot;ttf_font.hpp&quot;
++#include &quot;util.hpp&quot;
+ 
+ TTFCharacter::TTFCharacter(const CL_Rect&amp; pos_,
+                            const CL_Rectf&amp; uv_, 
+@@ -61,7 +61,7 @@
+   int size;
+ 
+   /** OpenGL Texture which holds all the characters */
+-  Texture texture;
++  GLuint texture;
+ };
+ 
+ FT_Library TTFFontImpl::library;
+@@ -171,12 +171,23 @@
+     }
+   FT_Done_Face(face);
+ 
+-  impl-&gt;texture = surface_manager-&gt;create(pixelbuffer)-&gt;texture;
++  CL_OpenGLState state(CL_Display::get_current_window()-&gt;get_gc());
++  state.set_active();
++  state.setup_2d();
++
++  try {
++    impl-&gt;texture = TextureManager::create_texture_from_surface(pixelbuffer);
++  } catch(...) {
++    SDL_FreeSurface(pixelbuffer);
++    throw;
++  }
+   SDL_FreeSurface(pixelbuffer);
+ }
+ 
+ TTFFont::~TTFFont()
+ {
++  glDeleteTextures(1, &amp;impl-&gt;texture);
++  delete impl;
+ }
+ 
+ const TTFCharacter&amp;
+@@ -204,7 +215,7 @@
+   glEnable(GL_BLEND);
+   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+ 
+-  glBindTexture(GL_TEXTURE_2D, impl-&gt;texture.handle);
++  glBindTexture(GL_TEXTURE_2D, impl-&gt;texture);
+ 
+   // Voodoo to get non-blurry fonts
+   float mx = -0.375;
+@@ -213,7 +224,7 @@
+   glColor4f(color.r, color.g, color.b, color.a);
+   for(std::string::const_iterator i = str.begin(); i != str.end(); ++i)
+     {
+-      TTFCharacter&amp; character = impl-&gt;characters[*i];
++      const TTFCharacter&amp; character = impl-&gt;characters[*i];
+       
+       glTexCoord2f(character.uv.left, character.uv.top);
+       glVertex2f(x_pos + character.pos.left + mx,
+@@ -245,8 +256,8 @@
+   return width;
+ }
+ 
+-Texture
+-TTFFont::get_surface() const
++GLuint
++TTFFont::get_texture() const
+ {
+   return impl-&gt;texture;
+ }
+
+Modified: trunk/src/ttf_font.hpp
+===================================================================
+--- trunk/src/ttf_font.hpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/ttf_font.hpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -29,7 +29,7 @@
+ #include &lt;ClanLib/Core/Math/rect.h&gt;
+ #include &lt;ClanLib/GL/opengl_surface.h&gt;
+ #include &lt;string&gt;
+-#include &quot;glutil/texture.hpp&quot;
++#include &lt;GL/gl.h&gt;
+ #include &quot;color.hpp&quot;
+ 
+ class TTFCharacter
+@@ -66,7 +66,7 @@
+       newlines into account */
+   int get_width(const std::string&amp; text) const;
+ 
+-  Texture get_surface() const;
++  GLuint get_texture() const;
+ 
+   const TTFCharacter&amp; get_character(int c) const;
+   void draw(float x_pos, float y_pos, const std::string&amp; str, const Color&amp; color = Color(1.0f, 1.0f, 1.0f));
+
+Modified: trunk/src/windstille_main.cpp
+===================================================================
+--- trunk/src/windstille_main.cpp	2005-07-26 16:12:35 UTC (rev 791)
++++ trunk/src/windstille_main.cpp	2005-07-26 17:03:54 UTC (rev 792)
+@@ -45,6 +45,7 @@
+ #include &quot;util.hpp&quot;
+ #include &quot;ttf_font.hpp&quot;
+ #include &quot;glutil/surface_manager.hpp&quot;
++#include &quot;glutil/texture_manager.hpp&quot;
+ #include &quot;sprite3d/manager.hpp&quot;
+ #include &quot;sprite2d/manager.hpp&quot;
+ 
+@@ -287,6 +288,7 @@
+   sound_manager-&gt;enable_music(config-&gt;music_enabled);
+ 
+   if (debug) std::cout &lt;&lt; &quot;Initialising ScriptManager&quot; &lt;&lt; std::endl;
++  texture_manager  = new TextureManager();
+   surface_manager  = new SurfaceManager();
+   script_manager   = new ScriptManager();
+   sprite2d_manager = new sprite2d::Manager();
+@@ -309,6 +311,9 @@
+ 
+   delete surface_manager;
+   surface_manager = 0;
++
++  delete texture_manager;
++  texture_manager = 0;
+   
+   delete sound_manager;
+   sound_manager = 0;
+@@ -328,7 +333,12 @@
+ void
+ WindstilleMain::init_sdl()
+ {
++#ifdef DEBUG
++  // I wanna have usefull backtraces in debug mode
++  if(SDL_Init(SDL_INIT_EVERYTHING | SDL_INIT_NOPARACHUTE) &lt; 0) {
++#else
+   if(SDL_Init(SDL_INIT_EVERYTHING) &lt; 0) {
++#endif
+     std::stringstream msg;
+     msg &lt;&lt; &quot;Couldn't initialize SDL: &quot; &lt;&lt; SDL_GetError();
+     throw std::runtime_error(msg.str());
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000444.html">[Windstille-commit] r791 - in trunk/src: . display particles
+</A></li>
+	<LI>Next message: <A HREF="000446.html">[Windstille-commit] r793 - trunk/src/sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#445">[ date ]</a>
+              <a href="thread.html#445">[ thread ]</a>
+              <a href="subject.html#445">[ subject ]</a>
+              <a href="author.html#445">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

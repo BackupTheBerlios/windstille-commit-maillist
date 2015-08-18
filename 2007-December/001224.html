@@ -1,0 +1,396 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1573 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-December/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1573%20-%20trunk/griv&In-Reply-To=%3C200712022132.lB2LWaBC014087%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001223.html">
+   <LINK REL="Next"  HREF="001225.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1573 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1573%20-%20trunk/griv&In-Reply-To=%3C200712022132.lB2LWaBC014087%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1573 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Dec  2 22:32:36 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001223.html">[Windstille-commit] r1572 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001225.html">[Windstille-commit] r1574 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1224">[ date ]</a>
+              <a href="thread.html#1224">[ thread ]</a>
+              <a href="subject.html#1224">[ subject ]</a>
+              <a href="author.html#1224">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-12-02 22:32:36 +0100 (Sun, 02 Dec 2007)
+New Revision: 1573
+
+Modified:
+   trunk/griv/image.cpp
+   trunk/griv/image.hpp
+   trunk/griv/large_surface.cpp
+   trunk/griv/loader.cpp
+   trunk/griv/surface.cpp
+   trunk/griv/surface.hpp
+   trunk/griv/thumbnail_store.cpp
+Log:
+- implemented original loading again, LargeSurface not yet fully implemented
+
+Modified: trunk/griv/image.cpp
+===================================================================
+--- trunk/griv/image.cpp	2007-12-02 20:32:00 UTC (rev 1572)
++++ trunk/griv/image.cpp	2007-12-02 21:32:36 UTC (rev 1573)
+@@ -100,16 +100,16 @@
+ }
+ 
+ void
+-Image::draw(float x_offset, float y_offset, float res)
++Image::draw(float x_offset, float y_offset, float zoom)
+ {
+-  float x = x_pos * res + x_offset;
+-  float y = y_pos * res + y_offset;
++  float x = x_pos * zoom + x_offset;
++  float y = y_pos * zoom + y_offset;
+ 
+   SDL_LockMutex(mutex);
+   if (x &gt; Framebuffer::get_width() ||
+       y &gt; Framebuffer::get_height() ||
+-      x &lt; -res || 
+-      y &lt; -res)
++      x &lt; -zoom || 
++      y &lt; -zoom)
+     { // Image out of screen
+       visible = false;
+       if (surface &amp;&amp; surface_resolution &gt;= 512) // keep small images around a while longer
+@@ -122,13 +122,12 @@
+     { // image on screen
+       visible = true;
+       // Handle loading when resolution changed
+-      if (surface == 0 || 
+-          round_res(int(res)) != surface_resolution)
++      if (surface == 0 || zoom2res(zoom) != surface_resolution)
+         {
+-          if (round_res(int(res)) != requested_res)
++          if (zoom2res(zoom) != requested_res)
+             {    
+               loader.request(this);
+-              requested_res = round_res(int(res));
++              requested_res = zoom2res(zoom);
+             }
+         }
+       
+@@ -138,7 +137,7 @@
+           if (!surface_16x16)
+             { // Use surface as the smallest possible surface
+               // FIXME: When somebody is fast this could mean a non 16x16 surface
+-              surface_16x16 = new Surface(SWSurfaceHandle(received_surface));
++              surface_16x16 = new LargeSurface(SWSurfaceHandle(received_surface)); // FIXME: could use Surface instead
+             }
+           else
+             { // Replace the current surface
+@@ -153,49 +152,53 @@
+ 
+       // Handle drawing
+       if (surface)
+-        surface-&gt;draw(x, y, res, res);
++        surface-&gt;draw(x, y, zoom, zoom);
+       else if (surface_16x16)
+-        surface_16x16-&gt;draw(x, y, res, res);
++        surface_16x16-&gt;draw(x, y, zoom, zoom);
+     }
+   SDL_UnlockMutex(mutex);
+ }
+ 
+ int
+-Image::round_res(int r)
++Image::zoom2res(float z)
+ {
+   if (!highquality)
+     { // low quality
+-      if (r &lt; 32)
++      if (z &lt; 32)
+         return 16;
+-      else if (r &lt; 64)
++      else if (z &lt; 64)
+         return 32;
+-      else if (r &lt; 128)
++      else if (z &lt; 128)
+         return 64;
+-      else if (r &lt; 256)
++      else if (z &lt; 256)
+         return 128;
+-      else if (r &lt; 512)
++      else if (z &lt; 512)
+         return 256;
+-      else if (r &lt; 1024)
++      else if (z &lt; 1024)
+         return 512;
+-      else // if (r &lt; 1024) // zoom limit, 2048 textures make the thing crash
++      else if (z &lt; 1024)
+         return 1024;
++      else
++        return -1;
+     }
+   else
+     { // high quality
+-      if (r &lt;= 16)
++      if (z &lt;= 16)
+         return 16;
+-      else if (r &lt;= 32)
++      else if (z &lt;= 32)
+         return 32;
+-      else if (r &lt;= 64)
++      else if (z &lt;= 64)
+         return 64;
+-      else if (r &lt;= 128)
++      else if (z &lt;= 128)
+         return 128;
+-      else if (r &lt;= 256)
++      else if (z &lt;= 256)
+         return 256;
+-      else if (r &lt; 512)
++      else if (z &lt; 512)
+         return 512;
+-      else // if (r &lt;= 1024) // zoom limit, 2048 textures make the thing crash
++      else if (z &lt;= 1024)
+         return 1024;      
++      else
++        return -1;
+     }
+ }
+ 
+
+Modified: trunk/griv/image.hpp
+===================================================================
+--- trunk/griv/image.hpp	2007-12-02 20:32:00 UTC (rev 1572)
++++ trunk/griv/image.hpp	2007-12-02 21:32:36 UTC (rev 1573)
+@@ -50,8 +50,8 @@
+   int              received_surface_res;
+   
+   int          surface_resolution;
+-  LargeSurface*     surface;
+-  Surface*    surface_16x16;
++  LargeSurface* surface;
++  LargeSurface* surface_16x16;
+ 
+   SDL_mutex* mutex;
+ 
+@@ -75,7 +75,7 @@
+   void draw(float x_offset, float y_offset, float res);
+   void update(float delta);
+ 
+-  int round_res(int res);
++  int  zoom2res(float res);
+   void set_pos(float x, float y);
+ 
+   bool is_visible() const { return visible; }
+
+Modified: trunk/griv/large_surface.cpp
+===================================================================
+--- trunk/griv/large_surface.cpp	2007-12-02 20:32:00 UTC (rev 1572)
++++ trunk/griv/large_surface.cpp	2007-12-02 21:32:36 UTC (rev 1573)
+@@ -26,10 +26,12 @@
+ #include &quot;surface.hpp&quot;
+ #include &quot;large_surface.hpp&quot;
+ 
+-LargeSurface::LargeSurface(boost::shared_ptr&lt;SoftwareSurface&gt; surface)
++LargeSurface::LargeSurface(SWSurfaceHandle surface)
+   : grid(1,1)
+ {
+-  grid(0,0) = new Surface(surface);
++  grid(0,0) = new Surface(surface, 0, 0, 
++                          std::min(1024, surface-&gt;get_width()), 
++                          std::min(1024, surface-&gt;get_height()));
+ }
+ 
+ LargeSurface::~LargeSurface()
+
+Modified: trunk/griv/loader.cpp
+===================================================================
+--- trunk/griv/loader.cpp	2007-12-02 20:32:00 UTC (rev 1572)
++++ trunk/griv/loader.cpp	2007-12-02 21:32:36 UTC (rev 1573)
+@@ -108,25 +108,16 @@
+       if (!job.image-&gt;surface ||
+           job.image-&gt;surface_resolution != job.image-&gt;requested_res)
+         {
+-          SoftwareSurface* img = store-&gt;get_by_url(job.image-&gt;url, job.image-&gt;requested_res);
+-          if (img)
++          if (job.image-&gt;original_width  &lt;= job.image-&gt;requested_res ||
++              job.image-&gt;original_height &lt;= job.image-&gt;requested_res)
+             {
+-              job.image-&gt;receive(img, job.image-&gt;requested_res);
++              job.image-&gt;receive(store-&gt;get_by_url(job.image-&gt;url, -1),
++                                 -1);
+             }
+           else
+             {
+-              // No thumbnail, assuming we need the original
+-              std::cout &lt;&lt; &quot;Loading original: &quot; &lt;&lt; job.image-&gt;url &lt;&lt; std::endl;
+-              try { 
+-                img = new SoftwareSurface(job.image-&gt;url.substr(7)); // cut <A HREF="file://">file://</A> part
+-                std::cout &lt;&lt; &quot;Loading: &quot; &lt;&lt; job.image-&gt;requested_res &lt;&lt; &quot; &quot; &lt;&lt; img &lt;&lt; &quot; &quot; 
+-                          &lt;&lt; img-&gt;get_width() &lt;&lt; &quot;x&quot; &lt;&lt; img-&gt;get_height() &lt;&lt; &quot; &quot;
+-                          &lt;&lt; job.image-&gt;url.substr(7) &lt;&lt; std::endl;
+-              } catch(std::exception&amp; err) {
+-                std::cout &lt;&lt; &quot;Loader: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
+-                img = 0;
+-              }
+-              job.image-&gt;receive(img, job.image-&gt;requested_res);
++              job.image-&gt;receive(store-&gt;get_by_url(job.image-&gt;url, job.image-&gt;requested_res),
++                                 job.image-&gt;requested_res);
+             }
+         }
+     }
+
+Modified: trunk/griv/surface.cpp
+===================================================================
+--- trunk/griv/surface.cpp	2007-12-02 20:32:00 UTC (rev 1572)
++++ trunk/griv/surface.cpp	2007-12-02 21:32:36 UTC (rev 1573)
+@@ -30,20 +30,20 @@
+ #include &quot;software_surface.hpp&quot;
+ #include &quot;surface.hpp&quot;
+ 
+-Surface::Surface(SWSurfaceHandle surface)
++Surface::Surface(SWSurfaceHandle surface, int x, int y, int w, int h)
+   : surface(surface),
+     texture(0)
+ {
+   assert(surface);
+ 
+-  tex_w = Math::round_to_power_of_two(surface-&gt;get_width());
+-  tex_h = Math::round_to_power_of_two(surface-&gt;get_height());
++  tex_w = Math::round_to_power_of_two(w);
++  tex_h = Math::round_to_power_of_two(h);
+ 
+   if (tex_w &lt;= 1024 &amp;&amp; tex_h &lt;= 1024)
+     {
+       texture = new Texture(tex_w, tex_h, 
+                             surface-&gt;get_surface(), 
+-                            0, 0, surface-&gt;get_width(), surface-&gt;get_height());
++                            x, y, w, h);
+     
+       u = float(surface-&gt;get_width()) / tex_w;
+       v = float(surface-&gt;get_height()) / tex_h;
+
+Modified: trunk/griv/surface.hpp
+===================================================================
+--- trunk/griv/surface.hpp	2007-12-02 20:32:00 UTC (rev 1572)
++++ trunk/griv/surface.hpp	2007-12-02 21:32:36 UTC (rev 1573)
+@@ -48,7 +48,7 @@
+   float aspect;
+ 
+ public:
+-  Surface(SWSurfaceHandle surface);
++  Surface(SWSurfaceHandle surface, int x, int y, int w, int h);
+   ~Surface();
+ 
+   void draw(float x, float y, float w, float h);
+
+Modified: trunk/griv/thumbnail_store.cpp
+===================================================================
+--- trunk/griv/thumbnail_store.cpp	2007-12-02 20:32:00 UTC (rev 1572)
++++ trunk/griv/thumbnail_store.cpp	2007-12-02 21:32:36 UTC (rev 1573)
+@@ -45,29 +45,45 @@
+ SoftwareSurface* 
+ ThumbnailStore::get_by_url(const std::string&amp; url, int thumb_size) // URL is <A HREF="file://...">file://...</A> *not* just a pathname
+ {
+-  std::string md5 = MD5::md5_string(url);
+-
+-  std::ostringstream out;
+-  out &lt;&lt; Filesystem::get_home() &lt;&lt; &quot;/.griv/cache/by_url/&quot;
+-      &lt;&lt; thumb_size &lt;&lt; &quot;/&quot; &lt;&lt; md5.substr(0,2) &lt;&lt; &quot;/&quot; &lt;&lt; md5.substr(2) &lt;&lt; &quot;.jpg&quot;;
+-  
+-  std::string thumb_filename = out.str();
+-  
+-  try 
++  if (thumb_size == -1) // load original
+     {
+-      return new SoftwareSurface(thumb_filename);
++      std::cout &lt;&lt; &quot;Loading original: &quot; &lt;&lt; url &lt;&lt; std::endl;
++      try 
++        { 
++          return  new SoftwareSurface(url.substr(7)); // cut <A HREF="file://">file://</A> part
++        }
++      catch(std::exception&amp; err) 
++        {
++          std::cout &lt;&lt; &quot;Loader: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
++          return 0;
++        }
+     }
+-  catch(std::exception&amp; err) 
++  else
+     {
+-      // Try to generate the thumbnail
+-      try {
+-        generate(url.substr(7), thumb_filename, thumb_size); // cut <A HREF="file://">file://</A> part
+-      } catch (std::exception&amp; err) {
+-        std::cout &lt;&lt; err.what() &lt;&lt; std::endl;
+-        return 0;
+-      }
++      std::string md5 = MD5::md5_string(url);
+ 
+-      return new SoftwareSurface(thumb_filename.c_str());
++      std::ostringstream out;
++      out &lt;&lt; Filesystem::get_home() &lt;&lt; &quot;/.griv/cache/by_url/&quot;
++          &lt;&lt; thumb_size &lt;&lt; &quot;/&quot; &lt;&lt; md5.substr(0,2) &lt;&lt; &quot;/&quot; &lt;&lt; md5.substr(2) &lt;&lt; &quot;.jpg&quot;;
++  
++      std::string thumb_filename = out.str();
++  
++      try 
++        {
++          return new SoftwareSurface(thumb_filename);
++        }
++      catch(std::exception&amp; err) 
++        {
++          // Try to generate the thumbnail
++          try {
++            generate(url.substr(7), thumb_filename, thumb_size); // cut <A HREF="file://">file://</A> part
++          } catch (std::exception&amp; err) {
++            std::cout &lt;&lt; err.what() &lt;&lt; std::endl;
++            return 0;
++          }
++
++          return new SoftwareSurface(thumb_filename.c_str());
++        }
+     }
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001223.html">[Windstille-commit] r1572 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001225.html">[Windstille-commit] r1574 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1224">[ date ]</a>
+              <a href="thread.html#1224">[ thread ]</a>
+              <a href="subject.html#1224">[ subject ]</a>
+              <a href="author.html#1224">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

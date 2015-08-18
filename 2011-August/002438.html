@@ -1,0 +1,169 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3441 - trunk/html2image
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2011-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3441%20-%20trunk/html2image&In-Reply-To=%3C20110826193947.DD5EC481132%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002437.html">
+   <LINK REL="Next"  HREF="002439.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3441 - trunk/html2image</H1>
+    <B>grumbel at mail.berlios.de</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3441%20-%20trunk/html2image&In-Reply-To=%3C20110826193947.DD5EC481132%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3441 - trunk/html2image">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Aug 26 21:39:47 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002437.html">[Windstille-commit] r3440 - trunk
+</A></li>
+        <LI>Next message: <A HREF="002439.html">[Windstille-commit] r3442 - in trunk/media: images/tiles models	models/vehicles/jsf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2438">[ date ]</a>
+              <a href="thread.html#2438">[ thread ]</a>
+              <a href="subject.html#2438">[ subject ]</a>
+              <a href="author.html#2438">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2011-08-26 21:39:47 +0200 (Fri, 26 Aug 2011)
+New Revision: 3441
+
+Modified:
+   trunk/html2image/SConstruct
+   trunk/html2image/htmlcreator.cpp
+Log:
+Some html2image stuff
+
+
+Modified: trunk/html2image/SConstruct
+===================================================================
+--- trunk/html2image/SConstruct	2011-08-26 19:38:37 UTC (rev 3440)
++++ trunk/html2image/SConstruct	2011-08-26 19:39:47 UTC (rev 3441)
+@@ -1,6 +1,6 @@
+ # -*- python -*-
+ 
+-env = Environment(CXXFLAGS=['-g', '-Wall'])
++env = Environment(CXXFLAGS=['-O0', '-g3', '-Wall'])
+ env['CPPPATH'] = ['/usr/include/kde', '/usr/include/qt3', 'khtml']
+ env['LIBS'] = ['qt-mt', 'khtml']
+ env.Program('htmlcreator', ['htmlcreator.cpp'])
+
+Modified: trunk/html2image/htmlcreator.cpp
+===================================================================
+--- trunk/html2image/htmlcreator.cpp	2011-08-26 19:38:37 UTC (rev 3440)
++++ trunk/html2image/htmlcreator.cpp	2011-08-26 19:39:47 UTC (rev 3441)
+@@ -22,6 +22,7 @@
+ QCString output_file;
+ QCString input_file;
+ QCString debug_file;
++QCString width_string;
+ bool verbose = false;
+ 
+ int last_empty_line(QImage&amp; img)
+@@ -197,17 +198,18 @@
+       images.push_back(img.copy(0, 0, img.width(), 
+                                 std::max(0, std::min(last_empty + 6, img.height()))));
+ 
+-      if (debug_file != &quot;&quot;)
+-        {
+-          images.back().save(QString(debug_file).arg(images.size(), 4), &quot;PNG&quot;);
+-        }
++      if (!debug_file.isNull())
++      {
++        std::cout &lt;&lt; &quot;### Writing debug to &quot; &lt;&lt; debug_file &lt;&lt; std::endl;
++        images.back().save(QString(debug_file).arg(images.size(), 4), &quot;PNG&quot;);
++      }
+ 
+       if (verbose)
+         std::cout &lt;&lt; &quot;HTMLCreator::save: rendering page: &quot; &lt;&lt; images.size() &lt;&lt; &quot; lastempty: &quot; &lt;&lt; last_empty &lt;&lt; std::endl;
+     }
+   while(last_empty != 0);
+ 
+-  int img_width  = 480;
++  int img_width  = picture_width;
+   int img_height = 0;
+   for(int i = 0; i &lt; (int)images.size(); ++i)
+     img_height += images[i].height();
+@@ -262,6 +264,7 @@
+               current_page_size = total.height() - current_pos;
+             }
+ 
++          std::cout &lt;&lt; &quot;### Writing output to &quot; &lt;&lt; output_file &lt;&lt; std::endl;
+           QImage page = total.copy(0, current_pos, total.width(), current_page_size);
+           QString out = QString(output_file).arg(i, 4);
+           page.save(out, &quot;JPEG&quot;, 80);
+@@ -279,6 +282,7 @@
+     { &quot;output &lt;file&gt;&quot;, &quot;Output file&quot;, 0 },
+     { &quot;file &lt;file&gt;&quot;,   &quot;A required argument 'file'&quot;, 0 },
+     { &quot;debug &lt;file&gt;&quot;,   &quot;Debug file&quot;, 0 },
++    { &quot;width &lt;WIDTH&gt;&quot;, &quot;Width&quot;, 0 },
+     { &quot;verbose&quot;,       &quot;Verbose output&quot;, 0 },
+     { NULL }
+   };
+@@ -298,9 +302,29 @@
+   output_file = args-&gt;getOption(&quot;output&quot;);
+   input_file  = args-&gt;getOption(&quot;file&quot;);
+   debug_file  = args-&gt;getOption(&quot;debug&quot;);
++  width_string = args-&gt;getOption(&quot;width&quot;);
+   verbose     = args-&gt;isSet(&quot;verbose&quot;);
+       
+-  HTMLCreator* html = new HTMLCreator(480, 480);
++  if (output_file.isNull())
++  {
++    std::cout &lt;&lt; &quot;--output is missing&quot; &lt;&lt; std::endl;
++    exit(EXIT_FAILURE);
++  }
++
++  if (input_file.isNull())
++  {
++    std::cout &lt;&lt; &quot;input file is missing&quot; &lt;&lt; std::endl;
++    exit(EXIT_FAILURE);
++  }
++
++  bool ok = false;
++  int width = width_string.toInt(&amp;ok);
++  if (!ok)
++  {
++    width = 480;
++  }
++
++  HTMLCreator* html = new HTMLCreator(width, 480);
+   app.setMainWidget(html);
+   //html-&gt;show();
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002437.html">[Windstille-commit] r3440 - trunk
+</A></li>
+	<LI>Next message: <A HREF="002439.html">[Windstille-commit] r3442 - in trunk/media: images/tiles models	models/vehicles/jsf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2438">[ date ]</a>
+              <a href="thread.html#2438">[ thread ]</a>
+              <a href="subject.html#2438">[ subject ]</a>
+              <a href="author.html#2438">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

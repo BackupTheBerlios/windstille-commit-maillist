@@ -1,0 +1,324 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2275 - trunk/griv/new
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2275%20-%20trunk/griv/new&In-Reply-To=%3C200808061631.m76GVMsW027719%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001294.html">
+   <LINK REL="Next"  HREF="001296.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2275 - trunk/griv/new</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2275%20-%20trunk/griv/new&In-Reply-To=%3C200808061631.m76GVMsW027719%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2275 - trunk/griv/new">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Aug  6 18:31:22 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001294.html">[Windstille-commit] r2274 - in trunk/griv: . new new/math
+</A></li>
+        <LI>Next message: <A HREF="001296.html">[Windstille-commit] r2276 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1295">[ date ]</a>
+              <a href="thread.html#1295">[ thread ]</a>
+              <a href="subject.html#1295">[ subject ]</a>
+              <a href="author.html#1295">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-06 18:31:20 +0200 (Wed, 06 Aug 2008)
+New Revision: 2275
+
+Added:
+   trunk/griv/new/sqlite.cpp
+   trunk/griv/new/sqlite.hpp
+Log:
+Started simple sqlite wrapper
+
+Added: trunk/griv/new/sqlite.cpp
+===================================================================
+--- trunk/griv/new/sqlite.cpp	2008-08-05 20:26:11 UTC (rev 2274)
++++ trunk/griv/new/sqlite.cpp	2008-08-06 16:31:20 UTC (rev 2275)
+@@ -0,0 +1,147 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &lt;sstream&gt;
++#include &quot;sqlite.hpp&quot;
++
++SQLiteError::SQLiteError(const std::string&amp; err_)
++  : err(err_)
++{  
++}
++
++SQLiteConnection::SQLiteConnection(const std::string&amp; filename)
++{
++  if (sqlite3_open(filename.c_str(), &amp;db) != SQLITE_OK)
++    {
++      std::ostringstream str; 
++      str &lt;&lt; &quot;SQLiteConnection: can't open database: &quot; &lt;&lt; sqlite3_errmsg(db);
++      throw SQLiteError(str.str());
++    }
++}
++
++SQLiteConnection::~SQLiteConnection()
++{
++  sqlite3_close(db);
++}
++
++void
++SQLiteConnection::exec(const std::string&amp; sqlstmt)
++{
++  char* errmsg;
++
++  if (sqlite3_exec(db, sqlstmt.c_str(), 0, 0, &amp;errmsg) != SQLITE_OK)
++    {
++      std::ostringstream out;
++
++      out &lt;&lt; &quot;FileDatabase: &quot; &lt;&lt; errmsg &lt;&lt; std::endl;
++
++      sqlite3_free(errmsg);
++      errmsg = 0;
++
++      throw SQLiteError(out.str());
++    }
++}
++
++SQLiteStatement::SQLiteStatement(SQLiteConnection* db, const std::string&amp; sqlstmt)
++{
++  if (sqlite3_prepare_v2(db-&gt;get_db(),
++                         &quot;INSERT OR REPLACE INTO files (filename, md5, filesize, width, height, mtime)&quot;
++                         &quot;           VALUES (      ?1,  ?2,       ?3,    ?4,     ?5,    ?6);&quot;, -1, &amp;stmt,  0)
++      != SQLITE_OK)
++    {
++      std::ostringstream str;
++      str &lt;&lt; &quot;SQLiteStatement: &quot; &lt;&lt; sqlite3_errmsg(db-&gt;get_db());
++      throw SQLiteError(str.str());
++    }
++}
++
++SQLiteStatement::~SQLiteStatement()
++{
++  if (sqlite3_finalize(stmt) != SQLITE_OK)
++    {
++      std::ostringstream str;
++      str &lt;&lt; &quot;SQLiteStatement: &quot; &lt;&lt; sqlite3_errmsg(db-&gt;get_db());
++      throw SQLiteError(str.str());
++    }
++}
++
++void
++SQLiteStatement::bind_int(int n, int i)
++{
++  if (sqlite3_bind_int(stmt, n, i) != SQLITE_OK)
++    {
++      std::ostringstream str;
++      str &lt;&lt; &quot;SQLiteStatement: &quot; &lt;&lt; sqlite3_errmsg(db-&gt;get_db());
++      throw SQLiteError(str.str());
++    }
++}
++
++void
++SQLiteStatement::bind_text(int n, const std::string&amp; text)
++{
++  if (sqlite3_bind_text(stmt, n, text.c_str(), text.size(), SQLITE_STATIC) != SQLITE_OK)
++    {
++      std::ostringstream str;
++      str &lt;&lt; &quot;SQLiteStatement: &quot; &lt;&lt; sqlite3_errmsg(db-&gt;get_db());
++      throw SQLiteError(str.str());      
++    }
++}
++
++void
++SQLiteStatement::bind_blob(int n, const std::string&amp; blob)
++{
++  if (sqlite3_bind_blob(stmt, n, blob.c_str(), blob.size(), SQLITE_STATIC) != SQLITE_OK)
++    {
++      std::ostringstream str;
++      str &lt;&lt; &quot;SQLiteStatement: &quot; &lt;&lt; sqlite3_errmsg(db-&gt;get_db());
++      throw SQLiteError(str.str());
++    }
++}
++
++void
++SQLiteStatement::reset()
++{
++  if (sqlite3_reset(stmt) != SQLITE_OK)
++    {
++      std::ostringstream str;
++      str &lt;&lt; &quot;SQLiteStatement: &quot; &lt;&lt; sqlite3_errmsg(db-&gt;get_db());
++      throw SQLiteError(str.str());
++    }
++  
++  sqlite3_clear_bindings(stmt);  
++}
++
++void
++SQLiteStatement::step()
++{
++  if (sqlite3_step(stmt) != SQLITE_DONE)
++    {
++      std::ostringstream str;
++      str &lt;&lt; &quot;SQLiteStatement: &quot; &lt;&lt; sqlite3_errmsg(db-&gt;get_db());
++      throw SQLiteError(str.str());     
++    }
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/sqlite.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/sqlite.hpp
+===================================================================
+--- trunk/griv/new/sqlite.hpp	2008-08-05 20:26:11 UTC (rev 2274)
++++ trunk/griv/new/sqlite.hpp	2008-08-06 16:31:20 UTC (rev 2275)
+@@ -0,0 +1,78 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_SQLITE_HPP
++#define HEADER_SQLITE_HPP
++
++#include &lt;stdexcept&gt;
++#include &lt;sqlite3.h&gt;
++
++class SQLiteError : public std::exception
++{
++private:
++  std::string err;
++
++public:
++  SQLiteError(const std::string&amp; err);
++  virtual ~SQLiteError() throw () {}
++
++  const char* what() const throw () { return err.c_str(); }
++};
++
++class SQLiteConnection
++{
++private:
++  sqlite3* db;
++
++public:
++  SQLiteConnection(const std::string&amp; filename);
++  ~SQLiteConnection();
++
++  void exec(const std::string&amp; sqlstmt);
++
++  sqlite3* get_db() const { return db; }
++};
++
++class SQLiteStatement
++{
++private:
++  SQLiteConnection* db;
++  sqlite3_stmt*   stmt;
++  
++public:
++  SQLiteStatement(SQLiteConnection* db, const std::string&amp; sqlstmt);
++  ~SQLiteStatement();
++
++  void bind_int(int n, int i);
++  void bind_text(int n, const std::string&amp;);
++  void bind_blob(int n, const std::string&amp;);
++
++  void reset();
++  void step();
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/sqlite.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001294.html">[Windstille-commit] r2274 - in trunk/griv: . new new/math
+</A></li>
+	<LI>Next message: <A HREF="001296.html">[Windstille-commit] r2276 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1295">[ date ]</a>
+              <a href="thread.html#1295">[ thread ]</a>
+              <a href="subject.html#1295">[ subject ]</a>
+              <a href="author.html#1295">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

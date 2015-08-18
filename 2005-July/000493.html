@@ -1,0 +1,212 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r840 - in trunk/src: . collision
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r840%20-%20in%20trunk/src%3A%20.%20collision&In-Reply-To=%3C200507281537.j6SFbBj8026261%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000492.html">
+   <LINK REL="Next"  HREF="000494.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r840 - in trunk/src: . collision</H1>
+    <B>David Kamphausen at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r840%20-%20in%20trunk/src%3A%20.%20collision&In-Reply-To=%3C200507281537.j6SFbBj8026261%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r840 - in trunk/src: . collision">davidkamphausen at berlios.de
+       </A><BR>
+    <I>Thu Jul 28 17:37:11 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000492.html">[Windstille-commit] r839 - trunk/src/collision
+</A></li>
+        <LI>Next message: <A HREF="000494.html">[Windstille-commit] r841 - in trunk: data/scripts src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#493">[ date ]</a>
+              <a href="thread.html#493">[ thread ]</a>
+              <a href="subject.html#493">[ subject ]</a>
+              <a href="author.html#493">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: davidkamphausen
+Date: 2005-07-28 17:37:10 +0200 (Thu, 28 Jul 2005)
+New Revision: 840
+
+Modified:
+   trunk/src/collision/collision_engine.cpp
+   trunk/src/elevator.cpp
+Log:
+* fixed inifinite loop in collision-detection with tilemap
+
+
+Modified: trunk/src/collision/collision_engine.cpp
+===================================================================
+--- trunk/src/collision/collision_engine.cpp	2005-07-28 14:40:56 UTC (rev 839)
++++ trunk/src/collision/collision_engine.cpp	2005-07-28 15:37:10 UTC (rev 840)
+@@ -384,7 +384,7 @@
+   if(direction &lt; 0)
+     {
+       result = int (f);
+-      if (result == f)
++      if (result &gt;= f)
+ 	--result;
+     }
+   else
+@@ -396,19 +396,35 @@
+   return result;
+ }
+ 
++int get_integer(float f, float direction)
++{
++  int result=(int)f;
++
++  if(direction &lt; 0)
++    {
++      result = int (f);
++      if (result &gt; f)
++	--result;
++    }
++  return result;
++}
++
+ bool tilemap_collision(TileMap *tilemap, const Rectf &amp;r)
+ {
+   int minx, maxx;
+   int miny, maxy;
+   int x, y;
+ 
+-  minx = (int)r.left   / TILE_SIZE;
+-  maxx = (int)r.right  / TILE_SIZE;
+-  miny = (int)r.top    / TILE_SIZE;
+-  maxy = (int)r.bottom / TILE_SIZE;
++  minx = (int)(r.left   / TILE_SIZE);
++  maxx = (int)(r.right  / TILE_SIZE);
++  miny = (int)(r.top    / TILE_SIZE);
++  maxy = (int)(r.bottom / TILE_SIZE);
+ 
+-  for (y = miny; y &lt;= maxy; ++y)
+-    for (x = minx; x &lt;= maxx; ++x)
++  assert(maxy&gt;=miny);
++  assert(maxx&gt;=minx);
++
++  for (y = std::max (0, miny); y &lt;= std::min (maxy, tilemap-&gt;get_height() - 1); ++y)
++    for (x = std::max (0, minx); x &lt;= std::min (maxx, tilemap-&gt;get_width() - 1); ++x)
+       {
+ 	if(tilemap-&gt;is_ground (x * TILE_SIZE, y * TILE_SIZE ))
+ 	  {
+@@ -430,8 +446,8 @@
+   miny = (int)r.top    / TILE_SIZE;
+   maxy = (int)r.bottom / TILE_SIZE;
+ 
+-  for (y = miny; y &lt;= maxy; ++y)
+-    for (x = minx; x &lt;= maxx; ++x)
++  for (y = std::max (0, miny); y &lt;= std::min (maxy, tilemap-&gt;get_height() - 1); ++y)
++    for (x = std::max (0, minx); x &lt;= std::min (maxx, tilemap-&gt;get_width() - 1); ++x)
+       {
+ 	if(tilemap-&gt;is_ground (x * TILE_SIZE, y * TILE_SIZE ))
+ 	  {
+@@ -499,20 +515,28 @@
+   else
+     y = &amp;r.bottom;
+ 
+-  while (time &lt; delta &amp;&amp; ct &gt;= 0.0f)
++  bool last_zero=false;
++
++  int maxtries=20; // prevent loops
++
++  while (time &lt; delta &amp;&amp; ct &gt;= 0.0f &amp;&amp; maxtries&gt;0)
+     {
+       ct = -1.0f;
+ 
+       if(first_time)
+ 	{
+-	  next_x = ((int)(*x / TILE_SIZE)) * TILE_SIZE;
+-	  next_y = ((int)(*y / TILE_SIZE)) * TILE_SIZE;
++	  next_x = get_integer(*x / TILE_SIZE,vel.x) * TILE_SIZE;
++	  next_y = get_integer(*y / TILE_SIZE,vel.y) * TILE_SIZE;
+ 	  first_time = false;
+ 	}
+       else
+ 	{
+ 	  next_x = get_next_integer ((*x / TILE_SIZE), vel.x) * TILE_SIZE;
+ 	  next_y = get_next_integer ((*y / TILE_SIZE), vel.y) * TILE_SIZE;
++
++	 
++	  assert ( next_x * c_sign(vel.x) &gt; *x * c_sign(vel.x) || vel.x == 0.0f);
++	  assert ( next_y * c_sign(vel.y) &gt; *y * c_sign(vel.y) || vel.y == 0.0f);
+ 	}
+ 
+       if (vel.x != 0.0f)
+@@ -553,8 +577,13 @@
+ 	  r.right  += dx;
+ 	  r.top    += dy;
+ 	  r.bottom += dy;
+-	  time += ct;
+ 
++	  if(last_zero &amp;&amp; ct==0.0f)
++	    time += 0.0005;
++	  else
++	    time += ct;
++	  last_zero=(ct==0.0f);
++
+ 	  // now shift one more pixel and check for collision with tilemap
+ 	  Rectf tmp(r);
+ 	  
+@@ -583,7 +612,10 @@
+ 	      return result;
+ 	    }
+ 	}
++      maxtries--;
+     }
++  if(maxtries==0)
++    std::cerr&lt;&lt;&quot;MAXTRIES reached&quot;&lt;&lt;std::endl;
+ 
+   return result;
+ }
+
+Modified: trunk/src/elevator.cpp
+===================================================================
+--- trunk/src/elevator.cpp	2005-07-28 14:40:56 UTC (rev 839)
++++ trunk/src/elevator.cpp	2005-07-28 15:37:10 UTC (rev 840)
+@@ -51,7 +51,8 @@
+ 
+ Elevator::~Elevator()
+ {
+-  Sector::current()-&gt;get_collision_engine()-&gt;remove(colobject);
++  if(Sector::current()-&gt;get_collision_engine())
++    Sector::current()-&gt;get_collision_engine()-&gt;remove(colobject);
+ }
+ 
+ void
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000492.html">[Windstille-commit] r839 - trunk/src/collision
+</A></li>
+	<LI>Next message: <A HREF="000494.html">[Windstille-commit] r841 - in trunk: data/scripts src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#493">[ date ]</a>
+              <a href="thread.html#493">[ thread ]</a>
+              <a href="subject.html#493">[ subject ]</a>
+              <a href="author.html#493">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

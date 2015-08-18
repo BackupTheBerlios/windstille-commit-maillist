@@ -1,0 +1,349 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r399 - trunk/src/display
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r399%20-%20trunk/src/display&In-Reply-To=%3C200506230452.j5N4qxuO027283%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000054.html">
+   <LINK REL="Next"  HREF="000056.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r399 - trunk/src/display</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r399%20-%20trunk/src/display&In-Reply-To=%3C200506230452.j5N4qxuO027283%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r399 - trunk/src/display">grumbel at sheep.berlios.de
+       </A><BR>
+    <I>Thu Jun 23 06:52:59 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000054.html">[Windstille-commit] r398 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000056.html">[Windstille-commit] r400 - in trunk: data data/blender/hero data/images src src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#55">[ date ]</a>
+              <a href="thread.html#55">[ thread ]</a>
+              <a href="subject.html#55">[ subject ]</a>
+              <a href="author.html#55">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-06-23 06:52:44 +0200 (Thu, 23 Jun 2005)
+New Revision: 399
+
+Modified:
+   trunk/src/display/drawing_context.cxx
+   trunk/src/display/drawing_context.hxx
+   trunk/src/display/drawing_request.hxx
+   trunk/src/display/scene_context.cxx
+Log:
+- added rotation and scaling support to the drawingcontext
+
+Modified: trunk/src/display/drawing_context.cxx
+===================================================================
+--- trunk/src/display/drawing_context.cxx	2005-06-23 03:01:57 UTC (rev 398)
++++ trunk/src/display/drawing_context.cxx	2005-06-23 04:52:44 UTC (rev 399)
+@@ -19,10 +19,23 @@
+ 
+ #include &lt;assert.h&gt;
+ #include &lt;ClanLib/Display/sprite.h&gt;
++#include &lt;ClanLib/Display/display.h&gt;
++#include &lt;ClanLib/Display/display_window.h&gt;
+ #include &lt;ClanLib/Display/graphic_context.h&gt;
+ #include &lt;iostream&gt;
++#include &lt;iosfwd&gt;
+ #include &quot;drawing_context.hxx&quot;
+ 
++std::ostream&amp; operator&lt;&lt;(std::ostream&amp; s, const CL_Matrix4x4&amp; m)
++{
++  s &lt;&lt; &quot;[&quot; &lt;&lt; m[ 0] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 4] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 8] &lt;&lt; &quot;, &quot; &lt;&lt; m[12] &lt;&lt; &quot;\n&quot;;
++  s &lt;&lt; &quot; &quot; &lt;&lt; m[ 1] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 5] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 9] &lt;&lt; &quot;, &quot; &lt;&lt; m[13] &lt;&lt; &quot;\n&quot;;
++  s &lt;&lt; &quot; &quot; &lt;&lt; m[ 2] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 6] &lt;&lt; &quot;, &quot; &lt;&lt; m[10] &lt;&lt; &quot;, &quot; &lt;&lt; m[14] &lt;&lt; &quot;\n&quot;;
++  s &lt;&lt; &quot; &quot; &lt;&lt; m[ 3] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 7] &lt;&lt; &quot;, &quot; &lt;&lt; m[11] &lt;&lt; &quot;, &quot; &lt;&lt; m[15] &lt;&lt; &quot;]\n&quot;;
++
++  return s;
++}
++
+ struct DrawingRequestsSorter
+ {
+   bool operator()(DrawingRequest* a, DrawingRequest* b) {
+@@ -52,14 +65,21 @@
+   CL_Sprite sprite;
+ 
+ public:
+-  SpriteDrawingRequest(const CL_Sprite&amp; sprite_, const CL_Vector&amp; pos_)
+-    : DrawingRequest(pos_),
++  SpriteDrawingRequest(const CL_Sprite&amp; sprite_, const CL_Vector&amp; pos_, const CL_Matrix4x4&amp; modelview_)
++    : DrawingRequest(pos_, modelview_),
+       sprite(sprite_)
+   {}
+   virtual ~SpriteDrawingRequest() {}
+ 
+   void draw(CL_GraphicContext* gc) {
+-    sprite.draw(static_cast&lt;int&gt;(pos.x), static_cast&lt;int&gt;(pos.y), gc);
++    //sprite.draw(static_cast&lt;int&gt;(pos.x + modelview[12]),
++    //          static_cast&lt;int&gt;(pos.y + modelview[13]), gc);
++
++    gc-&gt;push_modelview();
++    gc-&gt;add_modelview(modelview);
++    sprite.draw(static_cast&lt;int&gt;(pos.x),
++                static_cast&lt;int&gt;(pos.y), gc);
++    gc-&gt;pop_modelview();
+   }
+ };
+ 
+@@ -81,7 +101,7 @@
+ 
+ DrawingContext::DrawingContext()
+ {
+-  translate_stack.push_back(CL_Pointf(0, 0));
++  modelview_stack.push_back(CL_Matrix4x4(true));
+ }
+ 
+ DrawingContext::~DrawingContext()
+@@ -92,6 +112,11 @@
+ void
+ DrawingContext::render(CL_GraphicContext* gc)
+ {
++  if (gc == 0)
++    {
++      gc = CL_Display::get_current_window()-&gt;get_gc();
++    }
++
+   std::stable_sort(drawingrequests.begin(), drawingrequests.end(), DrawingRequestsSorter());
+   
+   for(DrawingRequests::iterator i = drawingrequests.begin(); i != drawingrequests.end(); ++i)
+@@ -120,9 +145,7 @@
+ DrawingContext::draw(const CL_Sprite&amp;   sprite,  float x, float y, float z)
+ { // FIXME: This should get flattend down to a simple texture draw
+   // command for easier sorting after texture-id/alpha
+-  draw(new SpriteDrawingRequest(sprite, CL_Vector(translate_stack.back().x + x,
+-                                                  translate_stack.back().y + y,
+-                                                  z)));
++  draw(new SpriteDrawingRequest(sprite, CL_Vector(x, y, z), modelview_stack.back()));
+ }
+ 
+ void
+@@ -176,49 +199,84 @@
+ }
+ 
+ void
+-DrawingContext::rotate(float angel)
++DrawingContext::rotate(float angle, float x, float y, float z)
+ {
+-  // FIXME: not implemented
++  double len2 = x*x+y*y+z*z;
++  if (len2 != 1.0)
++    {
++      double len = sqrt(len2);
++      x /= len;
++      y /= len;
++      z /= len;
++    }
++
++  double c = cos(angle*3.14159265/180);
++  double s = sin(angle*3.14159265/180);
++
++  CL_Matrix4x4 matrix(true);
++  matrix[0] = x*x*(1-c)+c;
++  matrix[1] = y*x*(1-c)+z*s;
++  matrix[2] = x*z*(1-c)-y*s;
++
++  matrix[4] = x*y*(1-c)-z*s;
++  matrix[5] = y*y*(1-c)+c;
++  matrix[6] = y*z*(1-c)+x*s;
++
++  matrix[8] = x*z*(1-c)+y*s;
++  matrix[9] = y*z*(1-c)-x*s;
++  matrix[10] = z*z*(1-c)+c;
++
++  modelview_stack.back() = modelview_stack.back().multiply(matrix);
+ }
+ 
+ void
+-DrawingContext::scale(float x, float y)
++DrawingContext::scale(float x, float y, float z)
+ {
+-  // FIXME: not implemented
++  CL_Matrix4x4 matrix(true);
++  matrix[0] = x;
++  matrix[5] = y;
++  matrix[10] = z;
++
++  modelview_stack.back() = modelview_stack.back().multiply(matrix);
+ }
+ 
+ void
+ DrawingContext::translate(float x, float y)
+ {
+-  translate_stack.back().x += x;
+-  translate_stack.back().y += y;
++  CL_Matrix4x4 matrix(true);
++  matrix[12] = x;
++  matrix[13] = y;
++  matrix[14] = 0;
++
++  modelview_stack.back() = modelview_stack.back().multiply(matrix);
+ }
+ 
+ void
+ DrawingContext::push_modelview()
+ {
+-  translate_stack.push_back(translate_stack.back());
++  modelview_stack.push_back(modelview_stack.back());
+ }
+ 
+ void
+ DrawingContext::pop_modelview()
+ {
+-  translate_stack.pop_back();
+-  assert(!translate_stack.empty());
++  modelview_stack.pop_back();
++  assert(!modelview_stack.empty());
+ }
+ 
+ void
+ DrawingContext::reset_modelview()
+ {
+-  translate_stack.clear();
+-  translate_stack.push_back(CL_Pointf(0, 0));
++  modelview_stack.clear();
++  modelview_stack.push_back(CL_Matrix4x4(true));
+ }
+ 
+ CL_Rect
+ DrawingContext::get_clip_rect()
+ {
+-  return CL_Rect(CL_Point(static_cast&lt;int&gt;(translate_stack.back().x),
+-                          static_cast&lt;int&gt;(translate_stack.back().y)),
++  // FIXME: Need to check the modelview matrix
++  return CL_Rect(CL_Point(int(modelview_stack.back()[12]),
++                          int(modelview_stack.back()[13])),
+                  CL_Size(800, 600));
+ }
+ 
+
+Modified: trunk/src/display/drawing_context.hxx
+===================================================================
+--- trunk/src/display/drawing_context.hxx	2005-06-23 03:01:57 UTC (rev 398)
++++ trunk/src/display/drawing_context.hxx	2005-06-23 04:52:44 UTC (rev 399)
+@@ -21,6 +21,7 @@
+ #define HEADER_DRAWING_CONTEXT_HXX
+ 
+ #include &lt;ClanLib/Core/Math/rect.h&gt;
++#include &lt;ClanLib/Core/Math/matrix4x4.h&gt;
+ #include &lt;ClanLib/Display/color.h&gt;
+ #include &lt;vector&gt;
+ #include &quot;drawing_request.hxx&quot;
+@@ -39,14 +40,14 @@
+   typedef std::vector&lt;DrawingRequest*&gt; DrawingRequests;
+   DrawingRequests drawingrequests;
+ 
+-  std::vector&lt;CL_Pointf&gt; translate_stack;
++  std::vector&lt;CL_Matrix4x4&gt; modelview_stack;
+ 
+ public:
+   DrawingContext();
+   ~DrawingContext();
+ 
+   /** Draws everything in the drawing context to the screen */
+-  void render(CL_GraphicContext* gc);
++  void render(CL_GraphicContext* gc = 0);
+ 
+   /** Empties the drawing context */
+   void clear();
+@@ -82,10 +83,10 @@
+   void translate(float x, float y);
+ 
+   /** Set the rotation of the drawing context */
+-  void rotate(float angel);
++  void rotate(float angle, float x = 0.0f, float y = 0.0f, float z = 1.0f);
+ 
+   /** Set the scaling of the drawing context */
+-  void scale(float x, float y);
++  void scale(float x, float y, float z = 1.0f);
+ 
+   void push_modelview();
+   void pop_modelview();
+
+Modified: trunk/src/display/drawing_request.hxx
+===================================================================
+--- trunk/src/display/drawing_request.hxx	2005-06-23 03:01:57 UTC (rev 398)
++++ trunk/src/display/drawing_request.hxx	2005-06-23 04:52:44 UTC (rev 399)
+@@ -30,8 +30,10 @@
+ {
+ protected:
+   CL_Vector pos;
++  CL_Matrix4x4 modelview;
+ public:
+-  DrawingRequest(const CL_Vector&amp; pos_) : pos(pos_) {}
++  DrawingRequest(const CL_Vector&amp; pos_, const CL_Matrix4x4&amp; modelview_ = CL_Matrix4x4(true))
++    : pos(pos_), modelview(modelview_) {}
+   virtual ~DrawingRequest() {}
+   
+   virtual void draw(CL_GraphicContext* gc) = 0;
+@@ -42,6 +44,8 @@
+ 
+   /** Returns the position at which the request should be drawn */
+   virtual float get_z_pos() { return pos.z; }
++
++  CL_Matrix4x4 get_modelview() const { return modelview; }
+ private:
+   DrawingRequest (const DrawingRequest&amp;);
+   DrawingRequest&amp; operator= (const DrawingRequest&amp;);
+
+Modified: trunk/src/display/scene_context.cxx
+===================================================================
+--- trunk/src/display/scene_context.cxx	2005-06-23 03:01:57 UTC (rev 398)
++++ trunk/src/display/scene_context.cxx	2005-06-23 04:52:44 UTC (rev 399)
+@@ -126,7 +126,7 @@
+ {
+   // Render all buffers
+   // FIXME: Render all to pbuffer for later combining of them
+-  impl-&gt;color.render(0);
++  impl-&gt;color.render();
+ 
+   impl-&gt;light.render(impl-&gt;canvas.get_gc());
+   impl-&gt;canvas.sync_surface();
+@@ -138,7 +138,7 @@
+   impl-&gt;lightmap.draw();
+   impl-&gt;canvas.get_gc()-&gt;clear();
+ 
+-  impl-&gt;highlight.render(0);
++  impl-&gt;highlight.render();
+ 
+   // Clear all DrawingContexts
+   impl-&gt;color.clear();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000054.html">[Windstille-commit] r398 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000056.html">[Windstille-commit] r400 - in trunk: data data/blender/hero data/images src src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#55">[ date ]</a>
+              <a href="thread.html#55">[ thread ]</a>
+              <a href="subject.html#55">[ subject ]</a>
+              <a href="author.html#55">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

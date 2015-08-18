@@ -1,0 +1,625 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2721 - in trunk/windstille: . src src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2721%20-%20in%20trunk/windstille%3A%20.%20src%20src/editor&In-Reply-To=%3C200903211948.n2LJmGNc010044%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001717.html">
+   <LINK REL="Next"  HREF="001719.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2721 - in trunk/windstille: . src src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2721%20-%20in%20trunk/windstille%3A%20.%20src%20src/editor&In-Reply-To=%3C200903211948.n2LJmGNc010044%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2721 - in trunk/windstille: . src src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Mar 21 20:48:16 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001717.html">[Windstille-commit] r2720 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="001719.html">[Windstille-commit] r2722 - trunk/windstille/data/sectors/apartment
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1718">[ date ]</a>
+              <a href="thread.html#1718">[ thread ]</a>
+              <a href="subject.html#1718">[ subject ]</a>
+              <a href="author.html#1718">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-21 20:48:15 +0100 (Sat, 21 Mar 2009)
+New Revision: 2721
+
+Added:
+   trunk/windstille/src/editor/minimap_widget.cpp
+   trunk/windstille/src/editor/minimap_widget.hpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/src/SConscript
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/editor_window.hpp
+   trunk/windstille/src/editor/main.cpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/editor/windstille_widget.hpp
+Log:
+Added GL context sharing (little fudged, but seems to be the only way right now)
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-03-21 15:40:09 UTC (rev 2720)
++++ trunk/windstille/TODO	2009-03-21 19:48:15 UTC (rev 2721)
+@@ -328,6 +328,19 @@
+ 
+ * make Console not derive from ostream
+ 
++OpenGL
++======
++
++* check for features before using them:
++
++glewInit();
++if (glewIsSupported(&quot;GL_VERSION_2_0&quot;))
++printf(&quot;Ready for OpenGL 2.0\n&quot;);
++else {
++printf(&quot;OpenGL 2.0 not supported\n&quot;);
++exit(1);
++}
++
+ Profiling
+ =========
+ 
+@@ -418,6 +431,8 @@
+ Random Things
+ =============
+ 
++* add a music player that allows to play all music files of Windstille
++
+ * UTF8 support is missing in:
+   
+   - BabyXML
+@@ -464,6 +479,8 @@
+ Editor
+ ======
+ 
++* share GL context between different sectors, need dummy Context, abuse minimap for that
++
+ * use SceneContext in WindstilleWidget and setup Physfs,
+   SurfaceManager, TextureManager and everything else that is needed
+ 
+
+Modified: trunk/windstille/src/SConscript
+===================================================================
+--- trunk/windstille/src/SConscript	2009-03-21 15:40:09 UTC (rev 2720)
++++ trunk/windstille/src/SConscript	2009-03-21 19:48:15 UTC (rev 2721)
+@@ -238,6 +238,7 @@
+         'editor/object_selector.cpp',
+         'editor/about_window.cpp',
+         'editor/windstille_widget.cpp',
++        'editor/minimap_widget.cpp',
+         'editor/editor_window.cpp'
+         ])
+ 
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-03-21 15:40:09 UTC (rev 2720)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-03-21 19:48:15 UTC (rev 2721)
+@@ -27,7 +27,9 @@
+ #include &quot;about_window.hpp&quot;
+ #include &quot;editor_window.hpp&quot;
+ 
+-EditorWindow::EditorWindow()
++EditorWindow::EditorWindow(const Glib::RefPtr&lt;const Gdk::GL::Config&gt;&amp; glconfig_)
++  : minimap_widget(glconfig_),
++    glconfig(glconfig_)
+ {
+   set_title(&quot;Windstille Editor&quot;);
+   set_default_size(1024, 768);
+@@ -124,7 +126,7 @@
+ 
+   // Packing
+ 
+-  // Vbox
++  // Main Vbox
+   vbox.pack_start(*ui_manager-&gt;get_widget(&quot;/MenuBar&quot;), Gtk::PACK_SHRINK);
+   vbox.pack_start(*ui_manager-&gt;get_widget(&quot;/ToolBar&quot;), Gtk::PACK_SHRINK);
+   vbox.add(hbox);
+@@ -139,9 +141,12 @@
+   //object_selector.set_size_request(250, 300);
+   //object_tree.set_size_request(250, 300);
+   
+-  hpaned.pack1(notebook, Gtk::EXPAND);
+-  hpaned.pack2(vpaned,   Gtk::SHRINK);
++  hpaned.pack1(notebook,     Gtk::EXPAND);
++  hpaned.pack2(sidebar_vbox, Gtk::SHRINK);
+  
++  sidebar_vbox.pack_start(vpaned, Gtk::PACK_EXPAND_WIDGET);
++  sidebar_vbox.pack_start(minimap_widget, Gtk::PACK_SHRINK);
++  
+   vpaned.pack1(object_selector, Gtk::EXPAND);
+   vpaned.pack2(object_tree,     Gtk::SHRINK);
+ 
+@@ -173,10 +178,15 @@
+ EditorWindow::on_new()
+ {
+   std::cout &lt;&lt; &quot;on_new&quot; &lt;&lt; std::endl;
+-  WindstilleWidget* windstille = new WindstilleWidget();
+-  int new_page = notebook.append_page(*windstille, Glib::ustring::compose(&quot;Sector %1&quot;, notebook.get_n_pages()));
++
++  // FIXME: We abuse the minimap as our root GLContext
++  WindstilleWidget* windstille = new WindstilleWidget(glconfig, minimap_widget.get_gl_context());
++
++  Glib::ustring title = Glib::ustring::compose(&quot;Sector %1&quot;, notebook.get_n_pages());
++  int new_page = notebook.append_page(*windstille, title);
+   windstille-&gt;show();
+-  notebook.set_current_page(new_page);
++  notebook.set_current_page(new_page); 
++
+ }
+ 
+ void
+@@ -244,5 +254,18 @@
+       notebook.remove_page(page);
+     }
+ }
++
++void
++EditorWindow::show_minimap(bool v)
++{
++  if (v)
++    {
++      minimap_widget.show();
++    }
++  else
++    {
++      minimap_widget.hide();
++    }
++}
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/editor_window.hpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.hpp	2009-03-21 15:40:09 UTC (rev 2720)
++++ trunk/windstille/src/editor/editor_window.hpp	2009-03-21 19:48:15 UTC (rev 2721)
+@@ -26,6 +26,7 @@
+ #include &lt;gtkmm/window.h&gt;
+ #include &lt;gtkmm/notebook.h&gt;
+ 
++#include &quot;minimap_widget.hpp&quot;
+ #include &quot;object_selector.hpp&quot;
+ #include &quot;object_tree.hpp&quot;
+ 
+@@ -33,22 +34,28 @@
+ {
+ private:
+   Gtk::VBox   vbox;
++  Gtk::VBox   sidebar_vbox;
+   Gtk::HBox   hbox;
+   Gtk::HPaned hpaned;
+   Gtk::VPaned vpaned;
+   Gtk::Statusbar status;
+   
+-  Gtk::Notebook notebook;
++  Gtk::Notebook  notebook;
+   ObjectSelector object_selector;
+   ObjectTree     object_tree;
++  MinimapWidget  minimap_widget;
+ 
+   Glib::RefPtr&lt;Gtk::UIManager&gt;   ui_manager;
+   Glib::RefPtr&lt;Gtk::ActionGroup&gt; action_group;
++  Glib::RefPtr&lt;Gdk::GL::Context&gt; share_list;
++  Glib::RefPtr&lt;const Gdk::GL::Config&gt;  glconfig;
+ 
+ public:
+-  EditorWindow();
++  EditorWindow(const Glib::RefPtr&lt;const Gdk::GL::Config&gt;&amp; glconfig);
+   virtual ~EditorWindow();
+ 
++  void show_minimap(bool v);
++
+ protected:
+   void on_new();
+   void on_open();
+
+Modified: trunk/windstille/src/editor/main.cpp
+===================================================================
+--- trunk/windstille/src/editor/main.cpp	2009-03-21 15:40:09 UTC (rev 2720)
++++ trunk/windstille/src/editor/main.cpp	2009-03-21 19:48:15 UTC (rev 2721)
+@@ -36,7 +36,7 @@
+       Gtk::Main kit(&amp;argc, &amp;argv);
+       Gtk::GL::init(&amp;argc, &amp;argv);
+ 
+-            if (!PHYSFS_init(argv[0]))
++      if (!PHYSFS_init(argv[0]))
+         {
+           std::ostringstream msg;
+           msg &lt;&lt; &quot;Couldn't initialize physfs: &quot; &lt;&lt; PHYSFS_getLastError();
+@@ -44,10 +44,20 @@
+         }
+   
+       PHYSFS_addToSearchPath(&quot;data/&quot;, 0);
++      
++      Glib::RefPtr&lt;const Gdk::GL::Config&gt; 
++        glconfig = Gdk::GL::Config::create(Gdk::GL::MODE_RGB    |
++                                           Gdk::GL::MODE_DEPTH  |
++                                           Gdk::GL::MODE_DOUBLE);
++      if (!glconfig)
++        {
++          throw std::runtime_error(&quot;*** Cannot find any OpenGL-capable visual.&quot;);
++        }
+ 
+-      EditorWindow window;
++      EditorWindow window(glconfig);
+       
+       window.show_all();
++      window.show_minimap(false);
+ 
+       Gtk::Main::run(window);
+     }
+
+Added: trunk/windstille/src/editor/minimap_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/minimap_widget.cpp	2009-03-21 15:40:09 UTC (rev 2720)
++++ trunk/windstille/src/editor/minimap_widget.cpp	2009-03-21 19:48:15 UTC (rev 2721)
+@@ -0,0 +1,70 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &quot;minimap_widget.hpp&quot;
++
++MinimapWidget::MinimapWidget(const Glib::RefPtr&lt;const Gdk::GL::Config&gt;&amp; glconfig)
++{
++  set_gl_capability(glconfig);
++  set_size_request(0, 64);
++}
++
++bool
++MinimapWidget::mouse_move(GdkEventMotion* event)
++{
++  return false;
++}
++
++bool
++MinimapWidget::mouse_down (GdkEventButton* event)
++{
++  return false;
++}
++
++bool
++MinimapWidget::mouse_up(GdkEventButton* event)
++{
++  return false;
++}
++
++bool
++MinimapWidget::scroll(GdkEventScroll* event)
++{
++  return false;
++}
++
++bool
++MinimapWidget::on_expose_event(GdkEventExpose* event)
++{
++  Glib::RefPtr&lt;Gdk::GL::Window&gt; glwindow = get_gl_window();
++
++  if (!glwindow-&gt;gl_begin(get_gl_context()))
++    {
++      return false;
++    }
++  else
++    {
++      glClear(GL_COLOR_BUFFER_BIT);
++      glwindow-&gt;swap_buffers();
++      glwindow-&gt;gl_end();
++
++      return true;
++    }
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/minimap_widget.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/editor/minimap_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/minimap_widget.hpp	2009-03-21 15:40:09 UTC (rev 2720)
++++ trunk/windstille/src/editor/minimap_widget.hpp	2009-03-21 19:48:15 UTC (rev 2721)
+@@ -0,0 +1,50 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_EDITOR_MINIMAP_WIDGET_HPP
++#define HEADER_WINDSTILLE_EDITOR_MINIMAP_WIDGET_HPP
++
++#include &lt;gtkglmm.h&gt;
++#include &lt;gdkmm/dragcontext.h&gt;
++#include &lt;gtkmm/gl/widget.h&gt;
++
++/** Minimap Widget, 
++ */
++class MinimapWidget
++  : public Gtk::DrawingArea,
++    public Gtk::GL::Widget&lt;MinimapWidget&gt;
++{
++private:
++public:
++  MinimapWidget(const Glib::RefPtr&lt;const Gdk::GL::Config&gt;&amp; glconfig);
++  
++  bool mouse_move(GdkEventMotion* event);
++  bool mouse_down (GdkEventButton* event);
++  bool mouse_up(GdkEventButton* event);
++  bool scroll(GdkEventScroll* event);
++  
++  bool on_expose_event(GdkEventExpose* event);
++
++private:
++  MinimapWidget(const MinimapWidget&amp;);
++  MinimapWidget&amp; operator=(const MinimapWidget&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/minimap_widget.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-03-21 15:40:09 UTC (rev 2720)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-03-21 19:48:15 UTC (rev 2721)
+@@ -0,0 +1,40 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &quot;sector_model.hpp&quot;
++
++class ObjectTreeColumns : public Gtk::TreeModel::ColumnRecord
++{
++public:
++  Gtk::TreeModelColumn&lt;Glib::RefPtr&lt;Gdk::Pixbuf&gt; &gt; type_icon;
++  Gtk::TreeModelColumn&lt;Glib::ustring&gt;              name;
++  Gtk::TreeModelColumn&lt;bool&gt;                       visible;
++
++  ObjectTreeColumns() {
++    add(type_icon); 
++    add(name); 
++    add(visible); 
++  }
++};
++
++SectorModel::SectorModel()
++{
++  objects = Gtk::TreeStore::create(columns);
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/sector_model.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-03-21 15:40:09 UTC (rev 2720)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-03-21 19:48:15 UTC (rev 2721)
+@@ -0,0 +1,38 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_SECTOR_MODEL_HPP
++#define HEADER_SECTOR_MODEL_HPP
++
++/** */
++class SectorModel
++{
++private:
++  Glib::RefPtr&lt;Gtk::TreeStore&gt; objects;
++
++public:
++  SectorModel();
++
++private:
++  SectorModel(const SectorModel&amp;);
++  SectorModel&amp; operator=(const SectorModel&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/sector_model.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-03-21 15:40:09 UTC (rev 2720)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-03-21 19:48:15 UTC (rev 2721)
+@@ -33,29 +33,11 @@
+ 
+ bool lib_init = false;
+ 
+-WindstilleWidget::WindstilleWidget()
++WindstilleWidget::WindstilleWidget(const Glib::RefPtr&lt;const Gdk::GL::Config&gt;&amp;  glconfig,
++                                   const Glib::RefPtr&lt;const Gdk::GL::Context&gt;&amp; share_list)
+ {
+-  Glib::RefPtr&lt;Gdk::GL::Config&gt; glconfig;
++  set_gl_capability(glconfig, share_list);
+ 
+-  glconfig = Gdk::GL::Config::create(Gdk::GL::MODE_RGB    |
+-                                     Gdk::GL::MODE_DEPTH  |
+-                                     Gdk::GL::MODE_DOUBLE);
+-  if (!glconfig)
+-    {
+-      std::cerr &lt;&lt; &quot;*** Cannot find the double-buffered visual.\n&quot;
+-                &lt;&lt; &quot;*** Trying single-buffered visual.\n&quot;;
+-
+-      // Try single-buffered visual
+-      glconfig = Gdk::GL::Config::create(Gdk::GL::MODE_RGB   |
+-                                         Gdk::GL::MODE_DEPTH);
+-      if (!glconfig)
+-        {
+-          throw std::runtime_error(&quot;*** Cannot find any OpenGL-capable visual.&quot;);
+-        }
+-    }
+- 
+-  set_gl_capability(glconfig);
+-
+   add_events(Gdk::POINTER_MOTION_MASK | Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK |
+              Gdk::KEY_PRESS_MASK      | Gdk::KEY_RELEASE_MASK | 
+              Gdk::ENTER_NOTIFY_MASK   | Gdk::LEAVE_NOTIFY_MASK);
+@@ -118,10 +100,11 @@
+           //texture_manager  = new TextureManager();
+           new SurfaceManager();
+           //sprite2d_manager = new SpriteManager();
+-          sc.reset(new SceneContext());
+         }
+-
+       
++      if (!sc.get())
++        sc.reset(new SceneContext());
++      
+       glViewport(0, 0, get_width(), get_height());
+       glMatrixMode(GL_PROJECTION);
+       glLoadIdentity();
+@@ -164,7 +147,7 @@
+ bool
+ WindstilleWidget::on_expose_event(GdkEventExpose* event)
+ {
+-  std::cout &lt;&lt; &quot;WindstilleWidget::on_expose()&quot; &lt;&lt; std::endl;
++  //std::cout &lt;&lt; &quot;WindstilleWidget::on_expose()&quot; &lt;&lt; std::endl;
+   Glib::RefPtr&lt;Gdk::GL::Window&gt; glwindow = get_gl_window();
+ 
+   if (!glwindow-&gt;gl_begin(get_gl_context()))
+
+Modified: trunk/windstille/src/editor/windstille_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.hpp	2009-03-21 15:40:09 UTC (rev 2720)
++++ trunk/windstille/src/editor/windstille_widget.hpp	2009-03-21 19:48:15 UTC (rev 2721)
+@@ -43,7 +43,8 @@
+   std::auto_ptr&lt;SceneContext&gt; sc;
+   
+ public:
+-  WindstilleWidget();
++  WindstilleWidget(const Glib::RefPtr&lt;const Gdk::GL::Config&gt;&amp; glconfig,
++                   const Glib::RefPtr&lt;const Gdk::GL::Context&gt;&amp; share_list);
+   virtual ~WindstilleWidget();
+ 
+   virtual void on_realize();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001717.html">[Windstille-commit] r2720 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="001719.html">[Windstille-commit] r2722 - trunk/windstille/data/sectors/apartment
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1718">[ date ]</a>
+              <a href="thread.html#1718">[ thread ]</a>
+              <a href="subject.html#1718">[ subject ]</a>
+              <a href="author.html#1718">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

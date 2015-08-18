@@ -1,0 +1,675 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1566 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1566%20-%20trunk/griv&In-Reply-To=%3C200711221919.lAMJJJ2e017633%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001216.html">
+   <LINK REL="Next"  HREF="001218.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1566 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1566%20-%20trunk/griv&In-Reply-To=%3C200711221919.lAMJJJ2e017633%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1566 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Nov 22 20:19:19 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001216.html">[Windstille-commit] r1565 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001218.html">[Windstille-commit] r1567 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1217">[ date ]</a>
+              <a href="thread.html#1217">[ thread ]</a>
+              <a href="subject.html#1217">[ subject ]</a>
+              <a href="author.html#1217">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-22 20:19:18 +0100 (Thu, 22 Nov 2007)
+New Revision: 1566
+
+Modified:
+   trunk/griv/
+   trunk/griv/SConstruct
+   trunk/griv/TODO
+   trunk/griv/cache.cpp
+   trunk/griv/cache.hpp
+   trunk/griv/filesystem.cpp
+   trunk/griv/filesystem.hpp
+   trunk/griv/griv.cpp
+   trunk/griv/griv.hpp
+   trunk/griv/image.cpp
+   trunk/griv/jpeg.cpp
+   trunk/griv/jpeg.hpp
+   trunk/griv/packer.cpp
+Log:
+- implemented caching of image size, mtime, etc. (huge boost on startup)
+
+
+Property changes on: trunk/griv
+___________________________________________________________________
+Name: svn:ignore
+   - griv
+libepeg.a
+libgriv.a
+.sconsign.dblite
+thumbgen
+
+
+   + griv
+libepeg.a
+libgriv.a
+packer
+.sconsign.dblite
+thumbgen
+
+
+Modified: trunk/griv/SConstruct
+===================================================================
+--- trunk/griv/SConstruct	2007-11-22 14:53:58 UTC (rev 1565)
++++ trunk/griv/SConstruct	2007-11-22 19:19:18 UTC (rev 1566)
+@@ -26,8 +26,8 @@
+                            LIBS=[libgriv, libepeg, 'jpeg', 'mhash'])
+ thumbgen_env.Program('thumbgen', ['thumbgen.cpp'])
+ 
+-#packer_env = Environment(CCFLAGS=['-Wall', '-Werror', '-O2', '-g'], 
+-#                           LIBS=[libgriv, libepeg, 'jpeg', 'mhash'])
+-#packer_env.Program('packer', ['packer.cpp'])
++packer_env = Environment(CCFLAGS=['-Wall', '-Werror', '-O2', '-g'], 
++                           LIBS=[libgriv, libepeg, 'jpeg', 'mhash'])
++packer_env.Program('packer', ['packer.cpp'])
+ 
+ # EOF #
+
+Modified: trunk/griv/TODO
+===================================================================
+--- trunk/griv/TODO	2007-11-22 14:53:58 UTC (rev 1565)
++++ trunk/griv/TODO	2007-11-22 19:19:18 UTC (rev 1566)
+@@ -21,6 +21,10 @@
+ - implement faster realpath(), i.e. no link resolution
+ 
+ - cache file sets
++
++- write fast file system routines, use readdir(), d_type instead of
++  stat to check for a directory
++
+ 
+ Cache Files:
+ ============
+
+Modified: trunk/griv/cache.cpp
+===================================================================
+--- trunk/griv/cache.cpp	2007-11-22 14:53:58 UTC (rev 1565)
++++ trunk/griv/cache.cpp	2007-11-22 19:19:18 UTC (rev 1566)
+@@ -23,35 +23,87 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;iostream&gt;
++#include &quot;filesystem.hpp&quot;
++#include &quot;jpeg.hpp&quot;
++#include &quot;md5.hpp&quot;
+ #include &lt;fstream&gt;
+ #include &quot;cache.hpp&quot;
+ 
+ Cache::Cache(const std::string&amp; filename)
+ {
+   std::ifstream in(filename.c_str(), std::ios::in | std::ios::binary);
+-
+-  while(!in.eof())
++  if (!in)
+     {
+-      FileEntry entry;
++      // do nothing, since empty cache is ok
++    }
++  else
++    {
++      while(!in.eof())
++        {
++          FileEntry entry;
+       
+-      in.read(entry.filename_md5,  sizeof(char) * 33);
+-      in.read(entry.md5,           sizeof(char) * 33);
+-      in.read((char*)(&amp;entry.mtime),        sizeof(unsigned int));
+-      in.read((char*)(&amp;entry.thumbnail_id), sizeof(unsigned int));
+-      in.read((char*)(&amp;entry.width),        sizeof(unsigned int));
+-      in.read((char*)(&amp;entry.height),       sizeof(unsigned int));
+-      
+-      entries[entry.filename_md5] = entry;
++          in.read(entry.url_md5,  sizeof(char) * 33);
++          in.read(entry.md5,           sizeof(char) * 33);
++          in.read((char*)(&amp;entry.mtime),        sizeof(unsigned int));
++          in.read((char*)(&amp;entry.thumbnail_id), sizeof(unsigned int));
++          in.read((char*)(&amp;entry.width),        sizeof(unsigned int));
++          in.read((char*)(&amp;entry.height),       sizeof(unsigned int));
++
++          // FIXME: Do error checking to avoid adding incomplete entries
++          entries[entry.url_md5] = entry;
++        }
+     }
+ }
+ 
++void
++Cache::save(const std::string&amp; filename) const
++{
++  std::ofstream out(filename.c_str(), std::ios::out | std::ios::binary);
++
++  if (!out)
++    {
++      std::cout &lt;&lt; &quot;Couldn't save cache&quot; &lt;&lt; std::endl;
++    }
++  else
++    {
++      for(Entries::const_iterator i = entries.begin();
++          i != entries.end(); ++i)
++        {
++          const FileEntry&amp; entry = i-&gt;second;
++          out.write(entry.url_md5,  sizeof(char) * 33);
++          out.write(entry.md5,      sizeof(char) * 33);
++          out.write((char*)(&amp;entry.mtime),        sizeof(unsigned int));
++          out.write((char*)(&amp;entry.thumbnail_id), sizeof(unsigned int));
++          out.write((char*)(&amp;entry.width),        sizeof(unsigned int));
++          out.write((char*)(&amp;entry.height),       sizeof(unsigned int));
++        }
++    }
++}
++
+ const FileEntry*
+-Cache::get_entry(const std::string&amp; url) const
++Cache::get_entry(const std::string&amp; url)
+ {
+-  Entries::const_iterator i = entries.find(url);
++  std::string url_md5 = MD5::md5_string(url);
++
++  Entries::const_iterator i = entries.find(url_md5);
+   if (i == entries.end())
+     {
+-      return 0;
++      FileEntry entry;
++      try { 
++        strcpy(entry.url_md5, url_md5.c_str());
++        strcpy(entry.md5, &quot;&lt;empty&gt;&quot;);
++        entry.mtime = Filesystem::get_mtime(url.substr(7));
++        entry.thumbnail_id = 0;
++        JPEG::get_size(url.substr(7), entry.width, entry.height);
++      } catch (std::exception&amp; err) {
++        std::cout &lt;&lt; url &lt;&lt; &quot;: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
++        return 0;
++      }
++      
++      entries[url_md5] = entry;
++
++      return &amp;entries[url_md5];
+     }
+   else
+     {
+
+Modified: trunk/griv/cache.hpp
+===================================================================
+--- trunk/griv/cache.hpp	2007-11-22 14:53:58 UTC (rev 1565)
++++ trunk/griv/cache.hpp	2007-11-22 19:19:18 UTC (rev 1566)
+@@ -30,7 +30,7 @@
+ #include &lt;map&gt;
+ 
+ struct FileEntry {
+-  char filename_md5[33];
++  char url_md5[33];
+   char md5[33];
+   int  mtime;  // mtime at which the thumbnail was done
+   int  thumbnail_id; // offset into the thumbnail database
+@@ -48,7 +48,10 @@
+ 
+ public:
+   Cache(const std::string&amp; filename);
+-  const FileEntry* get_entry(const std::string&amp; url) const;
++
++  void save(const std::string&amp; filename) const;
++
++  const FileEntry* get_entry(const std::string&amp; url);
+ };
+ 
+ #endif
+
+Modified: trunk/griv/filesystem.cpp
+===================================================================
+--- trunk/griv/filesystem.cpp	2007-11-22 14:53:58 UTC (rev 1565)
++++ trunk/griv/filesystem.cpp	2007-11-22 19:19:18 UTC (rev 1566)
+@@ -54,6 +54,46 @@
+   return S_ISDIR(buf.st_mode);
+ }
+ 
++void
++Filesystem::open_directory_recursivly(const std::string&amp; pathname, std::vector&lt;std::string&gt;&amp; lst)
++{
++  DIR* dp = ::opendir(pathname.c_str());
++
++  if (dp == 0)
++    {
++      std::cout &lt;&lt; &quot;System: Couldn't open: &quot; &lt;&lt; pathname &lt;&lt; std::endl;
++    }
++  else
++    {
++      dirent* de = 0;
++      while ((de = ::readdir(dp)) != 0)
++        {
++          if (strcmp(de-&gt;d_name, &quot;.&quot;)  != 0 &amp;&amp;
++              strcmp(de-&gt;d_name, &quot;..&quot;) != 0)
++            {
++              if (de-&gt;d_type == DT_DIR)
++                { // Avoid stat'ing on file systems that don't need it
++                  open_directory_recursivly(pathname + &quot;/&quot; + de-&gt;d_name, lst);
++                }
++              else
++                {
++                  std::string new_path = pathname + &quot;/&quot; + de-&gt;d_name;
++                  if (is_directory(new_path))
++                    {
++                      open_directory_recursivly(pathname + &quot;/&quot; + de-&gt;d_name, lst);
++                    }
++                  else
++                    {
++                      lst.push_back(new_path);
++                    }
++                }
++            }
++        }
++
++      closedir(dp);
++    }
++}
++
+ std::vector&lt;std::string&gt;
+ Filesystem::open_directory(const std::string&amp; pathname)
+ {
+@@ -151,16 +191,6 @@
+ {
+ }
+ 
+-std::string
+-Filesystem::realpath(const std::string&amp; pathname)
+-{
+-  char* result = ::realpath(pathname.c_str(), NULL);
+-  std::string res = result;
+-  free(result);
+-  
+-  return res;
+-}
+-
+ bool
+ Filesystem::has_extension(const std::string&amp; str, const std::string&amp; suffix)
+ {
+@@ -203,26 +233,110 @@
+ void
+ Filesystem::generate_jpeg_file_list(const std::string&amp; pathname, std::vector&lt;std::string&gt;&amp; file_list)
+ {
+-  if (Filesystem::is_directory(pathname))
++  std::vector&lt;std::string&gt; lst;
++  open_directory_recursivly(pathname, lst);
++  
++  for(std::vector&lt;std::string&gt;::iterator i = lst.begin(); i != lst.end(); ++i)
+     {
+-      std::vector&lt;std::string&gt; dir_list = Filesystem::open_directory(pathname);
+-      for(std::vector&lt;std::string&gt;::iterator i = dir_list.begin(); i != dir_list.end(); ++i)
++      if (Filesystem::has_extension(*i, &quot;.jpg&quot;)  ||
++          Filesystem::has_extension(*i, &quot;.JPG&quot;)  ||
++          Filesystem::has_extension(*i, &quot;.jpe&quot;)  ||
++          Filesystem::has_extension(*i, &quot;.JPE&quot;)  ||
++          Filesystem::has_extension(*i, &quot;.JPEG&quot;) ||
++          Filesystem::has_extension(*i, &quot;.jpeg&quot;))
+         {
+-          generate_jpeg_file_list(*i, file_list);
++          file_list.push_back(&quot;<A HREF="file://">file://</A>&quot; + Filesystem::realpath(*i)); // realpath slow?
+         }
+     }
++}
++
++std::string
++Filesystem::realpath_system(const std::string&amp; pathname)
++{
++  char* result = ::realpath(pathname.c_str(), NULL);
++  std::string res = result;
++  free(result);
++  
++  return res;
++}
++
++std::string
++Filesystem::realpath_fast(const std::string&amp; pathname)
++{
++  std::string fullpath;
++  std::string drive;
++  
++  if (pathname.size() &gt; 0 &amp;&amp; pathname[0] == '/')
++    {
++      fullpath = pathname;
++    }
++#ifdef WIN32
++  else if (pathname.size() &gt; 2 &amp;&amp; pathname[1] == ':' &amp;&amp; pathname[2] == '/')
++    {
++      drive = pathname.substr(0, 2);
++      fullpath = pathname;
++    }
++#endif
+   else
+     {
+-      if (Filesystem::has_extension(pathname, &quot;.jpg&quot;)  ||
+-          Filesystem::has_extension(pathname, &quot;.JPG&quot;)  ||
+-          Filesystem::has_extension(pathname, &quot;.jpe&quot;)  ||
+-          Filesystem::has_extension(pathname, &quot;.JPE&quot;)  ||
+-          Filesystem::has_extension(pathname, &quot;.JPEG&quot;) ||
+-          Filesystem::has_extension(pathname, &quot;.jpeg&quot;))
++      char buf[PATH_MAX];
++      if (getcwd(buf, PATH_MAX) == 0)
+         {
+-          file_list.push_back(&quot;<A HREF="file://">file://</A>&quot; + Filesystem::realpath(pathname));
++          std::cout &lt;&lt; &quot;System::realpath: Error: couldn't getcwd()&quot; &lt;&lt; std::endl;
++          return pathname;
+         }
++#ifdef WIN32
++      for (char *p = buf; *p; ++p)
++        {
++          if (*p == '\\')
++            *p = '/';
++        }
++      drive.assign(buf, 2);
++#endif
++      
++      fullpath = fullpath + buf + &quot;/&quot; + pathname;
+     }
++  
++  std::string result;
++  std::string::reverse_iterator last_slash = fullpath.rbegin();
++  int skip = 0;
++  // /foo/bar/../../bar/baz/
++  //std::cout &lt;&lt; &quot;fullpath: '&quot; &lt;&lt; fullpath &lt;&lt; &quot;'&quot; &lt;&lt; std::endl;
++  for(std::string::reverse_iterator i = fullpath.rbegin(); i != fullpath.rend(); ++i)
++    { // FIXME: Little crude and hackish
++      if (*i == '/')
++        {
++          std::string dir(last_slash, i); 
++          //std::cout &lt;&lt; &quot;'&quot; &lt;&lt; dir &lt;&lt; &quot;'&quot; &lt;&lt; std::endl;
++          if (dir == &quot;..&quot; || dir == &quot;/..&quot;)
++            {
++              skip += 1;
++            }
++          else if (dir == &quot;.&quot; || dir == &quot;/.&quot; || dir.empty() || dir == &quot;/&quot;)
++            {
++              // pass
++            }
++          else
++            {
++              if (skip == 0)
++                {
++                  result += dir;
++                }
++              else
++                skip -= 1;
++            }
++
++          last_slash = i;
++        }
++    }
++  
++  return drive + &quot;/&quot; + std::string(result.rbegin(), result.rend());
+ }
+ 
++std::string
++Filesystem::realpath(const std::string&amp; pathname)
++{
++  return realpath_fast(pathname);
++}
++
+ /* EOF */
+
+Modified: trunk/griv/filesystem.hpp
+===================================================================
+--- trunk/griv/filesystem.hpp	2007-11-22 14:53:58 UTC (rev 1565)
++++ trunk/griv/filesystem.hpp	2007-11-22 19:19:18 UTC (rev 1566)
+@@ -39,9 +39,17 @@
+   static bool exist(const std::string&amp; pathname);
+   static void mkdir(const std::string&amp; pathname);
+   static std::vector&lt;std::string&gt; open_directory(const std::string&amp; pathname);
++
++  static void open_directory_recursivly(const std::string&amp; pathname, std::vector&lt;std::string&gt;&amp; lst);
++
+   static std::string getxattr(const std::string&amp; pathname);
+   static std::string get_home() { return home_directory; }
++
++  static std::string realpath_system(const std::string&amp; pathname);
++  static std::string realpath_fast(const std::string&amp; pathname);
+   static std::string realpath(const std::string&amp; pathname);
++
++
+   static bool has_extension(const std::string&amp; pathname, const std::string&amp; ext);
+   static void copy_mtime(const std::string&amp; from_filename, const std::string&amp; to_filename);
+   static unsigned int get_mtime(const std::string&amp; filename);
+
+Modified: trunk/griv/griv.cpp
+===================================================================
+--- trunk/griv/griv.cpp	2007-11-22 14:53:58 UTC (rev 1565)
++++ trunk/griv/griv.cpp	2007-11-22 19:19:18 UTC (rev 1566)
+@@ -11,12 +11,14 @@
+ #include &quot;workspace.hpp&quot;
+ #include &quot;loader.hpp&quot;
+ #include &quot;image.hpp&quot;
++#include &quot;cache.hpp&quot;
+ 
+ float x_offset = 0.0f;
+ float y_offset = 0.0f;
+ std::string config_home;
+ bool force_redraw = true;
+-bool highquality  = true;
++bool highquality  = false;
++Cache* cache;
+ 
+ Griv::Griv()
+ {
+@@ -324,6 +326,10 @@
+ {
+   Filesystem::init();
+ 
++  std::cout &lt;&lt; &quot;Loading cache... &quot; &lt;&lt; std::flush;
++  cache = new Cache(Filesystem::get_home() + &quot;/.griv/cache/file.cache&quot;);
++    std::cout &lt;&lt; &quot;done&quot; &lt;&lt; std::endl;
++
+   std::cout &lt;&lt; &quot;Generating file list... &quot; &lt;&lt; std::flush;
+   std::vector&lt;std::string&gt; file_list;
+   for(int i = 1; i &lt; argc; ++i)
+@@ -343,7 +349,10 @@
+                   &lt;&lt; &quot;\r&quot; &lt;&lt; std::flush;
+     }
+   std::cout &lt;&lt; &quot;done&quot; &lt;&lt; std::endl;
+-      
++  
++  std::cout &lt;&lt; &quot;Saving cache&quot; &lt;&lt; std::endl;
++  cache-&gt;save(Filesystem::get_home() + &quot;/.griv/cache/file.cache&quot;);
++
+   workspace-&gt;layout(4,3);
+   std::cout &lt;&lt; &quot; done&quot; &lt;&lt; std::endl;
+ 
+
+Modified: trunk/griv/griv.hpp
+===================================================================
+--- trunk/griv/griv.hpp	2007-11-22 14:53:58 UTC (rev 1565)
++++ trunk/griv/griv.hpp	2007-11-22 19:19:18 UTC (rev 1566)
+@@ -29,10 +29,13 @@
+ #include &lt;SDL.h&gt;
+ #include &lt;string&gt;
+ 
++class Cache;
++
+ extern float x_offset;
+ extern float y_offset;
+ extern bool force_redraw;
+ extern bool highquality;
++extern Cache* cache;
+ 
+ class Workspace;
+ 
+
+Modified: trunk/griv/image.cpp
+===================================================================
+--- trunk/griv/image.cpp	2007-11-22 14:53:58 UTC (rev 1565)
++++ trunk/griv/image.cpp	2007-11-22 19:19:18 UTC (rev 1566)
+@@ -30,6 +30,7 @@
+ #include &quot;texture.hpp&quot;
+ #include &quot;image.hpp&quot;
+ #include &quot;jpeg.hpp&quot;
++#include &quot;cache.hpp&quot;
+ #include &quot;surface.hpp&quot;
+ 
+ Image::Image(const std::string&amp; url)
+@@ -50,9 +51,18 @@
+     last_y_pos(0)
+ {
+   // FIXME: Slow, make this in a seperate thread
+-  JPEG::get_size(url.substr(7), original_width, original_height);
+-  original_mtime = Filesystem::get_mtime(url.substr(7));
++  const FileEntry* entry = cache-&gt;get_entry(url);
++  
++  if (entry)
++    {
++      original_width  = entry-&gt;width;
++      original_height = entry-&gt;height;
++      original_mtime  = entry-&gt;mtime;
++    }
+ 
++  //JPEG::get_size(url.substr(7), original_width, original_height);
++  //original_mtime = Filesystem::get_mtime(url.substr(7));
++
+   //std::cout &lt;&lt; url &lt;&lt; &quot; &quot; &lt;&lt; original_width &lt;&lt; &quot;x&quot; &lt;&lt; original_height &lt;&lt; std::endl;
+   
+   mutex = SDL_CreateMutex();
+
+Modified: trunk/griv/jpeg.cpp
+===================================================================
+--- trunk/griv/jpeg.cpp	2007-11-22 14:53:58 UTC (rev 1565)
++++ trunk/griv/jpeg.cpp	2007-11-22 19:19:18 UTC (rev 1566)
+@@ -23,10 +23,16 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;iostream&gt;
+ #include &lt;stdexcept&gt;
+ #include &lt;jpeglib.h&gt;
+ #include &quot;jpeg.hpp&quot;
+ 
++void fatal_error_handler(j_common_ptr cinfo)
++{
++  std::cout &lt;&lt; &quot;Some jpeg error&quot; &lt;&lt; std::endl;
++}
++
+ void
+ JPEG::get_size(const std::string&amp; filename, int&amp; w, int&amp; h)
+ {
+@@ -36,9 +42,11 @@
+ 
+   struct jpeg_decompress_struct  jinfo;
+   struct jpeg_error_mgr jerr;
+-        
++
++  jinfo.err = jpeg_std_error(&amp;jerr);
++  jinfo.err-&gt;error_exit = &amp;fatal_error_handler;
++
+   jpeg_create_decompress(&amp;jinfo);
+-  jinfo.err = jpeg_std_error(&amp;jerr);
+   jpeg_stdio_src(&amp;jinfo, in);
+   jpeg_read_header(&amp;jinfo, FALSE);
+ 
+
+Modified: trunk/griv/jpeg.hpp
+===================================================================
+--- trunk/griv/jpeg.hpp	2007-11-22 14:53:58 UTC (rev 1565)
++++ trunk/griv/jpeg.hpp	2007-11-22 19:19:18 UTC (rev 1566)
+@@ -26,6 +26,8 @@
+ #ifndef HEADER_JPEG_HPP
+ #define HEADER_JPEG_HPP
+ 
++#include &lt;string&gt;
++
+ /** */
+ class JPEG
+ {
+
+Modified: trunk/griv/packer.cpp
+===================================================================
+--- trunk/griv/packer.cpp	2007-11-22 14:53:58 UTC (rev 1565)
++++ trunk/griv/packer.cpp	2007-11-22 19:19:18 UTC (rev 1566)
+@@ -1,10 +1,40 @@
+ #include &quot;filesystem.hpp&quot;
+ #include &quot;md5.hpp&quot;
++#include &quot;cache.hpp&quot;
+ #include &lt;iostream&gt;
+ 
+ int main(int argc, char** argv)
+ {
+-  
++  Cache cache(&quot;/tmp/test.cache&quot;);
++
++  std::cout &lt;&lt; &quot;Generating file list... &quot; &lt;&lt; std::flush;
++  std::vector&lt;std::string&gt; file_list;
++  for(int i = 1; i &lt; argc; ++i)
++    {
++      Filesystem::generate_jpeg_file_list(argv[i], file_list);
++    }
++  std::cout &lt;&lt; file_list.size() &lt;&lt; &quot; done&quot;  &lt;&lt; std::endl;
++
++  for(std::vector&lt;std::string&gt;::iterator i = file_list.begin(); i != file_list.end(); ++i)
++    {
++      const FileEntry* entry = cache.get_entry(*i);
++      if (!entry)
++        {
++          std::cout &lt;&lt; &quot;Couldn't get entry for: &quot; &lt;&lt; *i &lt;&lt; std::endl;
++        }
++      else
++        {
++          std::cout &lt;&lt; *i &lt;&lt; std::endl;
++          std::cout &lt;&lt; &quot;  &quot; &lt;&lt; entry-&gt;url_md5 &lt;&lt; std::endl;
++          std::cout &lt;&lt; &quot;  &quot; &lt;&lt; entry-&gt;mtime &lt;&lt; std::endl;
++          std::cout &lt;&lt; &quot;  &quot; &lt;&lt; entry-&gt;width &lt;&lt; &quot;x&quot; &lt;&lt; entry-&gt;height &lt;&lt; std::endl;
++          std::cout &lt;&lt; std::endl;
++        }
++    }
++
++  std::cout &lt;&lt; &quot;Saving cache&quot; &lt;&lt; std::endl;
++  cache.save(&quot;/tmp/test.cache&quot;);
++
+   return 0;
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001216.html">[Windstille-commit] r1565 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001218.html">[Windstille-commit] r1567 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1217">[ date ]</a>
+              <a href="thread.html#1217">[ thread ]</a>
+              <a href="subject.html#1217">[ subject ]</a>
+              <a href="author.html#1217">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

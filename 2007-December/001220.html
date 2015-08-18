@@ -1,0 +1,355 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1569 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-December/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1569%20-%20trunk/griv&In-Reply-To=%3C200712021348.lB2DmhIj029267%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="001221.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1569 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1569%20-%20trunk/griv&In-Reply-To=%3C200712021348.lB2DmhIj029267%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1569 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Dec  2 14:48:43 CET 2007</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="001221.html">[Windstille-commit] r1570 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1220">[ date ]</a>
+              <a href="thread.html#1220">[ thread ]</a>
+              <a href="subject.html#1220">[ subject ]</a>
+              <a href="author.html#1220">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-12-02 14:48:42 +0100 (Sun, 02 Dec 2007)
+New Revision: 1569
+
+Modified:
+   trunk/griv/README
+   trunk/griv/TODO
+   trunk/griv/cache.cpp
+   trunk/griv/cache.hpp
+   trunk/griv/griv.cpp
+   trunk/griv/image.cpp
+   trunk/griv/image.hpp
+   trunk/griv/loader.cpp
+   trunk/griv/surface.cpp
+   trunk/griv/surface.hpp
+Log:
+- moved resolution tracking back into Image
+
+Modified: trunk/griv/README
+===================================================================
+--- trunk/griv/README	2007-11-23 15:07:08 UTC (rev 1568)
++++ trunk/griv/README	2007-12-02 13:48:42 UTC (rev 1569)
+@@ -2,19 +2,31 @@
+ =====
+ 
+ griv is a image viewer that allows you to directly zoom into
+-thumbnails. Its goal is to allow its viewer to view 100'000 images
+-fluently.
++thumbnails. Its goal is to allow its viewer to view 100'000 images at
++once fluently without any noticable load times.
+ 
+ Usage:
+ ======
+ 
+ You can view any collectino of files in a directory by:
+ 
+- ./griv [PATHNAME]...
++ $ ./griv [PATHNAME]...
+ 
+ Optionally you can pre-generate the thumbnails, which results in
+ a smoother experience by calling:
+ 
+- ./thumbgen -s 16,32,64,128,256,512,1024 [PATHNAME]...
++ $ ./thumbgen -s 16,32,64,128,256,512,1024 [PATHNAME]...
+ 
++For very large image collections it is recomment that you pregenerate
++the URL list to avoid slow startup due to file-io:
++
++ $ find  PATH -type f -name &quot;*.jpg&quot; | sed &quot;s/^/file:\/\//&quot; &gt; /tmp/url.lst
++ $ ./griv -f /tmp/url.lst
++
++Things you shouldn't do:
++========================
++
++Avoid running two instances at once, griv doesn't do any filelocking,
++so you my end up trashing your cache.
++
+ # EOF #
+
+Modified: trunk/griv/TODO
+===================================================================
+--- trunk/griv/TODO	2007-11-23 15:07:08 UTC (rev 1568)
++++ trunk/griv/TODO	2007-12-02 13:48:42 UTC (rev 1569)
+@@ -1,9 +1,7 @@
+ ToDo:
+ =====
+ 
+-- store 16x16 thumbnails in a container format, simple uncompressed
+-  RGB, store filenames in a simple linear list, stuff them into a
+-  map/hash on load
++- store all thumbnails in a container format
+ 
+ - implement Surface class that handles images larger then the maximum
+   texture size
+@@ -11,22 +9,23 @@
+ - remove round_res(), replace it with something else to allow images
+   in original size
+ 
+-- added support for ~/.thumbnails/ to get the smaller mipmaps faster
+-
+ - create two OpenGL context to allow better multithreading use (any
+-  way to do it portable?)
++  way to do it portable?) or move loading out of draw() and into
++  load(), only call load() till a time slice has run out, so that
++  drawing can take place again without interruption
+ 
+ - move over input code from Pingus to support Spacenavigator and such
+ 
+-- implement faster realpath(), i.e. no link resolution
++- Way to speed thumbnail directory creation up? -&gt; use Thumbcache
++  for all files
+ 
+-- cache file sets
++Less Important:
++===============
+ 
+-- write fast file system routines, use readdir(), d_type instead of
+-  stat to check for a directory
++- added support for ~/.thumbnails/ to get the smaller mipmaps faster
+ 
+-- add support for filesets, i.e. files that contain a list of urls
+-
++- write fast file system routines, use readdir(), d_type instead of
++  stat to check for a directory -&gt; only works on EXT3
+ 
+ Cache Files:
+ ============
+
+Modified: trunk/griv/cache.cpp
+===================================================================
+--- trunk/griv/cache.cpp	2007-11-23 15:07:08 UTC (rev 1568)
++++ trunk/griv/cache.cpp	2007-12-02 13:48:42 UTC (rev 1569)
+@@ -44,7 +44,6 @@
+           FileEntry entry;
+       
+           in.read(entry.url_md5,  sizeof(char) * 33);
+-          in.read(entry.md5,           sizeof(char) * 33);
+           in.read((char*)(&amp;entry.mtime),        sizeof(unsigned int));
+           in.read((char*)(&amp;entry.thumbnail_id), sizeof(unsigned int));
+           in.read((char*)(&amp;entry.width),        sizeof(unsigned int));
+@@ -72,7 +71,6 @@
+         {
+           const FileEntry&amp; entry = i-&gt;second;
+           out.write(entry.url_md5,  sizeof(char) * 33);
+-          out.write(entry.md5,      sizeof(char) * 33);
+           out.write((char*)(&amp;entry.mtime),        sizeof(unsigned int));
+           out.write((char*)(&amp;entry.thumbnail_id), sizeof(unsigned int));
+           out.write((char*)(&amp;entry.width),        sizeof(unsigned int));
+@@ -92,7 +90,6 @@
+       FileEntry entry;
+       try { 
+         strcpy(entry.url_md5, url_md5.c_str());
+-        strcpy(entry.md5, &quot;&lt;empty&gt;&quot;);
+         entry.mtime = Filesystem::get_mtime(url.substr(7));
+         entry.thumbnail_id = 0;
+         JPEG::get_size(url.substr(7), entry.width, entry.height);
+
+Modified: trunk/griv/cache.hpp
+===================================================================
+--- trunk/griv/cache.hpp	2007-11-23 15:07:08 UTC (rev 1568)
++++ trunk/griv/cache.hpp	2007-12-02 13:48:42 UTC (rev 1569)
+@@ -31,7 +31,6 @@
+ 
+ struct FileEntry {
+   char url_md5[33];
+-  char md5[33];
+   int  mtime;  // mtime at which the thumbnail was done
+   int  thumbnail_id; // offset into the thumbnail database
+   int  width;  // image width
+
+Modified: trunk/griv/griv.cpp
+===================================================================
+--- trunk/griv/griv.cpp	2007-11-23 15:07:08 UTC (rev 1568)
++++ trunk/griv/griv.cpp	2007-12-02 13:48:42 UTC (rev 1569)
+@@ -127,7 +127,12 @@
+                 for(int i = 0; i &lt; int(workspace-&gt;images.size()); ++i)
+                   {
+                     if (workspace-&gt;images[i]-&gt;is_visible())
+-                      std::cout &lt;&lt; workspace-&gt;images[i]-&gt;url &lt;&lt; std::endl;
++                      {
++                        std::cout &lt;&lt; workspace-&gt;images[i]-&gt;url &lt;&lt; &quot;\t&quot;
++                                  &lt;&lt; workspace-&gt;images[i]-&gt;original_width &lt;&lt; &quot;x&quot;
++                                  &lt;&lt; workspace-&gt;images[i]-&gt;original_height
++                                  &lt;&lt; std::endl;
++                      }
+                   }
+                 std::cout &lt;&lt; &quot;---------------------------------------------------------&quot; &lt;&lt; std::endl;
+               }
+
+Modified: trunk/griv/image.cpp
+===================================================================
+--- trunk/griv/image.cpp	2007-11-23 15:07:08 UTC (rev 1568)
++++ trunk/griv/image.cpp	2007-12-02 13:48:42 UTC (rev 1569)
+@@ -42,6 +42,7 @@
+     received_surface(0),
+     received_surface_res(0),
+ 
++    surface_resolution(0),
+     surface(0),
+     surface_16x16(0),
+ 
+@@ -76,7 +77,7 @@
+ 
+ void
+ Image::receive(SDL_Surface* new_surface, int r)
+-{ 
++{
+   SDL_LockMutex(mutex);
+   
+   if (new_surface)
+@@ -106,7 +107,7 @@
+       y &lt; -res)
+     { // Image out of screen
+       visible = false;
+-      if (surface &amp;&amp; surface-&gt;get_resolution() &gt;= 512) // keep small images around a while longer
++      if (surface &amp;&amp; surface_resolution &gt;= 512) // keep small images around a while longer
+         {
+           delete surface;
+           surface = 0;
+@@ -117,7 +118,7 @@
+       visible = true;
+       // Handle loading when resolution changed
+       if (surface == 0 || 
+-          round_res(int(res)) != surface-&gt;get_resolution())
++          round_res(int(res)) != surface_resolution)
+         {
+           if (round_res(int(res)) != requested_res)
+             {    
+@@ -132,12 +133,13 @@
+           if (!surface_16x16)
+             { // Use surface as the smallest possible surface
+               // FIXME: When somebody is fast this could mean a non 16x16 surface
+-              surface_16x16 = new Surface(received_surface, received_surface_res);
++              surface_16x16 = new Surface(received_surface);
+             }
+           else
+             { // Replace the current surface
+               delete surface;
+-              surface = new Surface(received_surface, received_surface_res);
++              surface = new Surface(received_surface);
++              surface_resolution = received_surface_res;
+             }
+ 
+           received_surface     = 0;
+
+Modified: trunk/griv/image.hpp
+===================================================================
+--- trunk/griv/image.hpp	2007-11-23 15:07:08 UTC (rev 1568)
++++ trunk/griv/image.hpp	2007-12-02 13:48:42 UTC (rev 1569)
+@@ -47,6 +47,7 @@
+   SDL_Surface* received_surface;
+   int          received_surface_res;
+   
++  int          surface_resolution;
+   Surface*     surface;
+   Surface*     surface_16x16;
+ 
+
+Modified: trunk/griv/loader.cpp
+===================================================================
+--- trunk/griv/loader.cpp	2007-11-23 15:07:08 UTC (rev 1568)
++++ trunk/griv/loader.cpp	2007-12-02 13:48:42 UTC (rev 1569)
+@@ -106,7 +106,7 @@
+       jobs.pop_back();
+ 
+       if (!job.image-&gt;surface ||
+-          job.image-&gt;surface-&gt;get_resolution() != job.image-&gt;requested_res)
++          job.image-&gt;surface_resolution != job.image-&gt;requested_res)
+         {
+           SDL_Surface* img = store-&gt;get_by_url(job.image-&gt;url, job.image-&gt;requested_res);
+           if (img)
+
+Modified: trunk/griv/surface.cpp
+===================================================================
+--- trunk/griv/surface.cpp	2007-11-23 15:07:08 UTC (rev 1568)
++++ trunk/griv/surface.cpp	2007-12-02 13:48:42 UTC (rev 1569)
+@@ -29,9 +29,8 @@
+ #include &quot;math.hpp&quot;
+ #include &quot;surface.hpp&quot;
+ 
+-Surface::Surface(SDL_Surface* surface, int res)
++Surface::Surface(SDL_Surface* surface)
+   : surface(surface),
+-    res(res),
+     texture(0)
+ {
+   assert(surface);
+
+Modified: trunk/griv/surface.hpp
+===================================================================
+--- trunk/griv/surface.hpp	2007-11-23 15:07:08 UTC (rev 1568)
++++ trunk/griv/surface.hpp	2007-12-02 13:48:42 UTC (rev 1569)
+@@ -35,7 +35,6 @@
+ private:
+   /** Software backstore for the image */
+   SDL_Surface* surface;
+-  int res;
+   
+   Texture* texture;
+   int tex_w;
+@@ -47,12 +46,11 @@
+   float aspect;
+ 
+ public:
+-  Surface(SDL_Surface* surface, int res);
++  Surface(SDL_Surface* surface);
+   ~Surface();
+ 
+   void draw(float x, float y, float w, float h);
+-
+-  int get_resolution() const { return res; }
++  
+ private:
+   Surface (const Surface&amp;);
+   Surface&amp; operator= (const Surface&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="001221.html">[Windstille-commit] r1570 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1220">[ date ]</a>
+              <a href="thread.html#1220">[ thread ]</a>
+              <a href="subject.html#1220">[ subject ]</a>
+              <a href="author.html#1220">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,232 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1581 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-December/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1581%20-%20trunk/griv&In-Reply-To=%3C200712042353.lB4NrqFY014852%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001231.html">
+   <LINK REL="Next"  HREF="001233.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1581 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1581%20-%20trunk/griv&In-Reply-To=%3C200712042353.lB4NrqFY014852%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1581 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Dec  5 00:53:52 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001231.html">[Windstille-commit] r1580 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001233.html">[Windstille-commit] r1582 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1232">[ date ]</a>
+              <a href="thread.html#1232">[ thread ]</a>
+              <a href="subject.html#1232">[ subject ]</a>
+              <a href="author.html#1232">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-12-05 00:53:51 +0100 (Wed, 05 Dec 2007)
+New Revision: 1581
+
+Modified:
+   trunk/griv/SConstruct
+   trunk/griv/TODO
+   trunk/griv/file_entry_cache.cpp
+   trunk/griv/file_entry_cache.hpp
+   trunk/griv/thumbnail_manager.cpp
+Log:
+- some twiddling, no real changes
+
+Modified: trunk/griv/SConstruct
+===================================================================
+--- trunk/griv/SConstruct	2007-12-04 17:31:30 UTC (rev 1580)
++++ trunk/griv/SConstruct	2007-12-04 23:53:51 UTC (rev 1581)
+@@ -1,15 +1,19 @@
+ # -*- python -*-
+ 
++# Thumbnail generation library
++libepeg_env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-O2&quot;, &quot;-g&quot;])
++libepeg = libepeg_env.StaticLibrary('epeg', ['epeg/epeg_main.c'])
++
++# Shared code between Griv and Thumbgen
+ libgriv_env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O2&quot;, &quot;-g&quot;])
++libgriv_env.ParseConfig(&quot;sdl-config --libs --cflags&quot;)
+ libgriv = libgriv_env.StaticLibrary('griv', ['filesystem.cpp', 
+                                              'command_line.cpp',
+                                              'jpeg.cpp',
+                                              'file_entry_cache.cpp',
+                                              'md5.cpp'])
+ 
+-libepeg_env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-O2&quot;, &quot;-g&quot;])
+-libepeg = libepeg_env.StaticLibrary('epeg', ['epeg/epeg_main.c'])
+-
++# Zoomable Image Viewer
+ griv_env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O2&quot;, &quot;-g&quot;], 
+                        LIBS=[libgriv, libepeg, 'SDL_image', 'jpeg', 'mhash', 'GL', 'GLU'])
+ griv_env.ParseConfig(&quot;sdl-config --libs --cflags&quot;)
+@@ -25,12 +29,13 @@
+                           'texture.cpp', 
+                           'workspace.cpp'])
+ 
++# Offline Thumbnail generator
+ thumbgen_env = Environment(CCFLAGS=['-Wall', '-Werror', '-O2', '-g'], 
+                            LIBS=[libgriv, libepeg, 'jpeg', 'mhash'])
+ thumbgen_env.Program('thumbgen', ['thumbgen.cpp'])
+ 
+-packer_env = Environment(CCFLAGS=['-Wall', '-Werror', '-O2', '-g'], 
+-                           LIBS=[libgriv, libepeg, 'jpeg', 'mhash'])
+-packer_env.Program('packer', ['packer.cpp'])
++# packer_env = Environment(CCFLAGS=['-Wall', '-Werror', '-O2', '-g'], 
++#                            LIBS=[libgriv, libepeg, 'jpeg', 'mhash'])
++# packer_env.Program('packer', ['packer.cpp'])
+ 
+ # EOF #
+
+Modified: trunk/griv/TODO
+===================================================================
+--- trunk/griv/TODO	2007-12-04 17:31:30 UTC (rev 1580)
++++ trunk/griv/TODO	2007-12-04 23:53:51 UTC (rev 1581)
+@@ -22,6 +22,8 @@
+   2) images without any thumbnails
+   3) images close to the current view
+ 
++- rename thumbgen or make it part of griv
++
+ Less Important:
+ ===============
+ 
+
+Modified: trunk/griv/file_entry_cache.cpp
+===================================================================
+--- trunk/griv/file_entry_cache.cpp	2007-12-04 17:31:30 UTC (rev 1580)
++++ trunk/griv/file_entry_cache.cpp	2007-12-04 23:53:51 UTC (rev 1581)
+@@ -30,7 +30,27 @@
+ #include &quot;md5.hpp&quot;
+ #include &lt;fstream&gt;
+ #include &quot;file_entry_cache.hpp&quot;
++
++SWSurfaceHandle
++FileEntry::get_thumbnail(int res)
++{
++  if (res == 0)
++    { // Load original
++      // Doesn't now URL!
++    }
++  else
++    { // Load Thumbnail
++    }
++  
++  return SWSurfaceHandle();
++}
+ 
++SWSurfaceHandle
++FileEntry::get_original()
++{
++  return SWSurfaceHandle();
++}
++
+ FileEntryCache::FileEntryCache(const std::string&amp; filename)
+ {
+   std::ifstream in(filename.c_str(), std::ios::in | std::ios::binary);
+@@ -117,7 +137,6 @@
+       }
+       
+       entries[url_md5] = entry;
+-
+       return &amp;entries[url_md5];
+     }
+   else
+
+Modified: trunk/griv/file_entry_cache.hpp
+===================================================================
+--- trunk/griv/file_entry_cache.hpp	2007-12-04 17:31:30 UTC (rev 1580)
++++ trunk/griv/file_entry_cache.hpp	2007-12-04 23:53:51 UTC (rev 1581)
+@@ -28,6 +28,7 @@
+ 
+ #include &lt;string&gt;
+ #include &lt;map&gt;
++#include &quot;software_surface.hpp&quot;
+ 
+ struct ThumbnailEntry
+ {
+@@ -49,6 +50,9 @@
+       thumbnails[N] -&gt; (16 + 2^N)x(16 + 2^N)
+    */
+   std::vector&lt;ThumbnailEntry&gt; thumbnails;
++
++  SWSurfaceHandle get_thumbnail(int res);
++  SWSurfaceHandle get_original();
+ };
+ 
+ /** */
+@@ -64,6 +68,8 @@
+   
+   void save(const std::string&amp; filename) const;
+ 
++  /** returns NULL if the FileEntry isn't obtainable (file missing,
++      etc.) */
+   const FileEntry* get_entry(const std::string&amp; url);
+ };
+ 
+
+Modified: trunk/griv/thumbnail_manager.cpp
+===================================================================
+--- trunk/griv/thumbnail_manager.cpp	2007-12-04 17:31:30 UTC (rev 1580)
++++ trunk/griv/thumbnail_manager.cpp	2007-12-04 23:53:51 UTC (rev 1581)
+@@ -107,9 +107,9 @@
+   int w, h;
+   unsigned char* data = 0;
+   int   data_len = 0;
+-  epeg_size_get(img, &amp;w, &amp;h);
++  epeg_size_get(img, &amp;w, &amp;h); // FIXME: Should use FileEntryCache instead
+ 
+-  if (w &gt; thumb_size || h &gt; thumb_size)
++  if (w &gt; thumb_size || h &gt; thumb_size) 
+     {
+       epeg_quality_set(img, 80);
+       epeg_thumbnail_comments_enable(img, 1);
+@@ -122,7 +122,7 @@
+       epeg_decode_colorspace_set(img, EPEG_RGB8);
+ 
+       std::cout &lt;&lt; &quot;.&quot; &lt;&lt; std::flush;
+-      //std::cout &lt;&lt; thumb_size &lt;&lt; &quot; - &quot; &lt;&lt; filename &lt;&lt; &quot; =&gt; &quot; &lt;&lt; thumb_location &lt;&lt; std::endl;
++      std::cout &lt;&lt; thumb_size &lt;&lt; &quot; - &quot; &lt;&lt; filename &lt;&lt; &quot; =&gt; &quot; &lt;&lt; thumb_location &lt;&lt; std::endl;
+ 
+       epeg_file_output_set(img, thumb_location.c_str());
+       epeg_memory_output_set(img, &amp;data, &amp;data_len);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001231.html">[Windstille-commit] r1580 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001233.html">[Windstille-commit] r1582 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1232">[ date ]</a>
+              <a href="thread.html#1232">[ thread ]</a>
+              <a href="subject.html#1232">[ subject ]</a>
+              <a href="author.html#1232">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

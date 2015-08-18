@@ -1,0 +1,472 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r447 - in trunk/src: . scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r447%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200506271335.j5RDZm1P008186%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000103.html">
+   <LINK REL="Next"  HREF="000105.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r447 - in trunk/src: . scripting</H1>
+    <B>Matthias Braun at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r447%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200506271335.j5RDZm1P008186%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r447 - in trunk/src: . scripting">matzebraun at sheep.berlios.de
+       </A><BR>
+    <I>Mon Jun 27 15:35:48 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000103.html">[Windstille-commit] r446 - in trunk: . mk/jam src src/lisp src/sound src/tinygettext
+</A></li>
+        <LI>Next message: <A HREF="000105.html">[Windstille-commit] r448 - trunk/mk/jam
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#104">[ date ]</a>
+              <a href="thread.html#104">[ thread ]</a>
+              <a href="subject.html#104">[ subject ]</a>
+              <a href="author.html#104">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: matzebraun
+Date: 2005-06-27 15:35:46 +0200 (Mon, 27 Jun 2005)
+New Revision: 447
+
+Added:
+   trunk/src/scripting/
+   trunk/src/scripting/Jamfile
+   trunk/src/scripting/interface.cpp
+   trunk/src/scripting/interface.hpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/scripting/wrapper.hpp
+   trunk/src/scripting/wrapper.interface.hpp
+   trunk/src/scripting/wrapper_util.cpp
+   trunk/src/scripting/wrapper_util.hpp
+Log:
+forgot more files
+
+Added: trunk/src/scripting/Jamfile
+===================================================================
+--- trunk/src/scripting/Jamfile	2005-06-27 13:35:27 UTC (rev 446)
++++ trunk/src/scripting/Jamfile	2005-06-27 13:35:46 UTC (rev 447)
+@@ -0,0 +1,49 @@
++SubDir TOP src scripting ;
++
++if $(MINISWIG)
++{
++    ##  MiniSwigRule outputcppfile : inputfile : modulename : flags
++    rule MiniSwigRule
++    {
++        local sources = [ SearchSource $(&gt;) ] ;
++        local cppfile = [ LocateTarget $(&lt;) : $(SUBDIR) ] ;
++        local headerfile = [ LocateTarget $(&lt;:S=.hpp) : $(SUBDIR) ] ;	
++        SEARCH on $(headerfile) = $(SOURCH_SOURCE) ;
++
++        Depends $(cppfile) : $(headerfile) ;
++        MiniSwig $(cppfile) : $(sources) ;
++        CPPFLAGS on $(cppfile) = $(CPPFLAGS) -DSCRIPTING_API ;
++        headerfile on $(cppfile) = $(headerfile) ;
++        modulename on $(cppfile) = $(3) ;
++        FLAGS on $(cppfile) = $(4) ;
++
++        local object = [ CompileObject $(cppfile) ] ;
++
++        return $(object) ;
++    }
++
++    rule MiniSwig
++    {
++        Depends $(&lt;) : $(&gt;) $(MINISWIG) ;
++    }
++
++    actions MiniSwig bind headerfile
++    {
++        $(CPP) -x c -CC $(CPPFLAGS) $(&gt;) -o $(LOCATE_OBJECTS)/miniswig.tmp
++        ./miniswig --output-cpp $(&lt;) --input $(LOCATE_OBJECTS)/miniswig.tmp --output-hpp $(headerfile) --module $(modulename) $(FLAGS)
++#       rm -f $(LOCATE_OBJECTS)/miniswig.tmp
++    }
++}
++
++wrapper_sources = [ Filter [ Wildcard *.cpp *.hpp ] : wrapper.cpp wrapper.hpp ] ;
++if ! $(MINISWIG)
++{
++    wrapper_sources += [ SearchSource wrapper.cpp ] ;
++}
++wrapper_objects = [ CompileObjects $(wrapper_sources) ] ;
++if $(MINISWIG)
++{
++    wrapper_objects += 
++        [ MiniSwigRule wrapper.cpp : wrapper.interface.hpp : supertux : --select-namespace Scripting ] ;
++}
++
+
+Added: trunk/src/scripting/interface.cpp
+===================================================================
+--- trunk/src/scripting/interface.cpp	2005-06-27 13:35:27 UTC (rev 446)
++++ trunk/src/scripting/interface.cpp	2005-06-27 13:35:46 UTC (rev 447)
+@@ -0,0 +1,29 @@
++#include &quot;interface.hpp&quot;
++#include &quot;sound/sound_manager.hpp&quot;
++#include &quot;dialog_manager.hxx&quot;
++
++namespace Scripting
++{
++
++void play_music(const std::string&amp; musicfile)
++{
++  sound_manager-&gt;play_music(musicfile);
++}
++
++void play_sound(const std::string&amp; soundfile)
++{
++  sound_manager-&gt;play(soundfile);
++}
++
++void create_dialog(const std::string&amp; portrait, const std::string&amp; text)
++{
++  DialogManager::current()-&gt;add_dialog(portrait, text);
++}
++
++void clear_dialog()
++{
++  DialogManager::current()-&gt;clear();
++}
++
++}
++
+
+Added: trunk/src/scripting/interface.hpp
+===================================================================
+--- trunk/src/scripting/interface.hpp	2005-06-27 13:35:27 UTC (rev 446)
++++ trunk/src/scripting/interface.hpp	2005-06-27 13:35:46 UTC (rev 447)
+@@ -0,0 +1,22 @@
++#ifndef __INTERFACE_HPP__
++#define __INTERFACE_HPP__
++
++#ifndef SCRIPTING_API
++#include &lt;string&gt;
++#endif
++
++namespace Scripting
++{
++
++void play_music(const std::string&amp; musicfile);
++
++void play_sound(const std::string&amp; soundfile);
++
++void create_dialog(const std::string&amp; portrait, const std::string&amp; text);
++
++void clear_dialog();
++
++}
++
++#endif
++
+
+Added: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2005-06-27 13:35:27 UTC (rev 446)
++++ trunk/src/scripting/wrapper.cpp	2005-06-27 13:35:46 UTC (rev 447)
+@@ -0,0 +1,69 @@
++/**
++ * WARNING: This file is automatically generated from:
++ *  'src/scripting/wrapper.interface.hpp'
++ * DO NOT CHANGE
++ */
++#include &lt;config.h&gt;
++
++#include &lt;new&gt;
++#include &lt;assert.h&gt;
++#include &lt;string&gt;
++#include &lt;squirrel.h&gt;
++#include &quot;wrapper_util.hpp&quot;
++#include &quot;wrapper.interface.hpp&quot;
++
++using namespace Scripting;
++
++static int play_music_wrapper(HSQUIRRELVM v)
++{
++  const char* arg0;
++  sq_getstring(v, 2, &amp;arg0);
++  
++  Scripting::play_music(arg0);
++  
++  return 0;
++}
++
++static int play_sound_wrapper(HSQUIRRELVM v)
++{
++  const char* arg0;
++  sq_getstring(v, 2, &amp;arg0);
++  
++  Scripting::play_sound(arg0);
++  
++  return 0;
++}
++
++static int create_dialog_wrapper(HSQUIRRELVM v)
++{
++  const char* arg0;
++  sq_getstring(v, 2, &amp;arg0);
++  const char* arg1;
++  sq_getstring(v, 3, &amp;arg1);
++  
++  Scripting::create_dialog(arg0, arg1);
++  
++  return 0;
++}
++
++static int clear_dialog_wrapper(HSQUIRRELVM v)
++{
++  (void) v;
++  
++  Scripting::clear_dialog();
++  
++  return 0;
++}
++
++WrappedFunction supertux_global_functions[] = {
++  { &quot;play_music&quot;, &amp;play_music_wrapper },
++  { &quot;play_sound&quot;, &amp;play_sound_wrapper },
++  { &quot;create_dialog&quot;, &amp;create_dialog_wrapper },
++  { &quot;clear_dialog&quot;, &amp;clear_dialog_wrapper },
++  { 0, 0 }
++};
++
++WrappedClass supertux_classes[] = {
++  { 0, 0 }
++};
++
+
+Added: trunk/src/scripting/wrapper.hpp
+===================================================================
+--- trunk/src/scripting/wrapper.hpp	2005-06-27 13:35:27 UTC (rev 446)
++++ trunk/src/scripting/wrapper.hpp	2005-06-27 13:35:46 UTC (rev 447)
+@@ -0,0 +1,15 @@
++/**
++ * WARNING: This file is automatically generated from:
++ *  'src/scripting/wrapper.interface.hpp'
++ * DO NOT CHANGE
++ */
++#ifndef __supertux_WRAPPER_H__
++#define __supertux_WRAPPER_H__
++
++#include &quot;wrapper_util.hpp&quot;
++
++extern WrappedFunction supertux_global_functions[];
++extern WrappedClass supertux_classes[];
++
++#endif
++
+
+Added: trunk/src/scripting/wrapper.interface.hpp
+===================================================================
+--- trunk/src/scripting/wrapper.interface.hpp	2005-06-27 13:35:27 UTC (rev 446)
++++ trunk/src/scripting/wrapper.interface.hpp	2005-06-27 13:35:46 UTC (rev 447)
+@@ -0,0 +1 @@
++#include &quot;interface.hpp&quot;
+
+Added: trunk/src/scripting/wrapper_util.cpp
+===================================================================
+--- trunk/src/scripting/wrapper_util.cpp	2005-06-27 13:35:27 UTC (rev 446)
++++ trunk/src/scripting/wrapper_util.cpp	2005-06-27 13:35:46 UTC (rev 447)
+@@ -0,0 +1,128 @@
++#include &lt;config.h&gt;
++
++#include &lt;stdexcept&gt;
++#include &lt;sstream&gt;
++#include &quot;wrapper_util.hpp&quot;
++
++static void register_function(HSQUIRRELVM v, SQFUNCTION func, const char* name)
++{
++    sq_pushstring(v, name, -1);
++    sq_newclosure(v, func, 0); //create a new function
++    sq_createslot(v, -3);
++}
++
++static void register_class(HSQUIRRELVM v, WrappedClass* wclass)
++{
++    sq_pushstring(v, wclass-&gt;name, -1);
++    sq_newclass(v, false);
++    for(WrappedFunction* func = wclass-&gt;functions; func-&gt;name != 0; ++func) {
++        register_function(v, func-&gt;f, func-&gt;name);
++    }
++    sq_createslot(v, -3);
++}
++
++void register_functions(HSQUIRRELVM v, WrappedFunction* functions)
++{
++    sq_pushroottable(v);
++    for(WrappedFunction* func = functions; func-&gt;name != 0; ++func) {
++        register_function(v, func-&gt;f, func-&gt;name);
++    }
++    sq_pop(v, 1);
++}
++
++void register_classes(HSQUIRRELVM v, WrappedClass* classes)
++{
++    sq_pushroottable(v);
++    for(WrappedClass* wclass = classes; wclass-&gt;name != 0; ++wclass) {
++        register_class(v, wclass);
++    }
++    sq_pop(v, 1);
++}
++
++void print_squirrel_stack(HSQUIRRELVM v)
++{
++    printf(&quot;--------------------------------------------------------------\n&quot;);
++    int count = sq_gettop(v);
++    for(int i = 1; i &lt;= count; ++i) {
++        printf(&quot;%d: &quot;,i);
++        switch(sq_gettype(v, i))
++        {
++            case OT_NULL:
++                printf(&quot;null&quot;);        
++                break;
++            case OT_INTEGER: {
++                int val;
++                sq_getinteger(v, i, &amp;val);
++                printf(&quot;integer (%d)&quot;, val);
++                break;
++            }
++            case OT_FLOAT: {
++                float val;
++                sq_getfloat(v, i, &amp;val);
++                printf(&quot;float (%f)&quot;, val);
++                break;
++            }
++            case OT_STRING: {
++                const char* val;
++                sq_getstring(v, i, &amp;val);
++                printf(&quot;string (%s)&quot;, val);
++                break;    
++            }
++            case OT_TABLE:
++                printf(&quot;table&quot;);
++                break;
++            case OT_ARRAY:
++                printf(&quot;array&quot;);
++                break;
++            case OT_USERDATA:
++                printf(&quot;userdata&quot;);
++                break;
++            case OT_CLOSURE:        
++                printf(&quot;closure(function)&quot;);    
++                break;
++            case OT_NATIVECLOSURE:
++                printf(&quot;native closure(C function)&quot;);
++                break;
++            case OT_GENERATOR:
++                printf(&quot;generator&quot;);
++                break;
++            case OT_USERPOINTER:
++                printf(&quot;userpointer&quot;);
++                break;
++            case OT_CLASS:
++                printf(&quot;class&quot;);
++                break;
++            case OT_INSTANCE:
++                printf(&quot;instance&quot;);
++                break;
++            default:
++                printf(&quot;unknown?!?&quot;);
++                break;
++        }
++        printf(&quot;\n&quot;);
++    }
++    printf(&quot;--------------------------------------------------------------\n&quot;);
++}
++
++//----------------------------------------------------------------------------
++
++SquirrelError::SquirrelError(HSQUIRRELVM v, const std::string&amp; message) throw()
++{
++  std::ostringstream msg;
++  msg &lt;&lt; &quot;SQuirrel error: &quot; &lt;&lt; message &lt;&lt; &quot; (&quot;;
++  const char* lasterr;
++  sq_getlasterror(v);
++  sq_getstring(v, -1, &amp;lasterr);
++  sq_pop(v, 1);
++  msg &lt;&lt; lasterr &lt;&lt; &quot;)&quot;;
++  this-&gt;message = msg.str();
++}
++
++SquirrelError::~SquirrelError() throw()
++{}
++
++const char*
++SquirrelError::what() const throw()
++{
++  return message.c_str();
++}
+
+Added: trunk/src/scripting/wrapper_util.hpp
+===================================================================
+--- trunk/src/scripting/wrapper_util.hpp	2005-06-27 13:35:27 UTC (rev 446)
++++ trunk/src/scripting/wrapper_util.hpp	2005-06-27 13:35:46 UTC (rev 447)
+@@ -0,0 +1,33 @@
++#ifndef __WRAPPERUTIL_HPP__
++#define __WRAPPERUTIL_HPP__
++
++#include &lt;squirrel.h&gt;
++#include &lt;exception&gt;
++#include &lt;string&gt;
++
++struct WrappedFunction {
++    const char* name;
++    SQFUNCTION f;
++};
++struct WrappedClass {
++    const char* name;
++    WrappedFunction* functions;
++};
++
++class SquirrelError : public std::exception
++{
++public:
++  SquirrelError(HSQUIRRELVM v, const std::string&amp; message) throw();
++  virtual ~SquirrelError() throw();
++
++  const char* what() const throw();
++private:
++  std::string message;
++};
++
++void register_functions(HSQUIRRELVM v, WrappedFunction* functions);
++void register_classes(HSQUIRRELVM v, WrappedClass* classes);
++
++void print_squirrel_stack(HSQUIRRELVM v);
++
++#endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000103.html">[Windstille-commit] r446 - in trunk: . mk/jam src src/lisp src/sound src/tinygettext
+</A></li>
+	<LI>Next message: <A HREF="000105.html">[Windstille-commit] r448 - trunk/mk/jam
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#104">[ date ]</a>
+              <a href="thread.html#104">[ thread ]</a>
+              <a href="subject.html#104">[ subject ]</a>
+              <a href="author.html#104">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

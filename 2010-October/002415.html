@@ -1,0 +1,386 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3418 - trunk/windstille
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2010-October/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3418%20-%20trunk/windstille&In-Reply-To=%3C20101025045539.660AC481089%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002414.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3418 - trunk/windstille</H1>
+    <B>grumbel at mail.berlios.de</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3418%20-%20trunk/windstille&In-Reply-To=%3C20101025045539.660AC481089%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3418 - trunk/windstille">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Oct 25 06:55:39 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002414.html">[Windstille-commit] r3417 - trunk/windstille/src/display
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2415">[ date ]</a>
+              <a href="thread.html#2415">[ thread ]</a>
+              <a href="subject.html#2415">[ subject ]</a>
+              <a href="author.html#2415">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2010-10-25 06:55:38 +0200 (Mon, 25 Oct 2010)
+New Revision: 3418
+
+Modified:
+   trunk/windstille/SConscript
+   trunk/windstille/scons_enhancements.py
+Log:
+Turned SCons enhancements into Configuration class
+
+
+Modified: trunk/windstille/SConscript
+===================================================================
+--- trunk/windstille/SConscript	2010-10-24 21:13:50 UTC (rev 3417)
++++ trunk/windstille/SConscript	2010-10-25 04:55:38 UTC (rev 3418)
+@@ -26,46 +26,6 @@
+ 
+ CacheDir('cache')
+ 
+-def MakeEnvironment(packages, cfg):
+-    env = Environment(ENV=os.environ)
+-
+-    for pkg in packages:
+-        if type(pkg) == str:
+-            if pkg in cfg:
+-                env.Append(**cfg[pkg])
+-            else:
+-                raise Exception(&quot;Unknown package: %s&quot; % pkg)
+-        elif type(pkg) == dict:
+-            env.Append(**pkg)
+-        else:
+-            raise Exception(&quot;Unknown package type: %s&quot; % pkg)
+-
+-    return env
+-
+-def BuildProgram(target, sources, packages = [], cfg = {}):
+-    env = MakeEnvironment(packages, cfg)
+-    return env.Program(target, sources)
+-
+-def BuildStaticLibrary(target, sources, packages = [], cfg = {}):
+-    env = MakeEnvironment(packages, cfg)
+-    return env.StaticLibrary(target, sources)
+-
+-def ParseConfig(cmd):
+-    env = Environment()
+-    env['ENV']['PATH'] = os.environ['PATH']
+-    env.ParseConfig(cmd)
+-
+-    cfg = {}
+-
+-    for var in [ 'CCFLAGS', 'CPPDEFINES', 'CPPPATH', 'LIBS', 'LIBPATH' ]:
+-        if var in env and env[var] != []:
+-            cfg[var]  = env[var] 
+-
+-    # if 'CCFLAGS' in cfg:
+-    #     cfg['CXXFLAGS'] = cfg['CCFLAGS']
+-
+-    return cfg
+-
+ class Project:
+     def __init__(self):
+         self.features = {
+@@ -107,7 +67,7 @@
+             print &quot;Error: C++ compiler missing&quot;
+             Exit(1)
+ 
+-        self.cfg = {}
++        self.cfg = Configuration()
+         cfg = self.cfg
+ 
+         # preset compiler flags
+@@ -189,7 +149,7 @@
+                                     'LIBS' : [ File('libsquirrel.a') ],
+                                     'CPPDEFINES' : [] # empty, but it is needed later on
+                                     }
+-        
++
+         cfg['windstille']    = { 'CPPPATH' : [ '.', 'src', 'src/scripting' ] }
+         cfg['test']          = { 'CPPDEFINES' : [ '__TEST__' ],
+                                  'OBJPREFIX'  : &quot;test__&quot; }
+@@ -202,14 +162,6 @@
+         cfg['wst_system']    = { 'LIBS' : [ File('libwst_system.a') ] }
+         cfg['wst_util']      = { 'LIBS' : [ File('libwst_util.a') ] }
+ 
+-        if False:
+-            print
+-            print &quot;Current Configuration:&quot;
+-            print &quot;======================&quot;
+-            for k, v in self.cfg.items():
+-                print &quot;cfg['%s'] = %s&quot; % (k, v)
+-            print
+-
+         if conf.Check32bit() == &quot;64bit&quot;:
+             # conf.env.Append(CXXFLAGS=&quot;-D_SQ64&quot;)
+             self.features[&quot;64bit&quot;] = True
+@@ -231,7 +183,7 @@
+     def build_all(self):
+         if sys.platform == 'darwin':        
+             self.build_sdl_main()
+-        
++
+         self.build_squirrel()
+         self.build_miniswig()
+         self.build_binreloc()                
+@@ -249,10 +201,10 @@
+         if self.features['64bit']:
+             pkg['CPPDEFINES'] = ['_SQ64']
+ 
+-        BuildStaticLibrary('squirrel',
++        self.cfg.StaticLibrary('squirrel',
+                            Glob('external/SQUIRREL2/squirrel/*.cpp') +
+                            Glob('external/SQUIRREL2/sqstdlib/*.cpp'),
+-                           [pkg], self.cfg)
++                           [pkg])
+ 
+     def build_miniswig(self):
+         miniswig_env = Environment()
+@@ -284,34 +236,34 @@
+                     miniswig_bin)
+ 
+     def build_binreloc(self):
+-        BuildStaticLibrary(&quot;binreloc&quot;, [&quot;external/binreloc-2.0/binreloc.c&quot;],
+-                           [ { 'CPPDEFINES' : [&quot;ENABLE_BINRELOC&quot;] } ], self.cfg)
++        self.cfg.StaticLibrary(&quot;binreloc&quot;, [&quot;external/binreloc-2.0/binreloc.c&quot;],
++                           [ { 'CPPDEFINES' : [&quot;ENABLE_BINRELOC&quot;] } ])
+ 
+     def build_sdl_main(self):
+-        BuildStaticLibrary(&quot;sdlmain&quot;, [&quot;src/macosx/SDLmain.m&quot;], 
+-                           [ 'SDL' ], self.cfg)
+-                           
++        self.cfg.StaticLibrary(&quot;sdlmain&quot;, [&quot;src/macosx/SDLmain.m&quot;], 
++                           [ 'SDL' ])
++
+     def build_wstlib(self):
+         pkgs = [ 'default', 'windstille', 'binreloc' ]
+-        BuildStaticLibrary('wst_util',
++        self.cfg.StaticLibrary('wst_util',
+                            Glob('src/lisp/*.cpp') +
+                            Glob('src/util/*.cpp'),
+-                           pkgs, self.cfg)
+-        BuildStaticLibrary('wst_math', Glob('src/math/*.cpp'), pkgs, self.cfg)
+-        BuildStaticLibrary('wst_navgraph', Glob('src/navigation/*.cpp'), pkgs, self.cfg)
+-        BuildStaticLibrary('wst_particles', Glob('src/particles/*.cpp'), pkgs, self.cfg)
+-        BuildStaticLibrary('wst_sound', Glob('src/sound/*.cpp'), pkgs, self.cfg)
+-        BuildStaticLibrary('wst_display', 
++                           pkgs)
++        self.cfg.StaticLibrary('wst_math', Glob('src/math/*.cpp'), pkgs)
++        self.cfg.StaticLibrary('wst_navgraph', Glob('src/navigation/*.cpp'), pkgs)
++        self.cfg.StaticLibrary('wst_particles', Glob('src/particles/*.cpp'), pkgs)
++        self.cfg.StaticLibrary('wst_sound', Glob('src/sound/*.cpp'), pkgs)
++        self.cfg.StaticLibrary('wst_display', 
+                            Glob('src/font/*.cpp') +
+                            Glob('src/display/*.cpp') +
+                            Glob('src/scenegraph/*.cpp') +
+                            Glob('src/sprite2d/*.cpp') +
+                            Glob('src/sprite3d/*.cpp'),
+-                           pkgs + [ 'freetype', 'SDL', 'SDL_image' ], self.cfg)
+-        BuildStaticLibrary('wst_system', Glob('src/system/*.cpp'), pkgs + [ 'SDL' ], self.cfg)
++                           pkgs + [ 'freetype', 'SDL', 'SDL_image' ])
++        self.cfg.StaticLibrary('wst_system', Glob('src/system/*.cpp'), pkgs + [ 'SDL' ])
+ 
+     def build_windstille(self):
+-        BuildProgram('windstille',
++        self.cfg.Program('windstille',
+                      Glob('src/app/*.cpp') +
+                      Glob('src/armature/*.cpp') +
+                      Glob('src/collision/*.cpp') +
+@@ -331,8 +283,7 @@
+                        'SDL', 'SDL_image',
+                        'OpenAL', 'ogg', 'vorbis', 'vorbisfile', 
+                        'squirrel', 'png', 'binreloc',
+-                       'boost_signals', 'boost_filesystem' ],
+-                     self.cfg)
++                       'boost_signals', 'boost_filesystem' ])
+ 
+     def build_windstille_editor(self):
+         pkgs = [ 'default',
+@@ -342,7 +293,7 @@
+                  'boost_filesystem',
+                  'gtkglextmm-1.2' , 'gtkmm-2.4', 'SDL', 'curl', 'png', 'binreloc', 'OpenGL', 'GLEW',
+                  'binreloc', 'jpeg' ]
+-        BuildProgram('windstille-editor', Glob('src/editor/*.cpp'), pkgs, self.cfg)
++        self.cfg.Program('windstille-editor', Glob('src/editor/*.cpp'), pkgs)
+ 
+         # FIXME: temporary dirty hack
+         # test_editor_env = editor_env.Clone(OBJPREFIX=&quot;test_&quot;)
+@@ -357,37 +308,37 @@
+                  'SDL_image', 'OpenGL', 'GLEW', 'png', 'boost_filesystem',
+                  'OpenAL', 'ogg', 'vorbis', 'vorbisfile', 'SDL']
+ 
+-        BuildProgram(&quot;slideshow&quot;, Glob(&quot;extra/slideshow/*.cpp&quot;) + Glob(&quot;extra/slideshow/plugins/*.cpp&quot;),
+-                     pkgs + [ { 'CPPPATH' : 'extra/' } ], self.cfg)
+-        BuildProgram(&quot;shadertest&quot;, Glob(&quot;extra/shadertest/*.cpp&quot;), pkgs, self.cfg)
+-        BuildProgram(&quot;lensflare&quot;, Glob(&quot;extra/lensflare/*.cpp&quot;), pkgs, self.cfg)
+-        BuildProgram(&quot;memleak&quot;, Glob(&quot;extra/memleak/*.cpp&quot;), pkgs, self.cfg)
++        self.cfg.Program(&quot;slideshow&quot;, Glob(&quot;extra/slideshow/*.cpp&quot;) + Glob(&quot;extra/slideshow/plugins/*.cpp&quot;),
++                     pkgs + [ { 'CPPPATH' : 'extra/' } ])
++        self.cfg.Program(&quot;shadertest&quot;, Glob(&quot;extra/shadertest/*.cpp&quot;), pkgs)
++        self.cfg.Program(&quot;lensflare&quot;, Glob(&quot;extra/lensflare/*.cpp&quot;), pkgs)
++        self.cfg.Program(&quot;memleak&quot;, Glob(&quot;extra/memleak/*.cpp&quot;), pkgs)
+ 
+         for filename in Glob(&quot;extra/*.cpp&quot;, strings=True):
+-            BuildProgram(filename[:-4], filename, pkgs, self.cfg)
++            self.cfg.Program(filename[:-4], filename, pkgs)
+ 
+     def build_test_apps(self):
+         pkgs = [ 'test', 'windstille' ]
+ 
+-        BuildProgram(&quot;test_babyxml&quot;, [&quot;src/util/baby_xml.cpp&quot;], pkgs, self.cfg)
+-        BuildProgram(&quot;test_response_curve&quot;, [&quot;src/util/response_curve.cpp&quot;], pkgs, self.cfg)
+-        BuildProgram(&quot;test_random&quot;, [&quot;src/math/random.cpp&quot;], pkgs, self.cfg)
+-        BuildProgram(&quot;test_pathname&quot;, [&quot;src/util/pathname.cpp&quot;], pkgs + [ 'boost_filesystem' ], self.cfg)
+-        BuildProgram(&quot;test_directory&quot;, [&quot;src/util/directory.cpp&quot;], pkgs + [ 'boost_filesystem', 'wst_util' ], self.cfg)
+-        BuildProgram(&quot;test_easing&quot;, [&quot;src/math/easing.cpp&quot;], pkgs, self.cfg)
+-        BuildProgram(&quot;reader_test&quot;, [&quot;test/read_test.cpp&quot;], pkgs + [ 'wst_util', 'SDL' ], self.cfg)
++        self.cfg.Program(&quot;test_babyxml&quot;, [&quot;src/util/baby_xml.cpp&quot;], pkgs)
++        self.cfg.Program(&quot;test_response_curve&quot;, [&quot;src/util/response_curve.cpp&quot;], pkgs)
++        self.cfg.Program(&quot;test_random&quot;, [&quot;src/math/random.cpp&quot;], pkgs)
++        self.cfg.Program(&quot;test_pathname&quot;, [&quot;src/util/pathname.cpp&quot;], pkgs + [ 'boost_filesystem' ])
++        self.cfg.Program(&quot;test_directory&quot;, [&quot;src/util/directory.cpp&quot;], pkgs + [ 'boost_filesystem', 'wst_util' ])
++        self.cfg.Program(&quot;test_easing&quot;, [&quot;src/math/easing.cpp&quot;], pkgs)
++        self.cfg.Program(&quot;reader_test&quot;, [&quot;test/read_test.cpp&quot;], pkgs + [ 'wst_util', 'SDL' ])
+ 
+-        BuildProgram(&quot;test_scissor_drawable&quot;, [&quot;test/scissor_drawable/scissor_drawable.cpp&quot;],
+-                     pkgs + [ 'SDL', 'OpenGL', 'GLEW', 'png', 'SDL_image', 'boost_filesystem', 
+-                              'wst_particles', 'wst_navgraph', 'wst_display', 'wst_math', 'wst_sound', 'wst_system', 'wst_util',
+-                              'binreloc' ],
+-                     self.cfg)
++        self.cfg.Program(&quot;test_scissor_drawable&quot;, [&quot;test/scissor_drawable/scissor_drawable.cpp&quot;],
++                         pkgs + [ 'SDL', 'OpenGL', 'GLEW', 'png', 'SDL_image', 'boost_filesystem', 
++                                  'wst_particles', 'wst_navgraph', 'wst_display', 'wst_math',
++                                  'wst_sound', 'wst_system', 'wst_util',
++                                  'binreloc' ])
+ 
+-        BuildProgram(&quot;test_shader_drawable&quot;, [ &quot;test/shader_drawable/shader_drawable.cpp&quot; ],
+-                     pkgs + [ 'SDL', 'OpenGL', 'GLEW', 'png', 'SDL_image', 'boost_filesystem', 
+-                              'wst_particles', 'wst_navgraph', 'wst_display', 'wst_math', 'wst_sound', 'wst_system', 'wst_util',
+-                              'binreloc' ],
+-                     self.cfg)
++        self.cfg.Program(&quot;test_shader_drawable&quot;, [ &quot;test/shader_drawable/shader_drawable.cpp&quot; ],
++                         pkgs + [ 'SDL', 'OpenGL', 'GLEW', 'png', 'SDL_image', 'boost_filesystem', 
++                                  'wst_particles', 'wst_navgraph', 'wst_display', 'wst_math',
++                                  'wst_sound', 'wst_system', 'wst_util',
++                                  'binreloc' ])
+ 
+     def build_windstille_data(self):
+         data_env = self.env.Clone()
+
+Modified: trunk/windstille/scons_enhancements.py
+===================================================================
+--- trunk/windstille/scons_enhancements.py	2010-10-24 21:13:50 UTC (rev 3417)
++++ trunk/windstille/scons_enhancements.py	2010-10-25 04:55:38 UTC (rev 3418)
+@@ -1 +1,73 @@
++# Make all normal SConstruct calls available
++from SCons.Script import *
++
++def MakeEnvironment(packages, cfg):
++    env = Environment(ENV=os.environ)
++
++    for pkg in packages:
++        if type(pkg) == str:
++            if pkg in cfg:
++                env.Append(**cfg[pkg])
++            else:
++                raise Exception(&quot;Unknown package: %s&quot; % pkg)
++        elif type(pkg) == dict:
++            env.Append(**pkg)
++        else:
++            raise Exception(&quot;Unknown package type: %s&quot; % pkg)
++
++    return env
++
++def BuildProgram(target, sources, packages = [], cfg = {}):
++    env = MakeEnvironment(packages, cfg)
++    return env.Program(target, sources)
++
++def BuildStaticLibrary(target, sources, packages = [], cfg = {}):
++    env = MakeEnvironment(packages, cfg)
++    return env.StaticLibrary(target, sources)
++
++def ParseConfig(cmd):
++    env = Environment()
++    env['ENV']['PATH'] = os.environ['PATH']
++    env.ParseConfig(cmd)
++
++    cfg = {}
++
++    for var in [ 'CCFLAGS', 'CPPDEFINES', 'CPPPATH', 'LIBS', 'LIBPATH' ]:
++        if var in env and env[var] != []:
++            cfg[var]  = env[var] 
++
++    # if 'CCFLAGS' in cfg:
++    #     cfg['CXXFLAGS'] = cfg['CCFLAGS']
++
++    return cfg
++
++class Configuration:
++    def __init__(self):
++        self.cfg = {}
++    
++    def __getitem__(self, key):
++        return self.cfg[key]
++
++    def __setitem__(self, key, value):
++        self.cfg[key] = value
++
++    def __delitem__(self, key):
++        del self.cfg[key]
++
++    def Program(self, target, sources, packages = []):
++        env = MakeEnvironment(packages, self.cfg)
++        return env.Program(target, sources)
++
++    def StaticLibrary(self, target, sources, packages = []):
++        env = MakeEnvironment(packages, self.cfg)
++        return env.StaticLibrary(target, sources)
++
++    def debug_print(self):
++        print
++        print &quot;Current Configuration:&quot;
++        print &quot;======================&quot;
++        for k, v in self.cfg.items():
++            print &quot;cfg['%s'] = %s&quot; % (k, v)
++        print
++
+ # EOF #
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002414.html">[Windstille-commit] r3417 - trunk/windstille/src/display
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2415">[ date ]</a>
+              <a href="thread.html#2415">[ thread ]</a>
+              <a href="subject.html#2415">[ subject ]</a>
+              <a href="author.html#2415">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,232 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1588 - in trunk/griv: . test
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1588%20-%20in%20trunk/griv%3A%20.%20test&In-Reply-To=%3C200803082200.m28M076g000504%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="001240.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1588 - in trunk/griv: . test</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1588%20-%20in%20trunk/griv%3A%20.%20test&In-Reply-To=%3C200803082200.m28M076g000504%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1588 - in trunk/griv: . test">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Mar  8 23:00:07 CET 2008</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="001240.html">[Windstille-commit] r1589 - trunk/griv/test
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1239">[ date ]</a>
+              <a href="thread.html#1239">[ thread ]</a>
+              <a href="subject.html#1239">[ subject ]</a>
+              <a href="author.html#1239">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-03-08 23:00:06 +0100 (Sat, 08 Mar 2008)
+New Revision: 1588
+
+Added:
+   trunk/griv/DATABASE
+   trunk/griv/test/
+   trunk/griv/test/SConstruct
+   trunk/griv/test/sqlite_test.cpp
+Modified:
+   trunk/griv/TODO
+   trunk/griv/workspace.cpp
+Log:
+- some sqlite test stuff
+
+Added: trunk/griv/DATABASE
+===================================================================
+--- trunk/griv/DATABASE	2008-01-06 08:56:52 UTC (rev 1587)
++++ trunk/griv/DATABASE	2008-03-08 22:00:06 UTC (rev 1588)
+@@ -0,0 +1,27 @@
++CREATE TABLE files (
++       -- rowid is automatically generated
++       filename  BLOB,
++       md5       TEXT,
++       filesize  INTEGER,
++       width     INTEGER,
++       height    INTEGER,
++       mtime     INTEGER
++);
++
++CREATE TABLE tiles (
++       tilesize   INTEGER, -- tile size in pixel (full size, i.e. &quot;256&quot;, even if the tile might be truncated)
++       zoom       INTEGER, -- zoom level
++       fileid     INTEGER, -- link to to files.rowid
++       x          INTEGER, -- x position in tiles
++       y          INTEGER, -- Y position in tiles
++       width      INTEGER, -- width of the tile
++       height     INTEGER, -- height of the tile
++       bloblength INTEGER, -- length of the imagedata BLOB
++       blob       BLOB     -- the image data (JPEG)
++);
++
++CREATE UNIQUE INDEX IF NOT EXISTS files_index ON files ( filename, md5, mtime );
++CREATE UNIQUE INDEX IF NOT EXISTS tiles_index ON tiles ( tilesize, zoom, fileid, x, y )
++
++/* EOF */
++
+
+Modified: trunk/griv/TODO
+===================================================================
+--- trunk/griv/TODO	2008-01-06 08:56:52 UTC (rev 1587)
++++ trunk/griv/TODO	2008-03-08 22:00:06 UTC (rev 1588)
+@@ -27,6 +27,8 @@
+ Less Important:
+ ===============
+ 
++- implement proper mipmapping for better rendering quality
++
+ - create two OpenGL context to allow better multithreading use (any
+   way to do it portable?) or move loading out of draw() and into
+   load(), only call load() till a time slice has run out, so that
+
+Added: trunk/griv/test/SConstruct
+===================================================================
+--- trunk/griv/test/SConstruct	2008-01-06 08:56:52 UTC (rev 1587)
++++ trunk/griv/test/SConstruct	2008-03-08 22:00:06 UTC (rev 1588)
+@@ -0,0 +1,7 @@
++# -*- python -*-
++
++sqlite_test_env = Environment(CXX=&quot;g++-4.2&quot;, CCFLAGS=[&quot;-Wall&quot;, &quot;-O2&quot;, &quot;-g&quot;])
++sqlite_test_env.ParseConfig(&quot;pkg-config sqlite3 --libs --cflags&quot;)
++sqlite_test = sqlite_test_env.Program('sqlite_test', ['sqlite_test.cpp'])
++
++# EOF #
+
+Added: trunk/griv/test/sqlite_test.cpp
+===================================================================
+--- trunk/griv/test/sqlite_test.cpp	2008-01-06 08:56:52 UTC (rev 1587)
++++ trunk/griv/test/sqlite_test.cpp	2008-03-08 22:00:06 UTC (rev 1588)
+@@ -0,0 +1,46 @@
++#include &lt;stdio.h&gt;
++#include &lt;stdlib.h&gt;
++#include &lt;sqlite3.h&gt;
++
++static int callback(void *NotUsed, int argc, char **argv, char **azColName){
++  int i;
++  for(i=0; i&lt;argc; i++){
++    printf(&quot;%s = %s\n&quot;, azColName[i], argv[i] ? argv[i] : &quot;NULL&quot;);
++  }
++  printf(&quot;\n&quot;);
++  return 0;
++}
++
++int main(int argc, char** argv)
++{
++  if( argc!=3 )
++    {
++      fprintf(stderr, &quot;Usage: %s DATABASE SQL-STATEMENT\n&quot;, argv[0]);
++      return 1;
++    } 
++  else 
++    {
++      sqlite3* db;
++
++      if( sqlite3_open(argv[1], &amp;db) )
++        {
++          fprintf(stderr, &quot;Can't open database: %s\n&quot;, sqlite3_errmsg(db));
++          sqlite3_close(db);
++          return 1;
++        }
++      else
++        {
++          char* zErrMsg = 0;
++          if( sqlite3_exec(db, argv[2], callback, 0, &amp;zErrMsg) != SQLITE_OK )
++            {
++              fprintf(stderr, &quot;SQL error: %s\n&quot;, zErrMsg);
++              sqlite3_free(zErrMsg);
++            }
++
++          sqlite3_close(db);
++          return 0;
++        }
++    }
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/test/sqlite_test.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/griv/workspace.cpp
+===================================================================
+--- trunk/griv/workspace.cpp	2008-01-06 08:56:52 UTC (rev 1587)
++++ trunk/griv/workspace.cpp	2008-03-08 22:00:06 UTC (rev 1588)
+@@ -140,10 +140,29 @@
+ {
+   int w = int(sqrt(aspect_w * images.size() / aspect_h));
+ 
+-  for(int i = 0; i &lt; int(images.size()); ++i)
++  if (1) // zick zag
++    { 
++      for(int i = 0; i &lt; int(images.size()); ++i)
++        {
++          if ((i/w) % 2 == 0)
++            {
++              images[i]-&gt;set_pos((i % w) * 1.03f,
++                                 (i / w) * 1.03f);
++            }
++          else
++            {
++              images[i]-&gt;set_pos((w - (i % w)-1) * 1.03f,
++                                 (i / w) * 1.03f);
++            }
++        }
++    }
++  else
+     {
+-      images[i]-&gt;set_pos((i % w) * 1.15f,
+-                         (i / w) * 1.15f);
++      for(int i = 0; i &lt; int(images.size()); ++i)
++        {
++          images[i]-&gt;set_pos((i % w) * 1.03f,
++                             (i / w) * 1.03f);
++        }
+     }
+ 
+   reorganize = true;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="001240.html">[Windstille-commit] r1589 - trunk/griv/test
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1239">[ date ]</a>
+              <a href="thread.html#1239">[ thread ]</a>
+              <a href="subject.html#1239">[ subject ]</a>
+              <a href="author.html#1239">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

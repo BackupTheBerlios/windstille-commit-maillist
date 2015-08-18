@@ -1,0 +1,219 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2771 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2771%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200903261735.n2QHZGHd007656%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001767.html">
+   <LINK REL="Next"  HREF="001769.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2771 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2771%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200903261735.n2QHZGHd007656%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2771 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Mar 26 18:35:16 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001767.html">[Windstille-commit] r2770 - in trunk/windstille: . src/editor
+</A></li>
+        <LI>Next message: <A HREF="001769.html">[Windstille-commit] r2772 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1768">[ date ]</a>
+              <a href="thread.html#1768">[ thread ]</a>
+              <a href="subject.html#1768">[ subject ]</a>
+              <a href="author.html#1768">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-26 18:35:08 +0100 (Thu, 26 Mar 2009)
+New Revision: 2771
+
+Modified:
+   trunk/windstille/src/editor/layer_widget.cpp
+   trunk/windstille/src/editor/layer_widget.hpp
+   trunk/windstille/src/editor/sector_model.hpp
+   trunk/windstille/src/editor/select_tool.cpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/editor/windstille_widget.hpp
+Log:
+Limit snapping to objects that are visible
+
+Modified: trunk/windstille/src/editor/layer_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/layer_widget.cpp	2009-03-26 04:16:49 UTC (rev 2770)
++++ trunk/windstille/src/editor/layer_widget.cpp	2009-03-26 17:35:08 UTC (rev 2771)
+@@ -74,5 +74,16 @@
+       buttons[i]-&gt;set_active(layers.get(i));
+     }
+ }
++
++Layers
++LayerWidget::get_layers() const
++{
++  Layers layers;
++  for(int i = 0; i &lt; layers.size(); ++i)
++    {
++      layers.set(i, buttons[i]-&gt;get_active());
++    }
++  return layers;
++}
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/layer_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/layer_widget.hpp	2009-03-26 04:16:49 UTC (rev 2770)
++++ trunk/windstille/src/editor/layer_widget.hpp	2009-03-26 17:35:08 UTC (rev 2771)
+@@ -21,9 +21,9 @@
+ 
+ #include &lt;gtkmm/toolitem.h&gt;
+ #include &lt;gtkmm/table.h&gt;
++
++#include &quot;layers.hpp&quot;
+ 
+-class Layers;
+-
+ class LayerWidget : public Gtk::ToolItem
+ {
+ private:
+@@ -37,6 +37,8 @@
+   void on_layer_toggle(Gtk::ToggleButton* button, int layer);
+   void update(const Layers&amp; layers);
+ 
++  Layers get_layers() const;
++
+   sigc::signal&lt;void, int, bool&gt; signal_layer_toggle;
+ 
+ private:
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-03-26 04:16:49 UTC (rev 2770)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-03-26 17:35:08 UTC (rev 2771)
+@@ -64,8 +64,10 @@
+   Gtk::TreeStore::iterator root_it;
+   Glib::RefPtr&lt;Gtk::TreeStore&gt; objects_tree;
+   Objects objects;
++  
++public:
++  typedef Objects::iterator iterator;
+ 
+-public:
+   SectorModel();
+ 
+   void add(const ObjectModelHandle&amp; object);
+@@ -96,6 +98,9 @@
+   void load(const std::string&amp; filename);
+   void write(FileWriter&amp; writer) const;
+ 
++  iterator begin() { return objects.begin(); }
++  iterator end() { return objects.end(); }
++
+ private:
+   SectorModel(const SectorModel&amp;);
+   SectorModel&amp; operator=(const SectorModel&amp;);
+
+Modified: trunk/windstille/src/editor/select_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/select_tool.cpp	2009-03-26 04:16:49 UTC (rev 2770)
++++ trunk/windstille/src/editor/select_tool.cpp	2009-03-26 17:35:08 UTC (rev 2771)
+@@ -81,17 +81,30 @@
+ Vector2f
+ SelectTool::process_snap(WindstilleWidget&amp; wst)
+ {
+-  std::set&lt;ObjectModelHandle&gt; objects(selection-&gt;begin(), selection-&gt;end());
++  // ignore all objects in the selection
++  std::set&lt;ObjectModelHandle&gt; ignore_objects(selection-&gt;begin(), selection-&gt;end());
++
++  if (!wst.get_draw_only_active_layer())
++    {
++      // ignore all objects not on the current active layer
++      for(SectorModel::iterator i = wst.get_sector_model()-&gt;begin();
++          i != wst.get_sector_model()-&gt;end(); ++i)
++        {
++          if (!wst.get_layer_mask().match((*i)-&gt;get_layers()))
++            ignore_objects.insert(*i);
++        }
++    }
++
+   SnapData best_snap;
+ 
+   for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
+     {
+-      SnapData snap = wst.get_sector_model()-&gt;snap_object((*i)-&gt;get_bounding_box(), objects);
++      SnapData snap = wst.get_sector_model()-&gt;snap_object((*i)-&gt;get_bounding_box(), ignore_objects);
+       best_snap.merge(snap);
+     }
+               
+   return best_snap.offset;
+- }
++}
+ 
+ bool
+ SelectTool::mouse_move(GdkEventMotion* event, WindstilleWidget&amp; wst)
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-03-26 04:16:49 UTC (rev 2770)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-03-26 17:35:08 UTC (rev 2771)
+@@ -213,9 +213,9 @@
+         sc-&gt;color().fill_screen(Color());
+ 
+       if (draw_only_active_layers)
++        sector_model-&gt;draw(*sc, Layers());
++      else
+         sector_model-&gt;draw(*sc, layer_mask);
+-      else
+-        sector_model-&gt;draw(*sc, Layers());
+ 
+       for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
+         {
+
+Modified: trunk/windstille/src/editor/windstille_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.hpp	2009-03-26 04:16:49 UTC (rev 2770)
++++ trunk/windstille/src/editor/windstille_widget.hpp	2009-03-26 17:35:08 UTC (rev 2771)
+@@ -120,6 +120,7 @@
+ 
+   void set_draw_background_pattern(bool v) { draw_background_pattern = v; }
+   void set_draw_only_active_layer(bool v) { draw_only_active_layers = v; }
++  bool get_draw_only_active_layer() const { return draw_only_active_layers; }
+ 
+ private:
+   WindstilleWidget (const WindstilleWidget&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001767.html">[Windstille-commit] r2770 - in trunk/windstille: . src/editor
+</A></li>
+	<LI>Next message: <A HREF="001769.html">[Windstille-commit] r2772 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1768">[ date ]</a>
+              <a href="thread.html#1768">[ thread ]</a>
+              <a href="subject.html#1768">[ subject ]</a>
+              <a href="author.html#1768">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,856 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2679 - trunk/windstille/src/scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2679%20-%20trunk/windstille/src/scripting&In-Reply-To=%3C200903162001.n2GK1cQD009313%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001675.html">
+   <LINK REL="Next"  HREF="001677.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2679 - trunk/windstille/src/scripting</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2679%20-%20trunk/windstille/src/scripting&In-Reply-To=%3C200903162001.n2GK1cQD009313%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2679 - trunk/windstille/src/scripting">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Mar 16 21:01:38 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001675.html">[Windstille-commit] r2678 - trunk/windstille/src/display
+</A></li>
+        <LI>Next message: <A HREF="001677.html">[Windstille-commit] r2680 - trunk/windstille/src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1676">[ date ]</a>
+              <a href="thread.html#1676">[ thread ]</a>
+              <a href="subject.html#1676">[ subject ]</a>
+              <a href="author.html#1676">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-16 21:01:36 +0100 (Mon, 16 Mar 2009)
+New Revision: 2679
+
+Modified:
+   trunk/windstille/src/scripting/interface.cpp
+   trunk/windstille/src/scripting/interface.hpp
+   trunk/windstille/src/scripting/util.cpp
+   trunk/windstille/src/scripting/wrapper.cpp
+   trunk/windstille/src/scripting/wrapper.interface.hpp
+Log:
+Added type checking to __custom scripts, rewrote parts of table_to_lisp()
+
+Modified: trunk/windstille/src/scripting/interface.cpp
+===================================================================
+--- trunk/windstille/src/scripting/interface.cpp	2009-03-16 02:10:30 UTC (rev 2678)
++++ trunk/windstille/src/scripting/interface.cpp	2009-03-16 20:01:36 UTC (rev 2679)
+@@ -165,7 +165,7 @@
+   return SpeechManager::current()-&gt;add(text, Vector2f(x, y), Color(r, g, b));
+ }
+ 
+-void wait_for_speech(HSQUIRRELVM vm, int i) __suspend
++void wait_for_speech(HSQUIRRELVM vm, int i)
+ {
+   ScriptManager::WakeupData data;
+   data.type = ScriptManager::SPEECH_DONE;
+@@ -266,18 +266,29 @@
+     }
+ }
+ 
+-SQInteger display(HSQUIRRELVM v) __custom
++SQInteger display(HSQUIRRELVM v)
+ {
+   console &lt;&lt; squirrel2string(v, -1);
++  sq_pop(v, 1);
+   return 0;
+ }
+ 
+-SQInteger println(HSQUIRRELVM v) __custom
++SQInteger println(HSQUIRRELVM v)
+ {
+   console &lt;&lt; squirrel2string(v, -1) &lt;&lt; std::endl;
++  sq_pop(v, 1);
+   return 0;
+ }
+ 
++SQInteger print_stack(HSQUIRRELVM v) __custom(&quot;&quot;)
++{
++  SQInteger top = sq_gettop(v);
++  for(int i = 1; i &lt;= top; ++i)
++    console &lt;&lt; i &lt;&lt; &quot; &quot; &lt;&lt; squirrel2string(v, i) &lt;&lt; std::endl;
++
++  return 0;
++}
++
+ void set_debug(bool t)
+ {
+   debug = t;
+@@ -350,18 +361,18 @@
+   using namespace lisp;
+   
+   const char* objname;
+-  sq_getstring(v, 2, &amp;objname);
++  sq_getstring(v, -2, &amp;objname);
+ 
+   // FIXME: Do we memleak here?
+   std::vector&lt;lisp::Lisp*&gt; entries;
+   entries.push_back(new Lisp(Lisp::TYPE_SYMBOL, objname));
+-  table_to_lisp(v, 3, entries);
++  table_to_lisp(v, -1, entries);
+ 
+   try 
+     {
+       SExprFileReader reader(new Lisp(entries), true);
+       Sector::current()-&gt;add_object(reader);
+-    } 
++    }
+   catch (std::exception&amp; e) 
+     {
+       std::cerr &lt;&lt; &quot;Error parsing object in spawn_object: &quot; &lt;&lt; e.what()
+@@ -376,7 +387,7 @@
+   ScriptManager::current()-&gt;run_script_file(Sector::current()-&gt;get_directory() + filename);
+ }
+ 
+-SQInteger spawn_function(HSQUIRRELVM v) __custom
++SQInteger spawn_function(HSQUIRRELVM v)
+ {
+   boost::shared_ptr&lt;SquirrelThread&gt; thread = ScriptManager::current()-&gt;create_script(v, false);
+   thread-&gt;load(v, -1);
+@@ -385,6 +396,25 @@
+   return 0;
+ }
+ 
++SQInteger lisp2string(HSQUIRRELVM v) 
++{
++  std::vector&lt;lisp::Lisp*&gt; entries;
++
++  entries.push_back(new lisp::Lisp(lisp::Lisp::TYPE_SYMBOL, &quot;TABLE&quot;));
++  table_to_lisp(v, -1, entries);
++
++  for(std::vector&lt;lisp::Lisp*&gt;::iterator i = entries.begin(); i != entries.end(); ++i)
++    {
++      console &lt;&lt; (i - entries.begin()) &lt;&lt; &quot;: &quot;;
++      std::stringstream str;
++      (*i)-&gt;print(str);
++      console &lt;&lt; str.str();
++      console &lt;&lt; std::endl;
++    }
++   
++  return 0;
++}
++
+ } // namespace Scripting
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/scripting/interface.hpp
+===================================================================
+--- trunk/windstille/src/scripting/interface.hpp	2009-03-16 02:10:30 UTC (rev 2678)
++++ trunk/windstille/src/scripting/interface.hpp	2009-03-16 20:01:36 UTC (rev 2679)
+@@ -24,6 +24,29 @@
+ #include &lt;squirrel.h&gt;
+ #endif
+ 
++/*
++  List of sq_setparamscheck() types:
++
++  '|' can be used as 'or' to accept multiple type
++
++  'o' null
++  'i' integer
++  'f' float
++  'n' integer or float
++  's' string
++  't' table
++  'a' array
++  'u' userdata
++  'c' closure and nativeclosure
++  'g' generator
++  'p' userpointer
++  'v' thread
++  'x' instance(class instance)
++  'y' class
++  'b' bool
++  '.' any type
++*/
++
+ namespace Scripting {
+ 
+ void set_sector(const std::string&amp; filename);
+@@ -89,8 +112,9 @@
+ //Waits the specified time in seconds.
+ void wait(HSQUIRRELVM vm, float time) __suspend;
+ 
+-SQInteger display(HSQUIRRELVM) __custom;
+-SQInteger println(HSQUIRRELVM) __custom;
++SQInteger display(HSQUIRRELVM) __custom(&quot;t.&quot;);
++SQInteger println(HSQUIRRELVM) __custom(&quot;t.&quot;);
++SQInteger print_stack(HSQUIRRELVM) __custom(&quot;t&quot;);
+ 
+ void set_console_font(const std::string&amp; font, int size);
+ void set_gamma(float g);
+@@ -107,6 +131,8 @@
+ int  render_mask_get();
+ void render_mask_set(int mask);
+ 
++SQInteger lisp2string(HSQUIRRELVM v) __custom(&quot;tt|a&quot;);
++
+ /**
+  * Spawn object. Parameters:
+  *    name:    string with name of object
+@@ -114,10 +140,10 @@
+  *
+  * Example: spawn_object(&quot;scriptable-object&quot;, {name=&quot;blup&quot;, pos=[350,370], sprite=&quot;images/arrow.sprite&quot;});
+  */
+-SQInteger spawn_object(HSQUIRRELVM v) __custom;
++SQInteger spawn_object(HSQUIRRELVM v) __custom(&quot;tst&quot;);
+ 
+ void spawn_script(const std::string&amp; filename);
+-SQInteger spawn_function(HSQUIRRELVM v) __custom;
++SQInteger spawn_function(HSQUIRRELVM v) __custom(&quot;c&quot;);
+ 
+ } // namespace Scripting
+ 
+
+Modified: trunk/windstille/src/scripting/util.cpp
+===================================================================
+--- trunk/windstille/src/scripting/util.cpp	2009-03-16 02:10:30 UTC (rev 2678)
++++ trunk/windstille/src/scripting/util.cpp	2009-03-16 20:01:36 UTC (rev 2679)
+@@ -33,85 +33,102 @@
+ 
+ std::string sq_to_lisp_string(std::string sq_str)
+ {
+-  for (unsigned i = 0; i != sq_str.size(); ++i) {
+-    if (sq_str[i] == '_')
+-      sq_str[i] = '-';
+-  }
++  for (unsigned i = 0; i != sq_str.size(); ++i)
++    {
++      if (sq_str[i] == '_')
++        sq_str[i] = '-';
++    }
+   
+   return sq_str;
+ }
+ 
+ void sq_to_lisp(HSQUIRRELVM v, std::vector&lt;lisp::Lisp*&gt;&amp; entries)
+ {
+-  switch(sq_gettype(v, -1)) {
+-    case OT_INTEGER: {
+-      SQInteger val;
+-      sq_getinteger(v, -1, &amp;val);
+-      entries.push_back(new lisp::Lisp(static_cast&lt;int&gt;(val)));
+-      break;
++  switch(sq_gettype(v, -1))
++    {
++      case OT_INTEGER: {
++        SQInteger val;
++        sq_getinteger(v, -1, &amp;val);
++        entries.push_back(new lisp::Lisp(static_cast&lt;int&gt;(val)));
++        break;
++      }
++      case OT_FLOAT: {
++        float val;
++        sq_getfloat(v, -1, &amp;val);
++        entries.push_back(new lisp::Lisp(val));
++        break;
++      }
++      case OT_STRING: {
++        const char* str;
++        sq_getstring(v, -1, &amp;str);      
++        entries.push_back(new lisp::Lisp(lisp::Lisp::TYPE_STRING, str));
++        break;
++      }                                                    
++      case OT_BOOL: {
++        SQBool boolean;
++        sq_getbool(v, -1, &amp;boolean);
++        entries.push_back(new lisp::Lisp((bool) boolean));
++        break;
++      }
++      case OT_ARRAY:
++      case OT_TABLE: {
++        table_to_lisp(v, -1, entries);
++        break;
++      }
++      default:
++        std::cerr &lt;&lt; &quot;Unsupported value type in table\n&quot;;
++        break;
+     }
+-    case OT_FLOAT: {
+-      float val;
+-      sq_getfloat(v, -1, &amp;val);
+-      entries.push_back(new lisp::Lisp(val));
+-      break;
+-    }
+-    case OT_STRING: {
+-      const char* str;
+-      sq_getstring(v, -1, &amp;str);      
+-      entries.push_back(new lisp::Lisp(lisp::Lisp::TYPE_STRING, str));
+-      break;
+-    }                                                    
+-    case OT_BOOL: {
+-      SQBool boolean;
+-      sq_getbool(v, -1, &amp;boolean);
+-      entries.push_back(new lisp::Lisp((bool) boolean));
+-      break;
+-    }
+-    case OT_ARRAY:
+-    case OT_TABLE: {
+-      table_to_lisp(v, -1, entries);
+-      break;
+-    }
+-    default:
+-      std::cerr &lt;&lt; &quot;Unsupported value type in table\n&quot;;
+-      break;
+-  }
+ }
+ 
+-void table_to_lisp(HSQUIRRELVM v, int table_idx, std::vector&lt;lisp::Lisp*&gt;&amp; entries)
++void table_to_lisp(HSQUIRRELVM v, int idx, std::vector&lt;lisp::Lisp*&gt;&amp; entries)
+ {
+-  // offset because of sq_pushnull
+-  if(table_idx &lt; 0)
+-    table_idx--;
++  SQObjectType type = sq_gettype(v, idx);
+ 
+-  // iterate table
+-  sq_pushnull(v);
+-  while(SQ_SUCCEEDED(sq_next(v, table_idx))) {
+-    // key is -2, value -1 now
+-    if(sq_gettype(v, table_idx) == OT_TABLE) {
+-      if(sq_gettype(v, -2) != OT_STRING) {
+-        std::cerr &lt;&lt; &quot;Table contains a non string key\n&quot;;
+-        continue;
+-      }
++  if (type != OT_TABLE &amp;&amp; type != OT_ARRAY)
++    {
++      print_squirrel_stack(v, &quot;table_to_lisp&quot;);
++      throw std::runtime_error(&quot;table_to_lisp: no table or array at the given index&quot;);
++    }
++  else
++    {
++      sq_push(v, idx);
+ 
+-      const char* key;
+-      sq_getstring(v, -2, &amp;key);
+-      std::string lisp_key = sq_to_lisp_string(key);
++      // iterate table
++      sq_pushnull(v);
++      while (SQ_SUCCEEDED(sq_next(v, -2)))
++        {
++          if (type == OT_ARRAY)
++            {
++              sq_to_lisp(v, entries);
++            }
++          else if (type == OT_TABLE)
++            {
++              // table/array is -3, key is -2, value -1 now
++              if (sq_gettype(v, -2) != OT_STRING)
++                {
++                  std::cerr &lt;&lt; &quot;Table contains a non string key\n&quot;;
++                }
++              else
++                {
++                  const char* key = 0;
++                  sq_getstring(v, -2, &amp;key);
++                  std::string lisp_key = sq_to_lisp_string(key);
+ 
+-      std::vector&lt;lisp::Lisp*&gt; childs;
+-      childs.push_back(new lisp::Lisp(lisp::Lisp::TYPE_SYMBOL, lisp_key));
+-      sq_to_lisp(v, childs);
+-      entries.push_back(new lisp::Lisp(childs));
+-    } else {
+-      sq_to_lisp(v, entries);
++                  std::vector&lt;lisp::Lisp*&gt; childs;
++                  childs.push_back(new lisp::Lisp(lisp::Lisp::TYPE_SYMBOL, lisp_key));
++                  sq_to_lisp(v, childs);
++                  entries.push_back(new lisp::Lisp(childs));
++                }
++            }
++    
++          // pop key and value
++          sq_pop(v, 2);
++        }
++
++      // pop iterator and table
++      sq_pop(v, 2);
+     }
+-    
+-    // pop table key and value
+-    sq_pop(v, 2);
+-  }
+-  // pop iterator
+-  sq_pop(v, 1);
+ }
+ 
+ std::string squirrel2string(HSQUIRRELVM v, int i)
+@@ -155,9 +172,10 @@
+         sq_pushnull(v);  //null iterator
+         while(SQ_SUCCEEDED(sq_next(v,i-1)))
+           {
+-            if (!first) {
+-              os &lt;&lt; &quot;, \n&quot;;
+-            }
++            if (!first)
++              {
++                os &lt;&lt; &quot;, \n&quot;;
++              }
+             first = false;
+ 
+             //here -1 is the value and -2 is the key
+@@ -176,9 +194,10 @@
+         sq_pushnull(v);  //null iterator
+         while(SQ_SUCCEEDED(sq_next(v,i-1)))
+           {
+-            if (!first) {
+-              os &lt;&lt; &quot;, &quot;;
+-            }
++            if (!first)
++              {
++                os &lt;&lt; &quot;, &quot;;
++              }
+             first = false;
+ 
+             //here -1 is the value and -2 is the key
+@@ -301,39 +320,42 @@
+   
+   Properties props(lisp);
+   PropertyIterator&lt;const lisp::Lisp*&gt; iter = props.get_iter();
+-  while(iter.next()) {
+-    sq_pushstring(v, iter.item().c_str(), iter.item().size());
+-    switch((*iter)-&gt;get_type()) {
+-      case lisp::Lisp::TYPE_LIST:
+-        sq_newtable(v);
+-        load_squirrel_table(v, sq_gettop(v), *iter);
+-        break;
+-      case lisp::Lisp::TYPE_INT:
+-        sq_pushinteger(v, (*iter)-&gt;get_int());
+-        break;
+-      case lisp::Lisp::TYPE_FLOAT:
+-        sq_pushfloat(v, (*iter)-&gt;get_float());
+-        break;
+-      case lisp::Lisp::TYPE_STRING:
+-        sq_pushstring(v, (*iter)-&gt;get_string(), -1);
+-        break;
+-      case lisp::Lisp::TYPE_BOOL:
+-        sq_pushbool(v, (*iter)-&gt;get_bool());
+-        break;
+-      case lisp::Lisp::TYPE_SYMBOL:
+-        std::cerr &lt;&lt; &quot;Unexpected symbol in lisp file...&quot;;
+-        sq_pushnull(v);
+-        break;
+-      default:
+-        assert(false);
+-        break;
++  while(iter.next())
++    {
++      sq_pushstring(v, iter.item().c_str(), iter.item().size());
++      switch((*iter)-&gt;get_type())
++        {
++          case lisp::Lisp::TYPE_LIST:
++            sq_newtable(v);
++            load_squirrel_table(v, sq_gettop(v), *iter);
++            break;
++          case lisp::Lisp::TYPE_INT:
++            sq_pushinteger(v, (*iter)-&gt;get_int());
++            break;
++          case lisp::Lisp::TYPE_FLOAT:
++            sq_pushfloat(v, (*iter)-&gt;get_float());
++            break;
++          case lisp::Lisp::TYPE_STRING:
++            sq_pushstring(v, (*iter)-&gt;get_string(), -1);
++            break;
++          case lisp::Lisp::TYPE_BOOL:
++            sq_pushbool(v, (*iter)-&gt;get_bool());
++            break;
++          case lisp::Lisp::TYPE_SYMBOL:
++            std::cerr &lt;&lt; &quot;Unexpected symbol in lisp file...&quot;;
++            sq_pushnull(v);
++            break;
++          default:
++            assert(false);
++            break;
++        }
++      if (table_idx &lt; 0)
++        {
++          sq_createslot(v, table_idx - 2);
++        } else {
++        sq_createslot(v, table_idx);
++      }
+     }
+-    if(table_idx &lt; 0) {
+-      sq_createslot(v, table_idx - 2);
+-    } else {
+-      sq_createslot(v, table_idx);
+-    }
+-  }
+ }
+ 
+ void load_squirrel_table(HSQUIRRELVM v, int table_idx, const std::string&amp; file)
+@@ -343,7 +365,7 @@
+ 
+   Properties rootp(root.get());
+   const lisp::Lisp* table = 0;
+-  if(rootp.get(&quot;squirrel-state&quot;, table) == false)
++  if (rootp.get(&quot;squirrel-state&quot;, table) == false)
+     throw std::runtime_error(&quot;Not a squirrel-state file&quot;);
+ 
+   load_squirrel_table(v, table_idx, table);
+@@ -352,60 +374,63 @@
+ void save_squirrel_table(HSQUIRRELVM v, int table_idx, lisp::Writer&amp; writer)
+ {
+   // offset because of sq_pushnull
+-  if(table_idx &lt; 0)
++  if (table_idx &lt; 0)
+     table_idx--;
+   
+   //iterator table
+   sq_pushnull(v);
+-  while(SQ_SUCCEEDED(sq_next(v, table_idx))) {
+-    if(sq_gettype(v, -2) != OT_STRING) {
+-      std::cerr &lt;&lt; &quot;Table contains non-string key\n&quot;;
+-      continue;
+-    }
+-    const char* key;
+-    sq_getstring(v, -2, &amp;key);
++  while(SQ_SUCCEEDED(sq_next(v, table_idx)))
++    {
++      if (sq_gettype(v, -2) != OT_STRING)
++        {
++          std::cerr &lt;&lt; &quot;Table contains non-string key\n&quot;;
++          continue;
++        }
++      const char* key;
++      sq_getstring(v, -2, &amp;key);
+ 
+-    switch(sq_gettype(v, -1)) {
+-      case OT_INTEGER: {
+-        SQInteger val;
+-        sq_getinteger(v, -1, &amp;val);
+-        writer.write_int(key, val);
+-        break;
+-      }
+-      case OT_FLOAT: {
+-        float val;
+-        sq_getfloat(v, -1, &amp;val);
+-        writer.write_float(key, val);
+-        break;
+-      }
+-      case OT_BOOL: {
+-        SQBool val;
+-        sq_getbool(v, -1, &amp;val);
+-        writer.write_bool(key, val);
+-        break;
+-      }
+-      case OT_STRING: {
+-        const char* str;
+-        sq_getstring(v, -1, &amp;str);
+-        writer.write_string(key, str);
+-        break;
+-      }
+-      case OT_TABLE: {
+-        writer.start_list(key);
+-        save_squirrel_table(v, -1, writer);
+-        writer.end_list(key);
+-        break;
+-      }
+-      case OT_CLOSURE:
+-        break; // ignore
+-      case OT_NATIVECLOSURE:
+-        break;
+-      default:
+-        std::cerr &lt;&lt; &quot;Can't serialize key '&quot; &lt;&lt; key &lt;&lt; &quot;' in table.\n&quot;;
+-        break;
++      switch(sq_gettype(v, -1))
++        {
++          case OT_INTEGER: {
++            SQInteger val;
++            sq_getinteger(v, -1, &amp;val);
++            writer.write_int(key, val);
++            break;
++          }
++          case OT_FLOAT: {
++            float val;
++            sq_getfloat(v, -1, &amp;val);
++            writer.write_float(key, val);
++            break;
++          }
++          case OT_BOOL: {
++            SQBool val;
++            sq_getbool(v, -1, &amp;val);
++            writer.write_bool(key, val);
++            break;
++          }
++          case OT_STRING: {
++            const char* str;
++            sq_getstring(v, -1, &amp;str);
++            writer.write_string(key, str);
++            break;
++          }
++          case OT_TABLE: {
++            writer.start_list(key);
++            save_squirrel_table(v, -1, writer);
++            writer.end_list(key);
++            break;
++          }
++          case OT_CLOSURE:
++            break; // ignore
++          case OT_NATIVECLOSURE:
++            break;
++          default:
++            std::cerr &lt;&lt; &quot;Can't serialize key '&quot; &lt;&lt; key &lt;&lt; &quot;' in table.\n&quot;;
++            break;
++        }
++      sq_pop(v, 2);
+     }
+-    sq_pop(v, 2);
+-  }
+   sq_pop(v, 1);
+ }
+ 
+
+Modified: trunk/windstille/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/windstille/src/scripting/wrapper.cpp	2009-03-16 02:10:30 UTC (rev 2678)
++++ trunk/windstille/src/scripting/wrapper.cpp	2009-03-16 20:01:36 UTC (rev 2679)
+@@ -1336,6 +1336,11 @@
+   return Scripting::println(vm);
+ }
+ 
++static SQInteger print_stack_wrapper(HSQUIRRELVM vm)
++{
++  return Scripting::print_stack(vm);
++}
++
+ static SQInteger set_console_font_wrapper(HSQUIRRELVM vm)
+ {
+   const SQChar* arg0;
+@@ -1580,6 +1585,11 @@
+ 
+ }
+ 
++static SQInteger lisp2string_wrapper(HSQUIRRELVM vm)
++{
++  return Scripting::lisp2string(vm);
++}
++
+ static SQInteger spawn_object_wrapper(HSQUIRRELVM vm)
+ {
+   return Scripting::spawn_object(vm);
+@@ -1774,7 +1784,7 @@
+ 
+   sq_pushstring(v, &quot;stop_music&quot;, -1);
+   sq_newclosure(v, &amp;stop_music_wrapper, 0);
+-  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t f|i &quot;);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t n &quot;);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+     throw SquirrelError(v, &quot;Couldn't register function 'stop_music'&quot;);
+   }
+@@ -1830,7 +1840,7 @@
+ 
+   sq_pushstring(v, &quot;camera_add_point&quot;, -1);
+   sq_newclosure(v, &amp;camera_add_point_wrapper, 0);
+-  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t f|i f|i f|i &quot;);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t n n n &quot;);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+     throw SquirrelError(v, &quot;Couldn't register function 'camera_add_point'&quot;);
+   }
+@@ -1844,21 +1854,21 @@
+ 
+   sq_pushstring(v, &quot;camera_set_pos&quot;, -1);
+   sq_newclosure(v, &amp;camera_set_pos_wrapper, 0);
+-  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t f|i f|i &quot;);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t n n &quot;);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+     throw SquirrelError(v, &quot;Couldn't register function 'camera_set_pos'&quot;);
+   }
+ 
+   sq_pushstring(v, &quot;camera_set_zoom&quot;, -1);
+   sq_newclosure(v, &amp;camera_set_zoom_wrapper, 0);
+-  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t f|i &quot;);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t n &quot;);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+     throw SquirrelError(v, &quot;Couldn't register function 'camera_set_zoom'&quot;);
+   }
+ 
+   sq_pushstring(v, &quot;speech_show&quot;, -1);
+   sq_newclosure(v, &amp;speech_show_wrapper, 0);
+-  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t s f|i f|i f|i f|i f|i &quot;);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t s n n n n n &quot;);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+     throw SquirrelError(v, &quot;Couldn't register function 'speech_show'&quot;);
+   }
+@@ -2005,30 +2015,39 @@
+ 
+   sq_pushstring(v, &quot;set_game_speed&quot;, -1);
+   sq_newclosure(v, &amp;set_game_speed_wrapper, 0);
+-  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t f|i &quot;);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t n &quot;);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+     throw SquirrelError(v, &quot;Couldn't register function 'set_game_speed'&quot;);
+   }
+ 
+   sq_pushstring(v, &quot;wait&quot;, -1);
+   sq_newclosure(v, &amp;wait_wrapper, 0);
+-  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t f|i &quot;);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t n &quot;);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+     throw SquirrelError(v, &quot;Couldn't register function 'wait'&quot;);
+   }
+ 
+   sq_pushstring(v, &quot;display&quot;, -1);
+   sq_newclosure(v, &amp;display_wrapper, 0);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;t.&quot;);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+     throw SquirrelError(v, &quot;Couldn't register function 'display'&quot;);
+   }
+ 
+   sq_pushstring(v, &quot;println&quot;, -1);
+   sq_newclosure(v, &amp;println_wrapper, 0);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;t.&quot;);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+     throw SquirrelError(v, &quot;Couldn't register function 'println'&quot;);
+   }
+ 
++  sq_pushstring(v, &quot;print_stack&quot;, -1);
++  sq_newclosure(v, &amp;print_stack_wrapper, 0);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;t&quot;);
++  if(SQ_FAILED(sq_createslot(v, -3))) {
++    throw SquirrelError(v, &quot;Couldn't register function 'print_stack'&quot;);
++  }
++
+   sq_pushstring(v, &quot;set_console_font&quot;, -1);
+   sq_newclosure(v, &amp;set_console_font_wrapper, 0);
+   sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t s i &quot;);
+@@ -2038,14 +2057,14 @@
+ 
+   sq_pushstring(v, &quot;set_gamma&quot;, -1);
+   sq_newclosure(v, &amp;set_gamma_wrapper, 0);
+-  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t f|i &quot;);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t n &quot;);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+     throw SquirrelError(v, &quot;Couldn't register function 'set_gamma'&quot;);
+   }
+ 
+   sq_pushstring(v, &quot;set_gamma_rgb&quot;, -1);
+   sq_newclosure(v, &amp;set_gamma_rgb_wrapper, 0);
+-  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t f|i f|i f|i &quot;);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t n n n &quot;);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+     throw SquirrelError(v, &quot;Couldn't register function 'set_gamma_rgb'&quot;);
+   }
+@@ -2073,14 +2092,14 @@
+ 
+   sq_pushstring(v, &quot;internal_fadeout_rgb&quot;, -1);
+   sq_newclosure(v, &amp;internal_fadeout_rgb_wrapper, 0);
+-  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t f|i f|i f|i f|i &quot;);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t n n n n &quot;);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+     throw SquirrelError(v, &quot;Couldn't register function 'internal_fadeout_rgb'&quot;);
+   }
+ 
+   sq_pushstring(v, &quot;internal_fadein&quot;, -1);
+   sq_newclosure(v, &amp;internal_fadein_wrapper, 0);
+-  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t f|i &quot;);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t n &quot;);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+     throw SquirrelError(v, &quot;Couldn't register function 'internal_fadein'&quot;);
+   }
+@@ -2099,8 +2118,16 @@
+     throw SquirrelError(v, &quot;Couldn't register function 'render_mask_set'&quot;);
+   }
+ 
++  sq_pushstring(v, &quot;lisp2string&quot;, -1);
++  sq_newclosure(v, &amp;lisp2string_wrapper, 0);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;tt|a&quot;);
++  if(SQ_FAILED(sq_createslot(v, -3))) {
++    throw SquirrelError(v, &quot;Couldn't register function 'lisp2string'&quot;);
++  }
++
+   sq_pushstring(v, &quot;spawn_object&quot;, -1);
+   sq_newclosure(v, &amp;spawn_object_wrapper, 0);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;tst&quot;);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+     throw SquirrelError(v, &quot;Couldn't register function 'spawn_object'&quot;);
+   }
+@@ -2114,6 +2141,7 @@
+ 
+   sq_pushstring(v, &quot;spawn_function&quot;, -1);
+   sq_newclosure(v, &amp;spawn_function_wrapper, 0);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;c&quot;);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+     throw SquirrelError(v, &quot;Couldn't register function 'spawn_function'&quot;);
+   }
+@@ -2189,7 +2217,7 @@
+ 
+   sq_pushstring(v, &quot;set_pos&quot;, -1);
+   sq_newclosure(v, &amp;TestObject_set_pos_wrapper, 0);
+-  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t f|i f|i &quot;);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t n n &quot;);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+     throw SquirrelError(v, &quot;Couldn't register function 'set_pos'&quot;);
+   }
+@@ -2250,14 +2278,14 @@
+   }
+   sq_pushstring(v, &quot;move_to&quot;, -1);
+   sq_newclosure(v, &amp;ScriptableObject_move_to_wrapper, 0);
+-  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t f|i f|i f|i f|i &quot;);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t n n n n &quot;);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+     throw SquirrelError(v, &quot;Couldn't register function 'move_to'&quot;);
+   }
+ 
+   sq_pushstring(v, &quot;start_flash&quot;, -1);
+   sq_newclosure(v, &amp;ScriptableObject_start_flash_wrapper, 0);
+-  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t f|i &quot;);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t n &quot;);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+     throw SquirrelError(v, &quot;Couldn't register function 'start_flash'&quot;);
+   }
+
+Modified: trunk/windstille/src/scripting/wrapper.interface.hpp
+===================================================================
+--- trunk/windstille/src/scripting/wrapper.interface.hpp	2009-03-16 02:10:30 UTC (rev 2678)
++++ trunk/windstille/src/scripting/wrapper.interface.hpp	2009-03-16 20:01:36 UTC (rev 2679)
+@@ -17,7 +17,7 @@
+ */
+ 
+ #ifndef SCRIPTING_API
+-#  define __custom
++#  define __custom(x)
+ #  define __suspend
+ #endif
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001675.html">[Windstille-commit] r2678 - trunk/windstille/src/display
+</A></li>
+	<LI>Next message: <A HREF="001677.html">[Windstille-commit] r2680 - trunk/windstille/src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1676">[ date ]</a>
+              <a href="thread.html#1676">[ thread ]</a>
+              <a href="subject.html#1676">[ subject ]</a>
+              <a href="author.html#1676">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

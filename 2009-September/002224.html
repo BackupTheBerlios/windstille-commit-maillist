@@ -1,0 +1,470 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3227 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3227%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909120111.n8C1BCG3019425%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002223.html">
+   <LINK REL="Next"  HREF="002225.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3227 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3227%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909120111.n8C1BCG3019425%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3227 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Sep 12 03:11:12 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002223.html">[Windstille-commit] r3226 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="002225.html">[Windstille-commit] r3228 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2224">[ date ]</a>
+              <a href="thread.html#2224">[ thread ]</a>
+              <a href="subject.html#2224">[ subject ]</a>
+              <a href="author.html#2224">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-12 03:11:10 +0200 (Sat, 12 Sep 2009)
+New Revision: 3227
+
+Modified:
+   trunk/windstille/src/editor/document.cpp
+   trunk/windstille/src/editor/document.hpp
+   trunk/windstille/src/editor/layer.cpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/editor/windstille_widget.hpp
+Log:
+Removed manual calls to rebuild_scene_graph() instead handle it via Document::on_change() signal
+
+Modified: trunk/windstille/src/editor/document.cpp
+===================================================================
+--- trunk/windstille/src/editor/document.cpp	2009-09-12 00:47:54 UTC (rev 3226)
++++ trunk/windstille/src/editor/document.cpp	2009-09-12 01:11:10 UTC (rev 3227)
+@@ -39,6 +39,7 @@
+   : m_undo_manager(new UndoManager()),
+     m_sector_model(new SectorModel()),
+     m_group_command(),
++    m_group_command_count(0),
+     m_selection(Selection::create()),
+     m_control_points(),
+     m_sig_on_change()    
+@@ -49,6 +50,7 @@
+   : m_undo_manager(new UndoManager()),
+     m_sector_model(new SectorModel(filename)),
+     m_group_command(),
++    m_group_command_count(0),
+     m_selection(Selection::create()),
+     m_control_points(),
+     m_sig_on_change()
+@@ -63,7 +65,6 @@
+ Document::on_change()
+ {
+   EditorWindow::current()-&gt;update_undo_state();
+-  m_sector_model-&gt;rebuild_scene_graph();
+   m_sig_on_change();
+ }
+ 
+@@ -86,19 +87,29 @@
+ void
+ Document::undo_group_begin()
+ {
+-  assert(!m_group_command);
+-  m_group_command.reset(new GroupCommand());
++  if (m_group_command)
++  {
++    m_group_command_count += 1;
++  }
++  else
++  {
++    m_group_command.reset(new GroupCommand());
++    m_group_command_count = 1;
++  }
+ }
+ 
+ void
+ Document::undo_group_end()
+ {
+-  assert(m_group_command);
++  m_group_command_count -= 1;
+ 
+-  // reseting m_group_command is needed for execute to evaluate the command
+-  CommandHandle tmp = m_group_command;
+-  m_group_command.reset();
+-  execute(tmp);
++  if (m_group_command_count == 0)
++  {
++    // reseting m_group_command is needed for execute to evaluate the command
++    CommandHandle tmp = m_group_command;
++    m_group_command.reset();
++    execute(tmp);
++  }
+ }
+ 
+ bool
+@@ -470,12 +481,13 @@
+ void
+ Document::selection_delete()
+ {
+-  boost::shared_ptr&lt;GroupCommand&gt; group_cmd(new GroupCommand());
++  undo_group_begin();
+   for(Selection::iterator i = m_selection-&gt;begin(); i != m_selection-&gt;end(); ++i)
+   {
+-    group_cmd-&gt;add(CommandHandle(new ObjectRemoveCommand(*m_sector_model, *i)));
++    object_remove(*i);
+   }
+-  execute(group_cmd);
++  undo_group_end();
++
+   m_selection-&gt;clear();
+ }
+ 
+
+Modified: trunk/windstille/src/editor/document.hpp
+===================================================================
+--- trunk/windstille/src/editor/document.hpp	2009-09-12 00:47:54 UTC (rev 3226)
++++ trunk/windstille/src/editor/document.hpp	2009-09-12 01:11:10 UTC (rev 3227)
+@@ -44,6 +44,7 @@
+   boost::scoped_ptr&lt;SectorModel&gt; m_sector_model;
+ 
+   boost::shared_ptr&lt;GroupCommand&gt; m_group_command;
++  int m_group_command_count;
+   SelectionHandle m_selection;
+ 
+   std::vector&lt;ControlPointHandle&gt; m_control_points;
+
+Modified: trunk/windstille/src/editor/layer.cpp
+===================================================================
+--- trunk/windstille/src/editor/layer.cpp	2009-09-12 00:47:54 UTC (rev 3226)
++++ trunk/windstille/src/editor/layer.cpp	2009-09-12 01:11:10 UTC (rev 3227)
+@@ -44,21 +44,18 @@
+ Layer::add(const ObjectModelHandle&amp; object)
+ {
+   objects.push_back(object);
+-  m_sector.rebuild_scene_graph();
+ }
+ 
+ void
+ Layer::remove(const ObjectModelHandle&amp; object)
+ {
+   objects.remove(object);
+-  m_sector.rebuild_scene_graph();
+ }
+ 
+ Layer::iterator
+ Layer::erase(iterator it)
+ {
+   it = objects.erase(it);
+-  m_sector.rebuild_scene_graph();
+   return it;
+ }
+ 
+@@ -125,7 +122,6 @@
+ {
+   objects.remove(object);
+   objects.push_back(object); 
+-  m_sector.rebuild_scene_graph();
+ }
+ 
+ void
+@@ -133,7 +129,6 @@
+ {
+   objects.remove(object);
+   objects.push_front(object); 
+-  m_sector.rebuild_scene_graph();
+ }
+ 
+ struct OverlapsWith
+@@ -166,8 +161,6 @@
+   {
+     objects.erase(i);
+     objects.insert(++j, object);
+-      
+-    m_sector.rebuild_scene_graph();
+   }
+ }
+ 
+@@ -192,8 +185,6 @@
+     // position
+     objects.erase(--(i.base()));
+     objects.insert(--(j.base()), object);
+-
+-    m_sector.rebuild_scene_graph();
+   }
+ }
+ 
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-09-12 00:47:54 UTC (rev 3226)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-09-12 01:11:10 UTC (rev 3227)
+@@ -41,7 +41,6 @@
+ 
+ SectorModel::SectorModel(const std::string&amp; filename)
+   : nav_graph(new NavigationGraphModel(*this)),
+-    scene_graph(new SceneGraph()),
+     layer_tree(Gtk::ListStore::create(LayerManagerColumns::instance())),
+     ambient_color()
+ {
+@@ -51,7 +50,6 @@
+ 
+ SectorModel::SectorModel()
+   : nav_graph(new NavigationGraphModel(*this)),
+-    scene_graph(new SceneGraph()),
+     layer_tree(Gtk::ListStore::create(LayerManagerColumns::instance())),
+     ambient_color()
+ {
+@@ -154,7 +152,6 @@
+   { 
+     Gtk::ListStore::iterator it = layer_tree-&gt;get_iter(path);
+     ((LayerHandle)(*it)[LayerManagerColumns::instance().layer])-&gt;add(object);
+-    rebuild_scene_graph();
+   }
+ }
+ 
+@@ -167,7 +164,6 @@
+   {
+     (*i)-&gt;remove(object);
+   }
+-  rebuild_scene_graph();
+ }
+ 
+ struct GetLayersFunctor
+@@ -559,10 +555,10 @@
+ }
+ 
+ void
+-SectorModel::rebuild_scene_graph()
++SectorModel::rebuild_scene_graph(SceneGraph&amp; sg)
+ {
+   // FIXME: should make a queue_rebuild_scene_graph() to limit the number of rebuilds per frame to 1
+-  scene_graph-&gt;clear();
++  sg.clear();
+   
+   const Layers&amp; layers = get_layers();
+   for(Layers::const_reverse_iterator layer = layers.rbegin(); layer != layers.rend(); ++layer)
+@@ -573,7 +569,7 @@
+       {
+         if ((*layer)-&gt;is_visible())
+         {
+-          (*obj)-&gt;add_to_scenegraph(*scene_graph);
++          (*obj)-&gt;add_to_scenegraph(sg);
+         }
+       }
+     }
+@@ -582,22 +578,11 @@
+   std::cout &lt;&lt; &quot;rebuild_scene_graph: &quot; &lt;&lt; nav_graph-&gt;get_nodes().size() &lt;&lt; std::endl;
+   for(NavigationGraphModel::Nodes::const_iterator i = nav_graph-&gt;get_nodes().begin(); i != nav_graph-&gt;get_nodes().end(); ++i)
+   {
+-    (*i)-&gt;add_to_scenegraph(*scene_graph);
++    (*i)-&gt;add_to_scenegraph(sg);
+   }
+-
+-  queue_draw();
+ }
+ 
+ void
+-SectorModel::queue_draw()
+-{
+-  if (WindstilleWidget* wst = EditorWindow::current()-&gt;get_windstille_widget())
+-  {
+-    wst-&gt;queue_draw();
+-  }
+-}
+-
+-void
+ SectorModel::on_row_changed(const Gtk::TreeModel::Path&amp; /*path*/, const Gtk::TreeModel::iterator&amp; iter)
+ {
+   //std::cout &lt;&lt; &quot;LayerManager:on_row_changed&quot; &lt;&lt; std::endl;
+@@ -611,14 +596,12 @@
+       layer-&gt;sync(*iter);
+     }
+   }
+-  rebuild_scene_graph();
+ }
+ 
+ void
+ SectorModel::on_row_deleted(const Gtk::TreeModel::Path&amp; /*path*/)
+ {
+   std::cout &lt;&lt; &quot;LayerManager:on_row_deleted&quot; &lt;&lt; std::endl;
+-  rebuild_scene_graph();
+ }
+ 
+ void
+@@ -631,14 +614,12 @@
+ SectorModel::on_row_inserted(const Gtk::TreeModel::Path&amp; /*path*/, const Gtk::TreeModel::iterator&amp; /*iter*/)
+ {
+   std::cout &lt;&lt; &quot;LayerManager:on_row_inserted&quot; &lt;&lt; std::endl;
+-  rebuild_scene_graph();
+ }
+ 
+ void
+ SectorModel::on_rows_reordered(const Gtk::TreeModel::Path&amp; /*path*/, const Gtk::TreeModel::iterator&amp; /*iter*/, int* /*new_order*/)
+ {
+   std::cout &lt;&lt; &quot;LayerManager:on_row_reordered&quot; &lt;&lt; std::endl;
+-  rebuild_scene_graph();
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-09-12 00:47:54 UTC (rev 3226)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-09-12 01:11:10 UTC (rev 3227)
+@@ -41,7 +41,6 @@
+ {
+ private:
+   boost::scoped_ptr&lt;NavigationGraphModel&gt; nav_graph;
+-  boost::scoped_ptr&lt;SceneGraph&gt;      scene_graph;
+   Glib::RefPtr&lt;Gtk::ListStore&gt;       layer_tree;
+   Color ambient_color;
+   
+@@ -96,14 +95,11 @@
+   void write(FileWriter&amp; writer) const;
+ 
+   NavigationGraphModel&amp; get_nav_graph() const { return *nav_graph; }
+-  SceneGraph&amp;      get_scene_graph() const { return *scene_graph; }
+ 
+   void delete_navgraph_edges(NavGraphNodeObjectModel&amp; node);
+ 
+-  void queue_draw();
++  void rebuild_scene_graph(SceneGraph&amp; sg);
+ 
+-  void rebuild_scene_graph();
+-
+ private:
+   void load(const std::string&amp; filename);
+   void load_layer(const FileReader&amp; filename, 
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-09-12 00:47:54 UTC (rev 3226)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-09-12 01:11:10 UTC (rev 3227)
+@@ -22,22 +22,23 @@
+ #include &lt;gtkmm.h&gt;
+ #include &lt;boost/bind.hpp&gt;
+ 
+-#include &quot;sprite2d/sprite.hpp&quot;
++#include &quot;display/compositor.hpp&quot;
+ #include &quot;display/display.hpp&quot;
+-#include &quot;display/compositor.hpp&quot;
+-#include &quot;display/texture_manager.hpp&quot;
+-#include &quot;display/surface_manager.hpp&quot;
+ #include &quot;display/opengl_state.hpp&quot;
+ #include &quot;display/surface.hpp&quot;
+-#include &quot;util/pathname.hpp&quot;
++#include &quot;display/surface_manager.hpp&quot;
++#include &quot;display/texture_manager.hpp&quot;
++#include &quot;editor/document.hpp&quot;
+ #include &quot;editor/editor_window.hpp&quot;
++#include &quot;editor/functor_command.hpp&quot;
++#include &quot;editor/group_command.hpp&quot;
+ #include &quot;editor/scroll_tool.hpp&quot;
+ #include &quot;editor/sector_model.hpp&quot;
+-#include &quot;editor/group_command.hpp&quot;
+-#include &quot;editor/functor_command.hpp&quot;
+-#include &quot;editor/document.hpp&quot;
+ #include &quot;editor/sprite_object_model.hpp&quot;
+ #include &quot;editor/windstille_widget.hpp&quot;
++#include &quot;scenegraph/scene_graph.hpp&quot;
++#include &quot;sprite2d/sprite.hpp&quot;
++#include &quot;util/pathname.hpp&quot;
+ 
+ bool lib_init = false;
+ 
+@@ -46,6 +47,8 @@
+                                    const Glib::RefPtr&lt;const Gdk::GL::Context&gt;&amp; share_list)
+   : editor(editor_),
+     m_document(new Document),
++    m_scene_graph(new SceneGraph()),
++    m_rebuild_scene_graph(true),
+     filename(),
+     state(),
+     compositor(),
+@@ -251,6 +254,12 @@
+ void
+ WindstilleWidget::draw()
+ {
++  if (m_rebuild_scene_graph)
++  {
++    m_rebuild_scene_graph = false;
++    m_document-&gt;get_sector_model().rebuild_scene_graph(*m_scene_graph);
++  }
++
+   if (sc.get())
+   {
+     state.push(*sc);
+@@ -293,7 +302,7 @@
+       EditorWindow::current()-&gt;get_current_tool()-&gt;draw(*sc);
+     }
+ 
+-    compositor-&gt;render(*sc, &amp;m_document-&gt;get_sector_model().get_scene_graph(), state);
++    compositor-&gt;render(*sc, m_scene_graph.get(), state);
+ 
+     state.pop(*sc);
+ 
+@@ -555,8 +564,9 @@
+ void
+ WindstilleWidget::on_document_change()
+ {
++  std::cout &lt;&lt; &quot;WindstilleWidget::on_document_change&quot; &lt;&lt; std::endl;
++  m_rebuild_scene_graph = true;
+   EditorWindow::current()-&gt;update_undo_state();
+-  m_document-&gt;get_sector_model().rebuild_scene_graph();
+   queue_draw();
+ }
+ 
+
+Modified: trunk/windstille/src/editor/windstille_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.hpp	2009-09-12 00:47:54 UTC (rev 3226)
++++ trunk/windstille/src/editor/windstille_widget.hpp	2009-09-12 01:11:10 UTC (rev 3227)
+@@ -57,7 +57,9 @@
+ private:
+   EditorWindow&amp; editor;
+ 
+-  boost::scoped_ptr&lt;Document&gt; m_document;
++  boost::scoped_ptr&lt;Document&gt;   m_document;
++  boost::scoped_ptr&lt;SceneGraph&gt; m_scene_graph;
++  bool m_rebuild_scene_graph;
+ 
+   std::string filename;
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002223.html">[Windstille-commit] r3226 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="002225.html">[Windstille-commit] r3228 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2224">[ date ]</a>
+              <a href="thread.html#2224">[ thread ]</a>
+              <a href="subject.html#2224">[ subject ]</a>
+              <a href="author.html#2224">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

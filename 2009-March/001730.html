@@ -1,0 +1,276 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2733 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2733%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200903222019.n2MKJZTQ031784%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001729.html">
+   <LINK REL="Next"  HREF="001731.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2733 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2733%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200903222019.n2MKJZTQ031784%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2733 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Mar 22 21:19:35 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001729.html">[Windstille-commit] r2732 - in trunk/windstille: . src src/editor
+</A></li>
+        <LI>Next message: <A HREF="001731.html">[Windstille-commit] r2734 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1730">[ date ]</a>
+              <a href="thread.html#1730">[ thread ]</a>
+              <a href="subject.html#1730">[ subject ]</a>
+              <a href="author.html#1730">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-22 21:19:34 +0100 (Sun, 22 Mar 2009)
+New Revision: 2733
+
+Modified:
+   trunk/windstille/src/editor/object_model.hpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+   trunk/windstille/src/editor/select_tool.cpp
+   trunk/windstille/src/editor/select_tool.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+Log:
+Added basic movement of objects
+
+Modified: trunk/windstille/src/editor/object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/object_model.hpp	2009-03-22 19:46:47 UTC (rev 2732)
++++ trunk/windstille/src/editor/object_model.hpp	2009-03-22 20:19:34 UTC (rev 2733)
+@@ -45,6 +45,7 @@
+   
+   std::string get_name() const { return name; }
+   Vector2f get_pos() const { return pos; }
++  void set_pos(const Vector2f&amp; pos_)  {  pos = pos_; }
+   
+   void draw(SceneContext&amp; sc);
+   Rectf get_bounding_box() const;
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-03-22 19:46:47 UTC (rev 2732)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-03-22 20:19:34 UTC (rev 2733)
+@@ -62,6 +62,19 @@
+       (*i)-&gt;draw(sc);
+     }
+ }
++
++ObjectModelHandle
++SectorModel::get_object_at(const Vector2f&amp; pos) const
++{
++  for(Objects::const_reverse_iterator i = objects.rbegin(); i != objects.rend(); ++i)
++    {
++      if ((*i)-&gt;get_bounding_box().is_inside(pos))
++        {
++          return *i;
++        }
++    }
++  return ObjectModelHandle();
++}
+ 
+ void
+ SectorModel::on_row_changed(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter)
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-03-22 19:46:47 UTC (rev 2732)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-03-22 20:19:34 UTC (rev 2733)
+@@ -79,6 +79,8 @@
+   void on_row_inserted(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter);
+   void on_rows_reordered(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter, int* new_order);
+ 
++  ObjectModelHandle get_object_at(const Vector2f&amp; pos) const;
++
+ private:
+   SectorModel(const SectorModel&amp;);
+   SectorModel&amp; operator=(const SectorModel&amp;);
+
+Modified: trunk/windstille/src/editor/select_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/select_tool.cpp	2009-03-22 19:46:47 UTC (rev 2732)
++++ trunk/windstille/src/editor/select_tool.cpp	2009-03-22 20:19:34 UTC (rev 2733)
+@@ -17,19 +17,36 @@
+ */
+ 
+ #include &quot;display/scene_context.hpp&quot;
++#include &quot;sector_model.hpp&quot;
+ #include &quot;windstille_widget.hpp&quot;
+ #include &quot;select_tool.hpp&quot;
+ 
+ SelectTool::SelectTool()
+-  : rect_valid(false)
++  : mode(NO_MODE)
++    
+ {
+ }
+ 
+ bool
+-SelectTool::mouse_down (GdkEventButton* event, WindstilleWidget&amp; wst)
++SelectTool::mouse_down(GdkEventButton* event, WindstilleWidget&amp; wst)
+ {
+   click_pos = wst.get_state().screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
+-  rect_valid = false;
++
++  if ((object = wst.get_sector_model()-&gt;get_object_at(click_pos)).get())
++    {
++      mode = DRAG_MODE;
++      object_pos = object-&gt;get_pos();
++    }
++  else
++    {
++      rect.left   = click_pos.x;
++      rect.top    = click_pos.y;
++      rect.right  = click_pos.x;
++      rect.bottom = click_pos.y;
++      
++      mode = SELECT_MODE;
++    }
++
+   return true;
+ }
+ 
+@@ -38,12 +55,18 @@
+ {
+   Vector2f pos = wst.get_state().screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
+ 
+-  rect.left   = click_pos.x;
+-  rect.top    = click_pos.y;
+-  rect.right  = pos.x;
+-  rect.bottom = pos.y;
++  if (mode == DRAG_MODE)
++    {
++      object-&gt;set_pos(object_pos - click_pos + pos);
++    }
++  else if (mode == SELECT_MODE)
++    {
++      rect.left   = click_pos.x;
++      rect.top    = click_pos.y;
++      rect.right  = pos.x;
++      rect.bottom = pos.y;
++    }
+   
+-  rect_valid = true;
+   return true;
+ }
+ 
+@@ -51,14 +74,24 @@
+ SelectTool::mouse_up(GdkEventButton* event, WindstilleWidget&amp; wst)
+ {
+   // Select objects
+-  rect_valid = false;
++  if (mode == DRAG_MODE)
++    {
++      
++    }
++  else if (mode == SELECT_MODE)
++    {
++      mode = NO_MODE;
++    }
++
++  mode = NO_MODE;
++
+   return true;
+ }
+ 
+ void
+ SelectTool::draw(SceneContext&amp; sc)
+ {
+-  if (rect_valid)
++  if (mode == SELECT_MODE)
+     {
+       sc.control().fill_rect(rect, Color(0.5f, 0.5f, 1.0f, 0.25));
+       sc.control().draw_rect(rect, Color(0.5f, 0.5f, 1.0f)); 
+
+Modified: trunk/windstille/src/editor/select_tool.hpp
+===================================================================
+--- trunk/windstille/src/editor/select_tool.hpp	2009-03-22 19:46:47 UTC (rev 2732)
++++ trunk/windstille/src/editor/select_tool.hpp	2009-03-22 20:19:34 UTC (rev 2733)
+@@ -20,6 +20,7 @@
+ #define HEADER_WINDSTILLE_EDITOR_SELECT_TOOL_HPP
+ 
+ #include &quot;math/rect.hpp&quot;
++#include &quot;object_model.hpp&quot;
+ #include &quot;tool.hpp&quot;
+ 
+ class SelectTool : public Tool
+@@ -27,8 +28,15 @@
+ private:
+   Vector2f click_pos;
+   Rectf    rect;
+-  bool     rect_valid;
+-
++  ObjectModelHandle object;
++  Vector2f object_pos;
++  
++  enum { 
++    SELECT_MODE,
++    DRAG_MODE,
++    NO_MODE
++  } mode;
++  
+ public:
+   SelectTool();
+   
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-03-22 19:46:47 UTC (rev 2732)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-03-22 20:19:34 UTC (rev 2733)
+@@ -330,14 +330,14 @@
+ void
+ WindstilleWidget::on_zoom_in()
+ {
+-  state.set_zoom(state.get_zoom() * 1.1f);
++  state.set_zoom(state.get_zoom() * 1.25f);
+   queue_draw();
+ }
+ 
+ void
+ WindstilleWidget::on_zoom_out()
+ {
+-  state.set_zoom(state.get_zoom() * (1.0f/1.1f));
++  state.set_zoom(state.get_zoom() * (1.0f/1.25f));
+   queue_draw();
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001729.html">[Windstille-commit] r2732 - in trunk/windstille: . src src/editor
+</A></li>
+	<LI>Next message: <A HREF="001731.html">[Windstille-commit] r2734 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1730">[ date ]</a>
+              <a href="thread.html#1730">[ thread ]</a>
+              <a href="subject.html#1730">[ subject ]</a>
+              <a href="author.html#1730">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

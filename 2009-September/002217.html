@@ -1,0 +1,389 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3220 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3220%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909101827.n8AIRMcO030982%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002216.html">
+   <LINK REL="Next"  HREF="002218.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3220 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3220%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909101827.n8AIRMcO030982%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3220 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Sep 10 20:27:22 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002216.html">[Windstille-commit] r3219 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="002218.html">[Windstille-commit] r3221 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2217">[ date ]</a>
+              <a href="thread.html#2217">[ thread ]</a>
+              <a href="subject.html#2217">[ subject ]</a>
+              <a href="author.html#2217">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-10 20:27:22 +0200 (Thu, 10 Sep 2009)
+New Revision: 3220
+
+Added:
+   trunk/windstille/src/editor/navgraph_commands.hpp
+Modified:
+   trunk/windstille/src/editor/document.cpp
+   trunk/windstille/src/editor/navgraph_insert_tool.cpp
+   trunk/windstille/src/editor/navigation_graph_model.cpp
+   trunk/windstille/src/editor/navigation_graph_model.hpp
+Log:
+Added some NavGraphCommands (not yet implemented)
+
+Modified: trunk/windstille/src/editor/document.cpp
+===================================================================
+--- trunk/windstille/src/editor/document.cpp	2009-09-10 14:54:49 UTC (rev 3219)
++++ trunk/windstille/src/editor/document.cpp	2009-09-10 18:27:22 UTC (rev 3220)
+@@ -28,10 +28,11 @@
+ #include &quot;editor/decal_object_model.hpp&quot;
+ #include &quot;editor/navgraph_edge_object_model.hpp&quot;
+ 
++#include &quot;editor/functor_command.hpp&quot;
+ #include &quot;editor/group_command.hpp&quot;
++#include &quot;editor/layer_commands.hpp&quot;
++#include &quot;editor/navgraph_commands.hpp&quot;
+ #include &quot;editor/object_commands.hpp&quot;
+-#include &quot;editor/functor_command.hpp&quot;
+-#include &quot;editor/layer_commands.hpp&quot;
+ 
+ Document::Document()
+   : m_undo_manager(new UndoManager()),
+@@ -134,11 +135,13 @@
+ void
+ Document::navgraph_node_add(boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; node)
+ {
++  execute(CommandHandle(new NavGraphNodeAddCommand(node)));
+ }
+ 
+ void
+ Document::navgraph_node_remove(boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; node)
+ {
++  execute(CommandHandle(new NavGraphNodeRemoveCommand(node)));
+ }
+ 
+ void
+@@ -146,13 +149,13 @@
+                             boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; lhs,
+                             boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; rhs)
+ {
+-  boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; edge_obj(new NavGraphEdgeObjectModel(lhs, rhs)); //, *m_sector_model));
+-  object_add(layer, edge_obj);
++  execute(CommandHandle(new NavGraphEdgeAddCommand(layer, lhs, rhs)));
+ }
+ 
+ void
+ Document::navgraph_edge_remove(boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; edge)
+ {
++  execute(CommandHandle(new NavGraphEdgeRemoveCommand(edge)));
+ }
+ 
+ void
+
+Added: trunk/windstille/src/editor/navgraph_commands.hpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_commands.hpp	2009-09-10 14:54:49 UTC (rev 3219)
++++ trunk/windstille/src/editor/navgraph_commands.hpp	2009-09-10 18:27:22 UTC (rev 3220)
+@@ -0,0 +1,108 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_EDITOR_NAVGRAPH_COMMANDS_HPP
++#define HEADER_WINDSTILLE_EDITOR_NAVGRAPH_COMMANDS_HPP
++
++#include &quot;editor/command.hpp&quot;
++
++class NavGraphNodeAddCommand : public Command
++{
++private:
++  boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; m_node;
++
++public:
++  NavGraphNodeAddCommand(boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; node)
++    : m_node(node)
++  {}
++
++  void redo() 
++  {
++  }
++
++  void undo() 
++  {
++  }
++};
++
++class NavGraphNodeRemoveCommand : public Command
++{
++private:
++  boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; m_node;
++
++public:
++  NavGraphNodeRemoveCommand(boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; node)
++    : m_node(node)
++  {}
++
++  void redo() 
++  {
++  }
++
++  void undo() 
++  {
++  }
++};
++
++class NavGraphEdgeAddCommand : public Command
++{
++private:
++  LayerHandle m_layer;
++  boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; m_lhs;
++  boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; m_rhs;
++
++public:
++  NavGraphEdgeAddCommand(LayerHandle layer, 
++                         boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; lhs,
++                         boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; rhs)
++    : m_layer(layer),
++      m_lhs(lhs),
++      m_rhs(rhs)
++  {}
++
++  void redo() 
++  {
++  }
++
++  void undo() 
++  {
++  }
++};
++
++class NavGraphEdgeRemoveCommand : public Command
++{
++private:
++  boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; m_edge;
++
++public:
++  NavGraphEdgeRemoveCommand(boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; edge)
++    : m_edge(edge)
++  {}
++
++  void redo() 
++  {
++  }
++
++  void undo() 
++  {
++  }
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/navgraph_commands.hpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/windstille/src/editor/navgraph_insert_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_insert_tool.cpp	2009-09-10 14:54:49 UTC (rev 3219)
++++ trunk/windstille/src/editor/navgraph_insert_tool.cpp	2009-09-10 18:27:22 UTC (rev 3220)
+@@ -42,7 +42,6 @@
+ {
+   mouse_pos = wst.get_state().screen_to_world(Vector2f(static_cast&lt;float&gt;(event-&gt;x), static_cast&lt;float&gt;(event-&gt;y)));
+   NavigationGraphModel&amp; navgraph = wst.get_document().get_sector_model().get_nav_graph();
+-  //SectorModel&amp; sector = wst.get_document().get_sector_model();
+ 
+   boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; node = navgraph.find_closest_node(mouse_pos, 16.0f); // FIXME: Radius should scale with zoom
+   boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; edge = navgraph.find_closest_edge(mouse_pos, 16.0f);
+@@ -54,8 +53,9 @@
+       if (node)
+       { // connect last node with existing node
+         wst.get_document().navgraph_edge_add(wst.get_current_layer(), last_node, node);
+-        last_node = boost::shared_ptr&lt;NavGraphNodeObjectModel&gt;();
+-        connection_node = boost::shared_ptr&lt;NavGraphNodeObjectModel&gt;();
++
++        last_node.reset();
++        connection_node.reset();
+       }
+       else
+       { // connect last node with newly created node
+@@ -68,7 +68,8 @@
+         wst.get_document().undo_group_end();
+ 
+         node = node_obj;
+-        last_node = boost::shared_ptr&lt;NavGraphNodeObjectModel&gt;();
++
++        last_node.reset();
+       }
+       mode = NO_MODE;
+     }
+@@ -83,7 +84,8 @@
+       }
+       else if (edge)
+       {
+-        navgraph.remove_edge(edge);
++        wst.get_document().navgraph_edge_remove(edge);
++
+         mode = NO_MODE;
+       }
+       else
+@@ -107,7 +109,8 @@
+   mouse_pos = wst.get_state().screen_to_world(Vector2f(static_cast&lt;float&gt;(event-&gt;x), static_cast&lt;float&gt;(event-&gt;y)));
+ 
+   {
+-    boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; new_mouse_over_node = navgraph.find_closest_node(mouse_pos, 16.0f); // FIXME: Radius should scale with zoom
++    // FIXME: Radius should scale with zoom
++    boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; new_mouse_over_node = navgraph.find_closest_node(mouse_pos, 16.0f);
+     boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; new_mouse_over_edge = navgraph.find_closest_edge(mouse_pos, 16.0f);
+ 
+     if (new_mouse_over_node != mouse_over_node ||
+@@ -136,7 +139,6 @@
+ NavgraphInsertTool::mouse_up(GdkEventButton* event, WindstilleWidget&amp; wst)
+ {
+   mouse_pos = wst.get_state().screen_to_world(Vector2f(static_cast&lt;float&gt;(event-&gt;x), static_cast&lt;float&gt;(event-&gt;y)));
+-  //NavigationGraphModel&amp; navgraph = *wst.get_sector_model().get_nav_graph();
+ 
+   switch(mode)
+   {
+@@ -154,28 +156,25 @@
+ NavgraphInsertTool::mouse_right_down(GdkEventButton* /*event*/, WindstilleWidget&amp; wst)
+ {
+   NavigationGraphModel&amp; navgraph = wst.get_document().get_sector_model().get_nav_graph();
+-  //SectorModel&amp; sector = wst.get_document().get_sector_model();
+ 
+   boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; node = navgraph.find_closest_node(mouse_pos, 16.0f); // FIXME: Radius should scale with zoom
+   boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; edge = navgraph.find_closest_edge(mouse_pos, 16.0f);
+ 
+   if (node)
+   {
+-    //navgraph.remove_node(node);
+-    wst.get_document().object_remove(node);
++    wst.get_document().navgraph_node_remove(node);
+ 
+-    mouse_over_edge = boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt;();
+-    mouse_over_node = boost::shared_ptr&lt;NavGraphNodeObjectModel&gt;();
++    mouse_over_edge.reset();
++    mouse_over_node.reset();
+ 
+     wst.queue_draw();
+   }
+   else if (edge)
+   {
+-    //navgraph.remove_edge(edge);
+-    wst.get_document().object_remove(edge);
++    wst.get_document().navgraph_edge_remove(edge);
+ 
+-    mouse_over_edge = boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt;();
+-    mouse_over_node = boost::shared_ptr&lt;NavGraphNodeObjectModel&gt;();
++    mouse_over_edge.reset();
++    mouse_over_node.reset();
+ 
+     wst.queue_draw();
+   }
+
+Modified: trunk/windstille/src/editor/navigation_graph_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/navigation_graph_model.cpp	2009-09-10 14:54:49 UTC (rev 3219)
++++ trunk/windstille/src/editor/navigation_graph_model.cpp	2009-09-10 18:27:22 UTC (rev 3220)
+@@ -50,6 +50,17 @@
+   return edge;
+ }
+ 
++void
++NavigationGraphModel::add_node(boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; node)
++{
++  nodes.push_back(node);
++}
++
++void
++NavigationGraphModel::add_edge(boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; edge)
++{
++  edges.push_back(edge);
++}
+   
+ void
+ NavigationGraphModel::remove_node(boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; node)
+@@ -77,6 +88,8 @@
+     }
+   }
+ 
++  std::cout &lt;&lt; &quot;find_closest_node: &quot; &lt;&lt; nodes.size() &lt;&lt; &quot; &quot; &lt;&lt; node.get() &lt;&lt; std::endl;
++
+   return node;
+ }
+ 
+
+Modified: trunk/windstille/src/editor/navigation_graph_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/navigation_graph_model.hpp	2009-09-10 14:54:49 UTC (rev 3219)
++++ trunk/windstille/src/editor/navigation_graph_model.hpp	2009-09-10 18:27:22 UTC (rev 3220)
+@@ -44,6 +44,9 @@
+   boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; create_node(const Vector2f&amp; pos);
+   boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; create_edge(boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; lhs, 
+                                                          boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; rhs);
++
++  void add_node(boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; node);
++  void add_edge(boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; edge);
+   
+   void remove_node(boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; node);
+   void remove_edge(boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; edge);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002216.html">[Windstille-commit] r3219 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="002218.html">[Windstille-commit] r3221 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2217">[ date ]</a>
+              <a href="thread.html#2217">[ thread ]</a>
+              <a href="subject.html#2217">[ subject ]</a>
+              <a href="author.html#2217">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

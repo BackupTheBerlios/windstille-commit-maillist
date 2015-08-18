@@ -1,0 +1,1042 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3232 - in trunk/windstille/src: engine objects	scripting tile
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3232%20-%20in%20trunk/windstille/src%3A%20engine%20objects%0A%09scripting%20tile&In-Reply-To=%3C200909120553.n8C5rRf1008959%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002228.html">
+   <LINK REL="Next"  HREF="002230.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3232 - in trunk/windstille/src: engine objects	scripting tile</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3232%20-%20in%20trunk/windstille/src%3A%20engine%20objects%0A%09scripting%20tile&In-Reply-To=%3C200909120553.n8C5rRf1008959%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3232 - in trunk/windstille/src: engine objects	scripting tile">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Sep 12 07:53:27 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002228.html">[Windstille-commit] r3231 - trunk/windstille/src/engine
+</A></li>
+        <LI>Next message: <A HREF="002230.html">[Windstille-commit] r3233 - in trunk/windstille/src: editor	scenegraph
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2229">[ date ]</a>
+              <a href="thread.html#2229">[ thread ]</a>
+              <a href="subject.html#2229">[ subject ]</a>
+              <a href="author.html#2229">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-12 07:53:23 +0200 (Sat, 12 Sep 2009)
+New Revision: 3232
+
+Modified:
+   trunk/windstille/src/engine/sector.cpp
+   trunk/windstille/src/engine/sector.hpp
+   trunk/windstille/src/engine/sector_builder.cpp
+   trunk/windstille/src/engine/sector_builder.hpp
+   trunk/windstille/src/objects/background_gradient.cpp
+   trunk/windstille/src/objects/background_gradient.hpp
+   trunk/windstille/src/objects/box.cpp
+   trunk/windstille/src/objects/box.hpp
+   trunk/windstille/src/objects/character.cpp
+   trunk/windstille/src/objects/character.hpp
+   trunk/windstille/src/objects/elevator.cpp
+   trunk/windstille/src/objects/elevator.hpp
+   trunk/windstille/src/objects/hedgehog.cpp
+   trunk/windstille/src/objects/hedgehog.hpp
+   trunk/windstille/src/objects/layer.cpp
+   trunk/windstille/src/objects/liquid.cpp
+   trunk/windstille/src/objects/liquid.hpp
+   trunk/windstille/src/objects/nightvision.cpp
+   trunk/windstille/src/objects/nightvision.hpp
+   trunk/windstille/src/objects/scriptable_object.cpp
+   trunk/windstille/src/objects/scriptable_object.hpp
+   trunk/windstille/src/objects/shockwave.cpp
+   trunk/windstille/src/objects/shockwave.hpp
+   trunk/windstille/src/objects/spider_mine.cpp
+   trunk/windstille/src/objects/spider_mine.hpp
+   trunk/windstille/src/objects/swarm.cpp
+   trunk/windstille/src/objects/swarm.hpp
+   trunk/windstille/src/objects/test_object.cpp
+   trunk/windstille/src/objects/test_object.hpp
+   trunk/windstille/src/objects/trigger.cpp
+   trunk/windstille/src/objects/trigger.hpp
+   trunk/windstille/src/objects/vrdummy.cpp
+   trunk/windstille/src/objects/vrdummy.hpp
+   trunk/windstille/src/scripting/interface.cpp
+   trunk/windstille/src/tile/tile_map.cpp
+   trunk/windstille/src/tile/tile_map.hpp
+Log:
+Implemented SectorBuilder, NavGraph building still missing
+
+Modified: trunk/windstille/src/engine/sector.cpp
+===================================================================
+--- trunk/windstille/src/engine/sector.cpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/engine/sector.cpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -22,6 +22,7 @@
+ 
+ #include &quot;collision/collision_engine.hpp&quot;
+ #include &quot;engine/squirrel_thread.hpp&quot;
++#include &quot;engine/sector_builder.hpp&quot;
+ #include &quot;navigation/navigation_graph.hpp&quot;
+ #include &quot;scenegraph/navigation_graph_drawable.hpp&quot;
+ #include &quot;scenegraph/scene_graph.hpp&quot;
+@@ -63,16 +64,12 @@
+     ambient_light(),
+     interactive_tilemap(0),
+     interactivebackground_tilemap(0),
+-    player(0),
+-    id_table(),
+-    parent_table()
++    player(0)
+ {
+   if (debug) std::cout &lt;&lt; &quot;Creating new Sector&quot; &lt;&lt; std::endl;
+   
+-  interactive_tilemap = 0;
+-  interactivebackground_tilemap = 0;
++  SectorBuilder(arg_filename, *this);
+ 
+-  parse_file(filename);
+   if (interactive_tilemap)
+   {
+     // add interactive to collision engine
+@@ -97,187 +94,6 @@
+ }
+ 
+ void
+-Sector::parse_file(const Pathname&amp; filename_)
+-{
+-  if (debug) std::cout &lt;&lt; &quot;Sector:parse_file '&quot; &lt;&lt; filename_ &lt;&lt; &quot;'&quot; &lt;&lt; std::endl;
+-  
+-  FileReader reader = FileReader::parse(filename_);
+-  if(reader.get_name() != &quot;windstille-sector&quot;) 
+-  {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;'&quot; &lt;&lt; filename_ &lt;&lt; &quot;' is not a windstille-sector file&quot;;
+-    throw std::runtime_error(msg.str());
+-  }
+-  else
+-  {
+-    int version = 1;
+-    if (!reader.get(&quot;version&quot;, version))
+-      std::cerr &lt;&lt; &quot;Warning no version specified in levelformat.\n&quot;;
+-
+-    if (version &gt; 3)
+-      std::cerr &lt;&lt; &quot;Warning: format version is newer than game.\n&quot;;
+-
+-    reader.get(&quot;name&quot;,          name);
+-    reader.get(&quot;music&quot;,         music);
+-    reader.get(&quot;init-script&quot;,   init_script);
+-    reader.get(&quot;ambient-color&quot;, ambient_light);
+-  
+-    FileReader objects_reader;
+-    if (!reader.get(&quot;objects&quot;, objects_reader))
+-    {
+-      throw std::runtime_error(&quot;No objects specified&quot;);
+-    }
+-
+-    std::vector&lt;FileReader&gt; objects_readers = objects_reader.get_sections();
+-    for(std::vector&lt;FileReader&gt;::iterator i = objects_readers.begin(); i != objects_readers.end(); ++i)
+-    {
+-      add_object(*i);
+-    }
+-
+-    // Set the parents properly
+-    for(std::map&lt;GameObject*, std::string&gt;::iterator i = parent_table.begin(); i != parent_table.end(); ++i)
+-    {
+-      std::map&lt;std::string, GameObject*&gt;::iterator j = id_table.find(i-&gt;second);
+-      if (j == id_table.end())
+-      {
+-        std::cout &lt;&lt; &quot;Error: Couldn't resolve 'id': &quot; &lt;&lt; i-&gt;second &lt;&lt; std::endl;
+-      }
+-      else
+-      {
+-        i-&gt;first-&gt;set_parent(j-&gt;second);
+-      }
+-    }
+-
+-    FileReader navgraph_reader;
+-    if (reader.get(&quot;navigation&quot;, navgraph_reader))
+-    {
+-      navigation_graph-&gt;load(navgraph_reader);
+-    }
+-
+-    if (debug) std::cout &lt;&lt; &quot;Finished parsing&quot; &lt;&lt; std::endl;
+-  }
+-}
+-
+-void
+-Sector::add_object(FileReader&amp; reader)
+-{
+-  GameObject* obj = 0;
+-  if(reader.get_name() == &quot;tilemap&quot;) 
+-  {
+-    std::auto_ptr&lt;TileMap&gt; tilemap(new TileMap(reader));
+-
+-    if (tilemap-&gt;get_name() == &quot;interactive&quot;)
+-      interactive_tilemap = tilemap.get();
+-    else if (tilemap-&gt;get_name() == &quot;interactivebackground&quot;)
+-      interactivebackground_tilemap = tilemap.get();
+-
+-    obj = tilemap.release();
+-  }
+-  else if(reader.get_name() == &quot;background&quot;)
+-  {
+-    // TODO
+-  }
+-  else if (reader.get_name() == &quot;background-gradient&quot;)
+-  {
+-    obj = new BackgroundGradient(reader);
+-  }
+-  else if(reader.get_name() == &quot;trigger&quot;)
+-  {
+-    obj = new Trigger(reader);
+-  }
+-  else if(reader.get_name() == &quot;box&quot;)
+-  {
+-    obj = new Box(reader);
+-  }
+-  else if(reader.get_name() == &quot;shockwave&quot;)
+-  {
+-    obj = new Shockwave(reader);
+-  }
+-  else if(reader.get_name() == &quot;elevator&quot;)
+-  {
+-    obj = new Elevator(reader);
+-  }
+-  else if(reader.get_name() == &quot;character&quot;)
+-  {    
+-    obj = new Character(reader);
+-  }
+-  else if(reader.get_name() == &quot;spider-mine&quot;)
+-  {
+-    obj = new SpiderMine(reader);
+-  }
+-  else if(reader.get_name() == &quot;hedgehog&quot;)
+-  {
+-    obj = new Hedgehog(reader);
+-  }
+-  else if(reader.get_name() == &quot;test-object&quot;)
+-  {
+-    obj = new TestObject(reader);
+-  }
+-  else if (reader.get_name() == &quot;nightvision&quot;)
+-  {
+-    obj = new Nightvision(reader);
+-  }
+-  else if (reader.get_name() == &quot;particle-system&quot;)
+-  {
+-    // FIXME: disabled due to work on the editor: obj = new ParticleSystem(reader);
+-  }
+-  else if(reader.get_name() == &quot;scriptable-object&quot;)
+-  {    
+-    obj = new ScriptableObject(reader);
+-  }
+-  else if(reader.get_name() == &quot;decal&quot;)
+-  {    
+-    obj = new Decal(reader);
+-  }
+-  else if(reader.get_name() == &quot;layer&quot;)
+-  {    
+-    obj = new Layer(reader);
+-  }
+-  else if (reader.get_name() == &quot;vrdummy&quot;)
+-  {
+-    obj = new VRDummy(reader);
+-  }
+-  else if (reader.get_name() == &quot;swarm&quot;)
+-  {
+-    obj = new Swarm(reader);
+-  }
+-  else if (reader.get_name() == &quot;laserpointer&quot;)
+-  {
+-    obj = new LaserPointer();
+-  }
+-  else if (reader.get_name() == &quot;liquid&quot;)
+-  {
+-    obj = new Liquid(reader);
+-  }
+-  else if (reader.get_name() == &quot;particle-systems&quot;)
+-  {
+-    obj = new ParticleSystems(reader);
+-  }
+-  else 
+-  {
+-    std::cout &lt;&lt; &quot;Skipping unknown Object: &quot; &lt;&lt; reader.get_name() &lt;&lt; &quot;\n&quot;;
+-  }
+-
+-  if (obj)
+-  {
+-    std::string id_str;
+-    if (reader.read(&quot;id&quot;, id_str))
+-    {
+-      id_table[id_str] = obj;
+-    }
+-
+-    std::string parent_str;
+-    if (reader.read(&quot;parent&quot;, parent_str))
+-    {
+-      if (!parent_str.empty())
+-        parent_table[obj] = parent_str;
+-    }
+-
+-    add(obj);
+-  }
+-}
+-
+-void
+ Sector::activate()
+ {
+   commit_adds();
+
+Modified: trunk/windstille/src/engine/sector.hpp
+===================================================================
+--- trunk/windstille/src/engine/sector.hpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/engine/sector.hpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -63,16 +63,15 @@
+ 
+   Color ambient_light;
+ 
++public:
+   /** The TileMap with which the player interacts */
+   TileMap* interactive_tilemap;
+   TileMap* interactivebackground_tilemap;
+ 
++private:
+   Player* player;
+   Doll*   doll;
+ 
+-  std::map&lt;std::string, GameObject*&gt; id_table;
+-  std::map&lt;GameObject*, std::string&gt; parent_table;
+-
+ private:
+   void parse_file(const Pathname&amp; filename);
+ 
+@@ -105,7 +104,6 @@
+   Color get_ambient_light() const;
+ 
+   void add(GameObject*);
+-  void add_object(FileReader&amp; reader);
+ 
+   CollisionEngine* get_collision_engine() const { return collision_engine.get(); }
+   SceneGraph&amp; get_scene_graph() const { return *scene_graph; }
+
+Modified: trunk/windstille/src/engine/sector_builder.cpp
+===================================================================
+--- trunk/windstille/src/engine/sector_builder.cpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/engine/sector_builder.cpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -28,7 +28,29 @@
+ #include &quot;engine/game_object.hpp&quot;
+ #include &quot;engine/sector.hpp&quot;
+ #include &quot;util/file_reader.hpp&quot;
++#include &quot;tile/tile_map.hpp&quot;
+ 
++#include &quot;objects/background_gradient.hpp&quot;
++#include &quot;objects/box.hpp&quot;
++#include &quot;objects/character.hpp&quot;
++#include &quot;objects/decal.hpp&quot;
++#include &quot;objects/doll.hpp&quot;
++#include &quot;objects/elevator.hpp&quot;
++#include &quot;objects/hedgehog.hpp&quot;
++#include &quot;objects/laser_pointer.hpp&quot;
++#include &quot;objects/layer.hpp&quot;
++#include &quot;objects/liquid.hpp&quot;
++#include &quot;objects/nightvision.hpp&quot;
++#include &quot;objects/particle_systems.hpp&quot;
++#include &quot;objects/player.hpp&quot;
++#include &quot;objects/scriptable_object.hpp&quot;
++#include &quot;objects/shockwave.hpp&quot;
++#include &quot;objects/spider_mine.hpp&quot;
++#include &quot;objects/swarm.hpp&quot;
++#include &quot;objects/test_object.hpp&quot;
++#include &quot;objects/trigger.hpp&quot;
++#include &quot;objects/vrdummy.hpp&quot;
++
+ SectorBuilder::SectorBuilder(const Pathname&amp; filename, Sector&amp; sector)
+   : m_filename(filename),
+     m_sector(sector),
+@@ -79,9 +101,10 @@
+ }
+ 
+ void
+-SectorBuilder::parse_objects(const FileReader&amp; reader)
++SectorBuilder::parse_layer(const FileReader&amp; reader)
+ {
+   FileReader objects_reader;
++
+   if (!reader.get(&quot;objects&quot;, objects_reader))
+   {
+     throw std::runtime_error(&quot;No objects specified&quot;);
+@@ -91,9 +114,30 @@
+     std::vector&lt;FileReader&gt; objects_readers = objects_reader.get_sections();
+     for(std::vector&lt;FileReader&gt;::iterator i = objects_readers.begin(); i != objects_readers.end(); ++i)
+     {
+-      m_sector.add_object(*i);
++      parse_object(*i);
+     }
++  }
++}
+ 
++void
++SectorBuilder::parse_objects(const FileReader&amp; reader)
++{
++  FileReader objects_reader;
++
++  // FIXME: try both for backward compatibility
++  if (!reader.get(&quot;objects&quot;, objects_reader) &amp;&amp;
++      !reader.get(&quot;layers&quot;, objects_reader))
++  {
++    throw std::runtime_error(&quot;No objects specified&quot;);
++  }
++  else
++  {
++    std::vector&lt;FileReader&gt; objects_readers = objects_reader.get_sections();
++    for(std::vector&lt;FileReader&gt;::iterator i = objects_readers.begin(); i != objects_readers.end(); ++i)
++    {
++      parse_object(*i);
++    }
++
+     // Set the parents properly
+     for(std::map&lt;GameObject*, std::string&gt;::iterator i = parent_table.begin(); i != parent_table.end(); ++i)
+     {
+@@ -111,12 +155,131 @@
+ }
+ 
+ void
++SectorBuilder::parse_object(const FileReader&amp; reader)
++{
++  GameObject* obj = 0;
++  if(reader.get_name() == &quot;tilemap&quot;) 
++  {
++    std::auto_ptr&lt;TileMap&gt; tilemap(new TileMap(reader));
++
++    if (tilemap-&gt;get_name() == &quot;interactive&quot;)
++      m_sector.interactive_tilemap = tilemap.get();
++    else if (tilemap-&gt;get_name() == &quot;interactivebackground&quot;)
++      m_sector.interactivebackground_tilemap = tilemap.get();
++
++    obj = tilemap.release();
++  }
++  else if(reader.get_name() == &quot;background&quot;)
++  {
++    // TODO
++  }
++  else if (reader.get_name() == &quot;background-gradient&quot;)
++  {
++    obj = new BackgroundGradient(reader);
++  }
++  else if(reader.get_name() == &quot;trigger&quot;)
++  {
++    obj = new Trigger(reader);
++  }
++  else if(reader.get_name() == &quot;box&quot;)
++  {
++    obj = new Box(reader);
++  }
++  else if(reader.get_name() == &quot;shockwave&quot;)
++  {
++    obj = new Shockwave(reader);
++  }
++  else if(reader.get_name() == &quot;elevator&quot;)
++  {
++    obj = new Elevator(reader);
++  }
++  else if(reader.get_name() == &quot;character&quot;)
++  {    
++    obj = new Character(reader);
++  }
++  else if(reader.get_name() == &quot;spider-mine&quot;)
++  {
++    obj = new SpiderMine(reader);
++  }
++  else if(reader.get_name() == &quot;hedgehog&quot;)
++  {
++    obj = new Hedgehog(reader);
++  }
++  else if(reader.get_name() == &quot;test-object&quot;)
++  {
++    obj = new TestObject(reader);
++  }
++  else if (reader.get_name() == &quot;nightvision&quot;)
++  {
++    obj = new Nightvision(reader);
++  }
++  else if (reader.get_name() == &quot;particle-system&quot;)
++  {
++    // FIXME: disabled due to work on the editor: obj = new ParticleSystem(reader);
++  }
++  else if(reader.get_name() == &quot;scriptable-object&quot;)
++  {    
++    obj = new ScriptableObject(reader);
++  }
++  else if(reader.get_name() == &quot;decal&quot;)
++  {    
++    obj = new Decal(reader);
++  }
++  else if(reader.get_name() == &quot;layer&quot;)
++  {    
++    parse_layer(reader);
++  }
++  else if (reader.get_name() == &quot;vrdummy&quot;)
++  {
++    obj = new VRDummy(reader);
++  }
++  else if (reader.get_name() == &quot;swarm&quot;)
++  {
++    obj = new Swarm(reader);
++  }
++  else if (reader.get_name() == &quot;laserpointer&quot;)
++  {
++    obj = new LaserPointer();
++  }
++  else if (reader.get_name() == &quot;liquid&quot;)
++  {
++    obj = new Liquid(reader);
++  }
++  else if (reader.get_name() == &quot;particle-systems&quot;)
++  {
++    obj = new ParticleSystems(reader);
++  }
++  else 
++  {
++    std::cout &lt;&lt; &quot;Skipping unknown Object: &quot; &lt;&lt; reader.get_name() &lt;&lt; &quot;\n&quot;;
++  }
++
++  if (obj)
++  {
++    std::string id_str;
++    if (reader.read(&quot;id&quot;, id_str))
++    {
++      id_table[id_str] = obj;
++    }
++
++    std::string parent_str;
++    if (reader.read(&quot;parent&quot;, parent_str))
++    {
++      if (!parent_str.empty())
++        parent_table[obj] = parent_str;
++    }
++
++    m_sector.add(obj);
++  }
++}
++
++void
+ SectorBuilder::parse_navgraph(const FileReader&amp; reader)
+ {
+   FileReader navgraph_reader;
+   if (!reader.get(&quot;navigation&quot;, navgraph_reader))
+   {
+-    throw std::runtime_error(&quot;SectorBuilder: 'navigation' section missing&quot;);
++    //throw std::runtime_error(&quot;SectorBuilder: 'navigation' section missing&quot;);
+   }
+   else
+   {
+
+Modified: trunk/windstille/src/engine/sector_builder.hpp
+===================================================================
+--- trunk/windstille/src/engine/sector_builder.hpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/engine/sector_builder.hpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -40,7 +40,9 @@
+   
+ private:
+   void parse_body(const FileReader&amp; reader);
++  void parse_layer(const FileReader&amp; reader);
+   void parse_objects(const FileReader&amp; reader);
++  void parse_object(const FileReader&amp; reader);
+   void parse_navgraph(const FileReader&amp; reader);
+ 
+ private:
+
+Modified: trunk/windstille/src/objects/background_gradient.cpp
+===================================================================
+--- trunk/windstille/src/objects/background_gradient.cpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/background_gradient.cpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -23,7 +23,7 @@
+ #include &quot;scenegraph/vertex_array_drawable.hpp&quot;
+ #include &quot;scenegraph/gradient_drawable.hpp&quot;
+ 
+-BackgroundGradient::BackgroundGradient(FileReader&amp; props)
++BackgroundGradient::BackgroundGradient(const FileReader&amp; props)
+   : drawable()
+ {
+   std::vector&lt;float&gt; colors;
+
+Modified: trunk/windstille/src/objects/background_gradient.hpp
+===================================================================
+--- trunk/windstille/src/objects/background_gradient.hpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/background_gradient.hpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -29,7 +29,7 @@
+   boost::shared_ptr&lt;GradientDrawable&gt; drawable;
+ 
+ public:
+-  BackgroundGradient(FileReader&amp; props);
++  BackgroundGradient(const FileReader&amp; props);
+   ~BackgroundGradient();
+     
+ private:
+
+Modified: trunk/windstille/src/objects/box.cpp
+===================================================================
+--- trunk/windstille/src/objects/box.cpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/box.cpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -22,7 +22,7 @@
+ 
+ #include &quot;collision/collision_engine.hpp&quot;
+ 
+-Box::Box(FileReader&amp; props)
++Box::Box(const FileReader&amp; props)
+   : sprite(),
+     colobj(0),
+     gravity()
+
+Modified: trunk/windstille/src/objects/box.hpp
+===================================================================
+--- trunk/windstille/src/objects/box.hpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/box.hpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -33,7 +33,7 @@
+   float gravity;
+ 
+ public:
+-  Box(FileReader&amp; props);
++  Box(const FileReader&amp; props);
+   virtual ~Box();
+ 
+   void collision(const CollisionData&amp; data); 
+
+Modified: trunk/windstille/src/objects/character.cpp
+===================================================================
+--- trunk/windstille/src/objects/character.cpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/character.cpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -22,7 +22,7 @@
+ #include &quot;engine/script_manager.hpp&quot;
+ #include &quot;app/console.hpp&quot;
+ 
+-Character::Character(FileReader&amp; props)
++Character::Character(const FileReader&amp; props)
+   : sprite(),
+     z_pos(100.0f)
+ {
+
+Modified: trunk/windstille/src/objects/character.hpp
+===================================================================
+--- trunk/windstille/src/objects/character.hpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/character.hpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -29,7 +29,7 @@
+   float z_pos;
+     
+ public:
+-  Character(FileReader&amp; props);
++  Character(const FileReader&amp; props);
+   ~Character();
+   
+   void update(float delta);
+
+Modified: trunk/windstille/src/objects/elevator.cpp
+===================================================================
+--- trunk/windstille/src/objects/elevator.cpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/elevator.cpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -20,7 +20,7 @@
+ #include &quot;engine/sector.hpp&quot;
+ #include &quot;collision/collision_engine.hpp&quot;
+ 
+-Elevator::Elevator(FileReader&amp; props)
++Elevator::Elevator(const FileReader&amp; props)
+   : size(),
+     colobject(),
+     sprite()
+
+Modified: trunk/windstille/src/objects/elevator.hpp
+===================================================================
+--- trunk/windstille/src/objects/elevator.hpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/elevator.hpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -32,7 +32,7 @@
+   Sprite sprite;
+ 
+ public:
+-  Elevator(FileReader&amp; props);
++  Elevator(const FileReader&amp; props);
+   ~Elevator();
+ 
+   void draw(SceneContext&amp; sc);
+
+Modified: trunk/windstille/src/objects/hedgehog.cpp
+===================================================================
+--- trunk/windstille/src/objects/hedgehog.cpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/hedgehog.cpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -19,7 +19,7 @@
+ #include &quot;objects/player.hpp&quot;
+ #include &quot;objects/hedgehog.hpp&quot;
+ 
+-Hedgehog::Hedgehog(FileReader&amp; props)
++Hedgehog::Hedgehog(const FileReader&amp; props)
+   : sprite(Pathname(&quot;images/hedgehog.sprite&quot;)),
+     die_sprite(Pathname(&quot;images/hedgehog_die1.sprite&quot;)),
+     light(Pathname(&quot;images/hedgehog_light.sprite&quot;)),
+
+Modified: trunk/windstille/src/objects/hedgehog.hpp
+===================================================================
+--- trunk/windstille/src/objects/hedgehog.hpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/hedgehog.hpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -32,7 +32,7 @@
+   bool direction_left;
+   enum { WALKING, FALLING, DYING } state;
+ public:
+-  Hedgehog(FileReader&amp; props);
++  Hedgehog(const FileReader&amp; props);
+   ~Hedgehog();
+ 
+   void draw(SceneContext&amp; gc);
+
+Modified: trunk/windstille/src/objects/layer.cpp
+===================================================================
+--- trunk/windstille/src/objects/layer.cpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/layer.cpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -27,6 +27,7 @@
+   : objects(),
+     new_objects()
+ {
++#if 0
+   FileReader objects_reader;
+   if(reader.get(&quot;objects&quot;, objects_reader) == false)
+   {
+@@ -40,6 +41,7 @@
+       Sector::current()-&gt;add_object(*i);
+     }
+   }
++#endif
+ }
+ 
+ Layer::~Layer()
+
+Modified: trunk/windstille/src/objects/liquid.cpp
+===================================================================
+--- trunk/windstille/src/objects/liquid.cpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/liquid.cpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -24,7 +24,7 @@
+ 
+ #define SAMPLES 5
+ 
+-Liquid::Liquid(FileReader&amp; props)
++Liquid::Liquid(const FileReader&amp; props)
+   : texture(),
+     t(),
+     heightfield_store1(),
+
+Modified: trunk/windstille/src/objects/liquid.hpp
+===================================================================
+--- trunk/windstille/src/objects/liquid.hpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/liquid.hpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -41,7 +41,7 @@
+   boost::shared_ptr&lt;VertexArrayDrawable&gt; m_water_body;
+ 
+ public:
+-  Liquid(FileReader&amp; props);
++  Liquid(const FileReader&amp; props);
+   ~Liquid();
+ 
+   void update(float delta);
+
+Modified: trunk/windstille/src/objects/nightvision.cpp
+===================================================================
+--- trunk/windstille/src/objects/nightvision.cpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/nightvision.cpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -22,7 +22,7 @@
+ #include &quot;scenegraph/vertex_array_drawable.hpp&quot;
+ #include &quot;math/random.hpp&quot;
+ 
+-Nightvision::Nightvision(FileReader&amp; /*props*/)
++Nightvision::Nightvision(const FileReader&amp; props)
+   : nightvision(Pathname(&quot;images/nightvision.sprite&quot;)),
+     noise(Pathname(&quot;images/noise.png&quot;))
+ {
+
+Modified: trunk/windstille/src/objects/nightvision.hpp
+===================================================================
+--- trunk/windstille/src/objects/nightvision.hpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/nightvision.hpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -31,7 +31,7 @@
+   Texture noise;
+ 
+ public:
+-  Nightvision(FileReader&amp; props);
++  Nightvision(const FileReader&amp; props);
+   ~Nightvision();
+ 
+   void draw(SceneContext&amp; sc);
+
+Modified: trunk/windstille/src/objects/scriptable_object.cpp
+===================================================================
+--- trunk/windstille/src/objects/scriptable_object.cpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/scriptable_object.cpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -22,7 +22,7 @@
+ #include &quot;app/globals.hpp&quot;
+ #include &quot;objects/scriptable_object.hpp&quot;
+ 
+-ScriptableObject::ScriptableObject(FileReader&amp; props)
++ScriptableObject::ScriptableObject(const FileReader&amp; props)
+   : z_pos(50),
+     target_speed(0),
+     acceleration(0),
+
+Modified: trunk/windstille/src/objects/scriptable_object.hpp
+===================================================================
+--- trunk/windstille/src/objects/scriptable_object.hpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/scriptable_object.hpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -58,7 +58,7 @@
+   void flash();
+ 
+ public:
+-  ScriptableObject(FileReader&amp; reader);
++  ScriptableObject(const FileReader&amp; reader);
+   virtual ~ScriptableObject();
+ 
+   void draw (SceneContext&amp; sc);
+
+Modified: trunk/windstille/src/objects/shockwave.cpp
+===================================================================
+--- trunk/windstille/src/objects/shockwave.cpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/shockwave.cpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -22,7 +22,7 @@
+ #include &quot;display/shader_object.hpp&quot;
+ #include &quot;scenegraph/shockwave_drawable.hpp&quot;
+ 
+-Shockwave::Shockwave(FileReader&amp; props)
++Shockwave::Shockwave(const FileReader&amp; props)
+   : pos(),
+     noise(Pathname(&quot;images/noise3.png&quot;)),
+     shader_program(),
+
+Modified: trunk/windstille/src/objects/shockwave.hpp
+===================================================================
+--- trunk/windstille/src/objects/shockwave.hpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/shockwave.hpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -32,7 +32,7 @@
+   float radius;
+ 
+ public:
+-  Shockwave(FileReader&amp; props);
++  Shockwave(const FileReader&amp; props);
+   ~Shockwave();
+ 
+   void draw (SceneContext&amp; context);
+
+Modified: trunk/windstille/src/objects/spider_mine.cpp
+===================================================================
+--- trunk/windstille/src/objects/spider_mine.cpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/spider_mine.cpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -19,7 +19,7 @@
+ #include &quot;objects/spider_mine.hpp&quot;
+ #include &quot;objects/player.hpp&quot;
+ 
+-SpiderMine::SpiderMine(FileReader&amp; props)
++SpiderMine::SpiderMine(const FileReader&amp; props)
+   : sprite(),
+     explode(Pathname(&quot;images/explosion.sprite&quot;)),
+     explode_light(Pathname(&quot;images/explolight.sprite&quot;)),
+
+Modified: trunk/windstille/src/objects/spider_mine.hpp
+===================================================================
+--- trunk/windstille/src/objects/spider_mine.hpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/spider_mine.hpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -38,7 +38,7 @@
+   void search_for_player(float delta);
+ 
+ public:
+-  SpiderMine(FileReader&amp; props);
++  SpiderMine(const FileReader&amp; props);
+   ~SpiderMine();
+   
+   void update(float delta);
+
+Modified: trunk/windstille/src/objects/swarm.cpp
+===================================================================
+--- trunk/windstille/src/objects/swarm.cpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/swarm.cpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -23,7 +23,7 @@
+ 
+ #include &quot;objects/swarm.hpp&quot;
+ 
+-Swarm::Swarm(FileReader&amp; props)
++Swarm::Swarm(const FileReader&amp; props)
+   : agents(),
+     target(),
+     turn_speed()
+
+Modified: trunk/windstille/src/objects/swarm.hpp
+===================================================================
+--- trunk/windstille/src/objects/swarm.hpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/swarm.hpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -53,7 +53,7 @@
+   float turn_speed; 
+ 
+ public:
+-  Swarm(FileReader&amp; reader);
++  Swarm(const FileReader&amp; reader);
+   
+   void draw(SceneContext&amp; sc);
+   void update(float delta);
+
+Modified: trunk/windstille/src/objects/test_object.cpp
+===================================================================
+--- trunk/windstille/src/objects/test_object.cpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/test_object.cpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -20,7 +20,7 @@
+ 
+ #include &quot;objects/test_object.hpp&quot;
+ 
+-TestObject::TestObject(FileReader&amp; props)
++TestObject::TestObject(const FileReader&amp; props)
+   : sprite(),
+     attached_sprites(),
+     pos()
+
+Modified: trunk/windstille/src/objects/test_object.hpp
+===================================================================
+--- trunk/windstille/src/objects/test_object.hpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/test_object.hpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -28,7 +28,7 @@
+ class TestObject : public GameObject
+ {
+ public:
+-  TestObject(FileReader&amp; reader);
++  TestObject(const FileReader&amp; reader);
+   virtual ~TestObject();
+ 
+   void draw(SceneContext&amp; context);
+
+Modified: trunk/windstille/src/objects/trigger.cpp
+===================================================================
+--- trunk/windstille/src/objects/trigger.cpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/trigger.cpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -21,7 +21,7 @@
+ #include &quot;engine/sector.hpp&quot;
+ #include &quot;objects/player.hpp&quot;
+ 
+-Trigger::Trigger(FileReader&amp; props)
++Trigger::Trigger(const FileReader&amp; props)
+   : area(),
+     callback(),
+     triggered(false), 
+
+Modified: trunk/windstille/src/objects/trigger.hpp
+===================================================================
+--- trunk/windstille/src/objects/trigger.hpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/trigger.hpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -36,7 +36,7 @@
+   bool one_time_trigger;
+   
+ public:
+-  Trigger(FileReader&amp; props);
++  Trigger(const FileReader&amp; props);
+   virtual ~Trigger();
+ 
+   void draw (SceneContext&amp; gc);
+
+Modified: trunk/windstille/src/objects/vrdummy.cpp
+===================================================================
+--- trunk/windstille/src/objects/vrdummy.cpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/vrdummy.cpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -19,7 +19,7 @@
+ #include &quot;math/random.hpp&quot;
+ #include &quot;objects/vrdummy.hpp&quot;
+ 
+-VRDummy::VRDummy(FileReader&amp; props)
++VRDummy::VRDummy(const FileReader&amp; props)
+   : sprite(),
+     highlight(),
+     rotation(),
+
+Modified: trunk/windstille/src/objects/vrdummy.hpp
+===================================================================
+--- trunk/windstille/src/objects/vrdummy.hpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/objects/vrdummy.hpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -34,7 +34,7 @@
+   float jump_time;
+ 
+ public:
+-  VRDummy(FileReader&amp; props);
++  VRDummy(const FileReader&amp; props);
+   ~VRDummy();
+ 
+   void draw(SceneContext&amp; gc);
+
+Modified: trunk/windstille/src/scripting/interface.cpp
+===================================================================
+--- trunk/windstille/src/scripting/interface.cpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/scripting/interface.cpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -368,8 +368,9 @@
+ 
+     try 
+     {
+-      SExprFileReader reader(new lisp::Lisp(entries), true);
+-      Sector::current()-&gt;add_object(reader);
++      assert(!&quot;spawn_object is broken&quot;);
++      //SExprFileReader reader(new lisp::Lisp(entries), true);
++      //Sector::current()-&gt;add_object(reader);
+     }
+     catch (std::exception&amp; e) 
+     {
+
+Modified: trunk/windstille/src/tile/tile_map.cpp
+===================================================================
+--- trunk/windstille/src/tile/tile_map.cpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/tile/tile_map.cpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -28,7 +28,7 @@
+ #include &quot;screen/view.hpp&quot;
+ #include &quot;scenegraph/vertex_array_drawable.hpp&quot;
+ 
+-TileMap::TileMap(FileReader&amp; props)
++TileMap::TileMap(const FileReader&amp; props)
+   : field(),
+     z_pos(),
+     total_time()
+
+Modified: trunk/windstille/src/tile/tile_map.hpp
+===================================================================
+--- trunk/windstille/src/tile/tile_map.hpp	2009-09-12 05:24:21 UTC (rev 3231)
++++ trunk/windstille/src/tile/tile_map.hpp	2009-09-12 05:53:23 UTC (rev 3232)
+@@ -37,7 +37,7 @@
+   float total_time;
+ 
+ public:
+-  TileMap(FileReader&amp; props);
++  TileMap(const FileReader&amp; props);
+   virtual ~TileMap();
+ 
+   void update (float delta);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002228.html">[Windstille-commit] r3231 - trunk/windstille/src/engine
+</A></li>
+	<LI>Next message: <A HREF="002230.html">[Windstille-commit] r3233 - in trunk/windstille/src: editor	scenegraph
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2229">[ date ]</a>
+              <a href="thread.html#2229">[ thread ]</a>
+              <a href="subject.html#2229">[ subject ]</a>
+              <a href="author.html#2229">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

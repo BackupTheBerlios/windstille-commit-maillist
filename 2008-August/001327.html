@@ -1,0 +1,170 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2327 - trunk/griv/new
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2327%20-%20trunk/griv/new&In-Reply-To=%3C200808142159.m7ELxTBh004973%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001331.html">
+   <LINK REL="Next"  HREF="001335.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2327 - trunk/griv/new</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2327%20-%20trunk/griv/new&In-Reply-To=%3C200808142159.m7ELxTBh004973%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2327 - trunk/griv/new">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Aug 14 23:59:29 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001331.html">[Windstille-commit] r2326 - trunk/griv/new
+</A></li>
+        <LI>Next message: <A HREF="001335.html">[Windstille-commit] r2328 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1327">[ date ]</a>
+              <a href="thread.html#1327">[ thread ]</a>
+              <a href="subject.html#1327">[ subject ]</a>
+              <a href="author.html#1327">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-14 23:59:29 +0200 (Thu, 14 Aug 2008)
+New Revision: 2327
+
+Modified:
+   trunk/griv/new/image.cpp
+   trunk/griv/new/image.hpp
+Log:
+Added some better status keeping for tiles
+
+Modified: trunk/griv/new/image.cpp
+===================================================================
+--- trunk/griv/new/image.cpp	2008-08-14 21:59:15 UTC (rev 2326)
++++ trunk/griv/new/image.cpp	2008-08-14 21:59:29 UTC (rev 2327)
+@@ -140,11 +140,18 @@
+     {
+       ViewerThread::current()-&gt;request_tile(impl-&gt;fileid, tile_scale, x, y, *this);
+ 
+-      return impl-&gt;cache[cache_id] = Surface(); // We add an empty surface, so we don't do duplicate requests
++      SurfaceStruct s;
++      
++      s.surface = Surface();
++      s.status  = SurfaceStruct::SURFACE_REQUESTED;
++
++      impl-&gt;cache[cache_id] = s;
++
++      return Surface();
+     }
+   else
+     {
+-      return i-&gt;second;
++      return i-&gt;second.surface;
+     }
+ }
+ 
+@@ -160,22 +167,22 @@
+     {
+       // Look for the next smaller tile
+       // FIXME: Rewrite this to work all smaller tiles, not just the next
+-      uint32_t cache_id = make_cache_id(x/2, y/2, tiledb_scale+1);
++      int downscale = Math::pow2(1);
++
++      uint32_t cache_id = make_cache_id(x/downscale, y/downscale, tiledb_scale+1);
+       Cache::iterator i = impl-&gt;cache.find(cache_id);
+   
+-      if (i != impl-&gt;cache.end() &amp;&amp; i-&gt;second)
++      if (i != impl-&gt;cache.end() &amp;&amp; i-&gt;second.surface)
+         { // Must only draw relevant section!
+-          Size s((x%2) ? (i-&gt;second.get_width()  - 128) : 128,
+-                 (y%2) ? (i-&gt;second.get_height() - 128) : 128);
++          Size s((x%downscale) ? (i-&gt;second.surface.get_width()  - 256/downscale) : 256/downscale,
++                 (y%downscale) ? (i-&gt;second.surface.get_height() - 256/downscale) : 256/downscale);
+ 
+-          s.width  = Math::min(i-&gt;second.get_width(),  s.width);
+-          s.height = Math::min(i-&gt;second.get_height(), s.height);
++          s.width  = Math::min(i-&gt;second.surface.get_width(),  s.width);
++          s.height = Math::min(i-&gt;second.surface.get_height(), s.height);
+           
+-          //std::cout &lt;&lt; x%2 &lt;&lt; &quot;:&quot; &lt;&lt; y%2 &lt;&lt; &quot; &quot; &lt;&lt; i-&gt;second.get_size() &lt;&lt; &quot; -&gt; &quot; &lt;&lt; s &lt;&lt; std::endl;
+-
+-          i-&gt;second.draw(Rectf(Vector2f(x%2, y%2) * 128, 
+-                               s),
+-                         Rectf(pos, s * scale * 2));
++          i-&gt;second.surface.draw(Rectf(Vector2f(x%downscale, y%downscale) * 256/downscale, 
++                                       s),
++                                 Rectf(pos, s * scale * downscale));
+         }
+     }
+ }
+@@ -249,7 +256,13 @@
+ Image::receive_tile(int x, int y, int tiledb_scale, const SoftwareSurface&amp; surface)
+ {
+   int tile_id = make_cache_id(x, y, tiledb_scale);
+-  impl-&gt;cache[tile_id] = Surface(surface);
++
++  SurfaceStruct s;
++  
++  s.surface = Surface(surface);
++  s.status  = SurfaceStruct::SURFACE_OK;
++
++  impl-&gt;cache[tile_id] = s;
+ }
+ 
+ /* EOF */
+
+Modified: trunk/griv/new/image.hpp
+===================================================================
+--- trunk/griv/new/image.hpp	2008-08-14 21:59:15 UTC (rev 2326)
++++ trunk/griv/new/image.hpp	2008-08-14 21:59:29 UTC (rev 2327)
+@@ -43,8 +43,17 @@
+ class Image
+ {
+ public:
+-  typedef std::map&lt;uint32_t, Surface&gt; Cache; 
++  struct SurfaceStruct {
++    enum Status { SURFACE_OK,
++                  SURFACE_REQUESTED,
++                  SURFACE_FAILED };
+ 
++    Status  status;
++    Surface surface;
++  };
++
++  typedef std::map&lt;uint32_t, SurfaceStruct&gt; Cache; 
++
+ private:
+   Surface get_tile(int x, int y, int tile_scale);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001331.html">[Windstille-commit] r2326 - trunk/griv/new
+</A></li>
+	<LI>Next message: <A HREF="001335.html">[Windstille-commit] r2328 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1327">[ date ]</a>
+              <a href="thread.html#1327">[ thread ]</a>
+              <a href="subject.html#1327">[ subject ]</a>
+              <a href="author.html#1327">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

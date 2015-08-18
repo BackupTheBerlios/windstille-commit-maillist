@@ -1,0 +1,681 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2637 - in trunk/windstille: . data/scripts	src/engine src/scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2637%20-%20in%20trunk/windstille%3A%20.%20data/scripts%0A%09src/engine%20src/scripting&In-Reply-To=%3C200903111420.n2BEKuN6002153%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001633.html">
+   <LINK REL="Next"  HREF="001635.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2637 - in trunk/windstille: . data/scripts	src/engine src/scripting</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2637%20-%20in%20trunk/windstille%3A%20.%20data/scripts%0A%09src/engine%20src/scripting&In-Reply-To=%3C200903111420.n2BEKuN6002153%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2637 - in trunk/windstille: . data/scripts	src/engine src/scripting">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Mar 11 15:20:56 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001633.html">[Windstille-commit] r2636 - trunk/windstille/data/sectors/apartment
+</A></li>
+        <LI>Next message: <A HREF="001635.html">[Windstille-commit] r2638 - in trunk/windstille/src: app hud	scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1634">[ date ]</a>
+              <a href="thread.html#1634">[ thread ]</a>
+              <a href="subject.html#1634">[ subject ]</a>
+              <a href="author.html#1634">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-11 15:20:55 +0100 (Wed, 11 Mar 2009)
+New Revision: 2637
+
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/data/scripts/windstille.nut
+   trunk/windstille/src/engine/script_manager.cpp
+   trunk/windstille/src/engine/squirrel_thread.cpp
+   trunk/windstille/src/scripting/interface.cpp
+   trunk/windstille/src/scripting/util.cpp
+   trunk/windstille/src/scripting/util.hpp
+Log:
+Removed/improved some debugging output, fixed stack polution when executing global scripts
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-03-11 13:40:55 UTC (rev 2636)
++++ trunk/windstille/TODO	2009-03-11 14:20:55 UTC (rev 2637)
+@@ -10,8 +10,18 @@
+ Scripting
+ =========
+ 
+-* add a way to print content of stack
++* ScriptableObject is a bad name, since all objects should be
++  scriptable in one form or another
+ 
++* add typechecking to __custom functions in miniswig, something like
++  this might work:
++
++  void foobar(HSQUIRRELVM vm) __custom(&quot;if&quot;)
++
++  where the string is in the syntax of sq_setparamscheck()
++
++* implement more advanced tab-completion for console
++
+ * miniswig does not support __suspend with a return value, should be
+   fixed, since Squirrel can handle it. Trouble is that the return
+   value is created by the sq_wakeupvm() call, not by the
+@@ -25,8 +35,12 @@
+   scripts, in some situation it might make more sense to attach the
+   script directly to the object that sends the signal
+ 
+-* some functions in scripts require '::' before them so that they can
+-  be found, not quite clear why or exactly when this happens
++* some functions in data/scripts/windstille.nut require '::' before
++  them so that they can be found, not quite clear why or exactly when
++  this happens, seems to happen only in classes, not in normal
++  function, in theory at least they should get resolved by delegation
++  from the current environment to the roottable, but that doesn't
++  happen
+ 
+ * objects are currently all exported to squirrel, while we should
+   probally use id-tags and accessor functions instead:
+@@ -73,6 +87,8 @@
+ Miscellaneous
+ =============
+ 
++* When starting sector directly from command line, &quot;Return to title screen&quot; doesn't work
++
+ * console doesn't adopt to screen size
+ 
+ * add support for dynamic resize to Menu's, currently Menus have
+@@ -186,7 +202,23 @@
+   buffer call's when it is busy, once no longer busy it would pick the
+   next task from the stack. Different scripts could use different
+   stack behaviour, i.e. in the lamp_sequence() it would be useful to
+-  have a task-stack of size 1 and discard everything else
++  have a task-stack of size 1 and discard everything else.
++
++  In addition to spawning a script, it would be good if there would be
++  a way to spawn an object or a function, since that way the logic can
++  be kept in one file.
++
++  spawn_function(function() {
++     obj &lt;- FoobarObject();
++     obj.run();
++  })
++
++* implement a door with two segments that slide sideways when the door
++  opens, think about how that can be implemented properly in scripting
++  (two parallel events that have to be waited for)
++
++  -&gt; a solution in scripting isn't a good idea here, this is something
++     that would be much better solved by a 2D animation system
+   
+ 
+ Random Things
+
+Modified: trunk/windstille/data/scripts/windstille.nut
+===================================================================
+--- trunk/windstille/data/scripts/windstille.nut	2009-03-11 13:40:55 UTC (rev 2636)
++++ trunk/windstille/data/scripts/windstille.nut	2009-03-11 14:20:55 UTC (rev 2637)
+@@ -103,8 +103,8 @@
+ 
+ function add_dialog(align, character, portrait, text)
+ {
+-  ::dialog_show(align, character, portrait, text);
+-  ::wait_for_dialog();  
++  dialog_show(align, character, portrait, text);
++  wait_for_dialog();  
+ }
+ 
+ /* Some debugging/testing stuff */
+
+Modified: trunk/windstille/src/engine/script_manager.cpp
+===================================================================
+--- trunk/windstille/src/engine/script_manager.cpp	2009-03-11 13:40:55 UTC (rev 2636)
++++ trunk/windstille/src/engine/script_manager.cpp	2009-03-11 14:20:55 UTC (rev 2637)
+@@ -81,32 +81,36 @@
+     {
+       // register default error handlers
+       sqstd_seterrorhandlers(vm);
+-      // register squirrel libs
+-      sq_pushroottable(vm);
+ 
+-      /* FIXME: None of these should be needed for scripts
++      { // register squirrel libs in the root table
++        
++        sq_pushroottable(vm);
++      
++        /* FIXME: None of these should be needed for scripts
+ 
+-         if(sqstd_register_bloblib(v) &lt; 0)
+-         throw SquirrelError(v, &quot;Couldn't register blob lib&quot;);
++           if(SQ_FAILED(sqstd_register_bloblib(v)))
++           throw SquirrelError(v, &quot;Couldn't register blob lib&quot;);
+ 
+-         if(sqstd_register_iolib(v) &lt; 0)
+-         throw SquirrelError(v, &quot;Couldn't register io lib&quot;);
++           if(SQ_FAILED(sqstd_register_iolib(v)))
++           throw SquirrelError(v, &quot;Couldn't register io lib&quot;);
+ 
+-         if(sqstd_register_systemlib(v) &lt; 0)
+-         throw SquirrelError(v, &quot;Couldn't register system lib&quot;);
+-      */
++           if(SQ_FAILED(sqstd_register_systemlib(v)))
++           throw SquirrelError(v, &quot;Couldn't register system lib&quot;);
++        */
+ 
+-      if(sqstd_register_mathlib(vm) &lt; 0)
+-        throw SquirrelError(vm, &quot;Couldn't register math lib&quot;);
++        if(SQ_FAILED(sqstd_register_mathlib(vm)))
++          throw SquirrelError(vm, &quot;Couldn't register math lib&quot;);
+ 
+-      if(sqstd_register_stringlib(vm) &lt; 0)
+-        throw SquirrelError(vm, &quot;Couldn't register string lib&quot;);
++        if(SQ_FAILED(sqstd_register_stringlib(vm)))
++          throw SquirrelError(vm, &quot;Couldn't register string lib&quot;);
+ 
+-      // register print function
+-      sq_setprintfunc(vm, printfunc);
++        // register print function
++        sq_setprintfunc(vm, printfunc);
+   
+-      // register windstille API
+-      Scripting::register_windstille_wrapper(vm);
++        // register windstille API
++        Scripting::register_windstille_wrapper(vm);
++        sq_pop(vm, 1);
++      }
+ 
+       // Create the empty &quot;objects&quot; table
+       sq_pushroottable(vm);
+@@ -145,14 +149,20 @@
+ 
+       // Execute the script
+       if (SQ_FAILED(sq_call(vm, 1, false, true)))
+-        throw SquirrelError(vm, &quot;SquirrelThread::run(): &quot; + filename + &quot;: Couldn't start script&quot;);
+-
+-      if (sq_getvmstate(vm) != SQ_VMSTATE_IDLE)
+         {
+-          throw std::runtime_error(&quot;ScriptManager::run_script(): &quot; + filename + &quot;: global scripts must not suspend&quot;);
++          throw SquirrelError(vm, &quot;SquirrelThread::run(): &quot; + filename + &quot;: Couldn't start script&quot;);
+         }
++      else
++        {
++          sq_pop(vm, 1);
+ 
+-      return boost::shared_ptr&lt;SquirrelThread&gt;();
++          if (sq_getvmstate(vm) != SQ_VMSTATE_IDLE)
++            {
++              throw std::runtime_error(&quot;ScriptManager::run_script(): '&quot; + filename + &quot;': global scripts must not suspend&quot;);
++            }
++
++          return boost::shared_ptr&lt;SquirrelThread&gt;();
++        }
+     }
+   else
+     {
+
+Modified: trunk/windstille/src/engine/squirrel_thread.cpp
+===================================================================
+--- trunk/windstille/src/engine/squirrel_thread.cpp	2009-03-11 13:40:55 UTC (rev 2636)
++++ trunk/windstille/src/engine/squirrel_thread.cpp	2009-03-11 14:20:55 UTC (rev 2637)
+@@ -184,9 +184,6 @@
+ 
+             try 
+               {
+-                std::cout &lt;&lt; &quot;Before: WakeUp: &quot; &lt;&lt; std::endl;
+-                Scripting::print_squirrel_stack(thread);
+-
+                 // Try to return a value
+                 if (sq_wakeupvm(thread, SQFalse, SQFalse, SQTrue) &lt; 0)
+                   {
+@@ -196,13 +193,9 @@
+                   {
+                     if(sq_getvmstate(thread) == SQ_VMSTATE_IDLE) 
+                       { // Cleanup stack
+-                        std::cout &lt;&lt; &quot;XXXXXXXX Cleanup stack&quot; &lt;&lt; std::endl;
+                         sq_settop(thread, oldtop);
+                       }
+                   }
+-               
+-                std::cout &lt;&lt; &quot;After: WakeUp: &quot; &lt;&lt; std::endl;
+-                Scripting::print_squirrel_stack(thread);
+               }
+             catch(std::exception&amp; e) 
+               {
+@@ -250,7 +243,7 @@
+       std::cout &lt;&lt; &quot;'------------------------------------------&quot; &lt;&lt; std::endl;
+     }
+ 
+-  std::cout &lt;&lt; &quot;SquirrelThread::call(\&quot;&quot; &lt;&lt; function &lt;&lt; &quot;\&quot;)&quot; &lt;&lt; std::endl;
++  //std::cout &lt;&lt; &quot;SquirrelThread::call(\&quot;&quot; &lt;&lt; function &lt;&lt; &quot;\&quot;)&quot; &lt;&lt; std::endl;
+ 
+   oldtop = sq_gettop(thread);
+ 
+@@ -278,12 +271,9 @@
+     {
+       sq_settop(thread, oldtop);
+ 
+-      if (1)
++      if (0)
+         std::cout &lt;&lt; filename &lt;&lt; &quot;: Function '&quot; &lt;&lt; function &lt;&lt; &quot;' not found in roottable&quot; &lt;&lt; std::endl;
+     }
+-
+-  std::cout &lt;&lt; &quot;Call: &quot; &lt;&lt; function &lt;&lt; std::endl;
+-  Scripting::print_squirrel_stack(thread);
+ }
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/scripting/interface.cpp
+===================================================================
+--- trunk/windstille/src/scripting/interface.cpp	2009-03-11 13:40:55 UTC (rev 2636)
++++ trunk/windstille/src/scripting/interface.cpp	2009-03-11 14:20:55 UTC (rev 2637)
+@@ -369,7 +369,7 @@
+ 
+ void spawn_script(const std::string&amp; filename)
+ {
+-  ScriptManager::current()-&gt;run_script_file(filename);
++  ScriptManager::current()-&gt;run_script_file(Sector::current()-&gt;get_directory() + filename);
+ }
+ 
+ } // namespace Scripting
+
+Modified: trunk/windstille/src/scripting/util.cpp
+===================================================================
+--- trunk/windstille/src/scripting/util.cpp	2009-03-11 13:40:55 UTC (rev 2636)
++++ trunk/windstille/src/scripting/util.cpp	2009-03-11 14:20:55 UTC (rev 2637)
+@@ -17,6 +17,7 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
++#include &lt;iostream&gt;
+ #include &lt;sstream&gt;
+ #include &lt;memory&gt;
+ 
+@@ -118,175 +119,180 @@
+   std::ostringstream os;
+   switch(sq_gettype(v, i))
+     {
+-    case OT_NULL:
+-      os &lt;&lt; &quot;&lt;null&gt;&quot;;        
+-      break;
+-    case OT_BOOL: {
+-      SQBool p;
+-      sq_getbool(v, i, &amp;p);
+-      if (p) 
+-        os &lt;&lt; &quot;true&quot;;
+-      else
+-        os &lt;&lt; &quot;false&quot;;
+-      break;
+-    }
+-    case OT_INTEGER: {
+-      SQInteger val;
+-      sq_getinteger(v, i, &amp;val);
+-      os &lt;&lt; val;
+-      break;
+-    }
+-    case OT_FLOAT: {
+-      float val;
+-      sq_getfloat(v, i, &amp;val);
+-      os &lt;&lt; val;
+-      break;
+-    }
+-    case OT_STRING: {
+-      const char* val;
+-      sq_getstring(v, i, &amp;val);
+-      os &lt;&lt; &quot;\&quot;&quot; &lt;&lt; val &lt;&lt; &quot;\&quot;&quot;;
+-      break;    
+-    }
+-    case OT_TABLE: {
+-      bool first = true;
+-      os &lt;&lt; &quot;{&quot;;
+-      sq_pushnull(v);  //null iterator
+-      while(SQ_SUCCEEDED(sq_next(v,i-1)))
+-        {
+-          if (!first) {
+-            os &lt;&lt; &quot;, \n&quot;;
+-          }
+-          first = false;
++      case OT_NULL:
++        os &lt;&lt; &quot;&lt;null&gt;&quot;;        
++        break;
++      case OT_BOOL: {
++        SQBool p;
++        sq_getbool(v, i, &amp;p);
++        if (p) 
++          os &lt;&lt; &quot;true&quot;;
++        else
++          os &lt;&lt; &quot;false&quot;;
++        break;
++      }
++      case OT_INTEGER: {
++        SQInteger val;
++        sq_getinteger(v, i, &amp;val);
++        os &lt;&lt; val;
++        break;
++      }
++      case OT_FLOAT: {
++        float val;
++        sq_getfloat(v, i, &amp;val);
++        os &lt;&lt; val;
++        break;
++      }
++      case OT_STRING: {
++        const char* val;
++        sq_getstring(v, i, &amp;val);
++        os &lt;&lt; &quot;\&quot;&quot; &lt;&lt; val &lt;&lt; &quot;\&quot;&quot;;
++        break;    
++      }
++      case OT_TABLE: {
++        bool first = true;
++        os &lt;&lt; &quot;{&quot;;
++        sq_pushnull(v);  //null iterator
++        while(SQ_SUCCEEDED(sq_next(v,i-1)))
++          {
++            if (!first) {
++              os &lt;&lt; &quot;, \n&quot;;
++            }
++            first = false;
+ 
+-          //here -1 is the value and -2 is the key
+-          os &lt;&lt; squirrel2string(v, -2) &lt;&lt; &quot; =&gt; &quot; 
+-             &lt;&lt; squirrel2string(v, -1);
++            //here -1 is the value and -2 is the key
++            os &lt;&lt; squirrel2string(v, -2) &lt;&lt; &quot; =&gt; &quot; 
++               &lt;&lt; squirrel2string(v, -1);
+                               
+-          sq_pop(v,2); //pops key and val before the nex iteration
+-        }
+-      sq_pop(v, 1);
+-      os &lt;&lt; &quot;}&quot;;
+-      break;
+-    }
+-    case OT_ARRAY: {
+-      bool first = true;
+-      os &lt;&lt; &quot;[&quot;;
+-      sq_pushnull(v);  //null iterator
+-      while(SQ_SUCCEEDED(sq_next(v,i-1)))
+-        {
+-          if (!first) {
+-            os &lt;&lt; &quot;, &quot;;
++            sq_pop(v,2); //pops key and val before the nex iteration
+           }
+-          first = false;
++        sq_pop(v, 1);
++        os &lt;&lt; &quot;}&quot;;
++        break;
++      }
++      case OT_ARRAY: {
++        bool first = true;
++        os &lt;&lt; &quot;[&quot;;
++        sq_pushnull(v);  //null iterator
++        while(SQ_SUCCEEDED(sq_next(v,i-1)))
++          {
++            if (!first) {
++              os &lt;&lt; &quot;, &quot;;
++            }
++            first = false;
+ 
+-          //here -1 is the value and -2 is the key
+-          // we ignore the key, since that is just the index in an array
+-          os &lt;&lt; squirrel2string(v, -1);
++            //here -1 is the value and -2 is the key
++            // we ignore the key, since that is just the index in an array
++            os &lt;&lt; squirrel2string(v, -1);
+                               
+-          sq_pop(v,2); //pops key and val before the nex iteration
+-        }
+-      sq_pop(v, 1);
+-      os &lt;&lt; &quot;]&quot;;
+-      break;
++            sq_pop(v,2); //pops key and val before the nex iteration
++          }
++        sq_pop(v, 1);
++        os &lt;&lt; &quot;]&quot;;
++        break;
++      }
++      case OT_USERDATA:
++        os &lt;&lt; &quot;&lt;userdata&gt;&quot;;
++        break;
++      case OT_CLOSURE:        
++        os &lt;&lt; &quot;&lt;closure (function)&gt;&quot;;
++        break;
++      case OT_NATIVECLOSURE:
++        os &lt;&lt; &quot;&lt;native closure (C function)&gt;&quot;;
++        break;
++      case OT_GENERATOR:
++        os &lt;&lt; &quot;&lt;generator&gt;&quot;;
++        break;
++      case OT_USERPOINTER:
++        os &lt;&lt; &quot;userpointer&quot;;
++        break;
++      case OT_THREAD:
++        os &lt;&lt; &quot;&lt;thread&gt;&quot;;
++        break;
++      case OT_CLASS:
++        os &lt;&lt; &quot;&lt;class&gt;&quot;;
++        break;
++      case OT_INSTANCE:
++        os &lt;&lt; &quot;&lt;instance&gt;&quot;;
++        break;
++      default:
++        os &lt;&lt; &quot;&lt;unknown&gt;&quot;;
++        break;
+     }
+-    case OT_USERDATA:
+-      os &lt;&lt; &quot;&lt;userdata&gt;&quot;;
+-      break;
+-    case OT_CLOSURE:        
+-      os &lt;&lt; &quot;&lt;closure (function)&gt;&quot;;
+-      break;
+-    case OT_NATIVECLOSURE:
+-      os &lt;&lt; &quot;&lt;native closure (C function)&gt;&quot;;
+-      break;
+-    case OT_GENERATOR:
+-      os &lt;&lt; &quot;&lt;generator&gt;&quot;;
+-      break;
+-    case OT_USERPOINTER:
+-      os &lt;&lt; &quot;userpointer&quot;;
+-      break;
+-    case OT_THREAD:
+-      os &lt;&lt; &quot;&lt;thread&gt;&quot;;
+-      break;
+-    case OT_CLASS:
+-      os &lt;&lt; &quot;&lt;class&gt;&quot;;
+-      break;
+-    case OT_INSTANCE:
+-      os &lt;&lt; &quot;&lt;instance&gt;&quot;;
+-      break;
+-    default:
+-      os &lt;&lt; &quot;&lt;unknown&gt;&quot;;
+-      break;
+-    }
+   return os.str();
+ }
+ 
+-void print_squirrel_stack(HSQUIRRELVM v)
++void print_squirrel_stack(HSQUIRRELVM v, const std::string&amp; context)
+ {
++  if (context.empty())
+     printf(&quot;,-------------------------------------------------------------\n&quot;);
+-    int count = sq_gettop(v);
+-    for(int i = 1; i &lt;= count; ++i) {
+-        printf(&quot;| %d: &quot;,i);
+-        switch(sq_gettype(v, i))
++  else
++    printf(&quot;,-------------[ %s ]---------------------------------------\n&quot;, context.c_str());
++
++  int count = sq_gettop(v);
++  for(int i = 1; i &lt;= count; ++i) 
++    {
++      printf(&quot;| %d: &quot;,i);
++      switch(sq_gettype(v, i))
+         {
+-            case OT_NULL:
+-                printf(&quot;null&quot;);        
+-                break;
+-            case OT_INTEGER: {
+-                SQInteger val;
+-                sq_getinteger(v, i, &amp;val);
+-                printf(&quot;integer (%d)&quot;, static_cast&lt;int&gt;(val));
+-                break;
+-            }
+-            case OT_FLOAT: {
+-                float val;
+-                sq_getfloat(v, i, &amp;val);
+-                printf(&quot;float (%f)&quot;, val);
+-                break;
+-            }
+-            case OT_STRING: {
+-                const char* val;
+-                sq_getstring(v, i, &amp;val);
+-                printf(&quot;string (%s)&quot;, val);
+-                break;    
+-            }
+-            case OT_TABLE:
+-                printf(&quot;table&quot;);
+-                break;
+-            case OT_ARRAY:
+-                printf(&quot;array&quot;);
+-                break;
+-            case OT_USERDATA:
+-                printf(&quot;userdata&quot;);
+-                break;
+-            case OT_CLOSURE:        
+-                printf(&quot;closure(function)&quot;);    
+-                break;
+-            case OT_NATIVECLOSURE:
+-                printf(&quot;native closure(C function)&quot;);
+-                break;
+-            case OT_GENERATOR:
+-                printf(&quot;generator&quot;);
+-                break;
+-            case OT_USERPOINTER:
+-                printf(&quot;userpointer&quot;);
+-                break;
+-            case OT_THREAD:
+-                printf(&quot;thread&quot;);
+-                break;
+-            case OT_CLASS:
+-                printf(&quot;class&quot;);
+-                break;
+-            case OT_INSTANCE:
+-                printf(&quot;instance&quot;);
+-                break;
+-            default:
+-                printf(&quot;unknown?!?&quot;);
+-                break;
++          case OT_NULL:
++            printf(&quot;null&quot;);        
++            break;
++          case OT_INTEGER: {
++            SQInteger val;
++            sq_getinteger(v, i, &amp;val);
++            printf(&quot;integer (%d)&quot;, static_cast&lt;int&gt;(val));
++            break;
++          }
++          case OT_FLOAT: {
++            float val;
++            sq_getfloat(v, i, &amp;val);
++            printf(&quot;float (%f)&quot;, val);
++            break;
++          }
++          case OT_STRING: {
++            const char* val;
++            sq_getstring(v, i, &amp;val);
++            printf(&quot;string (%s)&quot;, val);
++            break;    
++          }
++          case OT_TABLE:
++            printf(&quot;table&quot;);
++            break;
++          case OT_ARRAY:
++            printf(&quot;array&quot;);
++            break;
++          case OT_USERDATA:
++            printf(&quot;userdata&quot;);
++            break;
++          case OT_CLOSURE:        
++            printf(&quot;closure(function)&quot;);    
++            break;
++          case OT_NATIVECLOSURE:
++            printf(&quot;native closure(C function)&quot;);
++            break;
++          case OT_GENERATOR:
++            printf(&quot;generator&quot;);
++            break;
++          case OT_USERPOINTER:
++            printf(&quot;userpointer&quot;);
++            break;
++          case OT_THREAD:
++            printf(&quot;thread&quot;);
++            break;
++          case OT_CLASS:
++            printf(&quot;class&quot;);
++            break;
++          case OT_INSTANCE:
++            printf(&quot;instance&quot;);
++            break;
++          default:
++            printf(&quot;unknown?!?&quot;);
++            break;
+         }
+-        printf(&quot;\n&quot;);
++      printf(&quot;\n&quot;);
+     }
+-    printf(&quot;'-------------------------------------------------------------\n&quot;);
++  printf(&quot;'-------------------------------------------------------------\n&quot;);
+ }
+ 
+ void load_squirrel_table(HSQUIRRELVM v, int table_idx, const lisp::Lisp* lisp)
+
+Modified: trunk/windstille/src/scripting/util.hpp
+===================================================================
+--- trunk/windstille/src/scripting/util.hpp	2009-03-11 13:40:55 UTC (rev 2636)
++++ trunk/windstille/src/scripting/util.hpp	2009-03-11 14:20:55 UTC (rev 2637)
+@@ -36,7 +36,7 @@
+ std::string sq_to_lisp_string(std::string sq_str);
+ std::string squirrel2string(HSQUIRRELVM v, int i);
+ 
+-void print_squirrel_stack(HSQUIRRELVM v);
++void print_squirrel_stack(HSQUIRRELVM v, const std::string&amp; context = std::string());
+ 
+ 
+ // serialisation
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001633.html">[Windstille-commit] r2636 - trunk/windstille/data/sectors/apartment
+</A></li>
+	<LI>Next message: <A HREF="001635.html">[Windstille-commit] r2638 - in trunk/windstille/src: app hud	scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1634">[ date ]</a>
+              <a href="thread.html#1634">[ thread ]</a>
+              <a href="subject.html#1634">[ subject ]</a>
+              <a href="author.html#1634">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

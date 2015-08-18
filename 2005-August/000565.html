@@ -1,0 +1,285 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r912 - in trunk/src: collision scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r912%20-%20in%20trunk/src%3A%20collision%20scripting&In-Reply-To=%3C200508060909.j769977Y000058%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000563.html">
+   <LINK REL="Next"  HREF="000566.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r912 - in trunk/src: collision scripting</H1>
+    <B>David Kamphausen at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r912%20-%20in%20trunk/src%3A%20collision%20scripting&In-Reply-To=%3C200508060909.j769977Y000058%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r912 - in trunk/src: collision scripting">davidkamphausen at berlios.de
+       </A><BR>
+    <I>Sat Aug  6 11:09:07 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000563.html">[Windstille-commit] r911 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000566.html">[Windstille-commit] r913 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#565">[ date ]</a>
+              <a href="thread.html#565">[ thread ]</a>
+              <a href="subject.html#565">[ subject ]</a>
+              <a href="author.html#565">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: davidkamphausen
+Date: 2005-08-06 11:09:00 +0200 (Sat, 06 Aug 2005)
+New Revision: 912
+
+Modified:
+   trunk/src/collision/collision_engine.cpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/scripting/wrapper.hpp
+Log:
+* fixed collision unstucking, when stuck in several map-tiles
+
+
+Modified: trunk/src/collision/collision_engine.cpp
+===================================================================
+--- trunk/src/collision/collision_engine.cpp	2005-08-05 17:29:19 UTC (rev 911)
++++ trunk/src/collision/collision_engine.cpp	2005-08-06 09:09:00 UTC (rev 912)
+@@ -24,7 +24,7 @@
+ #include &quot;globals.hpp&quot;
+ #include &quot;tile_map.hpp&quot;
+ 
+-std::vector&lt;Rectf&gt; tilemap_collision_list(TileMap *tilemap, const Rectf &amp;r);
++std::vector&lt;Rectf&gt; tilemap_collision_list(TileMap *tilemap, const Rectf &amp;r, bool is_ground);
+ 
+ /***********************************************************************
+  * Collision
+@@ -113,9 +113,99 @@
+   return dir;
+ }
+ 
++int c_roundup(float f)
++{
++  int i=(int)f;
++  if(f&gt;i)
++    i++;
++  return i;
++}
++
++int c_round(float f)
++{
++  int i=(int)f;
++  if(fabs(f-i)&gt;0.5)
++    {
++      if(i&gt;0)
++	i++;
++      else
++	i--;
++    }
++  return i;
++}
++
++bool is_rect_free(TileMap *tilemap, int l, int t, int w,int h)
++{
++  int x,y;
++  for (x=l; x&lt;=l+w; x++)
++    for (y=t; y&lt;=t+h; y++)
++      {
++	if (tilemap-&gt;is_ground( x * TILE_SIZE, y * TILE_SIZE))
++	  return false;
++      }
++  return true;
++}
++
++Rectf get_next_free_rect(TileMap *tilemap, const Rectf &amp;r)
++{
++  int rx = c_round (r.left / TILE_SIZE);
++  int ry = c_round (std::min (r.top, r.bottom)  / TILE_SIZE);
++  
++  float fw = r.right - r.left;
++  float fh = fabs (r.bottom   - r.top);
++  
++  int rw = c_roundup (fw / TILE_SIZE);
++  int rh = c_roundup (fh / TILE_SIZE);
++
++  std::vector&lt;Rectf&gt; rects;
++
++  // find first set of free rectangle
++  // simply iterate the rectangles around current position
++  for(int d=1; d&lt;20; d++) // not more than 20 steps
++    {
++      for(int i=-d; i&lt;=d; i++)
++	{
++	  if (is_rect_free(tilemap, i + rx, -d + ry, rw, rh))
++	    rects.push_back( Rect(i + rx, -d + ry, rw, rh));
++	  if (is_rect_free(tilemap, i + rx, d + ry, rw, rh))
++	    rects.push_back( Rect(i + rx, d + ry, rw, rh));
++
++	  if (is_rect_free(tilemap, -d + rx, i + ry, rw, rh))
++	    rects.push_back( Rect(-d + rx, i + ry, rw, rh));
++	  if (is_rect_free(tilemap,  d + rx, i + ry, rw, rh))
++	    rects.push_back( Rect(d  + rx, i + ry, rw, rh));
++	}
++      if (rects.size())
++	break;
++    }
++  assert(rects.size());
++
++  // find nearest rectangle in this set
++  float distance=10000.0f;
++  float dx,dy,d;
++  Rectf nr;
++  for (std::vector&lt;Rectf&gt;::iterator i = rects.begin(); i != rects.end(); ++i)
++    {
++      dx = i-&gt;left - r.left / TILE_SIZE;
++      dy = i-&gt;top  - r.top  / TILE_SIZE;
++      d = sqrt( dx * dx + dy * dy );
++      if (d &lt; distance)
++	{
++	  distance=d;
++	  nr=*i;
++	}
++    }
++
++  nr.right += nr.left; 
++  nr.bottom += nr.top; 
++
++  return nr;
++}
++
+ void
+ CollisionEngine::unstuck_tilemap(CollisionObject&amp; a, CollisionObject&amp; b, float delta)
+ {
++  (void)delta;
+   Rectf rb = b.primitive;
+ 
+   rb.left   += b.get_pos().x;
+@@ -123,21 +213,29 @@
+   rb.top    += b.get_pos().y;
+   rb.bottom += b.get_pos().y;
+ 
+-  // assume, that only one tile is penetrated
+-  std::vector&lt;Rectf&gt; rect_list= tilemap_collision_list (a.tilemap, rb);
++  Rectf target = get_next_free_rect(a.tilemap, rb);
+   
+-  assert (b.get_type() == CollisionObject::RECTANGLE);
+-  assert (a.get_type() == CollisionObject::TILEMAP);
+-	
+-  if (rect_list.size() == 0)
+-    return;
+-  assert (rect_list.size()&gt;=1);
++  target.left   *= TILE_SIZE;
++  target.top    *= TILE_SIZE;
++  target.right  = target.left + (rb.right - rb.left);
++  target.bottom = target.top  + (rb.top - rb.bottom);
+ 
+-  Vector dir = unstuck_direction (rect_list[0], rb, delta, unstuck_velocity);
+-  
+-  assert (b.unstuck_movable());
+-  b.pos += dir;
++  // align to grid, if coming from right or bottom
+ 
++  if(target.top &lt; rb.top)
++    {
++      float add = c_roundup (target.bottom / TILE_SIZE) * TILE_SIZE - target.bottom;
++      target.top    += add;
++      target.bottom += add;
++    }
++  if(target.left &lt; rb.left)
++    {
++      float add = c_roundup (target.right / TILE_SIZE) * TILE_SIZE - target.right;
++      target.left  += add;
++      target.right += add;
++    }
++
++  b.pos = Vector(target.left-b.primitive.left, target.top-b.primitive.top);
+ }
+ 
+ void
+@@ -250,10 +348,9 @@
+ 	      
+ 	      if (i != j &amp;&amp; ((*i)-&gt;unstuck_movable() || ((*j)-&gt;unstuck_movable())))
+ 		{
+-		  CollisionData r = collide(**i, **j, delta/1000.0f);
++		  CollisionData r = collide(**i, **j, 0);
+ 		  if(r.state!=CollisionData::NONE)
+ 		    {
+-		      //		      collision(**i, **j, r, delta);///30.0f);
+ 		      penetration=true;
+ 		      unstuck(**i, **j, delta/3.0f);
+ 		    }
+@@ -434,7 +531,7 @@
+   return false;
+ }
+ 
+-std::vector&lt;Rectf&gt; tilemap_collision_list(TileMap *tilemap, const Rectf &amp;r)
++std::vector&lt;Rectf&gt; tilemap_collision_list(TileMap *tilemap, const Rectf &amp;r,bool is_ground)
+ {
+   std::vector&lt;Rectf&gt; rect_list;
+   int minx, maxx;
+@@ -449,7 +546,7 @@
+   for (y = std::max (0, miny); y &lt;= std::min (maxy, tilemap-&gt;get_height() - 1); ++y)
+     for (x = std::max (0, minx); x &lt;= std::min (maxx, tilemap-&gt;get_width() - 1); ++x)
+       {
+-	if(tilemap-&gt;is_ground (x * TILE_SIZE, y * TILE_SIZE ))
++	if(tilemap-&gt;is_ground (x * TILE_SIZE, y * TILE_SIZE ) == is_ground)
+ 	  {
+ 	    rect_list.push_back (Rectf (x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE));
+ 	  }
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2005-08-05 17:29:19 UTC (rev 911)
++++ trunk/src/scripting/wrapper.cpp	2005-08-06 09:09:00 UTC (rev 912)
+@@ -1,6 +1,6 @@
+ /**
+  * WARNING: This file is automatically generated from:
+- *  'scripting/wrapper.interface.hpp'
++ *  'src/scripting/wrapper.interface.hpp'
+  * DO NOT CHANGE
+  */
+ #include &lt;config.h&gt;
+
+Modified: trunk/src/scripting/wrapper.hpp
+===================================================================
+--- trunk/src/scripting/wrapper.hpp	2005-08-05 17:29:19 UTC (rev 911)
++++ trunk/src/scripting/wrapper.hpp	2005-08-06 09:09:00 UTC (rev 912)
+@@ -1,6 +1,6 @@
+ /**
+  * WARNING: This file is automatically generated from:
+- *  'scripting/wrapper.interface.hpp'
++ *  'src/scripting/wrapper.interface.hpp'
+  * DO NOT CHANGE
+  */
+ #ifndef __windstille_WRAPPER_H__
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000563.html">[Windstille-commit] r911 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000566.html">[Windstille-commit] r913 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#565">[ date ]</a>
+              <a href="thread.html#565">[ thread ]</a>
+              <a href="subject.html#565">[ subject ]</a>
+              <a href="author.html#565">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

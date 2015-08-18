@@ -1,0 +1,1619 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r537 - in trunk/src: . math scripting sprite3d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r537%20-%20in%20trunk/src%3A%20.%20math%20scripting%20sprite3d&In-Reply-To=%3C200507041156.j64Bu6md013389%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000192.html">
+   <LINK REL="Next"  HREF="000194.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r537 - in trunk/src: . math scripting sprite3d</H1>
+    <B>Matthias Braun at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r537%20-%20in%20trunk/src%3A%20.%20math%20scripting%20sprite3d&In-Reply-To=%3C200507041156.j64Bu6md013389%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r537 - in trunk/src: . math scripting sprite3d">matzebraun at berlios.de
+       </A><BR>
+    <I>Mon Jul  4 13:56:06 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000192.html">[Windstille-commit] r536 - trunk/contrib
+</A></li>
+        <LI>Next message: <A HREF="000194.html">[Windstille-commit] r538 - in trunk: . contrib data/3dsprites docs src/sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#193">[ date ]</a>
+              <a href="thread.html#193">[ thread ]</a>
+              <a href="subject.html#193">[ subject ]</a>
+              <a href="author.html#193">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: matzebraun
+Date: 2005-07-04 13:56:00 +0200 (Mon, 04 Jul 2005)
+New Revision: 537
+
+Added:
+   trunk/src/math/
+   trunk/src/math/matrix.hpp
+   trunk/src/math/vector.hpp
+   trunk/src/sprite3d/
+   trunk/src/sprite3d/Jamfile
+   trunk/src/sprite3d/sprite3d.cpp
+   trunk/src/sprite3d/sprite3d.hpp
+   trunk/src/sprite3d/sprite3d_data.cpp
+   trunk/src/sprite3d/sprite3d_data.hpp
+   trunk/src/sprite3d/sprite3d_manager.cpp
+   trunk/src/sprite3d/sprite3d_manager.hpp
+Removed:
+   trunk/src/sprite3d.cpp
+   trunk/src/sprite3d.hpp
+Modified:
+   trunk/src/Jamfile
+   trunk/src/scripting/game_objects.cpp
+   trunk/src/scripting/game_objects.hpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/scripting/wrapper.hpp
+   trunk/src/sector.cpp
+   trunk/src/test_object.cpp
+   trunk/src/test_object.hpp
+   trunk/src/windstille_main.cpp
+Log:
+- Refactoring of Sprite3D: splitted data in Sprite3DData, added Sprite3DData
+  that manages loaded data, Sprite3D class now has a ref to the data
+- Added some math/ headers (these can later be replaced with own classes in case
+  we switch away from ClanLib)
+- Added some scripting commands to the TestObject you can now do
+    TEST.set_animation(&quot;curious&quot;) in the console
+
+
+
+Modified: trunk/src/Jamfile
+===================================================================
+--- trunk/src/Jamfile	2005-07-04 01:15:54 UTC (rev 536)
++++ trunk/src/Jamfile	2005-07-04 11:56:00 UTC (rev 537)
+@@ -1,13 +1,14 @@
+ SubDir TOP src ;
+ 
+-SubInclude TOP src squirrel ;
+ SubInclude TOP src display ;
+ SubInclude TOP src input ;
+ SubInclude TOP src lisp ;
+ SubInclude TOP src physfs ;
++SubInclude TOP src squirrel ;
+ SubInclude TOP src sound ;
++SubInclude TOP src scripting ;
++SubInclude TOP src sprite3d ;
+ SubInclude TOP src tinygettext ;
+-SubInclude TOP src scripting ;
+ 
+ sources = 
+         animation_obj.cpp
+@@ -69,8 +70,8 @@
+         sector.hpp
+         spawnpoint.cpp
+         spawnpoint.hpp
+-        sprite3d.cpp
+-        sprite3d.hpp
++#sprite3d.cpp
++#sprite3d.hpp
+         test_object.cpp
+         test_object.hpp
+         tile.cpp
+@@ -112,12 +113,14 @@
+ 
+         $(physfs_objects)
+ 
++        $(scripting_objects)
++
+         $(sound_objects)
+ 
++        $(sprite3d_objects)
++
+         $(tinygettext_objects)
+ 
+-        $(scripting_objects)
+-
+         $(sources)
+ ;
+ 
+
+Added: trunk/src/math/matrix.hpp
+===================================================================
+--- trunk/src/math/matrix.hpp	2005-07-04 01:15:54 UTC (rev 536)
++++ trunk/src/math/matrix.hpp	2005-07-04 11:56:00 UTC (rev 537)
+@@ -0,0 +1,9 @@
++#ifndef __MATRIX_HPP__
++#define __MATRIX_HPP__
++
++#include &lt;ClanLib/Core/Math/matrix4x4.h&gt;
++
++typedef CL_Matrix4x4 Matrix;
++
++#endif
++
+
+Added: trunk/src/math/vector.hpp
+===================================================================
+--- trunk/src/math/vector.hpp	2005-07-04 01:15:54 UTC (rev 536)
++++ trunk/src/math/vector.hpp	2005-07-04 11:56:00 UTC (rev 537)
+@@ -0,0 +1,9 @@
++#ifndef __VECTOR_HPP__
++#define __VECTOR_HPP__
++
++#include &lt;ClanLib/Core/Math/cl_vector.h&gt;
++
++typedef CL_Vector Vector;
++
++#endif
++
+
+Modified: trunk/src/scripting/game_objects.cpp
+===================================================================
+--- trunk/src/scripting/game_objects.cpp	2005-07-04 01:15:54 UTC (rev 536)
++++ trunk/src/scripting/game_objects.cpp	2005-07-04 11:56:00 UTC (rev 537)
+@@ -21,5 +21,23 @@
+   obj()-&gt;disable();
+ }
+ 
++void
++TestObject::set_sprite(const std::string&amp; filename)
++{
++  obj()-&gt;set_sprite(filename);
+ }
+ 
++void
++TestObject::set_action(const std::string&amp; animation)
++{
++  obj()-&gt;set_action(animation);
++}
++
++void
++TestObject::set_pos(float x, float y)
++{
++  obj()-&gt;set_pos(Vector(x, y, 100));
++}
++
++}
++
+
+Modified: trunk/src/scripting/game_objects.hpp
+===================================================================
+--- trunk/src/scripting/game_objects.hpp	2005-07-04 01:15:54 UTC (rev 536)
++++ trunk/src/scripting/game_objects.hpp	2005-07-04 11:56:00 UTC (rev 537)
+@@ -4,10 +4,12 @@
+ #ifndef SCRIPTING_API
+ #include &quot;game_object.hpp&quot;
+ #include &quot;flashing_sign.hpp&quot;
++#include &quot;test_object.hpp&quot;
+ #include &quot;ref.hpp&quot;
+ 
+ typedef GameObject _GameObject;
+ typedef FlashingSign _FlashingSign;
++typedef TestObject _TestObject;
+ #endif
+ 
+ namespace Scripting
+@@ -22,7 +24,7 @@
+ public:
+   GameObject(_GameObject* _object)
+     : object(_object)
+-  { }
++  {}
+   virtual ~GameObject()
+   {}
+ #endif
+@@ -37,8 +39,9 @@
+ public:
+   FlashingSign(_FlashingSign* _object)
+     : GameObject(_object)
+-  { }
+-  virtual ~FlashingSign() {}  
++  {}
++  virtual ~FlashingSign()
++  {}  
+ 
+   _FlashingSign* obj() const
+   {
+@@ -51,6 +54,28 @@
+   void disable();
+ };
+ 
++class TestObject : public GameObject
++{
++#ifndef SCRIPTING_API
++public:
++  TestObject(_TestObject* _object)
++    : GameObject(_object)
++  {}
++  virtual ~TestObject()
++  {}
++
++  _TestObject* obj() const
++  {
++    return reinterpret_cast&lt;_TestObject*&gt; (object.get());
++  }
++#endif
++
++public:
++  void set_sprite(const std::string&amp; filename);
++  void set_action(const std::string&amp; action);
++  void set_pos(float x, float y);
++};
++
+ }
+ 
+ #endif
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2005-07-04 01:15:54 UTC (rev 536)
++++ trunk/src/scripting/wrapper.cpp	2005-07-04 11:56:00 UTC (rev 537)
+@@ -100,6 +100,71 @@
+   return 0;
+ }
+ 
++static int TestObject_release_hook(SQUserPointer ptr, int )
++{
++  Scripting::TestObject* _this = reinterpret_cast&lt;Scripting::TestObject*&gt; (ptr);
++  delete _this;
++  return 0;
++}
++
++void create_squirrel_instance(HSQUIRRELVM v, Scripting::TestObject* object, bool setup_releasehook)
++{
++  sq_pushstring(v, &quot;TestObject&quot;, -1);
++  if(sq_get(v, -2) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't resolved squirrel type 'TestObject'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  if(sq_createinstance(v, -1) &lt; 0 || sq_setinstanceup(v, -1, object) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't setup squirrel instance for object of type 'TestObject'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++  sq_remove(v, -2);
++
++  if(setup_releasehook) {
++    sq_setreleasehook(v, -1, TestObject_release_hook);
++  }
++}
++static int TestObject_set_sprite_wrapper(HSQUIRRELVM v)
++{
++  Scripting::TestObject* _this;
++  sq_getinstanceup(v, 1, (SQUserPointer*) &amp;_this, 0);
++  const char* arg0;
++  sq_getstring(v, 2, &amp;arg0);
++  
++  _this-&gt;set_sprite(arg0);
++  
++  return 0;
++}
++
++static int TestObject_set_action_wrapper(HSQUIRRELVM v)
++{
++  Scripting::TestObject* _this;
++  sq_getinstanceup(v, 1, (SQUserPointer*) &amp;_this, 0);
++  const char* arg0;
++  sq_getstring(v, 2, &amp;arg0);
++  
++  _this-&gt;set_action(arg0);
++  
++  return 0;
++}
++
++static int TestObject_set_pos_wrapper(HSQUIRRELVM v)
++{
++  Scripting::TestObject* _this;
++  sq_getinstanceup(v, 1, (SQUserPointer*) &amp;_this, 0);
++  float arg0;
++  sq_getfloat(v, 2, &amp;arg0);
++  float arg1;
++  sq_getfloat(v, 3, &amp;arg1);
++  
++  _this-&gt;set_pos(arg0, arg1);
++  
++  return 0;
++}
++
+ static int set_sector_wrapper(HSQUIRRELVM v)
+ {
+   const char* arg0;
+@@ -369,6 +434,45 @@
+     throw SquirrelError(v, msg.str());
+   }
+ 
++  // Register class TestObject
++  sq_pushstring(v, &quot;TestObject&quot;, -1);
++  sq_pushstring(v, &quot;GameObject&quot;, -1);
++  sq_get(v, -3);
++  if(sq_newclass(v, SQTrue) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't create new class 'TestObject'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++  sq_pushstring(v, &quot;set_sprite&quot;, -1);
++  sq_newclosure(v, &amp;TestObject_set_sprite_wrapper, 0);
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'set_sprite'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  sq_pushstring(v, &quot;set_action&quot;, -1);
++  sq_newclosure(v, &amp;TestObject_set_action_wrapper, 0);
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'set_action'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  sq_pushstring(v, &quot;set_pos&quot;, -1);
++  sq_newclosure(v, &amp;TestObject_set_pos_wrapper, 0);
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'set_pos'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register class'TestObject'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
+   sq_pop(v, 1);
+ }
+ 
+
+Modified: trunk/src/scripting/wrapper.hpp
+===================================================================
+--- trunk/src/scripting/wrapper.hpp	2005-07-04 01:15:54 UTC (rev 536)
++++ trunk/src/scripting/wrapper.hpp	2005-07-04 11:56:00 UTC (rev 537)
+@@ -16,6 +16,7 @@
+ 
+ void create_squirrel_instance(HSQUIRRELVM v, Scripting::GameObject* object, bool setup_releasehook = false);
+ void create_squirrel_instance(HSQUIRRELVM v, Scripting::FlashingSign* object, bool setup_releasehook = false);
++void create_squirrel_instance(HSQUIRRELVM v, Scripting::TestObject* object, bool setup_releasehook = false);
+ 
+ }
+ 
+
+Modified: trunk/src/sector.cpp
+===================================================================
+--- trunk/src/sector.cpp	2005-07-04 01:15:54 UTC (rev 536)
++++ trunk/src/sector.cpp	2005-07-04 11:56:00 UTC (rev 537)
+@@ -29,6 +29,7 @@
+ #include &quot;player.hpp&quot;
+ #include &quot;trigger.hpp&quot;
+ #include &quot;flashing_sign.hpp&quot;
++#include &quot;test_object.hpp&quot;
+ #include &quot;sector.hpp&quot;
+ #include &quot;spawnpoint.hpp&quot;
+ #include &quot;sound/sound_manager.hpp&quot;
+@@ -239,6 +240,13 @@
+     return;
+   }
+ 
++  TestObject* tobj = dynamic_cast&lt;TestObject*&gt; (object);
++  if(tobj) {
++    script_manager-&gt;expose_object(new Scripting::TestObject(tobj),
++                                  object-&gt;get_name(), true);
++    return;
++  }
++
+   script_manager-&gt;expose_object(new Scripting::GameObject(object),
+                                 object-&gt;get_name(), true);
+ }
+
+Added: trunk/src/sprite3d/Jamfile
+===================================================================
+--- trunk/src/sprite3d/Jamfile	2005-07-04 01:15:54 UTC (rev 536)
++++ trunk/src/sprite3d/Jamfile	2005-07-04 11:56:00 UTC (rev 537)
+@@ -0,0 +1,14 @@
++SubDir TOP src sprite3d ;
++
++sources =
++  sprite3d_data.cpp
++  sprite3d_data.hpp
++  sprite3d.cpp
++  sprite3d.hpp
++  sprite3d_manager.cpp
++  sprite3d_manager.hpp
++;
++
++TRANSLATABLE_SOURCES += [ SearchSource $(sources) ] ;
++sprite3d_objects = [ CompileObjects $(sources) ] ;
++
+
+Added: trunk/src/sprite3d/sprite3d.cpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d.cpp	2005-07-04 01:15:54 UTC (rev 536)
++++ trunk/src/sprite3d/sprite3d.cpp	2005-07-04 11:56:00 UTC (rev 537)
+@@ -0,0 +1,180 @@
++//  $Id$
++//
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++//
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++#include &quot;sprite3d.hpp&quot;
++
++#include &lt;vector&gt;
++#include &lt;stdint.h&gt;
++#include &lt;sstream&gt;
++#include &lt;stdexcept&gt;
++#include &lt;ClanLib/gl.h&gt;
++#include &lt;ClanLib/display.h&gt;
++#include &lt;physfs.h&gt;
++#include &quot;display/drawing_request.hpp&quot;
++#include &quot;display/scene_context.hpp&quot;
++#include &quot;sprite3d_data.hpp&quot;
++#include &quot;lisp_util.hpp&quot;
++#include &quot;globals.hpp&quot;
++#include &quot;util.hpp&quot;
++#include &quot;timer.hpp&quot;
++
++Sprite3D::Sprite3D(const Sprite3DData* data)
++  : data(data)
++{
++  current_action = &amp;data-&gt;actions[0];
++  time_delta = 0;
++  speed = 3.0;
++}
++
++Sprite3D::~Sprite3D()
++{
++}
++
++void
++Sprite3D::set_action(const std::string&amp; actionname)
++{
++  // TODO: make this a little smarter so that the action change is delayed until
++  // the next frame and then the current action blends with the next action
++  Action* action = 0;
++  for(uint16_t a = 0; a &lt; data-&gt;action_count; ++a) {
++    if(data-&gt;actions[a].name == actionname)
++      action = &amp;data-&gt;actions[a];
++  }
++  if(action == 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;No action with name '&quot; &lt;&lt; action &lt;&lt; &quot;' found&quot;;
++    throw std::runtime_error(msg.str());
++  }
++
++  current_action = action;
++  time_delta = game_time;
++}
++
++const std::string&amp;
++Sprite3D::get_action() const
++{
++  return current_action-&gt;name;
++}
++
++void
++Sprite3D::set_speed(float speed)
++{
++  this-&gt;speed = speed;
++}
++
++float
++Sprite3D::get_speed() const
++{
++  return speed;
++}
++
++class Sprite3DDrawingRequest : public DrawingRequest
++{
++private:
++  Sprite3D* sprite;
++  const ActionFrame* frame1;
++  const ActionFrame* frame2;
++  float time;
++
++public:
++  Sprite3DDrawingRequest(Sprite3D* sprite, const ActionFrame* frame1,
++                         const ActionFrame* frame2, float time,
++                         const Vector&amp; pos, const Matrix&amp; modelview)
++      : DrawingRequest(pos, modelview), sprite(sprite), frame1(frame1),
++        frame2(frame2), time(time)
++  {
++  }
++
++  void draw(CL_GraphicContext* gc)
++  {
++    sprite-&gt;blend_frames(gc, frame1, frame2, time, pos, modelview);
++  }
++};
++
++void
++Sprite3D::draw(SceneContext&amp; sc, const Vector&amp; pos)
++{
++  float gtime = (game_time - time_delta) * speed;
++  int frame = static_cast&lt;int&gt;(gtime) % current_action-&gt;frame_count;
++  int nextframe = (frame+1) % current_action-&gt;frame_count;  
++  float time = fmodf(gtime, 1.0);
++
++  const ActionFrame* frame1 = &amp;current_action-&gt;frames[frame];
++  const ActionFrame* frame2 = &amp;current_action-&gt;frames[nextframe];
++  sc.color().draw(new Sprite3DDrawingRequest(this, frame1, frame2, time, pos,
++                                             sc.color().get_modelview()));
++}
++
++void
++Sprite3D::blend_frames(CL_GraphicContext* gc, const ActionFrame* frame1,
++                       const ActionFrame* frame2, float time,
++                       const Vector&amp; pos, const Matrix&amp; modelview)
++{
++  assert_gl(&quot;before render_frame&quot;);
++  
++  static float angle = 0;
++  angle += 1;
++  
++  CL_OpenGLState state(gc);
++  state.set_active();
++  state.setup_2d();
++
++  glPushMatrix();
++  glMultMatrixd(modelview);
++  glTranslatef(pos.x, pos.y, pos.z);
++  // just a test
++  glRotatef(angle, 0, 1.0, 0);
++  
++  glClear(GL_DEPTH_BUFFER_BIT);
++  glEnable(GL_DEPTH_TEST);
++  glEnable(GL_TEXTURE_2D);
++
++  glEnableClientState(GL_VERTEX_ARRAY);
++  glEnableClientState(GL_TEXTURE_COORD_ARRAY);  
++
++  assert_gl(&quot;gl init before sprite&quot;);
++  
++  float t_1 = 1.0 - time;
++  for(uint16_t m = 0; m &lt; data-&gt;mesh_count; ++m) {
++    const Mesh&amp; mesh = data-&gt;meshs[m];
++    const MeshVertices&amp; vertices1 = frame1-&gt;meshs[m];
++    const MeshVertices&amp; vertices2 = frame2-&gt;meshs[m];
++    
++    float* verts = new float[mesh.vertex_count * 3];
++
++    for(uint16_t v = 0; v &lt; mesh.vertex_count*3; ++v) {
++      verts[v] = vertices1.vertices[v] * t_1 + vertices2.vertices[v] * time;
++    }
++    
++    CL_OpenGLSurface&amp; texture = const_cast&lt;CL_OpenGLSurface&amp;&gt; (mesh.texture);
++    texture.bind();
++
++    glVertexPointer(3, GL_FLOAT, 0, verts);
++    glNormalPointer(GL_FLOAT, 0, mesh.normals);
++    glTexCoordPointer(2, GL_FLOAT, 0, mesh.tex_coords);
++
++    glDrawElements(GL_TRIANGLES, mesh.triangle_count * 3, GL_UNSIGNED_SHORT,
++        mesh.vertex_indices);
++    delete[] verts;
++  }
++
++  assert_gl(&quot;rendering 3d sprite&quot;);      
++
++  glPopMatrix();
++}
++
+
+Added: trunk/src/sprite3d/sprite3d.hpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d.hpp	2005-07-04 01:15:54 UTC (rev 536)
++++ trunk/src/sprite3d/sprite3d.hpp	2005-07-04 11:56:00 UTC (rev 537)
+@@ -0,0 +1,71 @@
++//  $Id$
++// 
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++// 
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++#ifndef HEADER_SPRITE3D_HPP
++#define HEADER_SPRITE3D_HPP
++
++#include &lt;string&gt;
++#include &lt;stdint.h&gt;
++#include &quot;game_object.hpp&quot;
++#include &quot;display/scene_context.hpp&quot;
++#include &quot;math/vector.hpp&quot;
++#include &quot;math/matrix.hpp&quot;
++
++class SceneContext;
++class Sprite3DData;
++struct Action;
++struct ActionFrame;
++
++/** */
++class Sprite3D
++{
++public:
++  ~Sprite3D();
++
++  void draw(SceneContext&amp; sc, const Vector&amp; pos);
++  
++  void set_action(const std::string&amp; name);  
++  const std::string&amp; get_action() const;
++
++  void set_speed(float speed);
++  float get_speed() const;
++
++private:
++  friend class Sprite3DDrawingRequest;
++  friend class Sprite3DManager;
++  Sprite3D(const Sprite3DData* data);
++  
++  Sprite3D (const Sprite3D&amp;);
++  Sprite3D&amp; operator= (const Sprite3D&amp;);
++
++  /**
++   * blends 2 frames and renders,
++   * blending formula: time*frame1 + (1.0-time)*frame2
++   */
++  void blend_frames(CL_GraphicContext* gc, const ActionFrame* frame1,
++                    const ActionFrame* frame2, float time,
++                    const Vector&amp; pos, const Matrix&amp; modelview);
++
++  const Sprite3DData* data;
++  const Action* current_action;
++  float time_delta;
++  float speed; 
++  const Action* next_action;
++};
++
++#endif
+
+Added: trunk/src/sprite3d/sprite3d_data.cpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d_data.cpp	2005-07-04 01:15:54 UTC (rev 536)
++++ trunk/src/sprite3d/sprite3d_data.cpp	2005-07-04 11:56:00 UTC (rev 537)
+@@ -0,0 +1,181 @@
++#include &quot;sprite3d_data.hpp&quot;
++
++#include &lt;physfs.h&gt;
++#include &lt;string.h&gt;
++#include &lt;sstream&gt;
++#include &lt;stdexcept&gt;
++#include &quot;util.hpp&quot;
++#include &quot;globals.hpp&quot;
++
++static inline float read_float(PHYSFS_file* file)
++{
++    uint32_t int_result;
++    if(PHYSFS_readULE32(file, &amp;int_result) == 0) {
++        std::ostringstream msg;
++        msg &lt;&lt; &quot;Problem reading float value: &quot; &lt;&lt; PHYSFS_getLastError();
++        throw std::runtime_error(msg.str());
++    }
++
++    // is this platform independent?
++    return * ( reinterpret_cast&lt;float*&gt; (&amp;int_result) );
++}
++
++static inline uint16_t read_uint16_t(PHYSFS_file* file)
++{
++    uint16_t result;
++    if(PHYSFS_readULE16(file, &amp;result) == 0) {
++        std::ostringstream msg;
++        msg &lt;&lt; &quot;Problem reading uint16 value: &quot; &lt;&lt; PHYSFS_getLastError();
++        throw std::runtime_error(msg.str());
++    }
++    return result;
++}
++
++static inline std::string read_string(PHYSFS_file* file, size_t size)
++{
++    char buffer[size+1];
++    if(PHYSFS_read(file, buffer, size, 1) != 1) {
++        std::ostringstream msg;
++        msg &lt;&lt; &quot;Problem reading string value: &quot; &lt;&lt; PHYSFS_getLastError();
++        throw std::runtime_error(msg.str());
++    }
++    buffer[size] = 0;
++
++    return buffer;
++}
++
++Sprite3DData::Sprite3DData(const std::string&amp; filename)
++  : mesh_count(0), meshs(0), action_count(0), actions(0)
++{
++  PHYSFS_file* file = PHYSFS_openRead(filename.c_str());
++  if(!file) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't open '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot;
++      &lt;&lt; PHYSFS_getLastError();
++    throw std::runtime_error(msg.str());
++  }
++
++  try {
++    char magic[4];
++    if(PHYSFS_read(file, magic, sizeof(magic), 1) != 1)
++      throw std::runtime_error(&quot;Couldn't read file magic&quot;);
++    if(strncmp(magic, &quot;W3DS&quot;, 4) != 0)
++      throw std::runtime_error(&quot;Not a windstille 3d sprite file&quot;);
++
++    mesh_count = read_uint16_t(file);
++    if(mesh_count == 0)
++      throw std::runtime_error(&quot;Sprite contains no meshs&quot;);
++    action_count = read_uint16_t(file);
++    if(action_count == 0)
++      throw std::runtime_error(&quot;Sprite contains no actions&quot;);
++
++    // read meshs
++    meshs = new Mesh[mesh_count];
++    for(uint16_t i = 0; i &lt; mesh_count; ++i) {
++      Mesh&amp; mesh = meshs[i];
++
++      std::string texturename = read_string(file, 64);
++      texturename = dirname(filename) + basename(texturename);
++      
++      mesh.texture = CL_OpenGLSurface(datadir + texturename);
++      mesh.triangle_count = read_uint16_t(file);
++      mesh.vertex_count = read_uint16_t(file);
++
++      printf(&quot;Reading Mesh Tex %s Tri %u Vs %u.\n&quot;, texturename.c_str(),
++              mesh.triangle_count, mesh.vertex_count);
++
++      // read triangles
++      mesh.vertex_indices = new uint16_t[mesh.triangle_count * 3];
++      for(uint16_t v = 0; v &lt; mesh.triangle_count * 3; ++v) {
++        mesh.vertex_indices[v] = read_uint16_t(file);
++      }
++      
++      mesh.normals = new float[mesh.triangle_count * 3];
++      for(uint16_t n = 0; n &lt; mesh.triangle_count * 3; ++n) {
++        mesh.normals[n] = read_float(file);
++      }
++
++      mesh.tex_coords = new float[mesh.vertex_count * 2];
++      for(uint16_t v = 0; v &lt; mesh.vertex_count * 2; ++v) {
++        mesh.tex_coords[v] = read_float(file);
++      }
++    }
++
++    // read actions
++    actions = new Action[action_count];
++    for(uint16_t i = 0; i &lt; action_count; ++i) {
++      Action&amp; action = actions[i];
++
++      action.name = read_string(file, 64);
++      action.frame_count = read_uint16_t(file);
++
++      printf(&quot;ReadingAction %s Frames %u.\n&quot;, action.name.c_str(), action.frame_count);
++
++      // read frames
++      action.frames = new ActionFrame[action.frame_count];
++      for(uint16_t f = 0; f &lt; action.frame_count; ++f) {
++        ActionFrame&amp; frame = action.frames[f];
++        frame.meshs = new MeshVertices[mesh_count];
++
++        for(uint16_t m = 0; m &lt; mesh_count; ++m) {
++          MeshVertices&amp; mesh = frame.meshs[m];
++
++          mesh.vertices = new float[meshs[m].vertex_count * 3];
++          for(uint16_t v = 0; v &lt; meshs[m].vertex_count * 3; ++v) {
++            mesh.vertices[v] = read_float(file);
++          }
++        }
++      }
++    }
++  } catch(std::exception&amp; e) {
++    clear();
++    PHYSFS_close(file);
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Problem while reading '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot; &lt;&lt; e.what();
++    throw std::runtime_error(msg.str());
++  }
++  PHYSFS_close(file);
++}
++
++Sprite3DData::~Sprite3DData()
++{
++  clear();
++}
++
++void
++Sprite3DData::clear()
++{
++  if(meshs != 0) {
++    for(uint16_t m = 0; m &lt; mesh_count; ++m) {
++      Mesh&amp; mesh = meshs[m];
++      delete[] mesh.vertex_indices;
++      delete[] mesh.tex_coords;
++      delete[] mesh.normals;
++    }
++    delete[] meshs;
++    meshs = 0;
++  }
++  if(actions != 0) {
++    for(uint16_t a = 0; a &lt; action_count; ++a) {
++      Action&amp; action = actions[a];
++      if(action.frames == 0)
++        continue;
++      
++      for(uint16_t f = 0; f &lt; action.frame_count; ++f) {
++        ActionFrame&amp; frame = action.frames[f];
++        if(frame.meshs == 0)
++          continue;
++        for(uint16_t m = 0; m &lt; mesh_count; ++m) {
++          MeshVertices&amp; vertices = frame.meshs[m];
++          delete[] vertices.vertices;
++        }
++        delete[] frame.meshs;
++      }
++      delete[] action.frames;
++    }
++    delete[] actions;
++  }
++  mesh_count = 0;
++  action_count = 0;
++}
++
+
+Added: trunk/src/sprite3d/sprite3d_data.hpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d_data.hpp	2005-07-04 01:15:54 UTC (rev 536)
++++ trunk/src/sprite3d/sprite3d_data.hpp	2005-07-04 11:56:00 UTC (rev 537)
+@@ -0,0 +1,91 @@
++//  $Id$
++// 
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++// 
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++#ifndef HEADER_SPRITE3D_DATA_HPP
++#define HEADER_SPRITE3D_DATA_HPP
++
++#include &lt;stdint.h&gt;
++#include &lt;ClanLib/GL/opengl_surface.h&gt;
++
++struct Mesh;
++struct MeshVertices;
++struct ActionFrame;
++struct Action;
++
++/**
++ * This class holds the data of a .wsprite file.
++ */
++class Sprite3DData
++{
++public:
++  Sprite3DData(const std::string&amp; filename);
++  ~Sprite3DData();
++
++  uint16_t mesh_count;
++  Mesh* meshs;            
++  uint16_t action_count;
++  Action* actions;
++
++private:
++  void clear();
++  
++  Sprite3DData (const Sprite3DData&amp;);
++  Sprite3DData&amp; operator= (const Sprite3DData&amp;);
++};
++
++struct Mesh
++{
++  Mesh()
++    : vertex_indices(0), tex_coords(0), normals(0)
++  { }
++
++  CL_OpenGLSurface texture;
++  uint16_t triangle_count;
++  uint16_t* vertex_indices;
++  float* tex_coords;
++  float* normals;
++  uint16_t vertex_count;
++};
++
++struct MeshVertices
++{
++  MeshVertices()
++    : vertices(0)
++  { }
++  float* vertices;
++};
++
++struct ActionFrame
++{
++  ActionFrame()
++    : meshs(0)
++  { }
++  MeshVertices* meshs;
++};
++
++struct Action
++{
++  Action()
++    : frames(0)
++  { }
++  std::string name;
++  uint16_t frame_count;
++  ActionFrame* frames;
++};
++
++#endif
+
+Added: trunk/src/sprite3d/sprite3d_manager.cpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d_manager.cpp	2005-07-04 01:15:54 UTC (rev 536)
++++ trunk/src/sprite3d/sprite3d_manager.cpp	2005-07-04 11:56:00 UTC (rev 537)
+@@ -0,0 +1,29 @@
++#include &quot;sprite3d_manager.hpp&quot;
++#include &quot;sprite3d_data.hpp&quot;
++#include &quot;sprite3d.hpp&quot;
++
++Sprite3DManager* sprite3d_manager = 0;
++
++Sprite3DManager::Sprite3DManager()
++{
++}
++
++Sprite3DManager::~Sprite3DManager()
++{
++  for(Datas::iterator i = datas.begin(); i != datas.end(); ++i)
++    delete i-&gt;second;
++}
++
++Sprite3D*
++Sprite3DManager::create(const std::string&amp; filename)
++{
++  Datas::iterator i = datas.find(filename);
++  if(i == datas.end()) {
++    Sprite3DData* data = new Sprite3DData(filename);
++    datas.insert(std::make_pair(filename, data));
++    return new Sprite3D(data);
++  }
++
++  return new Sprite3D(i-&gt;second);
++}
++
+
+Added: trunk/src/sprite3d/sprite3d_manager.hpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d_manager.hpp	2005-07-04 01:15:54 UTC (rev 536)
++++ trunk/src/sprite3d/sprite3d_manager.hpp	2005-07-04 11:56:00 UTC (rev 537)
+@@ -0,0 +1,26 @@
++#ifndef __SPRITE3D_MANAGER_HPP__
++#define __SPRITE3D_MANAGER_HPP__
++
++#include &lt;string&gt;
++#include &lt;map&gt;
++
++class Sprite3D;
++class Sprite3DData;
++
++class Sprite3DManager
++{
++public:
++  Sprite3DManager();
++  ~Sprite3DManager();
++
++  Sprite3D* create(const std::string&amp; filename);
++
++private:
++  typedef std::map&lt;std::string, Sprite3DData*&gt; Datas;
++  Datas datas;
++};
++
++extern Sprite3DManager* sprite3d_manager;
++
++#endif
++
+
+Deleted: trunk/src/sprite3d.cpp
+===================================================================
+--- trunk/src/sprite3d.cpp	2005-07-04 01:15:54 UTC (rev 536)
++++ trunk/src/sprite3d.cpp	2005-07-04 11:56:00 UTC (rev 537)
+@@ -1,351 +0,0 @@
+-//  $Id$
+-//
+-//  Pingus - A free Lemmings clone
+-//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+-//
+-//  This program is free software; you can redistribute it and/or
+-//  modify it under the terms of the GNU General Public License
+-//  as published by the Free Software Foundation; either version 2
+-//  of the License, or (at your option) any later version.
+-//
+-//  This program is distributed in the hope that it will be useful,
+-//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-//  GNU General Public License for more details.
+-//
+-//  You should have received a copy of the GNU General Public License
+-//  along with this program; if not, write to the Free Software
+-//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+-
+-#include &lt;vector&gt;
+-#include &lt;stdint.h&gt;
+-#include &lt;ClanLib/gl.h&gt;
+-#include &lt;ClanLib/display.h&gt;
+-#include &lt;physfs.h&gt;
+-#include &quot;display/drawing_request.hpp&quot;
+-#include &quot;display/scene_context.hpp&quot;
+-#include &quot;sprite3d.hpp&quot;
+-#include &quot;lisp_util.hpp&quot;
+-#include &quot;globals.hpp&quot;
+-#include &quot;util.hpp&quot;
+-#include &quot;timer.hpp&quot;
+-
+-struct Mesh
+-{
+-  ~Mesh() {
+-    delete[] vertex_indices;
+-    delete[] tex_coords;
+-  }
+-
+-  CL_OpenGLSurface texture;
+-  uint16_t triangle_count;
+-  uint16_t* vertex_indices;
+-  float* tex_coords;
+-  float* normals;
+-  uint16_t vertex_count;
+-};
+-
+-struct MeshVertices
+-{
+-  ~MeshVertices() {
+-    delete[] vertices;
+-  }
+-  float* vertices;
+-};
+-
+-struct ActionFrame
+-{
+-  ~ActionFrame() {
+-    delete[] meshs;
+-  }
+-  MeshVertices* meshs;
+-};
+-
+-struct Action
+-{
+-  ~Action() {
+-    delete[] frames;
+-  }
+-  
+-  std::string name;
+-  uint16_t frame_count;
+-  ActionFrame* frames;
+-};
+-
+-static inline float read_float(PHYSFS_file* file)
+-{
+-    uint32_t int_result;
+-    if(PHYSFS_readULE32(file, &amp;int_result) == 0) {
+-        std::ostringstream msg;
+-        msg &lt;&lt; &quot;Problem reading float value: &quot; &lt;&lt; PHYSFS_getLastError();
+-        throw std::runtime_error(msg.str());
+-    }
+-
+-    // is this platform independent?
+-    return * ( reinterpret_cast&lt;float*&gt; (&amp;int_result) );
+-}
+-
+-static inline uint16_t read_uint16_t(PHYSFS_file* file)
+-{
+-    uint16_t result;
+-    if(PHYSFS_readULE16(file, &amp;result) == 0) {
+-        std::ostringstream msg;
+-        msg &lt;&lt; &quot;Problem reading uint16 value: &quot; &lt;&lt; PHYSFS_getLastError();
+-        throw std::runtime_error(msg.str());
+-    }
+-    return result;
+-}
+-
+-static inline std::string read_string(PHYSFS_file* file, size_t size)
+-{
+-    char buffer[size+1];
+-    if(PHYSFS_read(file, buffer, size, 1) != 1) {
+-        std::ostringstream msg;
+-        msg &lt;&lt; &quot;Problem reading string value: &quot; &lt;&lt; PHYSFS_getLastError();
+-        throw std::runtime_error(msg.str());
+-    }
+-    buffer[size] = 0;
+-
+-    return buffer;
+-}
+-
+-Sprite3D::Sprite3D(const std::string&amp; filename)
+-{
+-  PHYSFS_file* file = PHYSFS_openRead(filename.c_str());
+-  if(!file) {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't open '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot;
+-      &lt;&lt; PHYSFS_getLastError();
+-    throw std::runtime_error(msg.str());
+-  }
+-
+-  try {
+-    char magic[4];
+-    if(PHYSFS_read(file, magic, sizeof(magic), 1) != 1)
+-      throw std::runtime_error(&quot;Couldn't read file magic&quot;);
+-    if(strncmp(magic, &quot;W3DS&quot;, 4) != 0)
+-      throw std::runtime_error(&quot;Not a windstille 3d sprite file&quot;);
+-
+-
+-    mesh_count = read_uint16_t(file);
+-    action_count = read_uint16_t(file);
+-
+-    // read meshs
+-    meshs = new Mesh[mesh_count];
+-    for(uint16_t i = 0; i &lt; mesh_count; ++i) {
+-      Mesh&amp; mesh = meshs[i];
+-
+-      std::string texturename = read_string(file, 64);
+-      texturename = dirname(filename) + basename(texturename);
+-      
+-      mesh.texture = CL_OpenGLSurface(datadir + texturename);
+-      mesh.triangle_count = read_uint16_t(file);
+-      mesh.vertex_count = read_uint16_t(file);
+-
+-      printf(&quot;Reading Mesh Tex %s Tri %u Vs %u.\n&quot;, texturename.c_str(),
+-              mesh.triangle_count, mesh.vertex_count);
+-
+-      // read triangles
+-      mesh.vertex_indices = new uint16_t[mesh.triangle_count * 3];
+-      for(uint16_t v = 0; v &lt; mesh.triangle_count * 3; ++v) {
+-        mesh.vertex_indices[v] = read_uint16_t(file);
+-      }
+-      
+-      mesh.normals = new float[mesh.triangle_count * 3];
+-      for(uint16_t n = 0; n &lt; mesh.triangle_count * 3; ++n) {
+-        mesh.normals[n] = read_float(file);
+-      }
+-
+-      mesh.tex_coords = new float[mesh.vertex_count * 2];
+-      for(uint16_t v = 0; v &lt; mesh.vertex_count * 2; ++v) {
+-        mesh.tex_coords[v] = read_float(file);
+-      }
+-    }
+-
+-    // read actions
+-    actions = new Action[action_count];
+-    for(uint16_t i = 0; i &lt; action_count; ++i) {
+-      Action&amp; action = actions[i];
+-
+-      action.name = read_string(file, 64);
+-      action.frame_count = read_uint16_t(file);
+-
+-      printf(&quot;ReadingAction %s Frames %u.\n&quot;, action.name.c_str(), action.frame_count);
+-
+-      // read frames
+-      action.frames = new ActionFrame[action.frame_count];
+-      for(uint16_t f = 0; f &lt; action.frame_count; ++f) {
+-        ActionFrame&amp; frame = action.frames[f];
+-        frame.meshs = new MeshVertices[mesh_count];
+-
+-        for(uint16_t m = 0; m &lt; mesh_count; ++m) {
+-          MeshVertices&amp; mesh = frame.meshs[m];
+-
+-          mesh.vertices = new float[meshs[m].vertex_count * 3];
+-          for(uint16_t v = 0; v &lt; meshs[m].vertex_count * 3; ++v) {
+-            mesh.vertices[v] = read_float(file);
+-          }
+-        }
+-      }
+-    }
+-
+-  } catch(std::exception&amp; e) {
+-    PHYSFS_close(file);
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Problem while reading '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot;
+-      &lt;&lt; e.what();
+-    throw std::runtime_error(msg.str());
+-  }
+-  PHYSFS_close(file);
+-}
+-
+-Sprite3D::~Sprite3D()
+-{
+-  delete[] meshs;
+-  delete[] actions;
+-}
+-
+-class Sprite3DDrawingRequest : public DrawingRequest
+-{
+-private:
+-  Sprite3D* sprite;
+-  const ActionFrame* frame1;
+-  const ActionFrame* frame2;
+-  float time;
+-
+-public:
+-  Sprite3DDrawingRequest(Sprite3D* sprite, const ActionFrame* frame1,
+-      const ActionFrame* frame2, float time,
+-      const CL_Vector&amp; pos, const CL_Matrix4x4&amp; modelview)
+-    : DrawingRequest(pos, modelview), sprite(sprite), frame1(frame1),
+-    frame2(frame2), time(time)
+-  {
+-  }
+-
+-  void draw(CL_GraphicContext* gc)
+-  {
+-    sprite-&gt;blend_frames(gc, frame1, frame2, time, pos, modelview);
+-  }
+-};
+-
+-void
+-Sprite3D::draw(SceneContext&amp; sc)
+-{
+-  float animspeed = 3.0;
+-  int frame = (int) fmodf(game_time * animspeed, actions[0].frame_count);
+-  int nextframe = (int) fmodf(game_time * animspeed + 1.0,
+-                              actions[0].frame_count);
+-  float time = fmodf(game_time*animspeed, 1.0);
+-  sc.color().draw(new Sprite3DDrawingRequest(this,
+-        &amp;actions[0].frames[frame], &amp;actions[0].frames[nextframe], time,
+-        CL_Vector(12*32, 26*32, 100), sc.color().get_modelview()));
+-}
+-
+-void
+-Sprite3D::render_frame(CL_GraphicContext* gc, const ActionFrame* frame,
+-    const CL_Vector&amp; pos, const CL_Matrix4x4&amp; modelview)
+-{
+-  //printf(&quot;RenderFrame.\n&quot;);
+-
+-  assert_gl(&quot;before render_frame&quot;);
+-  
+-  static float angle = 0;
+-  angle += 1;
+-  
+-  CL_OpenGLState state(gc);
+-  state.set_active();
+-  state.setup_2d();
+-
+-  glPushMatrix();
+-  glMultMatrixd(modelview);
+-  glTranslatef(pos.x, pos.y, pos.z);
+-  // just a test
+-  glRotatef(angle, 0, 1.0, 0);
+-  
+-  glClear(GL_DEPTH_BUFFER_BIT);
+-  glEnable(GL_DEPTH_TEST);
+-  glEnable(GL_TEXTURE_2D);
+-
+-  glEnableClientState(GL_VERTEX_ARRAY);
+-  glEnableClientState(GL_TEXTURE_COORD_ARRAY);  
+-
+-  assert_gl(&quot;gl init before sprite&quot;);
+-  
+-  for(uint16_t m = 0; m &lt; mesh_count; ++m) {
+-    const Mesh&amp; mesh = meshs[m];
+-    const MeshVertices&amp; vertices = frame-&gt;meshs[m];
+- 
+-    CL_OpenGLSurface&amp; texture = const_cast&lt;CL_OpenGLSurface&amp;&gt; (mesh.texture);
+-    texture.bind();
+-
+-    glVertexPointer(3, GL_FLOAT, 0, vertices.vertices);
+-    glNormalPointer(GL_FLOAT, 0, mesh.normals);
+-    glTexCoordPointer(2, GL_FLOAT, 0, mesh.tex_coords);
+-
+-    glDrawElements(GL_TRIANGLES, mesh.triangle_count * 3, GL_UNSIGNED_SHORT,
+-        mesh.vertex_indices);
+-  }
+-
+-  assert_gl(&quot;rendering 3d sprite&quot;);      
+-
+-  glPopMatrix();
+-}
+-
+-void
+-Sprite3D::blend_frames(CL_GraphicContext* gc, const ActionFrame* frame1,
+-    const ActionFrame* frame2, float time,
+-    const CL_Vector&amp; pos, const CL_Matrix4x4&amp; modelview)
+-{
+-  assert_gl(&quot;before render_frame&quot;);
+-  
+-  static float angle = 0;
+-  angle += 1;
+-  
+-  CL_OpenGLState state(gc);
+-  state.set_active();
+-  state.setup_2d();
+-
+-  glPushMatrix();
+-  glMultMatrixd(modelview);
+-  glTranslatef(pos.x, pos.y, pos.z);
+-  // just a test
+-  glRotatef(angle, 0, 1.0, 0);
+-  
+-  glClear(GL_DEPTH_BUFFER_BIT);
+-  glEnable(GL_DEPTH_TEST);
+-  glEnable(GL_TEXTURE_2D);
+-
+-  glEnableClientState(GL_VERTEX_ARRAY);
+-  glEnableClientState(GL_TEXTURE_COORD_ARRAY);  
+-
+-  assert_gl(&quot;gl init before sprite&quot;);
+-  
+-  float t_1 = 1.0 - time;
+-  for(uint16_t m = 0; m &lt; mesh_count; ++m) {
+-    const Mesh&amp; mesh = meshs[m];
+-    const MeshVertices&amp; vertices1 = frame1-&gt;meshs[m];
+-    const MeshVertices&amp; vertices2 = frame2-&gt;meshs[m];
+-    
+-    float* verts = new float[mesh.vertex_count * 3];
+-
+-    for(uint16_t v = 0; v &lt; mesh.vertex_count*3; ++v) {
+-      verts[v] = vertices1.vertices[v] * t_1 + vertices2.vertices[v] * time;
+-    }
+-    
+-    CL_OpenGLSurface&amp; texture = const_cast&lt;CL_OpenGLSurface&amp;&gt; (mesh.texture);
+-    texture.bind();
+-
+-    glVertexPointer(3, GL_FLOAT, 0, verts);
+-    glNormalPointer(GL_FLOAT, 0, mesh.normals);
+-    glTexCoordPointer(2, GL_FLOAT, 0, mesh.tex_coords);
+-
+-    glDrawElements(GL_TRIANGLES, mesh.triangle_count * 3, GL_UNSIGNED_SHORT,
+-        mesh.vertex_indices);
+-    delete[] verts;
+-  }
+-
+-  assert_gl(&quot;rendering 3d sprite&quot;);      
+-
+-  glPopMatrix();
+-}
+-
+
+Deleted: trunk/src/sprite3d.hpp
+===================================================================
+--- trunk/src/sprite3d.hpp	2005-07-04 01:15:54 UTC (rev 536)
++++ trunk/src/sprite3d.hpp	2005-07-04 11:56:00 UTC (rev 537)
+@@ -1,62 +0,0 @@
+-//  $Id$
+-// 
+-//  Pingus - A free Lemmings clone
+-//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+-//
+-//  This program is free software; you can redistribute it and/or
+-//  modify it under the terms of the GNU General Public License
+-//  as published by the Free Software Foundation; either version 2
+-//  of the License, or (at your option) any later version.
+-//
+-//  This program is distributed in the hope that it will be useful,
+-//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-//  GNU General Public License for more details.
+-// 
+-//  You should have received a copy of the GNU General Public License
+-//  along with this program; if not, write to the Free Software
+-//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+-
+-#ifndef HEADER_SPRITE3D_HXX
+-#define HEADER_SPRITE3D_HXX
+-
+-#include &lt;string&gt;
+-#include &lt;stdint.h&gt;
+-#include &quot;game_object.hpp&quot;
+-
+-class SceneContext;
+-struct Mesh;
+-struct Action;
+-struct ActionFrame;
+-
+-/** */
+-class Sprite3D
+-{
+-public:
+-  Sprite3D(const std::string&amp; filename);
+-  virtual ~Sprite3D();
+-
+-  void draw(SceneContext&amp; sc);
+-
+-private:
+-  friend class Sprite3DDrawingRequest;
+-  Sprite3D (const Sprite3D&amp;);
+-  Sprite3D&amp; operator= (const Sprite3D&amp;);
+-
+-  void render_frame(CL_GraphicContext* gc, const ActionFrame* frame,
+-      const CL_Vector&amp; pos, const CL_Matrix4x4&amp; modelview);
+-  // blends 2 frames
+-  // time should be between 0 and 1
+-  void blend_frames(CL_GraphicContext* gc, const ActionFrame* frame1,
+-      const ActionFrame* frame2, float time,
+-      const CL_Vector&amp; pos, const CL_Matrix4x4&amp; modelview);
+-
+-  uint16_t mesh_count;
+-  Mesh* meshs;
+-  uint16_t action_count;
+-  Action* actions;
+-};
+-
+-#endif
+-
+-/* EOF */
+
+Modified: trunk/src/test_object.cpp
+===================================================================
+--- trunk/src/test_object.cpp	2005-07-04 01:15:54 UTC (rev 536)
++++ trunk/src/test_object.cpp	2005-07-04 11:56:00 UTC (rev 537)
+@@ -1,8 +1,11 @@
+ #include &quot;test_object.hpp&quot;
++#include &quot;sprite3d/sprite3d_manager.hpp&quot;
+ 
+ TestObject::TestObject()
+ {
+-  sprite = new Sprite3D(&quot;3dsprites/heroken.wsprite&quot;);
++  sprite = sprite3d_manager-&gt;create(&quot;3dsprites/heroken.wsprite&quot;);
++  pos = Vector(12*32, 26*32, 100);
++  name = &quot;TEST&quot;;
+ }
+ 
+ TestObject::~TestObject()
+@@ -13,7 +16,7 @@
+ void
+ TestObject::draw(SceneContext&amp; context)
+ {
+-  sprite-&gt;draw(context);
++  sprite-&gt;draw(context, pos);
+ }
+ 
+ void
+@@ -21,3 +24,33 @@
+ {
+ }
+ 
++void
++TestObject::set_sprite(const std::string&amp; filename)
++{
++  try {
++    Sprite3D* newsprite = sprite3d_manager-&gt;create(filename);
++    delete sprite;
++    sprite = newsprite;
++  } catch(std::exception&amp; e) {
++    std::cerr &lt;&lt; &quot;Couldn't change sprite to '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot; 
++              &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
++  }
++}
++
++void
++TestObject::set_action(const std::string&amp; action)
++{
++  try {
++    sprite-&gt;set_action(action);
++  } catch(std::exception&amp; e) {
++    std::cerr &lt;&lt; &quot;Couldn't change action to '&quot; &lt;&lt; action &lt;&lt; &quot;': &quot;
++              &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
++  }
++}
++
++void
++TestObject::set_pos(const Vector&amp; pos)
++{
++  this-&gt;pos = pos;
++}
++
+
+Modified: trunk/src/test_object.hpp
+===================================================================
+--- trunk/src/test_object.hpp	2005-07-04 01:15:54 UTC (rev 536)
++++ trunk/src/test_object.hpp	2005-07-04 11:56:00 UTC (rev 537)
+@@ -2,7 +2,8 @@
+ #define __TEST_OBJECT_HPP__
+ 
+ #include &quot;game_object.hpp&quot;
+-#include &quot;sprite3d.hpp&quot;
++#include &quot;sprite3d/sprite3d.hpp&quot;
++#include &quot;math/vector.hpp&quot;
+ 
+ class TestObject : public GameObject
+ {
+@@ -13,8 +14,13 @@
+   void draw(SceneContext&amp; context);
+   void update(float elapsed_time);
+ 
++  void set_sprite(const std::string&amp; filename);
++  void set_action(const std::string&amp; action);
++  void set_pos(const Vector&amp; pos);
++
+ private:
+   Sprite3D* sprite;
++  Vector pos;
+ };
+ 
+ #endif
+
+Modified: trunk/src/windstille_main.cpp
+===================================================================
+--- trunk/src/windstille_main.cpp	2005-07-04 01:15:54 UTC (rev 536)
++++ trunk/src/windstille_main.cpp	2005-07-04 11:56:00 UTC (rev 537)
+@@ -37,6 +37,7 @@
+ #include &quot;tinygettext/gettext.hpp&quot;
+ #include &quot;gameconfig.hpp&quot;
+ #include &quot;util.hpp&quot;
++#include &quot;sprite3d/sprite3d_manager.hpp&quot;
+ 
+ using namespace Windstille;
+ 
+@@ -269,11 +270,16 @@
+ 
+   if (debug) std::cout &lt;&lt; &quot;Initialising ScriptManager&quot; &lt;&lt; std::endl;
+   script_manager = new ScriptManager();
++
++  sprite3d_manager = new Sprite3DManager;
+ }
+ 
+ void
+ WindstilleMain::deinit_modules()
+ {
++  delete sprite3d_manager;
++  sprite3d_manager = 0;
++
+   delete script_manager;
+   script_manager = 0;
+   
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000192.html">[Windstille-commit] r536 - trunk/contrib
+</A></li>
+	<LI>Next message: <A HREF="000194.html">[Windstille-commit] r538 - in trunk: . contrib data/3dsprites docs src/sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#193">[ date ]</a>
+              <a href="thread.html#193">[ thread ]</a>
+              <a href="subject.html#193">[ subject ]</a>
+              <a href="author.html#193">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

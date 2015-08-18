@@ -1,0 +1,700 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1166 - in facebuilder: . examples
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-December/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1166%20-%20in%20facebuilder%3A%20.%20examples&In-Reply-To=%3C200512261606.jBQG6WQp031989%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000818.html">
+   <LINK REL="Next"  HREF="000819.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1166 - in facebuilder: . examples</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1166%20-%20in%20facebuilder%3A%20.%20examples&In-Reply-To=%3C200512261606.jBQG6WQp031989%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1166 - in facebuilder: . examples">grumbel at berlios.de
+       </A><BR>
+    <I>Mon Dec 26 17:06:32 CET 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000818.html">[Windstille-commit] r1165 - facebuilder
+</A></li>
+        <LI>Next message: <A HREF="000819.html">[Windstille-commit] r1167 - facebuilder
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#820">[ date ]</a>
+              <a href="thread.html#820">[ thread ]</a>
+              <a href="subject.html#820">[ subject ]</a>
+              <a href="author.html#820">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-12-26 17:06:31 +0100 (Mon, 26 Dec 2005)
+New Revision: 1166
+
+Added:
+   facebuilder/icon_rotate_left.png
+   facebuilder/icon_rotate_right.png
+   facebuilder/icon_size_minus.png
+   facebuilder/icon_size_plus.png
+Modified:
+   facebuilder/examples/pirate.xml
+   facebuilder/face.rb
+   facebuilder/facebuilder.glade
+   facebuilder/facebuilder.rb
+Log:
+- added some icons for resize and rotate
+
+Modified: facebuilder/examples/pirate.xml
+===================================================================
+--- facebuilder/examples/pirate.xml	2005-12-26 03:48:12 UTC (rev 1165)
++++ facebuilder/examples/pirate.xml	2005-12-26 16:06:31 UTC (rev 1166)
+@@ -29,12 +29,6 @@
+     &lt;scale&gt;1.0&lt;/scale&gt;
+     &lt;rotation&gt;0.0&lt;/rotation&gt;
+   &lt;/glasses&gt;
+-  &lt;beard&gt;
+-    &lt;filename&gt;data/beard/0000.png&lt;/filename&gt;
+-    &lt;offset&gt;&lt;x&gt;0.0&lt;/x&gt;&lt;y&gt;75.0&lt;/y&gt;&lt;/offset&gt;
+-    &lt;scale&gt;1.0&lt;/scale&gt;
+-    &lt;rotation&gt;0.0&lt;/rotation&gt;
+-  &lt;/beard&gt;
+   &lt;eyebrow&gt;
+     &lt;filename&gt;data/eyebrow/0001.png&lt;/filename&gt;
+     &lt;offset&gt;&lt;x&gt;37.0&lt;/x&gt;&lt;y&gt;-25.0&lt;/y&gt;&lt;/offset&gt;
+
+Modified: facebuilder/face.rb
+===================================================================
+--- facebuilder/face.rb	2005-12-26 03:48:12 UTC (rev 1165)
++++ facebuilder/face.rb	2005-12-26 16:06:31 UTC (rev 1166)
+@@ -47,7 +47,7 @@
+         # Calculate the new position
+ 
+         if event.state &amp; Gdk::Window::SHIFT_MASK == Gdk::Window::SHIFT_MASK
+-          @offset.x = 0 # @old_offset.x
++          @offset.x = @old_offset.x
+         else
+           @offset.x = @old_offset.x + item_x - @x
+         end
+@@ -71,21 +71,18 @@
+     end
+   end
+ 
+-  def initialize(parent, root, type, filename, offset)
++  def initialize(parent, root, type, offset)
+     @parent = parent
+     @type     = type
++    
+     @offset   = offset
+-    @filename = filename
++    @filename = nil
+     @scale    = 1.0
+     @rotation = 0
+ 
+     @canvas_items = []
+ 
+-    im = Gdk::Pixbuf.new(@filename)
+-    if ! im then 
+-      raise &quot;#{@filename}: file not found: #{im.inspect}&quot;
+-    end
+-
++    im = Gdk::Pixbuf.new(&quot;data/empty.png&quot;)
+     @canvas_items &lt;&lt; Gnome::CanvasPixbuf.new(root,
+                                              :pixbuf =&gt; im,
+                                              :x =&gt; 0, # offset.x,
+@@ -111,6 +108,7 @@
+       }
+     }
+ 
++    self.filename=(nil)
+     update_items()
+   end
+ 
+@@ -191,17 +189,17 @@
+   end
+ 
+   def filename=(filename)
++    if @parent.use_undo() and filename != @filename then
++      old_filename = @filename.clone() if @filename
++      new_filename = filename.clone()  if filename
++      @parent.add_to_undo_stack(FaceCommand.new(proc{ @parent.without_undo {
++                                                    @parent.get_part(@type).filename=(old_filename) }},
++                                                proc{ @parent.without_undo {
++                                                    @parent.get_part(@type).filename=(new_filename) }}))
++      $facebuilder.update_undo() if $facebuilder
++    end
++    
+     if filename and ! filename.empty? then
+-      if @parent.use_undo() then
+-        old_filename = @filename.clone()
+-        new_filename = filename.clone()
+-        @parent.add_to_undo_stack(FaceCommand.new(proc{ @parent.without_undo {
+-                                                      @parent.get_part(@type).filename=(old_filename) }},
+-                                                  proc{ @parent.without_undo {
+-                                                      @parent.get_part(@type).filename=(new_filename) }}))
+-        $facebuilder.update_undo() if $facebuilder
+-      end
+-
+       @canvas_items.each{ |item| item.show() }
+       
+       @filename = filename    
+@@ -286,18 +284,18 @@
+ 
+     @root = root
+     @parts  = {
+-      :head      =&gt; FacePart.new(self, root, :head,      &quot;data/head/0000.png&quot;,      Point.new( 0,   0)),
+-      :forehead  =&gt; FacePart.new(self, root, :forehead,  &quot;data/forehead/0000.png&quot;,  Point.new( 0, -75)),
+-      :eye       =&gt; FacePart.new(self, root, :eye,       &quot;data/eye/0000.png&quot;,       Point.new(35, -10)),
+-      :eyebrow   =&gt; FacePart.new(self, root, :eyebrow,   &quot;data/eyebrow/0000.png&quot;,   Point.new(45, -30)),
+-      :ear       =&gt; FacePart.new(self, root, :ear,       &quot;data/ear/0000.png&quot;,       Point.new(90,   0)),
+-      :nose      =&gt; FacePart.new(self, root, :nose,      &quot;data/nose/0000.png&quot;,      Point.new( 0,  30)),
+-      :mouth     =&gt; FacePart.new(self, root, :mouth,     &quot;data/mouth/0000.png&quot;,     Point.new( 0,  75)),
+-      :mouthfold =&gt; FacePart.new(self, root, :mouthfold, &quot;data/mouthfold/0000.png&quot;, Point.new(40,  75)),
+-      :beard     =&gt; FacePart.new(self, root, :beard,     &quot;data/beard/0000.png&quot;,     Point.new( 0,  75)),
+-      :glasses   =&gt; FacePart.new(self, root, :glasses,   &quot;data/glasses/0000.png&quot;,   Point.new( 0, -10)),
+-      :hair      =&gt; FacePart.new(self, root, :hair,      &quot;data/hair/0000.png&quot;,      Point.new( 0, -20)),
+-      :hat       =&gt; FacePart.new(self, root, :hat,       &quot;data/hat/0000.png&quot;,       Point.new( 0, -50))
++      :head      =&gt; FacePart.new(self, root, :head,      Point.new( 0,   0)),
++      :forehead  =&gt; FacePart.new(self, root, :forehead,  Point.new( 0, -75)),
++      :eye       =&gt; FacePart.new(self, root, :eye,       Point.new(35, -10)),
++      :eyebrow   =&gt; FacePart.new(self, root, :eyebrow,   Point.new(45, -30)),
++      :ear       =&gt; FacePart.new(self, root, :ear,       Point.new(90,   0)),
++      :nose      =&gt; FacePart.new(self, root, :nose,      Point.new( 0,  30)),
++      :mouth     =&gt; FacePart.new(self, root, :mouth,     Point.new( 0,  75)),
++      :mouthfold =&gt; FacePart.new(self, root, :mouthfold, Point.new(40,  75)),
++      :beard     =&gt; FacePart.new(self, root, :beard,     Point.new( 0,  75)),
++      :glasses   =&gt; FacePart.new(self, root, :glasses,   Point.new( 0, -10)),
++      :hair      =&gt; FacePart.new(self, root, :hair,      Point.new( 0, -20)),
++      :hat       =&gt; FacePart.new(self, root, :hat,       Point.new( 0, -50))
+     }
+   end
+ 
+
+Modified: facebuilder/facebuilder.glade
+===================================================================
+--- facebuilder/facebuilder.glade	2005-12-26 03:48:12 UTC (rev 1165)
++++ facebuilder/facebuilder.glade	2005-12-26 16:06:31 UTC (rev 1166)
+@@ -131,14 +131,6 @@
+ 		    &lt;widget class=&quot;GtkMenu&quot; id=&quot;edit1_menu&quot;&gt;
+ 
+ 		      &lt;child&gt;
+-			&lt;widget class=&quot;GtkImageMenuItem&quot; id=&quot;cut1&quot;&gt;
+-			  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
+-			  &lt;property name=&quot;stock_item&quot;&gt;GNOMEUIINFO_MENU_CUT_ITEM&lt;/property&gt;
+-			  &lt;signal name=&quot;activate&quot; handler=&quot;on_cut1_activate&quot; last_modification_time=&quot;Sun, 25 Dec 2005 14:41:31 GMT&quot;/&gt;
+-			&lt;/widget&gt;
+-		      &lt;/child&gt;
+-
+-		      &lt;child&gt;
+ 			&lt;widget class=&quot;GtkImageMenuItem&quot; id=&quot;copy1&quot;&gt;
+ 			  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
+ 			  &lt;property name=&quot;stock_item&quot;&gt;GNOMEUIINFO_MENU_COPY_ITEM&lt;/property&gt;
+@@ -155,14 +147,6 @@
+ 		      &lt;/child&gt;
+ 
+ 		      &lt;child&gt;
+-			&lt;widget class=&quot;GtkImageMenuItem&quot; id=&quot;clear1&quot;&gt;
+-			  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
+-			  &lt;property name=&quot;stock_item&quot;&gt;GNOMEUIINFO_MENU_CLEAR_ITEM&lt;/property&gt;
+-			  &lt;signal name=&quot;activate&quot; handler=&quot;on_clear1_activate&quot; last_modification_time=&quot;Sun, 25 Dec 2005 14:41:31 GMT&quot;/&gt;
+-			&lt;/widget&gt;
+-		      &lt;/child&gt;
+-
+-		      &lt;child&gt;
+ 			&lt;widget class=&quot;GtkSeparatorMenuItem&quot; id=&quot;separator2&quot;&gt;
+ 			  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
+ 			&lt;/widget&gt;
+@@ -198,6 +182,21 @@
+ 		&lt;widget class=&quot;GtkMenuItem&quot; id=&quot;view1&quot;&gt;
+ 		  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
+ 		  &lt;property name=&quot;stock_item&quot;&gt;GNOMEUIINFO_MENU_VIEW_TREE&lt;/property&gt;
++
++		  &lt;child&gt;
++		    &lt;widget class=&quot;GtkMenu&quot; id=&quot;view1_menu&quot;&gt;
++
++		      &lt;child&gt;
++			&lt;widget class=&quot;GtkCheckMenuItem&quot; id=&quot;show_controls1&quot;&gt;
++			  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
++			  &lt;property name=&quot;label&quot; translatable=&quot;yes&quot;&gt;Show Controls&lt;/property&gt;
++			  &lt;property name=&quot;use_underline&quot;&gt;True&lt;/property&gt;
++			  &lt;property name=&quot;active&quot;&gt;False&lt;/property&gt;
++			  &lt;signal name=&quot;activate&quot; handler=&quot;on_show_controls1_activate&quot; last_modification_time=&quot;Mon, 26 Dec 2005 14:42:51 GMT&quot;/&gt;
++			&lt;/widget&gt;
++		      &lt;/child&gt;
++		    &lt;/widget&gt;
++		  &lt;/child&gt;
+ 		&lt;/widget&gt;
+ 	      &lt;/child&gt;
+ 
+@@ -291,7 +290,7 @@
+ 	      &lt;/child&gt;
+ 
+ 	      &lt;child&gt;
+-		&lt;widget class=&quot;GtkToolButton&quot; id=&quot;toolbutton4&quot;&gt;
++		&lt;widget class=&quot;GtkToolButton&quot; id=&quot;toolbutton_save_as_file&quot;&gt;
+ 		  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
+ 		  &lt;property name=&quot;stock_id&quot;&gt;gtk-save-as&lt;/property&gt;
+ 		  &lt;property name=&quot;visible_horizontal&quot;&gt;True&lt;/property&gt;
+@@ -371,6 +370,154 @@
+ 		  &lt;property name=&quot;homogeneous&quot;&gt;False&lt;/property&gt;
+ 		&lt;/packing&gt;
+ 	      &lt;/child&gt;
++
++	      &lt;child&gt;
++		&lt;widget class=&quot;GtkToolButton&quot; id=&quot;toolbutton_copy&quot;&gt;
++		  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;stock_id&quot;&gt;gtk-copy&lt;/property&gt;
++		  &lt;property name=&quot;visible_horizontal&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;visible_vertical&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;is_important&quot;&gt;False&lt;/property&gt;
++		&lt;/widget&gt;
++		&lt;packing&gt;
++		  &lt;property name=&quot;expand&quot;&gt;False&lt;/property&gt;
++		  &lt;property name=&quot;homogeneous&quot;&gt;True&lt;/property&gt;
++		&lt;/packing&gt;
++	      &lt;/child&gt;
++
++	      &lt;child&gt;
++		&lt;widget class=&quot;GtkToolButton&quot; id=&quot;toolbutton_paste&quot;&gt;
++		  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;stock_id&quot;&gt;gtk-paste&lt;/property&gt;
++		  &lt;property name=&quot;visible_horizontal&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;visible_vertical&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;is_important&quot;&gt;False&lt;/property&gt;
++		&lt;/widget&gt;
++		&lt;packing&gt;
++		  &lt;property name=&quot;expand&quot;&gt;False&lt;/property&gt;
++		  &lt;property name=&quot;homogeneous&quot;&gt;True&lt;/property&gt;
++		&lt;/packing&gt;
++	      &lt;/child&gt;
++
++	      &lt;child&gt;
++		&lt;widget class=&quot;GtkSeparatorToolItem&quot; id=&quot;separatortoolitem3&quot;&gt;
++		  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;draw&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;visible_horizontal&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;visible_vertical&quot;&gt;True&lt;/property&gt;
++		&lt;/widget&gt;
++		&lt;packing&gt;
++		  &lt;property name=&quot;expand&quot;&gt;False&lt;/property&gt;
++		  &lt;property name=&quot;homogeneous&quot;&gt;False&lt;/property&gt;
++		&lt;/packing&gt;
++	      &lt;/child&gt;
++
++	      &lt;child&gt;
++		&lt;widget class=&quot;GtkToolButton&quot; id=&quot;toolbutton_size_minus&quot;&gt;
++		  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;label&quot; translatable=&quot;yes&quot;&gt;&lt;/property&gt;
++		  &lt;property name=&quot;use_underline&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;icon&quot;&gt;icon_size_minus.png&lt;/property&gt;
++		  &lt;property name=&quot;visible_horizontal&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;visible_vertical&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;is_important&quot;&gt;False&lt;/property&gt;
++		&lt;/widget&gt;
++		&lt;packing&gt;
++		  &lt;property name=&quot;expand&quot;&gt;False&lt;/property&gt;
++		  &lt;property name=&quot;homogeneous&quot;&gt;True&lt;/property&gt;
++		&lt;/packing&gt;
++	      &lt;/child&gt;
++
++	      &lt;child&gt;
++		&lt;widget class=&quot;GtkToolButton&quot; id=&quot;toolbutton_size_plus&quot;&gt;
++		  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;label&quot; translatable=&quot;yes&quot;&gt;&lt;/property&gt;
++		  &lt;property name=&quot;use_underline&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;icon&quot;&gt;icon_size_plus.png&lt;/property&gt;
++		  &lt;property name=&quot;visible_horizontal&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;visible_vertical&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;is_important&quot;&gt;False&lt;/property&gt;
++		&lt;/widget&gt;
++		&lt;packing&gt;
++		  &lt;property name=&quot;expand&quot;&gt;False&lt;/property&gt;
++		  &lt;property name=&quot;homogeneous&quot;&gt;True&lt;/property&gt;
++		&lt;/packing&gt;
++	      &lt;/child&gt;
++
++	      &lt;child&gt;
++		&lt;widget class=&quot;GtkSeparatorToolItem&quot; id=&quot;separatortoolitem4&quot;&gt;
++		  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;draw&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;visible_horizontal&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;visible_vertical&quot;&gt;True&lt;/property&gt;
++		&lt;/widget&gt;
++		&lt;packing&gt;
++		  &lt;property name=&quot;expand&quot;&gt;False&lt;/property&gt;
++		  &lt;property name=&quot;homogeneous&quot;&gt;False&lt;/property&gt;
++		&lt;/packing&gt;
++	      &lt;/child&gt;
++
++	      &lt;child&gt;
++		&lt;widget class=&quot;GtkToolButton&quot; id=&quot;toolbutton_rotate_left&quot;&gt;
++		  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;label&quot; translatable=&quot;yes&quot;&gt;&lt;/property&gt;
++		  &lt;property name=&quot;use_underline&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;icon&quot;&gt;icon_rotate_left.png&lt;/property&gt;
++		  &lt;property name=&quot;visible_horizontal&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;visible_vertical&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;is_important&quot;&gt;False&lt;/property&gt;
++		&lt;/widget&gt;
++		&lt;packing&gt;
++		  &lt;property name=&quot;expand&quot;&gt;False&lt;/property&gt;
++		  &lt;property name=&quot;homogeneous&quot;&gt;True&lt;/property&gt;
++		&lt;/packing&gt;
++	      &lt;/child&gt;
++
++	      &lt;child&gt;
++		&lt;widget class=&quot;GtkToolButton&quot; id=&quot;toolbutton_rotate_right&quot;&gt;
++		  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;label&quot; translatable=&quot;yes&quot;&gt;&lt;/property&gt;
++		  &lt;property name=&quot;use_underline&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;icon&quot;&gt;icon_rotate_right.png&lt;/property&gt;
++		  &lt;property name=&quot;visible_horizontal&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;visible_vertical&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;is_important&quot;&gt;False&lt;/property&gt;
++		&lt;/widget&gt;
++		&lt;packing&gt;
++		  &lt;property name=&quot;expand&quot;&gt;False&lt;/property&gt;
++		  &lt;property name=&quot;homogeneous&quot;&gt;True&lt;/property&gt;
++		&lt;/packing&gt;
++	      &lt;/child&gt;
++
++	      &lt;child&gt;
++		&lt;widget class=&quot;GtkSeparatorToolItem&quot; id=&quot;separatortoolitem5&quot;&gt;
++		  &lt;property name=&quot;border_width&quot;&gt;2&lt;/property&gt;
++		  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;draw&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;visible_horizontal&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;visible_vertical&quot;&gt;True&lt;/property&gt;
++		&lt;/widget&gt;
++		&lt;packing&gt;
++		  &lt;property name=&quot;expand&quot;&gt;False&lt;/property&gt;
++		  &lt;property name=&quot;homogeneous&quot;&gt;False&lt;/property&gt;
++		&lt;/packing&gt;
++	      &lt;/child&gt;
++
++	      &lt;child&gt;
++		&lt;widget class=&quot;GtkToolButton&quot; id=&quot;toolbutton_reset_properties&quot;&gt;
++		  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;label&quot; translatable=&quot;yes&quot;&gt;&lt;/property&gt;
++		  &lt;property name=&quot;use_underline&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;stock_id&quot;&gt;gtk-media-rewind&lt;/property&gt;
++		  &lt;property name=&quot;visible_horizontal&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;visible_vertical&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;is_important&quot;&gt;False&lt;/property&gt;
++		&lt;/widget&gt;
++		&lt;packing&gt;
++		  &lt;property name=&quot;expand&quot;&gt;False&lt;/property&gt;
++		  &lt;property name=&quot;homogeneous&quot;&gt;True&lt;/property&gt;
++		&lt;/packing&gt;
++	      &lt;/child&gt;
+ 	    &lt;/widget&gt;
+ 	  &lt;/child&gt;
+ 	&lt;/widget&gt;
+
+Modified: facebuilder/facebuilder.rb
+===================================================================
+--- facebuilder/facebuilder.rb	2005-12-26 03:48:12 UTC (rev 1165)
++++ facebuilder/facebuilder.rb	2005-12-26 16:06:31 UTC (rev 1166)
+@@ -15,8 +15,8 @@
+ 
+   # Creates menu hints.
+   def create_uiinfo_menus(name)
+-    app = @glade['FaceBuilder']
+-    tips = @glade.get_tooltips(app.toplevel)
++    @app = @glade['FaceBuilder']
++    tips = @glade.get_tooltips(@app.toplevel)
+     callback_dummy = Proc.new{} #Dummy 
+     uiinfos = [
+                Gnome::UIInfo::menu_new_item('_New', nil, callback_dummy, nil),
+@@ -24,10 +24,8 @@
+                Gnome::UIInfo::menu_save_item(callback_dummy, nil),
+                Gnome::UIInfo::menu_save_as_item(callback_dummy, nil),
+                Gnome::UIInfo::menu_quit_item(callback_dummy, nil),
+-               Gnome::UIInfo::menu_cut_item(callback_dummy, nil),
+                Gnome::UIInfo::menu_copy_item(callback_dummy, nil),
+                Gnome::UIInfo::menu_paste_item(callback_dummy, nil),
+-               Gnome::UIInfo::menu_clear_item(callback_dummy, nil),
+                Gnome::UIInfo::menu_properties_item(callback_dummy, nil),
+                Gnome::UIInfo::menu_preferences_item(callback_dummy, nil),
+                Gnome::UIInfo::menu_about_item(callback_dummy, nil),
+@@ -37,14 +35,12 @@
+     uiinfos[2][9]  = @glade['save1']
+     uiinfos[3][9]  = @glade['save_as1']
+     uiinfos[4][9]  = @glade['quit1']
+-    uiinfos[5][9]  = @glade['cut1']
+-    uiinfos[6][9]  = @glade['copy1']
+-    uiinfos[7][9]  = @glade['paste1']
+-    uiinfos[8][9]  = @glade['clear1']
+-    uiinfos[9][9]  = @glade['properties1']
+-    uiinfos[10][9] = @glade['preferences1']
+-    uiinfos[11][9] = @glade['about1']
+-    app.install_menu_hints(uiinfos)
++    uiinfos[5][9]  = @glade['copy1']
++    uiinfos[6][9]  = @glade['paste1']
++    uiinfos[7][9]  = @glade['properties1']
++    uiinfos[8][9] = @glade['preferences1']
++    uiinfos[9][9] = @glade['about1']
++    @app.install_menu_hints(uiinfos)
+   end
+ 
+   # Creates tooltips.
+@@ -59,6 +55,7 @@
+ 
+     @glade['toolbutton_open_file'].signal_connect(&quot;clicked&quot;) { |*params| on_open1_activate(nil) }
+     @glade['toolbutton_save_file'].signal_connect(&quot;clicked&quot;) { |*params| on_save_as1_activate(nil) }
++    @glade['toolbutton_save_as_file'].signal_connect(&quot;clicked&quot;) { |*params| on_save_as1_activate(nil) }
+ 
+     @glade['toolbutton_reload'].signal_connect(&quot;clicked&quot;) { |*params| 
+       @face.reload()
+@@ -66,6 +63,33 @@
+ 
+     @glade['toolbutton_undo'].set_sensitive(false)
+     @glade['toolbutton_redo'].set_sensitive(false)
++
++    @glade['toolbutton_copy'].signal_connect(&quot;clicked&quot;)  { |*params| on_copy1_activate(nil) }
++    @glade['toolbutton_paste'].signal_connect(&quot;clicked&quot;) { |*params| on_paste1_activate(nil) }
++
++    @glade['toolbutton_size_minus'].signal_connect(&quot;clicked&quot;) { |*params| 
++      part = @face.get_part(@parts[@current_part])
++      part.scale=(part.scale / 1.02) if part
++    }
++    @glade['toolbutton_size_plus'].signal_connect(&quot;clicked&quot;)  { |*params| 
++      part = @face.get_part(@parts[@current_part])
++      part.scale=(part.scale * 1.02) if part
++    }
++
++    @glade['toolbutton_rotate_left'].signal_connect(&quot;clicked&quot;)  { |*params|
++      part = @face.get_part(@parts[@current_part])
++      part.rotation=(part.rotation - 1.0) if part
++    }
++    @glade['toolbutton_rotate_right'].signal_connect(&quot;clicked&quot;) { |*params| 
++      part = @face.get_part(@parts[@current_part])
++      part.rotation=(part.rotation + 1.0) if part
++    }
++
++    @glade['toolbutton_reset_properties'].signal_connect(&quot;clicked&quot;) {|*params|
++      part = @face.get_part(@parts[@current_part])
++      part.rotation=(0) if part
++      part.scale=(1.0) if part
++    }      
+   end
+ 
+   def initialize(path_or_data, root = nil, domain = nil, localedir = nil, flag = GladeXML::FILE)
+@@ -81,33 +105,40 @@
+ 
+     @canvas = @glade['FaceCanvas']
+     @face = Face.new(@canvas.root)
++    @face.load(&quot;examples/pirate.xml&quot;)
+     @canvas.modify_bg(Gtk::STATE_NORMAL, Gdk::Color.new(65535, 65535, 65535))
+ 
+     setup_faceparts()
+     setup_partselector()
+ 
+-    setup_controls(@canvas.root, Point.new(0, -200),  :hat)
+-    setup_controls(@canvas.root, Point.new(-200, -140),   :forehead)
+-    setup_controls(@canvas.root, Point.new(0, 200),   :head)
+-    setup_controls(@canvas.root, Point.new(200, -140), :hair)
++    @canvas_controls = []
++    group = Gnome::CanvasGroup.new(@canvas.root, {:x =&gt; 0.0, :y =&gt; 0.0 })
++
++    setup_controls(group, Point.new(0, -200),  :hat)
++    setup_controls(group, Point.new(-200, -140),   :forehead)
++    setup_controls(group, Point.new(0, 200),   :head)
++    setup_controls(group, Point.new(200, -140), :hair)
+     
+-    setup_controls(@canvas.root, Point.new(-200, 0), :glasses)
++    setup_controls(group, Point.new(-200, 0), :glasses)
+     
+-    setup_controls(@canvas.root, Point.new(200, -40), :eyebrow)
+-    setup_controls(@canvas.root, Point.new(200, 0),   :eye)
+-    setup_controls(@canvas.root, Point.new(200, 40),  :nose)
+-    setup_controls(@canvas.root, Point.new(200, 80),  :mouth)
+-    setup_controls(@canvas.root, Point.new(-200, 80),  :mouthfold)
++    setup_controls(group, Point.new(200, -40), :eyebrow)
++    setup_controls(group, Point.new(200, 0),   :eye)
++    setup_controls(group, Point.new(200, 40),  :nose)
++    setup_controls(group, Point.new(200, 80),  :mouth)
++    setup_controls(group, Point.new(-200, 80),  :mouthfold)
+ 
++    hide_controls()
++
+     Gnome::CanvasText.new(@canvas.root,
+                           {:text =&gt; 
+                             &quot;PgUp, PgDown:\tscale\n&quot; +
+                             &quot;Home, End:\t\trotate\n&quot; +
+-                            &quot;Cursorkeys:\t\tmove\n&quot;,
+-                            :x =&gt; -180,
+-                            :y =&gt; 180,
++                            &quot;Cursorkeys:\t\tmove\n&quot; +
++                            &quot;Cursor+Shift:\tmove vertical&quot;,
++                            :x =&gt; -256,
++                            :y =&gt; 256,
+                             :font =&gt; &quot;Sans 10&quot;,
+-                            :anchor =&gt; Gtk::ANCHOR_N,
++                            :anchor =&gt; Gtk::ANCHOR_SW,
+                             :fill_color =&gt; &quot;black&quot;})
+ 
+     @canvas.signal_connect_after(&quot;button-press-event&quot;) { |widget, event|
+@@ -165,6 +196,13 @@
+         part.offset = Point.new(part.offset.x + 1, part.offset.y) if part
+       end
+     }
++
++    @glade['toolbutton_copy'].set_sensitive(false)
++    @glade['toolbutton_paste'].set_sensitive(false)
++    @glade['copy1'].set_sensitive(false)
++    @glade['paste1'].set_sensitive(false)
++    @glade['properties1'].set_sensitive(false)
++    @glade['preferences1'].set_sensitive(false)
+   end
+ 
+   def on_undo()
+@@ -194,7 +232,7 @@
+   end
+ 
+   def on_export_as_svg1_activate(widget)
+-    dialog =  Gtk::FileChooserDialog.new(&quot;FaceBuilder - Export face as PNG&quot;, nil,
++    dialog =  Gtk::FileChooserDialog.new(&quot;FaceBuilder - Export face as SVG&quot;, nil,
+                                          Gtk::FileChooser::ACTION_SAVE,
+                                          &quot;gnome-vfs&quot;,
+                                          [Gtk::Stock::CANCEL, Gtk::Dialog::RESPONSE_CANCEL],
+@@ -227,7 +265,19 @@
+ 
+   def on_paste1_activate(widget)
+     puts &quot;on_paste1_activate() is not implemented yet.&quot;
++
++    clipboard = @app.get_clipboard(Gdk::Selection::CLIPBOARD)
++
++    clipboard.request_text{|clipboard, text| 
++      puts &quot;GOt: &gt;&gt;#{text}&lt;&lt;&quot;
++    }
++
++    clipboard.request_contents(Gdk::Atom.intern(&quot;CLIPBOARD&quot;, false)) { |clipboard, selection_data| 
++      puts selection_data.type, selection_data.text
++    }
++
+   end
++
+   def on_save_as1_activate(widget)
+     dialog =  Gtk::FileChooserDialog.new(&quot;Gtk::FileChooser sample&quot;, nil,
+                                          Gtk::FileChooser::ACTION_SAVE,
+@@ -262,8 +312,11 @@
+   def on_preferences1_activate(widget)
+     puts &quot;on_preferences1_activate() is not implemented yet.&quot;
+   end
++
+   def on_copy1_activate(widget)
+     puts &quot;on_copy1_activate() is not implemented yet.&quot;
++    clipboard = @canvas.get_clipboard(Gdk::Selection::CLIPBOARD)
++    # puts clipboard.text
+   end
+   def on_new1_activate(widget)
+     puts &quot;on_new1_activate() is not implemented yet.&quot;
+@@ -280,10 +333,26 @@
+   def on_properties1_activate(widget)
+     puts &quot;on_properties1_activate() is not implemented yet.&quot;
+   end
++  def on_show_controls1_activate(widget)
++    if widget.active? then
++      show_controls()
++    else
++      hide_controls()
++    end
++  end
++
+   def on_quit1_activate(widget)
+     Gtk.main_quit
+   end
+ 
++  def hide_controls()
++    @canvas_controls.each {|item| item.hide() }
++  end
++
++  def show_controls()
++    @canvas_controls.each {|item| item.show() }
++  end
++
+   def setup_controls(root, pos, facepart)
+     left = Gtk::Button.new(&quot;&lt;-&quot;)
+     Gnome::CanvasWidget.new(root,
+@@ -314,6 +383,8 @@
+       @face.get_part(facepart).next_item()
+       set_current_part(facepart)
+     }
++    @canvas_controls += [left, right]
++
+     return [left, right]
+   end
+ 
+
+Added: facebuilder/icon_rotate_left.png
+===================================================================
+(Binary files differ)
+
+
+Property changes on: facebuilder/icon_rotate_left.png
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: facebuilder/icon_rotate_right.png
+===================================================================
+(Binary files differ)
+
+
+Property changes on: facebuilder/icon_rotate_right.png
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: facebuilder/icon_size_minus.png
+===================================================================
+(Binary files differ)
+
+
+Property changes on: facebuilder/icon_size_minus.png
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: facebuilder/icon_size_plus.png
+===================================================================
+(Binary files differ)
+
+
+Property changes on: facebuilder/icon_size_plus.png
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000818.html">[Windstille-commit] r1165 - facebuilder
+</A></li>
+	<LI>Next message: <A HREF="000819.html">[Windstille-commit] r1167 - facebuilder
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#820">[ date ]</a>
+              <a href="thread.html#820">[ thread ]</a>
+              <a href="subject.html#820">[ subject ]</a>
+              <a href="author.html#820">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

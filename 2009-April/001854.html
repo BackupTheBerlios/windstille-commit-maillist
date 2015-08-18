@@ -1,0 +1,176 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2857 - in trunk/windstille: . src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2857%20-%20in%20trunk/windstille%3A%20.%20src/editor&In-Reply-To=%3C200904022124.n32LOHXS014161%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001853.html">
+   <LINK REL="Next"  HREF="001855.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2857 - in trunk/windstille: . src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2857%20-%20in%20trunk/windstille%3A%20.%20src/editor&In-Reply-To=%3C200904022124.n32LOHXS014161%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2857 - in trunk/windstille: . src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Apr  2 23:24:17 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001853.html">[Windstille-commit] r2856 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="001855.html">[Windstille-commit] r2858 - in trunk/windstille: . src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1854">[ date ]</a>
+              <a href="thread.html#1854">[ thread ]</a>
+              <a href="subject.html#1854">[ subject ]</a>
+              <a href="author.html#1854">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-04-02 23:24:17 +0200 (Thu, 02 Apr 2009)
+New Revision: 2857
+
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/src/editor/object_selector.cpp
+Log:
+Scale image on drag&amp;drop to current zoom level
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-04-02 20:00:25 UTC (rev 2856)
++++ trunk/windstille/TODO	2009-04-02 21:24:17 UTC (rev 2857)
+@@ -507,16 +507,32 @@
+ Editor
+ ======
+ 
++* add shift-toggle to rotation to 90/180/270 degree, etc., pass
++  GdkEvent modifier mask to control point
++
++* things are getting messy, we have: 
++
++   - hflip, vflip (works on UV)
++   - scale
++   - angle
++  
++  This all could be replaced with a translation matrix:
++
++   + would make things more general
++
++   - flipping via uv is trivial and doesn't lead to any trouble with
++     float instability/snapping
++
++   - rotation and scale can't easily be reset or edited separately
++
++   - float instability might lead to gaps between objects
++
+ * (id ...) is a string'ified pointer, while this work, this causes the
+   levels to be different after each and every load/save cycle, should
+   be something more constant
+ 
+-* scale drag&amp;drop sprite to current zoom level
+-
+ * add rectangle overlay that indicates the visible area of the game (i.e. one screen in current zoom size
+ 
+-* add flip for decal
+-
+ * bounding rect doesn't rotate, controls don't rotate
+ 
+ * ControlPoint bounding rect scales, which it shouldn't, ControlPoint
+@@ -527,7 +543,7 @@
+ 
+ * implement Blender-like grab-handles, that toggle between
+   scale/rotation/etc., but also allow limit of move along the x- or
+-  y-axis
++  y-axis only
+ 
+ * figure out how to properly draw controls in the Workspace (resize,
+   rotation, vertices of a quad),
+@@ -547,6 +563,9 @@
+   might be useful in some situation (i.e. hold Ctrl pressed to move
+   only the parent, not the children). Other issues:
+ 
++  - flipping doesn't work for parented objects when parent is in the
++    selection
++
+   - parents could be handled like normal objects, but with the
+     SelectTool traversing all children and marking them before the
+     move begings, Ctrl could be used to toggle this behaviour (sounds
+@@ -558,6 +577,8 @@
+     to each other object in the group), wouldn't allow an easy way to
+     edit objects in the Group, which however might be a good thing
+ 
++  - current parenthandling makes things like flipping much more complicated
++
+ * raise/lower of multiple objects at once is a bit wonky, when objects
+   reach the bottom/top they will change their relative order in the
+   selection (not a big deal with layers)
+
+Modified: trunk/windstille/src/editor/object_selector.cpp
+===================================================================
+--- trunk/windstille/src/editor/object_selector.cpp	2009-04-02 20:00:25 UTC (rev 2856)
++++ trunk/windstille/src/editor/object_selector.cpp	2009-04-02 21:24:17 UTC (rev 2857)
+@@ -23,6 +23,7 @@
+ #include &lt;gtkmm/toolbar.h&gt;
+ #include &lt;gtkmm/treemodelcolumn.h&gt;
+ 
++#include &quot;windstille_widget.hpp&quot;
+ #include &quot;editor_window.hpp&quot;
+ #include &quot;object_selector.hpp&quot;
+ 
+@@ -129,7 +130,7 @@
+ {
+   std::string iconpath = &quot;data/editor/icon.png&quot;;
+ 
+-Gtk::IconView::ArrayHandle_TreePaths selection = iconview.get_selected_items();
++  Gtk::IconView::ArrayHandle_TreePaths selection = iconview.get_selected_items();
+   for(Gtk::IconView::ArrayHandle_TreePaths::iterator i = selection.begin();
+       i != selection.end();
+       ++i)
+@@ -139,6 +140,12 @@
+     }
+ 
+   Glib::RefPtr&lt;Gdk::Pixbuf&gt; pixbuf = Gdk::Pixbuf::create_from_file(iconpath);
++  if (WindstilleWidget* wst = EditorWindow::current()-&gt;get_windstille_widget())
++    {
++      pixbuf = pixbuf-&gt;scale_simple(std::max(4, int(pixbuf-&gt;get_width()  * wst-&gt;get_state().get_zoom())),
++                                    std::max(4, int(pixbuf-&gt;get_height() * wst-&gt;get_state().get_zoom())),
++                                    Gdk::INTERP_TILES);
++    }
+   context-&gt;set_icon(pixbuf, pixbuf-&gt;get_width()/2, pixbuf-&gt;get_height()/2);
+ }     
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001853.html">[Windstille-commit] r2856 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="001855.html">[Windstille-commit] r2858 - in trunk/windstille: . src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1854">[ date ]</a>
+              <a href="thread.html#1854">[ thread ]</a>
+              <a href="subject.html#1854">[ subject ]</a>
+              <a href="author.html#1854">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

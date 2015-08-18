@@ -1,0 +1,209 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1479 - trunk/windstille/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1479%20-%20trunk/windstille/src&In-Reply-To=%3C200706200852.l5K8qiqh020854%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001130.html">
+   <LINK REL="Next"  HREF="001132.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1479 - trunk/windstille/src</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1479%20-%20trunk/windstille/src&In-Reply-To=%3C200706200852.l5K8qiqh020854%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1479 - trunk/windstille/src">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Jun 20 10:52:44 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001130.html">[Windstille-commit] r1478 - in trunk/windstille: . src src/gui	src/input src/objects src/particles src/scripting src/sprite2d
+</A></li>
+        <LI>Next message: <A HREF="001132.html">[Windstille-commit] r1480 - in trunk/windstille/src: . sprite2d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1131">[ date ]</a>
+              <a href="thread.html#1131">[ thread ]</a>
+              <a href="subject.html#1131">[ subject ]</a>
+              <a href="author.html#1131">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-06-20 10:52:44 +0200 (Wed, 20 Jun 2007)
+New Revision: 1479
+
+Modified:
+   trunk/windstille/src/file_reader.cpp
+   trunk/windstille/src/sexpr_file_reader.cpp
+   trunk/windstille/src/sexpr_file_reader.hpp
+Log:
+- fixed memleak in SExprFileReader
+
+Modified: trunk/windstille/src/file_reader.cpp
+===================================================================
+--- trunk/windstille/src/file_reader.cpp	2007-06-20 08:44:42 UTC (rev 1478)
++++ trunk/windstille/src/file_reader.cpp	2007-06-20 08:52:44 UTC (rev 1479)
+@@ -17,6 +17,7 @@
+ //  along with this program; if not, write to the Free Software
+ //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ 
++#include &quot;lisp/parser.hpp&quot;
+ #include &quot;sexpr_file_reader.hpp&quot;
+ #include &quot;file_reader.hpp&quot;
+ #include &quot;file_reader_impl.hpp&quot;
+@@ -24,7 +25,23 @@
+ FileReader
+ FileReader::parse(const std::string&amp; filename)
+ {
+-  return SExprFileReader(filename);
++  lisp::Lisp* root = lisp::Parser::parse(filename);
++  if (!root)
++    {
++      std::ostringstream msg;
++      msg &lt;&lt; &quot;'&quot; &lt;&lt; filename &lt;&lt; &quot;': file not found&quot;;
++      throw std::runtime_error(msg.str());
++    }
++  else if (root &amp;&amp; root-&gt;get_type() == lisp::Lisp::TYPE_LIST &amp;&amp; root-&gt;get_list_size() &gt;= 1)
++    {
++      return SExprFileReader(root, root-&gt;get_list_elem(0));
++    }
++  else
++    {
++      std::ostringstream msg;
++      msg &lt;&lt; &quot;'&quot; &lt;&lt; filename &lt;&lt; &quot;': not a valid sexpr file&quot;;
++      throw std::runtime_error(msg.str());
++    }
+ }
+ 
+ FileReader::FileReader(SharedPtr&lt;FileReaderImpl&gt; impl_)
+
+Modified: trunk/windstille/src/sexpr_file_reader.cpp
+===================================================================
+--- trunk/windstille/src/sexpr_file_reader.cpp	2007-06-20 08:44:42 UTC (rev 1478)
++++ trunk/windstille/src/sexpr_file_reader.cpp	2007-06-20 08:52:44 UTC (rev 1479)
+@@ -36,11 +36,26 @@
+ class SExprFileReaderImpl: public FileReaderImpl
+ {
+ public:
+-  bool delete_sexpr;
++  /** Pointer to the top-most lisp element, only here for purpose of
++      being able to delete it */
++  const lisp::Lisp* root;
++
++  bool  delete_sexpr;
+   const lisp::Lisp* sexpr;
+ 
++  SExprFileReaderImpl(const lisp::Lisp* root_, const lisp::Lisp* sexpr_)
++    : root(root_),
++      sexpr(sexpr_), 
++      delete_sexpr(false)
++  {
++    assert(sexpr &amp;&amp; 
++           sexpr-&gt;get_type() == lisp::Lisp::TYPE_LIST &amp;&amp;
++           sexpr-&gt;get_list_size() &gt;= 1);
++  }
++
+   SExprFileReaderImpl(const lisp::Lisp* sexpr_, bool delete_sexpr_) 
+-    : sexpr(sexpr_), 
++    : root(0),
++      sexpr(sexpr_), 
+       delete_sexpr(delete_sexpr_)
+   {
+     assert(sexpr &amp;&amp; 
+@@ -50,10 +65,11 @@
+ 
+   ~SExprFileReaderImpl()
+   {
++    if (root)
++      delete root;
++
+     if (delete_sexpr)
+-      {
+-        delete sexpr;
+-      }
++      delete sexpr;
+   }
+ 
+   std::string get_name() const 
+@@ -285,32 +301,9 @@
+ {
+ }
+ 
+-static lisp::Lisp* read_lisp_file(const std::string&amp; filename)
++SExprFileReader::SExprFileReader(const lisp::Lisp* root, const lisp::Lisp* sexpr)
++  : FileReader(SharedPtr&lt;FileReaderImpl&gt;(new SExprFileReaderImpl(root, sexpr)))
+ {
+-  lisp::Lisp* sexpr = lisp::Parser::parse(filename);
+-  if (!sexpr)
+-    {
+-      std::ostringstream msg;
+-      msg &lt;&lt; &quot;'&quot; &lt;&lt; filename &lt;&lt; &quot;': file not found&quot;;
+-      throw std::runtime_error(msg.str());
+-    }
+-  else if (sexpr &amp;&amp; sexpr-&gt;get_type() == lisp::Lisp::TYPE_LIST &amp;&amp; sexpr-&gt;get_list_size() &gt;= 1)
+-    {
+-      // FIXME: Memory leak! We are only cleaning up a subset of the whole lisp objects
+-      return sexpr-&gt;get_list_elem(0);
+-    }
+-  else
+-    {
+-      std::ostringstream msg;
+-      msg &lt;&lt; &quot;'&quot; &lt;&lt; filename &lt;&lt; &quot;': not a valid sexpr file&quot;;
+-      throw std::runtime_error(msg.str());
+-    }
+ }
+ 
+-SExprFileReader::SExprFileReader(const std::string&amp; filename)
+-  : FileReader(SharedPtr&lt;FileReaderImpl&gt;(new SExprFileReaderImpl(read_lisp_file(filename),
+-                                                                 true)))
+-{
+-}
+-
+ /* EOF */
+
+Modified: trunk/windstille/src/sexpr_file_reader.hpp
+===================================================================
+--- trunk/windstille/src/sexpr_file_reader.hpp	2007-06-20 08:44:42 UTC (rev 1478)
++++ trunk/windstille/src/sexpr_file_reader.hpp	2007-06-20 08:52:44 UTC (rev 1479)
+@@ -34,8 +34,8 @@
+ {
+ private:
+ public:
++  SExprFileReader(const lisp::Lisp* root, const lisp::Lisp* lisp);
+   SExprFileReader(const lisp::Lisp* lisp, bool delete_sexpr = false);
+-  SExprFileReader(const std::string&amp; filename);
+ };
+ 
+ #endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001130.html">[Windstille-commit] r1478 - in trunk/windstille: . src src/gui	src/input src/objects src/particles src/scripting src/sprite2d
+</A></li>
+	<LI>Next message: <A HREF="001132.html">[Windstille-commit] r1480 - in trunk/windstille/src: . sprite2d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1131">[ date ]</a>
+              <a href="thread.html#1131">[ thread ]</a>
+              <a href="subject.html#1131">[ subject ]</a>
+              <a href="author.html#1131">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

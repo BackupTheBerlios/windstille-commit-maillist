@@ -1,0 +1,552 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2276 - trunk/griv/new
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2276%20-%20trunk/griv/new&In-Reply-To=%3C200808061827.m76IRDGZ026928%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001295.html">
+   <LINK REL="Next"  HREF="001297.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2276 - trunk/griv/new</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2276%20-%20trunk/griv/new&In-Reply-To=%3C200808061827.m76IRDGZ026928%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2276 - trunk/griv/new">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Aug  6 20:27:13 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001295.html">[Windstille-commit] r2275 - trunk/griv/new
+</A></li>
+        <LI>Next message: <A HREF="001297.html">[Windstille-commit] r2277 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1296">[ date ]</a>
+              <a href="thread.html#1296">[ thread ]</a>
+              <a href="subject.html#1296">[ subject ]</a>
+              <a href="author.html#1296">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-06 20:27:12 +0200 (Wed, 06 Aug 2008)
+New Revision: 2276
+
+Modified:
+   trunk/griv/new/
+   trunk/griv/new/SConstruct
+   trunk/griv/new/file_database.cpp
+   trunk/griv/new/file_database.hpp
+   trunk/griv/new/griv.cpp
+   trunk/griv/new/sqlite.cpp
+   trunk/griv/new/sqlite.hpp
+Log:
+Added some SQlite related code
+
+
+Property changes on: trunk/griv/new
+___________________________________________________________________
+Name: svn:ignore
+   - griv
+
+   + griv
+.sconsign.dblite
+
+
+Modified: trunk/griv/new/SConstruct
+===================================================================
+--- trunk/griv/new/SConstruct	2008-08-06 16:31:20 UTC (rev 2275)
++++ trunk/griv/new/SConstruct	2008-08-06 18:27:12 UTC (rev 2276)
+@@ -11,6 +11,7 @@
+         'math/vector2f.cpp',
+         'software_surface.cpp',
+         'url.cpp',
++        'sqlite.cpp',
+         'file_database.cpp',
+         'tile_database.cpp',
+         'griv.cpp'])
+
+Modified: trunk/griv/new/file_database.cpp
+===================================================================
+--- trunk/griv/new/file_database.cpp	2008-08-06 16:31:20 UTC (rev 2275)
++++ trunk/griv/new/file_database.cpp	2008-08-06 18:27:12 UTC (rev 2276)
+@@ -24,83 +24,76 @@
+ */
+ 
+ #include &lt;iostream&gt;
++#include &lt;sstream&gt;
++#include &lt;stdexcept&gt;
+ #include &quot;file_database.hpp&quot;
+ 
+-FileDatabase::FileDatabase(sqlite3* db)
+-  : db(db)
++std::ostream&amp; operator&lt;&lt;(std::ostream&amp; os, const FileEntry&amp; entry)
+ {
+-  if (sqlite3_prepare_v2(db,
+-                         &quot;INSERT OR REPLACE INTO files (filename, md5, filesize, width, height, mtime)&quot;
+-                         &quot;           VALUES (      ?1,  ?2,       ?3,    ?4,     ?5,    ?6);&quot;, -1, &amp;store_stmt,  0)
+-      != SQLITE_OK)
+-    {
+-      fprintf(stderr, &quot;Something went wrong2: %s\n&quot;, sqlite3_errmsg(db));
+-    }
+-  
+-  if (sqlite3_prepare_v2(db, &quot;SELECT * FROM files WHERE filename = ?1&quot;, -1, &amp;get_by_file_id_stmt,  0))
+-    {
+-      fprintf(stderr, &quot;Something went wrong2: %s\n&quot;, sqlite3_errmsg(db));      
+-    }
++  return os &lt;&lt; &quot;filename: &quot; &lt;&lt; entry.filename &lt;&lt; &quot; size: &quot;&lt;&lt; entry.width &lt;&lt; &quot;x&quot; &lt;&lt; entry.height;
++}
++
++FileDatabase::FileDatabase(SQLiteConnection* db)
++  : db(db),
++    store_stmt(db),
++    get_by_filename_stmt(db),
++    get_by_file_id_stmt(db)
++{
++  db-&gt;exec(&quot;CREATE TABLE IF NOT EXISTS files (&quot;
++           &quot;filename  TEXT UNIQUE, &quot;
++           &quot;md5       TEXT, &quot;
++           &quot;filesize  INTEGER, &quot;
++           &quot;width     INTEGER, &quot;
++           &quot;height    INTEGER, &quot;
++           &quot;mtime     INTEGER);&quot;);
+ 
+-  if (sqlite3_prepare_v2(db, &quot;SELECT * FROM files WHERE rowid = ?1&quot;,  -1, &amp;get_by_file_id_stmt,  0))
+-    {
+-      fprintf(stderr, &quot;Something went wrong2: %s\n&quot;, sqlite3_errmsg(db));      
+-    }
++  //db-&gt;exec(&quot;CREATE UNIQUE INDEX IF NOT EXISTS files_index ON files ( filename, md5 );&quot;);
+ 
++  store_stmt.prepare(&quot;INSERT INTO files (filename, md5, filesize, width, height, mtime) VALUES (?1, ?2, ?3, ?4, ?5, ?6);&quot;);
++  get_by_filename_stmt.prepare(&quot;SELECT * FROM files WHERE filename = ?1;&quot;);
++  get_by_file_id_stmt.prepare(&quot;SELECT * FROM files WHERE rowid = ?1;&quot;);
+ }
+-  
++ 
++FileDatabase::~FileDatabase()
++{
++
++}
++ 
+ int
+ FileDatabase::store_file_entry(const std::string&amp; filename, const std::string&amp; md5, size_t filesize, int width, int height, int mtime)
+ {
+-  sqlite3_bind_blob(store_stmt, 1, filename.c_str(), filename.size(), SQLITE_STATIC);
+-  sqlite3_bind_text(store_stmt, 2, md5.c_str(), -1, SQLITE_STATIC); 
+-  sqlite3_bind_int (store_stmt, 3, filesize); // filesize
+-  sqlite3_bind_int (store_stmt, 4, width);    // width
+-  sqlite3_bind_int (store_stmt, 5, height);   // height
+-  sqlite3_bind_int (store_stmt, 6, 0);        // mtime
++  store_stmt.bind_text(1, filename);
++  store_stmt.bind_text(2, md5);
++  store_stmt.bind_int (3, filesize); // filesize
++  store_stmt.bind_int (4, width);    // width
++  store_stmt.bind_int (5, height);   // height
++  store_stmt.bind_int (6, 0);        // mtime
+ 
+-  // execute
+-  int rc = sqlite3_step(store_stmt);
+-  if (rc != SQLITE_DONE)
+-    {
+-      std::cout &lt;&lt; &quot;Something went wrong: &quot; &lt;&lt; sqlite3_errmsg(db) &lt;&lt; std::endl;
+-    }
+-  else
+-    {
+-      std::cout &lt;&lt; &quot;added &quot; &lt;&lt; filename &lt;&lt; std::endl;
+-    }
++  store_stmt.execute();
+ 
+-  sqlite3_reset(store_stmt);
+-  sqlite3_clear_bindings(store_stmt);  
+-
+-  return 0; // row_id
++  return sqlite3_last_insert_rowid(db-&gt;get_db());
+ }
+ 
+ FileEntry
+ FileDatabase::get_file_entry(const std::string&amp; filename)
+ {
+-  sqlite3_bind_text(get_by_filename_stmt, 1, filename.c_str(), -1, SQLITE_STATIC);
++  std::cout &lt;&lt; &quot;Trying to retrieve: &quot; &lt;&lt; filename &lt;&lt; std::endl;
++  get_by_filename_stmt.bind_text(1, filename);
++  get_by_filename_stmt.execute_query();
++  
++  // If nothing is found, query the file system and store the results
+ 
+-  // execute
+-  int rc = sqlite3_step(get_by_filename_stmt);
+-  if (rc != SQLITE_DONE)
+-    {
+-      std::cout &lt;&lt; &quot;Something went wrong: &quot; &lt;&lt; sqlite3_errmsg(db) &lt;&lt; std::endl;
+-    }
+-  else
+-    {
+-      std::cout &lt;&lt; &quot;added &quot; &lt;&lt; filename &lt;&lt; std::endl;
+-    }
+-
+-  sqlite3_reset(get_by_filename_stmt);
+-  sqlite3_clear_bindings(get_by_filename_stmt);  
+   return FileEntry();
+ }
+ 
+ FileEntry
+ FileDatabase::get_file_entry(uint32_t file_id)
+ {
+-  sqlite3_bind_int(get_by_file_id_stmt, 1, file_id);
++  get_by_file_id_stmt.bind_int(1, file_id);
++  get_by_file_id_stmt.execute_query();
++
++  // If nothing is found, query the file system and store the results
++
+   return FileEntry();
+ }
+ 
+
+Modified: trunk/griv/new/file_database.hpp
+===================================================================
+--- trunk/griv/new/file_database.hpp	2008-08-06 16:31:20 UTC (rev 2275)
++++ trunk/griv/new/file_database.hpp	2008-08-06 18:27:12 UTC (rev 2276)
+@@ -28,6 +28,7 @@
+ 
+ #include &lt;sqlite3.h&gt;
+ #include &lt;string&gt;
++#include &quot;sqlite.hpp&quot;
+ 
+ struct FileEntry 
+ {
+@@ -37,20 +38,23 @@
+   int         height;   // image height
+ };
+ 
++std::ostream&amp; operator&lt;&lt;(std::ostream&amp; os, const FileEntry&amp; entry);
++
+ /** */
+ class FileDatabase
+ {
+ private:
+-  sqlite3* db;
+-  sqlite3_stmt* store_stmt;
+-  sqlite3_stmt* get_by_filename_stmt;
+-  sqlite3_stmt* get_by_file_id_stmt;
+-  
++  SQLiteConnection* db;
++  SQLiteStatement store_stmt;
++  SQLiteStatement get_by_filename_stmt;
++  SQLiteStatement get_by_file_id_stmt;
++
++  int store_file_entry(const std::string&amp; filename, const std::string&amp; md5, size_t filesize, int width, int height, int mtime);
++ 
+ public:
+-  FileDatabase(sqlite3* db);
++  FileDatabase(SQLiteConnection* db);
++  ~FileDatabase();
+   
+-  int store_file_entry(const std::string&amp; filename, const std::string&amp; md5, size_t filesize, int width, int height, int mtime);
+-
+   FileEntry get_file_entry(const std::string&amp; filename);
+   FileEntry get_file_entry(uint32_t file_id);
+ 
+
+Modified: trunk/griv/new/griv.cpp
+===================================================================
+--- trunk/griv/new/griv.cpp	2008-08-06 16:31:20 UTC (rev 2275)
++++ trunk/griv/new/griv.cpp	2008-08-06 18:27:12 UTC (rev 2276)
+@@ -34,8 +34,10 @@
+ #include &quot;math/rect.hpp&quot;
+ #include &quot;math/vector2i.hpp&quot;
+ #include &quot;url.hpp&quot;
++#include &quot;sqlite.hpp&quot;
+ #include &quot;software_surface.hpp&quot;
+ #include &quot;griv.hpp&quot;
++#include &quot;file_database.hpp&quot;
+ 
+ Griv::Griv()
+ {
+@@ -64,35 +66,47 @@
+         }
+     }
+ 
++  SQLiteConnection db(&quot;test.sqlite&quot;);
++
++  FileDatabase file_db(&amp;db);
++
+   for(std::vector&lt;std::string&gt;::size_type i = 0; i &lt; rest.size(); ++i)
+     {
+-      // Generate Image Tiles
+-      SoftwareSurface surface(rest[i]);
++      if (0) // Tile Generation
++        {
++          // Generate Image Tiles
++          SoftwareSurface surface(rest[i]);
+       
+-      int scale = 0;
++          int scale = 0;
+ 
+-      do
+-        {
+-          if (scale != 0)
++          do
+             {
+-              surface = surface.scale(Size(surface.get_width()/2, 
+-                                           surface.get_height()/2));
+-            }
++              if (scale != 0)
++                {
++                  surface = surface.scale(Size(surface.get_width()/2, 
++                                               surface.get_height()/2));
++                }
+ 
+-          for(int y = 0; y &lt;= surface.get_height()/256; ++y)
+-            for(int x = 0; x &lt;= surface.get_width()/256; ++x)
+-              {
+-                std::ostringstream out;
+-                out &lt;&lt; &quot;/tmp/out/tile-&quot; &lt;&lt; scale &lt;&lt; &quot;-&quot; &lt;&lt; y &lt;&lt; &quot;+&quot; &lt;&lt; x &lt;&lt; &quot;.jpg&quot;;
++              for(int y = 0; y &lt;= surface.get_height()/256; ++y)
++                for(int x = 0; x &lt;= surface.get_width()/256; ++x)
++                  {
++                    std::ostringstream out;
++                    out &lt;&lt; &quot;/tmp/out/tile-&quot; &lt;&lt; scale &lt;&lt; &quot;-&quot; &lt;&lt; y &lt;&lt; &quot;+&quot; &lt;&lt; x &lt;&lt; &quot;.jpg&quot;;
+ 
+-                SoftwareSurface croped_surface = surface.crop(Rect(Vector2i(x * 256, y * 256),
+-                                                                   Size(256, 256)));
+-                croped_surface.save(out.str());
+-              }
++                    SoftwareSurface croped_surface = surface.crop(Rect(Vector2i(x * 256, y * 256),
++                                                                       Size(256, 256)));
++                    croped_surface.save(out.str());
++                  }
+ 
+-          scale += 1;
+-        } while (surface.get_width() &gt; 32 ||
+-                 surface.get_height() &gt; 32);
++              scale += 1;
++            } while (surface.get_width() &gt; 32 ||
++                     surface.get_height() &gt; 32);
++        }
++      else  // Data base test
++        {
++          FileEntry entry = file_db.get_file_entry(rest[i]);
++          std::cout &lt;&lt; entry &lt;&lt; std::endl;
++        }
+     }
+ 
+   return 0;
+@@ -103,7 +117,8 @@
+   try 
+     {
+       Griv app;
+-      return app.main(argc, argv);
++      int ret = app.main(argc, argv);
++      return ret;
+     }
+   catch(std::exception&amp; err) 
+     {
+
+Modified: trunk/griv/new/sqlite.cpp
+===================================================================
+--- trunk/griv/new/sqlite.cpp	2008-08-06 16:31:20 UTC (rev 2275)
++++ trunk/griv/new/sqlite.cpp	2008-08-06 18:27:12 UTC (rev 2276)
+@@ -23,6 +23,7 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;iostream&gt;
+ #include &lt;sstream&gt;
+ #include &quot;sqlite.hpp&quot;
+ 
+@@ -51,6 +52,8 @@
+ {
+   char* errmsg;
+ 
++  std::cout &lt;&lt; &quot;SQLiteConnection::exec: &quot; &lt;&lt; sqlstmt &lt;&lt; std::endl;
++
+   if (sqlite3_exec(db, sqlstmt.c_str(), 0, 0, &amp;errmsg) != SQLITE_OK)
+     {
+       std::ostringstream out;
+@@ -64,12 +67,21 @@
+     }
+ }
+ 
++SQLiteStatement::SQLiteStatement(SQLiteConnection* db)
++  : db(db), 
++    stmt(0)
++{
++}
++
+ SQLiteStatement::SQLiteStatement(SQLiteConnection* db, const std::string&amp; sqlstmt)
++  : db(db)
+ {
+-  if (sqlite3_prepare_v2(db-&gt;get_db(),
+-                         &quot;INSERT OR REPLACE INTO files (filename, md5, filesize, width, height, mtime)&quot;
+-                         &quot;           VALUES (      ?1,  ?2,       ?3,    ?4,     ?5,    ?6);&quot;, -1, &amp;stmt,  0)
+-      != SQLITE_OK)
++  prepare(sqlstmt);
++}
++
++SQLiteStatement::~SQLiteStatement()
++{
++  if (sqlite3_finalize(stmt) != SQLITE_OK)
+     {
+       std::ostringstream str;
+       str &lt;&lt; &quot;SQLiteStatement: &quot; &lt;&lt; sqlite3_errmsg(db-&gt;get_db());
+@@ -77,9 +89,11 @@
+     }
+ }
+ 
+-SQLiteStatement::~SQLiteStatement()
++void
++SQLiteStatement::prepare(const std::string&amp; sqlstmt)
+ {
+-  if (sqlite3_finalize(stmt) != SQLITE_OK)
++  if (sqlite3_prepare_v2(db-&gt;get_db(), sqlstmt.c_str(), -1, &amp;stmt,  0)
++      != SQLITE_OK)
+     {
+       std::ostringstream str;
+       str &lt;&lt; &quot;SQLiteStatement: &quot; &lt;&lt; sqlite3_errmsg(db-&gt;get_db());
+@@ -101,7 +115,7 @@
+ void
+ SQLiteStatement::bind_text(int n, const std::string&amp; text)
+ {
+-  if (sqlite3_bind_text(stmt, n, text.c_str(), text.size(), SQLITE_STATIC) != SQLITE_OK)
++  if (sqlite3_bind_text(stmt, n, text.c_str(), text.size(), SQLITE_TRANSIENT) != SQLITE_OK)
+     {
+       std::ostringstream str;
+       str &lt;&lt; &quot;SQLiteStatement: &quot; &lt;&lt; sqlite3_errmsg(db-&gt;get_db());
+@@ -112,7 +126,7 @@
+ void
+ SQLiteStatement::bind_blob(int n, const std::string&amp; blob)
+ {
+-  if (sqlite3_bind_blob(stmt, n, blob.c_str(), blob.size(), SQLITE_STATIC) != SQLITE_OK)
++  if (sqlite3_bind_blob(stmt, n, blob.c_str(), blob.size(), SQLITE_TRANSIENT) != SQLITE_OK)
+     {
+       std::ostringstream str;
+       str &lt;&lt; &quot;SQLiteStatement: &quot; &lt;&lt; sqlite3_errmsg(db-&gt;get_db());
+@@ -123,25 +137,60 @@
+ void
+ SQLiteStatement::reset()
+ {
++  sqlite3_clear_bindings(stmt);  
++
+   if (sqlite3_reset(stmt) != SQLITE_OK)
+     {
+       std::ostringstream str;
+       str &lt;&lt; &quot;SQLiteStatement: &quot; &lt;&lt; sqlite3_errmsg(db-&gt;get_db());
+       throw SQLiteError(str.str());
+     }
+-  
+-  sqlite3_clear_bindings(stmt);  
+ }
+ 
+-void
+-SQLiteStatement::step()
++void 
++SQLiteStatement::execute()
+ {
+   if (sqlite3_step(stmt) != SQLITE_DONE)
+     {
+       std::ostringstream str;
+-      str &lt;&lt; &quot;SQLiteStatement: &quot; &lt;&lt; sqlite3_errmsg(db-&gt;get_db());
+-      throw SQLiteError(str.str());     
++      str &lt;&lt; &quot;SQLiteStatement::execute: &quot; &lt;&lt; sqlite3_errmsg(db-&gt;get_db());
++      throw SQLiteError(str.str());      
+     }
++
++  reset();
+ }
++
++void
++SQLiteStatement::execute_query()
++{
++  switch(sqlite3_step(stmt))
++    {
++      case SQLITE_DONE:
++        // No results
++        break;
++
++      case SQLITE_ROW:
++        // Some results
++        do
++          {
++            std::cout &lt;&lt; &quot;Result: &quot; &lt;&lt; sqlite3_column_text(stmt, 0) &lt;&lt; std::endl;
++          }
++        while (sqlite3_step(stmt) == SQLITE_ROW);
++        break;
++
++      case SQLITE_BUSY:
++        throw SQLiteError(&quot;BUSY&quot;);
++        break;
++
++      default:
++        {
++          std::ostringstream str;
++          str &lt;&lt; &quot;SQLiteStatement::execute_query: &quot; &lt;&lt; sqlite3_errmsg(db-&gt;get_db());
++          throw SQLiteError(str.str());     
++        }
++    }
++
++  reset();
++}
+ 
+ /* EOF */
+
+Modified: trunk/griv/new/sqlite.hpp
+===================================================================
+--- trunk/griv/new/sqlite.hpp	2008-08-06 16:31:20 UTC (rev 2275)
++++ trunk/griv/new/sqlite.hpp	2008-08-06 18:27:12 UTC (rev 2276)
+@@ -60,17 +60,22 @@
+ private:
+   SQLiteConnection* db;
+   sqlite3_stmt*   stmt;
++
++  void reset();
+   
+ public:
++  SQLiteStatement(SQLiteConnection* db);
+   SQLiteStatement(SQLiteConnection* db, const std::string&amp; sqlstmt);
+   ~SQLiteStatement();
+ 
++  void prepare(const std::string&amp; sqlstmt);
++
+   void bind_int(int n, int i);
+   void bind_text(int n, const std::string&amp;);
+   void bind_blob(int n, const std::string&amp;);
+ 
+-  void reset();
+-  void step();
++  void execute();
++  void execute_query();
+ };
+ 
+ #endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001295.html">[Windstille-commit] r2275 - trunk/griv/new
+</A></li>
+	<LI>Next message: <A HREF="001297.html">[Windstille-commit] r2277 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1296">[ date ]</a>
+              <a href="thread.html#1296">[ thread ]</a>
+              <a href="subject.html#1296">[ subject ]</a>
+              <a href="author.html#1296">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

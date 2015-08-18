@@ -1,0 +1,1163 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1555 - in trunk/griv: . obsolete
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1555%20-%20in%20trunk/griv%3A%20.%20obsolete&In-Reply-To=%3C200711171146.lAHBkB7s018731%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001205.html">
+   <LINK REL="Next"  HREF="001207.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1555 - in trunk/griv: . obsolete</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1555%20-%20in%20trunk/griv%3A%20.%20obsolete&In-Reply-To=%3C200711171146.lAHBkB7s018731%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1555 - in trunk/griv: . obsolete">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Nov 17 12:46:11 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001205.html">[Windstille-commit] r1554 - in trunk/griv: . epeg
+</A></li>
+        <LI>Next message: <A HREF="001207.html">[Windstille-commit] r1556 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1206">[ date ]</a>
+              <a href="thread.html#1206">[ thread ]</a>
+              <a href="subject.html#1206">[ subject ]</a>
+              <a href="author.html#1206">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-17 12:46:09 +0100 (Sat, 17 Nov 2007)
+New Revision: 1555
+
+Added:
+   trunk/griv/command_line.cpp
+   trunk/griv/command_line.hpp
+   trunk/griv/obsolete/
+   trunk/griv/obsolete/thumbget.cpp
+   trunk/griv/obsolete/thumbnail.py
+Removed:
+   trunk/griv/thumbget.cpp
+   trunk/griv/thumbnail.py
+Modified:
+   trunk/griv/README
+   trunk/griv/SConstruct
+   trunk/griv/griv.cpp
+   trunk/griv/griv.hpp
+   trunk/griv/image.cpp
+   trunk/griv/thumbgen.cpp
+Log:
+- added command line parsing and a high/lov quality toggle
+
+Modified: trunk/griv/README
+===================================================================
+--- trunk/griv/README	2007-11-16 15:14:29 UTC (rev 1554)
++++ trunk/griv/README	2007-11-17 11:46:09 UTC (rev 1555)
+@@ -6,12 +6,13 @@
+ Usage:
+ ======
+ 
+-To use it, first you have to generate thumbnails by calling:
++You can view any collectino of files in a directory by:
+ 
+-./thumbnail.py [PATHNAME]...
++ ./griv [PATHNAME]...
+ 
+-Once done, you can view any collectino of files in that directory:
++Optionally you can pre-generate the thumbnails, which results in
++a smoother experience by calling:
+ 
+-./griv [PATHNAME]...
++ ./thumbgen -s 16,32,64,128,256,512,1024 [PATHNAME]...
+ 
+ # EOF #
+
+Modified: trunk/griv/SConstruct
+===================================================================
+--- trunk/griv/SConstruct	2007-11-16 15:14:29 UTC (rev 1554)
++++ trunk/griv/SConstruct	2007-11-17 11:46:09 UTC (rev 1555)
+@@ -1,14 +1,16 @@
+ # -*- python -*-
+-
++
+ libgriv_env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O2&quot;, &quot;-g&quot;])
+-libgriv = libgriv_env.StaticLibrary('griv', ['filesystem.cpp', 'md5.cpp'])
+-
++libgriv = libgriv_env.StaticLibrary('griv', ['filesystem.cpp', 
++                                             'command_line.cpp',
++                                             'md5.cpp'])
++
+ libepeg_env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-O2&quot;, &quot;-g&quot;])
+ libepeg = libepeg_env.StaticLibrary('epeg', ['epeg/epeg_main.c'])
+-
+-griv_env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O2&quot;, &quot;-g&quot;], LIBS=[libgriv, libepeg, 'SDL_image', 'jpeg', 'mhash', 'GL', 'GLU'])
++
++griv_env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O2&quot;, &quot;-g&quot;], 
++                       LIBS=[libgriv, libepeg, 'SDL_image', 'jpeg', 'mhash', 'GL', 'GLU'])
+ griv_env.ParseConfig(&quot;sdl-config --libs --cflags&quot;)
+-
+ griv_env.Program('griv', ['griv.cpp',
+                           'loader.cpp',
+                           'image.cpp',
+@@ -16,11 +18,9 @@
+                           'display.cpp', 
+                           'texture.cpp', 
+                           'workspace.cpp'])
+-
+-thumbget_env = Environment(CCFLAGS=['-Wall', '-Werror', '-O2', '-g'], LIBS=[libepeg, 'jpeg'])
+-thumbget_env.Program('thumbget', ['thumbget.cpp'])
+-
+-thumbgen_env = Environment(CCFLAGS=['-Wall', '-Werror', '-O2', '-g'], LIBS=[libgriv, libepeg, 'jpeg', 'mhash'])
++
++thumbgen_env = Environment(CCFLAGS=['-Wall', '-Werror', '-O2', '-g'], 
++                           LIBS=[libgriv, libepeg, 'jpeg', 'mhash'])
+ thumbgen_env.Program('thumbgen', ['thumbgen.cpp'])
+-
++
+ # EOF #
+
+Added: trunk/griv/command_line.cpp
+===================================================================
+--- trunk/griv/command_line.cpp	2007-11-16 15:14:29 UTC (rev 1554)
++++ trunk/griv/command_line.cpp	2007-11-17 11:46:09 UTC (rev 1555)
+@@ -0,0 +1,339 @@
++/*
++**  ClanLib SDK
++**  Copyright (c) 1997-2005 The ClanLib Team
++**
++**  This software is provided 'as-is', without any express or implied
++**  warranty.  In no event will the authors be held liable for any damages
++**  arising from the use of this software.
++**
++**  Permission is granted to anyone to use this software for any purpose,
++**  including commercial applications, and to alter it and redistribute it
++**  freely, subject to the following restrictions:
++**
++**  1. The origin of this software must not be misrepresented; you must not
++**     claim that you wrote the original software. If you use this software
++**     in a product, an acknowledgment in the product documentation would be
++**     appreciated but is not required.
++**  2. Altered source versions must be plainly marked as such, and must not be
++**     misrepresented as being the original software.
++**  3. This notice may not be removed or altered from any source distribution.
++**
++**  Note: Some of the libraries ClanLib may link to may have additional
++**  requirements or restrictions.
++**
++**  File Author(s):
++**
++**    Magnus Norddahl
++**    Ingo Ruhnke
++**    (if your name is missing here, please add it)
++*/
++
++#include &lt;iomanip&gt;
++#include &lt;iostream&gt;
++#include &lt;stdexcept&gt;
++#include &lt;stdio.h&gt;
++#include &quot;command_line.hpp&quot;
++
++#ifdef WIN32
++#define snprintf _snprintf
++#endif
++
++CommandLine::CommandLine()
++{
++  help_indent = 18;
++}
++
++CommandLine::~CommandLine()
++{
++}
++
++void CommandLine::parse_args(int argc, char** argv)
++{
++  programm = argv[0];
++
++  for(int i = 1; i &lt; argc; ++i) 
++    {
++      if (argv[i][0] == '-') 
++        {
++          if (argv[i][1] == '-') 
++            {
++              // We got a long option
++              if (argv[i][2] == '\0') { 
++                // Got a '--', so we stop evaluating arguments
++                ++i;
++                while(i &lt; argc) 
++                  {
++                    read_option(CommandLine::REST_ARG, argv[i]);
++                    ++i;
++                  }
++              } 
++              else
++                {
++                  std::string opt = argv[i] + 2;
++                  std::string long_opt;
++                  std::string long_opt_arg;
++
++                  std::string::size_type pos = opt.find('=');
++
++                  if (pos != std::string::npos) 
++                    {
++                      long_opt = opt.substr(0, pos);
++                      long_opt_arg = opt.substr(pos+1);
++                    }
++                  else 
++                    {
++                      long_opt = opt;
++                    }
++
++                  // Long Option
++                  Option* option = lookup_long_option(long_opt);
++
++                  if (option) 
++                    {
++                      if (option-&gt;argument.empty()) 
++                        {
++                          read_option(option-&gt;key, &quot;&quot;);
++                        } 
++                      else
++                        {
++                          if (pos != std::string::npos) 
++                            {
++                              read_option(option-&gt;key, long_opt_arg);
++                            }
++                          else
++                            {            
++                              if (i == argc - 1) 
++                                {
++                                  throw std::runtime_error(&quot;option '&quot; + std::string(argv[i]) + &quot;' requires an argument&quot;);
++                                }
++                              else 
++                                {
++                                  read_option(option-&gt;key, argv[i + 1]);
++                                  ++i;
++                                }
++                            }
++                        }
++                    }
++                  else
++                    {
++                      throw std::runtime_error(&quot;unrecognized option '&quot; + std::string(argv[i]) + &quot;'&quot;);
++                    }
++                }
++            } 
++          else 
++            {
++              // We got a short option
++              char* p = argv[i] + 1;
++          
++              if (*p != '\0') {
++                // Handle option chains
++                while (*p) 
++                  {
++                    // Short option(s)
++                    Option* option = lookup_short_option(*p);
++
++                    if (option) 
++                      {
++                        if (option-&gt;argument.empty()) 
++                          {
++                            read_option(option-&gt;key, &quot;&quot;);
++                          } 
++                        else 
++                          {
++                            if (i == argc - 1 || *(p+1) != '\0') 
++                              {
++                                // No more arguments
++                                throw std::runtime_error(&quot;option requires an argument -- &quot; + std::string(1, *p));
++                              }
++                            else
++                              {
++                                read_option(option-&gt;key, argv[i + 1]);
++                                ++i;
++                              }
++                          }
++                      } 
++                    else 
++                      {
++                        throw std::runtime_error(&quot;invalid option -- &quot; + std::string(1, *p));
++                      }
++                    ++p; 
++                  }
++              } 
++              else
++                {
++                  read_option(CommandLine::REST_ARG, &quot;-&quot;);
++                } 
++            }
++        } 
++      else
++        {
++          read_option(CommandLine::REST_ARG, argv[i]);
++        }
++    }
++
++  current_option = parsed_options.end();
++}
++
++CommandLine::Option *CommandLine::lookup_short_option(char short_option)
++{
++  for(Options::iterator i = options.begin(); i != options.end(); ++i)
++    {
++      if (i-&gt;key == short_option)
++        return &amp;(*i);
++    }
++  return 0;
++}
++
++CommandLine::Option *CommandLine::lookup_long_option(const std::string&amp; long_option)
++{
++  for(Options::iterator i = options.begin(); i != options.end(); ++i)
++    {
++      if (i-&gt;long_option == long_option)
++        return &amp;*i;
++    }
++  return 0;
++}
++
++void CommandLine::read_option(int key, const std::string&amp; argument)
++{
++  ParsedOption parsed_option;
++  
++  parsed_option.key = key;
++  parsed_option.argument = argument;
++
++  parsed_options.push_back(parsed_option);
++}
++
++void CommandLine::print_help()
++{
++  bool first_usage = true;
++  for(Options::iterator i = options.begin(); i != options.end(); ++i)
++    {
++      if (i-&gt;visible)
++        {
++          if (i-&gt;key == USAGE) 
++            {
++              if (first_usage) 
++                {
++                  std::cout &lt;&lt; &quot;Usage: &quot; &lt;&lt; programm &lt;&lt; &quot; &quot; &lt;&lt;  i-&gt;help &lt;&lt; std::endl; 
++                  first_usage = false;
++                }
++              else
++                {
++                  std::cout &lt;&lt; &quot;or:    &quot; &lt;&lt; programm &lt;&lt; &quot; &quot; &lt;&lt; i-&gt;help &lt;&lt; std::endl; 
++                }
++            } 
++          else if (i-&gt;key == GROUP) 
++            {
++              if (i != options.begin())
++                std::cout &lt;&lt; std::endl;
++              std::cout &lt;&lt; i-&gt;help &lt;&lt; std::endl;
++            }
++          else if (i-&gt;key == DOC) 
++            {
++              if (i != options.begin())
++                std::cout &lt;&lt; std::endl;
++              std::cout &lt;&lt; i-&gt;help &lt;&lt; std::endl;
++            }
++          else 
++            {
++              char option[256]   = { 0 };
++              char argument[256] = { 0 };
++
++              if (i-&gt;key &gt; 255 || i-&gt;key &lt; 0)
++                snprintf(option, 256, &quot;--%s&quot;, i-&gt;long_option.c_str());
++              else if (i-&gt;long_option.empty())
++                snprintf(option, 256, &quot;-%c&quot;, char(i-&gt;key));
++              else
++                snprintf(option, 256, &quot;-%c, --%s&quot;, char(i-&gt;key), i-&gt;long_option.c_str());
++
++              if (!i-&gt;argument.empty())
++                {
++                  if (i-&gt;long_option.empty())
++                    snprintf(argument, 256, &quot; %s&quot;, i-&gt;argument.c_str());
++                  else
++                    snprintf(argument, 256, &quot;=%s&quot;, i-&gt;argument.c_str());
++                }
++
++              std::cout &lt;&lt; &quot;  &quot; 
++                        &lt;&lt; std::setiosflags(std::ios::left) &lt;&lt; std::setw(help_indent)
++                        &lt;&lt; (std::string(option) + std::string(argument)) &lt;&lt; std::setw(0)
++                        &lt;&lt; &quot; &quot; &lt;&lt; i-&gt;help &lt;&lt; std::endl;
++            }
++        }
++    }
++  std::cout &lt;&lt; std::endl;
++}
++
++void CommandLine::add_usage(const std::string&amp; usage)
++{
++  Option option;
++
++  option.key          = USAGE;
++  option.help         = usage;
++  option.visible      = true;
++
++  options.push_back(option);   
++}
++
++void CommandLine::add_doc(const std::string&amp; grouptopic)
++{
++  Option option;
++
++  option.key          = DOC;
++  option.help         = grouptopic;
++  option.visible      = true;
++
++  options.push_back(option);  
++}
++
++void CommandLine::add_group(const std::string&amp; grouptopic)
++{
++  Option option;
++
++  option.key          = GROUP;
++  option.help         = grouptopic;
++  option.visible      = true;
++
++  options.push_back(option);  
++}
++
++void CommandLine::add_option(int key, 
++                                        const std::string&amp; long_option, 
++                                        const std::string&amp; argument,
++                                        const std::string&amp; help,
++                                        bool visible)
++{
++  Option option;
++
++  option.key          = key;
++  option.help         = help;
++  option.long_option  = long_option;
++  option.argument     = argument;
++  option.visible      = visible;
++
++  options.push_back(option);
++}
++
++bool CommandLine::next()
++{
++  if (current_option == parsed_options.end()) 
++    {
++      (current_option = parsed_options.begin());
++      return current_option != parsed_options.end();
++    }
++  else
++    {
++      return (++current_option) != parsed_options.end();
++    }
++}
++
++int CommandLine::get_key()
++{
++  return current_option-&gt;key;
++}
++
++std::string CommandLine::get_argument()
++{
++  return current_option-&gt;argument;
++}
+
+
+Property changes on: trunk/griv/command_line.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/command_line.hpp
+===================================================================
+--- trunk/griv/command_line.hpp	2007-11-16 15:14:29 UTC (rev 1554)
++++ trunk/griv/command_line.hpp	2007-11-17 11:46:09 UTC (rev 1555)
+@@ -0,0 +1,196 @@
++/*
++**  ClanLib SDK
++**  Copyright (c) 1997-2005 The ClanLib Team
++**
++**  This software is provided 'as-is', without any express or implied
++**  warranty.  In no event will the authors be held liable for any damages
++**  arising from the use of this software.
++**
++**  Permission is granted to anyone to use this software for any purpose,
++**  including commercial applications, and to alter it and redistribute it
++**  freely, subject to the following restrictions:
++**
++**  1. The origin of this software must not be misrepresented; you must not
++**     claim that you wrote the original software. If you use this software
++**     in a product, an acknowledgment in the product documentation would be
++**     appreciated but is not required.
++**  2. Altered source versions must be plainly marked as such, and must not be
++**     misrepresented as being the original software.
++**  3. This notice may not be removed or altered from any source distribution.
++**
++**  Note: Some of the libraries ClanLib may link to may have additional
++**  requirements or restrictions.
++**
++**  File Author(s):
++**
++**    Magnus Norddahl
++**    Ingo Ruhnke
++**    (if your name is missing here, please add it)
++*/
++
++//! clanCore=&quot;System&quot;
++//! header=core.h
++
++#ifndef HEADER_COMMAND_LINE_HPP
++#define HEADER_COMMAND_LINE_HPP
++
++#if _MSC_VER &gt; 1000
++#pragma once
++#endif
++
++#include &lt;string&gt;
++#include &lt;vector&gt;
++
++//: Helper class to parse command line arguments
++//- !group=Core/System!
++//- !header=core.h!
++//- &lt;p&gt;The CommandLine class helps to parse command line arguments, namely
++//- the argc/argv pair that you get from main(). CommandLine mimics
++//- getopt_long() behaviour as closely as possible, while providing a
++//- cleaner interface and a few additional features, like automatic
++//- generation of '--help' output. CommandLine can parse long arguments
++//- in the following styles:&lt;/p&gt;
++//-
++//- &lt;p&gt;program --file FILENAME&lt;br&gt;
++//- program --file=FILENAME&lt;/p&gt;
++//-
++//- &lt;p&gt;Short arguments are handled like this:&lt;/p&gt;
++//-
++//- &lt;p&gt;program -f FILENAME&lt;/p&gt;
++//-
++//- &lt;p&gt;Concatenating short arguments is also supported, so that:&lt;/p&gt;
++//- 
++//- &lt;p&gt;program -f -a -b FILENAME&lt;/p&gt;
++//-
++//- &lt;p&gt;is equivalent to:&lt;/p&gt;
++//-
++//- &lt;p&gt;program -fab FILENAME&lt;/p&gt;
++//-
++//- &lt;p&gt;Non-option arguments (aka rest arguments) are supported as well:&lt;/p&gt;
++//-
++//- &lt;p&gt;program SOMEFILE SOMEOTHERFILE ...&lt;/p&gt;
++//- 
++//- &lt;p&gt;To avoid ambiguity when a filename starts with '-' CommandLine stops
++//- parsing arguments after the first encounter of a '--', so in&lt;/p&gt;
++//-
++//- &lt;p&gt;program -f -b -- -f -b&lt;/p&gt;
++//-
++//- &lt;p&gt;In the above example the first '-f -b' options are treated as
++//- normal while the ones after the '--' are treated as rest arguments
++//- (aka filenames in most programs).&lt;/p&gt;
++class CommandLine
++{
++private:
++	int help_indent;
++
++	std::string programm;
++
++	struct Option 
++	{
++		int key;
++		std::string help;
++		std::string long_option;
++		std::string argument;
++		bool visible;
++	};
++  
++	typedef std::vector&lt;Option&gt; Options;
++	Options options;
++
++	struct ParsedOption
++	{
++		int key;
++		std::string argument;
++	};
++
++	typedef std::vector&lt;ParsedOption&gt; ParsedOptions;
++	ParsedOptions parsed_options;
++	ParsedOptions::iterator current_option;
++
++	enum
++	{
++		GROUP     = -3,
++		DOC       = -4,
++		USAGE     = -5
++	};
++
++//! Construction:
++public:
++	CommandLine();
++
++	~CommandLine();
++
++//! Attributes:
++public:
++	enum
++	{
++		REST_ARG  = -2
++	};
++
++	//: Return the key of the current option
++	int get_key();
++
++	//: Return the argument to the current option
++	std::string get_argument();
++
++//! Operations:
++public:
++	//: Change the indention used for the help message, default is 18
++	void set_help_indent(int i);
++
++	//: Add a usage line to the help output, usage is for example
++	//: &quot;[OPTIONS]... FILE&quot;, the program name will get appended
++	//: automatically
++	void add_usage(const std::string&amp; usage);
++
++	//: Adds extra documentation to the help output, should only be
++	//: used at the beginning or at the end, to
++	void add_doc(const std::string&amp; doc);
++	
++	//: Starts a new group of options, the grouptopic gets printed
++	//: above the group of options in the print_help() output
++	void add_group(const std::string&amp; grouptopic);
++  
++	//: Adds a option to the parser
++	//param key: a letter for a short-option or a numeric value
++	//param key: larger than 255 that identifies the option
++	//param long_option: the long name of this option or &quot;&quot; if non
++	//param long_option: should be used for this option
++	//param argument: the type of the argument that this option
++	//param argument: requires (i.e. FILE, SIZE, WIDTH, etc.) or &quot;&quot; if no argument is
++	//param argument: required
++	//param help: the help string for this option
++	//param visible: true if the option should be listed in the help
++	//param visible: output, false will not list it in the help output which might
++	//param visible: be usefull for cheat-options or backward-compability options
++	//param visible: than would only clutter the help output
++	void add_option(
++		int key,
++		const std::string&amp; long_option, 
++		const std::string&amp; argument,
++		const std::string&amp; help,
++		bool visible = true);
++	
++	//: Parse the options arcording to the options added with
++	//: add_option(), result of the parsing is accessible via
++	//: next() and get_key()/get_argument()
++	void parse_args(int argc, char** argv);
++
++	//: Print the help output, normaly done via a --help option
++	void print_help();
++
++	//: Goto the next option
++	bool next();
++
++//! Implementation:
++private:
++	void read_option(int id, const std::string&amp; argument);
++
++	/** Find the Option structure that matches \a short_option */
++	Option* lookup_short_option(char short_option);
++
++	/** Find the Option structure that matches \a long_option */
++	Option* lookup_long_option (const std::string&amp; long_option);
++};
++
++#endif
+
+
+Property changes on: trunk/griv/command_line.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/griv/griv.cpp
+===================================================================
+--- trunk/griv/griv.cpp	2007-11-16 15:14:29 UTC (rev 1554)
++++ trunk/griv/griv.cpp	2007-11-17 11:46:09 UTC (rev 1555)
+@@ -16,6 +16,7 @@
+ float y_offset = 0.0f;
+ std::string config_home;
+ bool force_redraw = true;
++bool highquality  = true;
+ 
+ Griv::Griv()
+ {
+@@ -67,6 +68,12 @@
+                 x_offset = 0;
+                 y_offset = 0;
+               }
++            else if (event.key.keysym.sym == SDLK_h)
++              {
++                highquality = !highquality;
++                force_redraw = true;
++                std::cout &lt;&lt; &quot;Highquality: &quot; &lt;&lt; highquality &lt;&lt; std::endl;
++              }
+             else if (event.key.keysym.sym == SDLK_9)
+               {
+                 workspace-&gt;layout(4,3);
+@@ -84,27 +91,27 @@
+               }
+             else if (event.key.keysym.sym == SDLK_1)
+               {
+-                workspace-&gt;set_zoom(4.0f);
++                workspace-&gt;set_zoom(16.0f);
+               }
+             else if (event.key.keysym.sym == SDLK_2)
+               {
+-                workspace-&gt;set_zoom(8.0f);
++                workspace-&gt;set_zoom(32.0f);
+               }
+             else if (event.key.keysym.sym == SDLK_3)
+               {
+-                workspace-&gt;set_zoom(16.0f);
++                workspace-&gt;set_zoom(64.0f);
+               }
+             else if (event.key.keysym.sym == SDLK_4)
+               {
+-                workspace-&gt;set_zoom(32.0f);
++                workspace-&gt;set_zoom(128.0f);
+               }
+             else if (event.key.keysym.sym == SDLK_5)
+               {
+-                workspace-&gt;set_zoom(64.0f);
++                workspace-&gt;set_zoom(256.0f);
+               }
+             else if (event.key.keysym.sym == SDLK_6)
+               {
+-                workspace-&gt;set_zoom(128.0f);
++                workspace-&gt;set_zoom(512.0f);
+               }
+             else if (event.key.keysym.sym == SDLK_UP)
+               {
+
+Modified: trunk/griv/griv.hpp
+===================================================================
+--- trunk/griv/griv.hpp	2007-11-16 15:14:29 UTC (rev 1554)
++++ trunk/griv/griv.hpp	2007-11-17 11:46:09 UTC (rev 1555)
+@@ -32,6 +32,7 @@
+ extern float x_offset;
+ extern float y_offset;
+ extern bool force_redraw;
++extern bool highquality;
+ 
+ class Workspace;
+ 
+
+Modified: trunk/griv/image.cpp
+===================================================================
+--- trunk/griv/image.cpp	2007-11-16 15:14:29 UTC (rev 1554)
++++ trunk/griv/image.cpp	2007-11-17 11:46:09 UTC (rev 1555)
+@@ -179,7 +179,7 @@
+ int
+ Image::round_res(int r)
+ {
+-  if (1)
++  if (!highquality)
+     { // low quality
+       if (r &lt; 32)
+         return 16;
+
+Copied: trunk/griv/obsolete/thumbget.cpp (from rev 1554, trunk/griv/thumbget.cpp)
+
+Copied: trunk/griv/obsolete/thumbnail.py (from rev 1551, trunk/griv/thumbnail.py)
+
+Modified: trunk/griv/thumbgen.cpp
+===================================================================
+--- trunk/griv/thumbgen.cpp	2007-11-16 15:14:29 UTC (rev 1554)
++++ trunk/griv/thumbgen.cpp	2007-11-17 11:46:09 UTC (rev 1555)
+@@ -4,35 +4,18 @@
+ #include &lt;iomanip&gt;
+ #include &lt;iostream&gt;
+ #include &quot;epeg/Epeg.h&quot;
+-#include &lt;mhash.h&gt;
++#include &quot;md5.hpp&quot;
++#include &quot;command_line.hpp&quot;
+ #include &quot;filesystem.hpp&quot;
+ 
+-int num_sizes = 7;
+-int sizes[] = { 16, 32, 64, 128, 256, 512, 1024 };
++bool verbose = false;
+ 
+-inline std::string md5(const std::string&amp; str)
++void
++generate_thumbnails(const std::string&amp; filename, int quality, const std::vector&lt;int&gt;&amp; sizes)
+ {
+-  unsigned char hash[16]; /* enough size for MD5 */
+-  MHASH td = mhash_init(MHASH_MD5);
+-  if (td == MHASH_FAILED) 
+-    throw std::runtime_error(&quot;Failed to init MHash&quot;);
+-  
+-  mhash(td, str.c_str(), str.length());
+-  
+-  mhash_deinit(td, hash);
+-
+-  std::ostringstream out;
+-  for (int i = 0; i &lt; 16; i++) 
+-    out &lt;&lt; std::setfill('0') &lt;&lt; std::setw(2) &lt;&lt; std::hex &lt;&lt; int(hash[i]);
+-
+-  return out.str();
+-}
+-
+-void generate_thumbnails(const std::string&amp; filename)
+-{
+-  std::string m = md5(&quot;<A HREF="file://">file://</A>&quot; + filename);
++  std::string m = MD5::md5_string(&quot;<A HREF="file://">file://</A>&quot; + filename);
+       
+-  for(int i = 0; i &lt; num_sizes; ++i)
++  for(int i = 0; i &lt; int(sizes.size()); ++i)
+     {
+       std::ostringstream str;
+       str &lt;&lt; Filesystem::get_home() &lt;&lt; &quot;/.griv/cache/by_url/&quot;
+@@ -53,7 +36,7 @@
+ 
+           if (w &gt; sizes[i] || h &gt; sizes[i])
+             {
+-              epeg_quality_set(img, 80);
++              epeg_quality_set(img, quality);
+               epeg_thumbnail_comments_enable(img, 1);
+ 
+               if (w &gt; h)
+@@ -63,7 +46,8 @@
+   
+               epeg_decode_colorspace_set(img, EPEG_RGB8);
+ 
+-              std::cout &lt;&lt; sizes[i] &lt;&lt; &quot; - &quot; &lt;&lt; filename &lt;&lt; &quot; =&gt; &quot; &lt;&lt; str.str() &lt;&lt; std::endl;
++              if (verbose)
++                std::cout &lt;&lt; sizes[i] &lt;&lt; &quot; - &quot; &lt;&lt; filename &lt;&lt; &quot; =&gt; &quot; &lt;&lt; str.str() &lt;&lt; std::endl;
+ 
+               epeg_file_output_set(img, str.str().c_str());
+               epeg_encode(img);
+@@ -74,44 +58,138 @@
+     }
+ }
+ 
+-void process_path(const std::string&amp; pathname)
++void
++generate_file_list(const std::string&amp; pathname, std::vector&lt;std::string&gt;&amp; file_list)
+ {
+   if (Filesystem::is_directory(pathname))
+     {
+       std::vector&lt;std::string&gt; dir_list = Filesystem::open_directory(pathname);
+       for(std::vector&lt;std::string&gt;::iterator i = dir_list.begin(); i != dir_list.end(); ++i)
+         {
+-          process_path(*i);
++          generate_file_list(*i, file_list);
+         }
+     }
+   else
+     {
+-      if (Filesystem::has_extension(pathname, &quot;.jpg&quot;) ||
+-          Filesystem::has_extension(pathname, &quot;.jpg&quot;))
++      if (Filesystem::has_extension(pathname, &quot;.jpg&quot;)  ||
++          Filesystem::has_extension(pathname, &quot;.JPG&quot;)  ||
++          Filesystem::has_extension(pathname, &quot;.jpe&quot;)  ||
++          Filesystem::has_extension(pathname, &quot;.JPE&quot;)  ||
++          Filesystem::has_extension(pathname, &quot;.JPEG&quot;) ||
++          Filesystem::has_extension(pathname, &quot;.jpeg&quot;))
+         {
+-          try {
+-            generate_thumbnails(Filesystem::realpath(pathname));
+-          } catch(std::exception&amp; err) {
+-            std::cout &lt;&lt; &quot;Error: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
+-          }          
++          file_list.push_back(Filesystem::realpath(pathname));
+         }
+     }
+ }
+ 
++void parse_number_list(const std::string&amp; str, std::vector&lt;int&gt;&amp; sizes)
++{
++  // FIXME: implement me
++  // FIXME: add handling for &quot;16,32,64&quot;
++  sizes.push_back(atoi(str.c_str()));
++}
++
+ int main(int argc, char** argv)
+ {
+-  Filesystem::init();
++  CommandLine argp;
++      
++  argp.add_usage(&quot;[OPTION]... [FILE]...&quot;);
++  argp.add_doc(&quot;A offline thumbnail generator for griv\n&quot;);
++  argp.add_option('s', &quot;size&quot;, &quot;NUM,...&quot;, &quot;Generate thumbnails for the given sizes (default: 16)&quot;);
++  argp.add_option('v', &quot;verbose&quot;, &quot;&quot;, &quot;Print more detailed output on generation&quot;);
++  argp.add_option('q', &quot;quality&quot;, &quot;NUM&quot;, &quot;JPEG quality used for thumbnailing, range 1-100 (default: 80)&quot;);
++  argp.add_option('h', &quot;help&quot;, &quot;&quot;, &quot;Print this help&quot;);
+ 
+-  if (argc == 1)
++  try {
++    argp.parse_args(argc, argv);
++  } catch(std::exception&amp; err) {
++    std::cout &lt;&lt; &quot;Error: CommandLine: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
++    exit(EXIT_FAILURE);
++  }
++
++  int quality = 80;
++  std::vector&lt;int&gt; sizes;
++  std::vector&lt;std::string&gt; pathnames;
++  while(argp.next())
+     {
+-      std::cout &lt;&lt; &quot;Usage: &quot; &lt;&lt; argv[0] &lt;&lt; &quot; [FILE]...&quot; &lt;&lt; std::endl;
++      switch(argp.get_key())
++        {
++          case 's':
++            parse_number_list(argp.get_argument(), sizes);
++            break;
++
++          case 'q':
++            quality = atoi(argp.get_argument().c_str());
++            break;
++
++          case 'v':
++            verbose = true;
++            break;
++
++          case 'h':
++            argp.print_help();
++            exit(EXIT_SUCCESS);
++            break;
++
++          case CommandLine::REST_ARG:
++            pathnames.push_back(argp.get_argument());
++            break;
++
++          default:
++            std::cout &lt;&lt; &quot;Unhandled argument: &quot; &lt;&lt; argp.get_key() &lt;&lt; std::endl;
++            exit(EXIT_FAILURE);
++            break;
++        }
++    };
++  
++  if (sizes.empty())
++    sizes.push_back(16);
++
++  if (pathnames.empty())
++    {
++      argp.print_help();
+     }
+   else
+     {
+-      for(int i = 1; i &lt; argc; ++i)
++      Filesystem::init();
++
++      std::cout &lt;&lt; &quot;Generating file list... &quot; &lt;&lt; std::flush;
++      std::vector&lt;std::string&gt; file_list;
++      for(std::vector&lt;std::string&gt;::iterator i = pathnames.begin(); i != pathnames.end(); ++i)
++        generate_file_list(*i, file_list);
++      std::cout &lt;&lt; &quot;done&quot; &lt;&lt; std::endl;;
++
++      int progress_scale = 70;
++      int progress = 0;
++      int last_progress = 0;
++      std::cout &lt;&lt; &quot;Generating thumbnails...\n&quot; &lt;&lt; std::flush;
++      for(std::vector&lt;std::string&gt;::iterator i = file_list.begin(); i != file_list.end(); ++i)
+         {
+-          process_path(argv[i]);
++          try {
++            generate_thumbnails(*i, quality, sizes);
++          } catch(std::exception&amp; err) {
++            std::cout &lt;&lt; &quot;Error: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
++          }
++
++          progress = progress_scale * (i - file_list.begin() + 1) / file_list.size();
++
++          if (progress != last_progress)
++            {
++              last_progress = progress;
++
++              std::cout &lt;&lt; &quot;[&quot;;
++              for(int i = 0; i &lt; progress_scale; ++i)
++                {
++                  if (i &lt;= progress)
++                    std::cout.put('#');
++                  else
++                    std::cout.put(' ');
++                }
++              std::cout &lt;&lt; &quot;]\r&quot; &lt;&lt; std::flush;
++            }
+         }
++      std::cout &lt;&lt; &quot;\ndone&quot; &lt;&lt; std::endl;;
+     }
+ 
+   Filesystem::deinit();
+
+Deleted: trunk/griv/thumbget.cpp
+===================================================================
+--- trunk/griv/thumbget.cpp	2007-11-16 15:14:29 UTC (rev 1554)
++++ trunk/griv/thumbget.cpp	2007-11-17 11:46:09 UTC (rev 1555)
+@@ -1,42 +0,0 @@
+-// Little experimental epeg test app
+-
+-#include &quot;epeg/Epeg.h&quot;
+-#include &lt;iostream&gt;
+-
+-int main(int argc, char** argv)
+-{
+-  if (argc != 7)
+-    {
+-      printf(&quot;Usage: %s INFILE X Y W H OUTFILE\n&quot;, argv[0]);
+-      exit(0);
+-    }
+-
+-  char* filename = argv[1];
+-  int x = atoi(argv[2]);
+-  int y = atoi(argv[3]);
+-  int w = atoi(argv[4]);
+-  int h = atoi(argv[5]);
+-  //char* out_filename = argv[6];
+-
+-  std::cout &lt;&lt; filename &lt;&lt; &quot; &quot; &lt;&lt; x &lt;&lt; &quot;, &quot; &lt;&lt; y &lt;&lt; &quot; - &quot; &lt;&lt; w &lt;&lt; &quot;x&quot; &lt;&lt; h &lt;&lt; std::endl;
+-
+-  Epeg_Image* img;
+-
+-  img = epeg_file_open(filename);
+-  if (!img)
+-    {
+-      printf(&quot;Cannot open %s\n&quot;, filename);
+-      exit(-1);
+-    }
+-
+-
+-  const unsigned char* pixels = static_cast&lt;const unsigned char*&gt;(epeg_pixels_get(img, x, y, w, h));
+-  epeg_pixels_free(img, pixels);
+-
+-  epeg_close(img);
+-
+-  
+-  return 0;
+-}
+-
+-/* EOF */
+
+Deleted: trunk/griv/thumbnail.py
+===================================================================
+--- trunk/griv/thumbnail.py	2007-11-16 15:14:29 UTC (rev 1554)
++++ trunk/griv/thumbnail.py	2007-11-17 11:46:09 UTC (rev 1555)
+@@ -1,84 +0,0 @@
+-#!/usr/bin/python
+-
+-# import xattr
+-import sys
+-import os
+-import md5
+-import Image
+-from stat import *
+-from glob import fnmatch
+-import dircache
+-
+-image_exts = [&quot;.jpg&quot;, &quot;.png&quot;, &quot;.JPG&quot;, &quot;.JPEG&quot;, &quot;.PNG&quot;]
+-
+-config_home = os.getenv(&quot;HOME&quot;)
+-
+-if not config_home:
+-    print &quot;Couldn't find $HOME environment variable&quot;
+-    exit()
+-else:
+-    # FIXME: mkdir also 00-ff
+-    for hex in [a+b for a in &quot;0123456789abcdef&quot; for b in &quot;0123456789abcdef&quot;]:
+-        for org in [&quot;by_url&quot;, &quot;by_md5&quot;]:
+-            for res in [2048, 1024, 512, 256, 128, 64, 32, 16]:
+-                dir = config_home + &quot;/.griv/cache/%s/%d/%s&quot; % (org, res, hex)
+-                if not os.access(dir, os.F_OK):
+-                    os.makedirs(dir)
+-                    print &quot;Created&quot;, dir
+-
+-def has_extension(filename, extensions):
+-    for ext in extensions:
+-        if filename.endswith(ext):
+-            return True
+-    return False
+-
+-def md5sum(filename):
+-    f = open(filename)
+-    m = md5.new()
+-    m.update(f.read())
+-    f.close()
+-    return m.hexdigest()
+-
+-def genthumb(orig_filename, img):
+-    global config_home
+-    for res in [2048, 1024, 512, 256, 128, 64, 32, 16]:
+-        url = &quot;<A HREF="file://">file://</A>&quot; + os.path.abspath(orig_filename)
+-        m = md5.new()
+-        m.update(url)
+-        url_md5 = m.hexdigest()
+-
+-        url_filename = config_home + &quot;/.griv/cache/by_url/%d/%s/%s.jpg&quot; % (res, url_md5[0:2], url_md5[2:])
+-
+-        if not os.path.exists(url_filename):
+-            if res &lt; img.size[0] or res &lt; img.size[1]: # don't thumbnail if orig is smaller
+-                if (img.size[0] &gt; img.size[1]): # preserve aspect ratio
+-                    size = (res, res * img.size[1] / img.size[0])
+-                else:
+-                    size = (res * img.size[0] / img.size[1], res)
+-
+-                img = img.resize(size, Image.BICUBIC) #
+-                img.save(url_filename, &quot;JPEG&quot;, quality = 75)
+-
+-                print &quot;%4d %s =&gt; %s&quot; % (res, orig_filename, url_filename)
+-
+-def process_file(pathname):
+-    if os.path.isdir(pathname): 
+-        for i in [os.path.join(pathname, name) for name in os.listdir(pathname)]:
+-            process_file(i)        
+-    elif has_extension(pathname, image_exts):
+-        try:
+-            orig_img = Image.open(pathname)
+-            genthumb(pathname, orig_img)
+-
+-        except IOError, err:
+-            print &quot;Image Error:&quot;, pathname, err
+-    else:
+-        pass # ignore non-image files
+-
+-def main(args):
+-    for pathname in args:
+-        process_file(pathname)
+-
+-main(sys.argv[1:])
+-
+-# EOF #
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001205.html">[Windstille-commit] r1554 - in trunk/griv: . epeg
+</A></li>
+	<LI>Next message: <A HREF="001207.html">[Windstille-commit] r1556 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1206">[ date ]</a>
+              <a href="thread.html#1206">[ thread ]</a>
+              <a href="subject.html#1206">[ subject ]</a>
+              <a href="author.html#1206">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,403 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1134 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1134%20-%20trunk/src&In-Reply-To=%3C200511281822.jASIMGv9031212%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000786.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1134 - trunk/src</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1134%20-%20trunk/src&In-Reply-To=%3C200511281822.jASIMGv9031212%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1134 - trunk/src">grumbel at berlios.de
+       </A><BR>
+    <I>Mon Nov 28 19:22:16 CET 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000786.html">[Windstille-commit] r1133 - in trunk/src: . scripting
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#787">[ date ]</a>
+              <a href="thread.html#787">[ thread ]</a>
+              <a href="subject.html#787">[ subject ]</a>
+              <a href="author.html#787">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-11-28 19:22:04 +0100 (Mon, 28 Nov 2005)
+New Revision: 1134
+
+Modified:
+   trunk/src/config.cpp
+   trunk/src/tile_factory.cpp
+   trunk/src/tile_factory.hpp
+   trunk/src/tile_map.cpp
+Log:
+- splitted of Tile loading for load on demand (unfinished)
+
+Modified: trunk/src/config.cpp
+===================================================================
+--- trunk/src/config.cpp	2005-11-28 16:50:09 UTC (rev 1133)
++++ trunk/src/config.cpp	2005-11-28 18:22:04 UTC (rev 1134)
+@@ -328,13 +328,6 @@
+         }
+     }
+ 
+-    /*
+-      props.get(&quot;fullscreen&quot;,    use_fullscreen);
+-      props.get(&quot;show_fps&quot;,      show_fps);
+-      props.get(&quot;anti-aliasing&quot;, antialiasing);
+-      props.get(&quot;sound_enabled&quot;, sound_enabled);
+-      props.get(&quot;music_enabled&quot;, music_enabled);
+-    */
+     props.print_unused_warnings(&quot;configfile&quot;);
+ 
+     // TODO read controller config
+
+Modified: trunk/src/tile_factory.cpp
+===================================================================
+--- trunk/src/tile_factory.cpp	2005-11-28 16:50:09 UTC (rev 1133)
++++ trunk/src/tile_factory.cpp	2005-11-28 18:22:04 UTC (rev 1134)
+@@ -41,6 +41,138 @@
+ 
+ std::string TileFactory::tile_def_file = &quot;tiles.scm&quot;;
+ 
++/** Check if the given region of the given image is fully transparent */
++static bool surface_empty(SDL_Surface* image, int sx, int sy, int w, int h)
++{
++  SDL_LockSurface(image);
++  
++  unsigned char* data = static_cast&lt;unsigned char*&gt;(image-&gt;pixels);
++  
++  for(int y = sy; y &lt; sy + h; ++y)
++    for(int x = sx; x &lt; sx + w; ++x)
++      {
++        if (data[y * image-&gt;pitch + 4*x + 3] != 0)
++          { 
++            SDL_UnlockSurface(image);
++            return false;
++          }
++      }
++
++  SDL_UnlockSurface(image);
++  return true;
++}
++
++class TileDescription
++{
++public:
++  TileFactory* factory;
++
++  std::vector&lt;int&gt; ids;
++  std::vector&lt;int&gt; colmap;
++  std::string filename;
++  int width;
++  int height;
++
++
++  TileDescription(TileFactory* factory_, const lisp::Lisp* data)
++    : factory(factory_), width(0), height(0)
++  {
++    assert(data);
++    lisp::Properties props(data);
++
++    props.get(&quot;ids&quot;,    ids);
++    props.get(&quot;image&quot;,  filename);
++    props.get(&quot;colmap&quot;, colmap);
++    props.get(&quot;width&quot;,  width);
++    props.get(&quot;height&quot;, height);
++    
++    props.print_unused_warnings(&quot;tiles&quot;);
++
++    if(filename == &quot;&quot;)
++      throw std::runtime_error(&quot;Missing color-image&quot;);
++  }
++
++  void load()
++  {
++    if (debug)
++      std::cout &lt;&lt; &quot;Loading tiles: &quot; &lt;&lt; filename &lt;&lt; std::endl;
++
++    SDL_Surface* image = IMG_Load_RW(get_physfs_SDLRWops(filename), 1);
++    if(!image) 
++      {
++        std::ostringstream msg;
++        msg &lt;&lt; &quot;Couldn't load image '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot; &lt;&lt; SDL_GetError();
++        throw std::runtime_error(msg.str());
++      }
++ 
++    try {
++      int num_tiles = width * height; //(image-&gt;w/TILE_RESOLUTION) * (image-&gt;h/TILE_RESOLUTION);
++      if (int(colmap.size()) != num_tiles)
++        {
++          std::ostringstream str;
++          str &lt;&lt; &quot;'colmap' information and num_tiles mismatch (&quot; 
++              &lt;&lt; colmap.size() &lt;&lt; &quot; != &quot; &lt;&lt; num_tiles &lt;&lt; &quot;) for image '&quot; &lt;&lt; filename &lt;&lt; &quot;'&quot;;
++          throw std::runtime_error(str.str());
++        }
++
++      if (int(ids.size()) != num_tiles)
++        {
++          std::ostringstream str;
++          str &lt;&lt; &quot;'ids' information and num_tiles mismatch (&quot; 
++              &lt;&lt; ids.size() &lt;&lt; &quot; != &quot; &lt;&lt; num_tiles &lt;&lt; &quot;) for image '&quot; &lt;&lt; filename &lt;&lt; &quot;'&quot;;
++          throw std::runtime_error(str.str());
++        }
++    
++      int i = 0;
++      for (int y = 0; y &lt; height*TILE_RESOLUTION; y += TILE_RESOLUTION)
++        {
++          for (int x = 0; x &lt; width*TILE_RESOLUTION; x += TILE_RESOLUTION)
++            {
++              int id = ids[i];
++              int collider = colmap[i];
++              i++;
++
++              if(id == -1)
++                continue;
++
++              if(id &lt; (int) factory-&gt;tiles.size() &amp;&amp; factory-&gt;tiles[id] != 0)
++                {
++                  std::ostringstream msg;
++                  msg &lt;&lt; &quot;Duplicate tile id: &quot; &lt;&lt; filename &lt;&lt; &quot; &quot; &lt;&lt; id;
++                  throw std::runtime_error(msg.str());
++                } 
++
++              if (id &gt;= int(factory-&gt;tiles.size()))
++                factory-&gt;tiles.resize(id + 1, 0);
++
++              factory-&gt;tiles[id] = new Tile(collider); 
++              Tile&amp; tile = *(factory-&gt;tiles[id]);
++              tile.id = id;
++
++              if (surface_empty(image, x, y, TILE_RESOLUTION, TILE_RESOLUTION))
++                continue;
++            
++              if(factory-&gt;packers[factory-&gt;color_packer]-&gt;is_full())
++                {
++                  factory-&gt;packers.push_back(new TilePacker(1024, 1024));
++                  factory-&gt;color_packer = factory-&gt;packers.size() - 1;
++                }
++
++              Rectf rect = factory-&gt;packers[factory-&gt;color_packer]-&gt;pack(image, x, y,
++                                                                         TILE_RESOLUTION, TILE_RESOLUTION);
++              tile.color_rect   = rect;
++              tile.color_packer = factory-&gt;color_packer;
++              tile.texture      = factory-&gt;packers[factory-&gt;color_packer]-&gt;get_texture();
++            }
++        }
++    } catch(...) {
++      SDL_FreeSurface(image);
++      throw;
++    }
++    SDL_FreeSurface(image);
++  }
++};
++
+ TileFactory::TileFactory (const std::string&amp; filename)
+ {
+   using namespace lisp;
+@@ -77,121 +209,15 @@
+   tiles.clear();
+ }
+ 
+-static bool surface_empty(SDL_Surface* image, int sx, int sy, int w, int h)
+-{
+-  SDL_LockSurface(image);
+-  
+-  unsigned char* data = static_cast&lt;unsigned char*&gt;(image-&gt;pixels);
+-  
+-  for(int y = sy; y &lt; sy + h; ++y)
+-    for(int x = sx; x &lt; sx + w; ++x)
+-      {
+-        if (data[y * image-&gt;pitch + 4*x + 3] != 0)
+-          { 
+-            SDL_UnlockSurface(image);
+-            return false;
+-          }
+-      }
+-
+-  SDL_UnlockSurface(image);
+-  return true;
+-}
+-
+ void
+ TileFactory::parse_tiles(const lisp::Lisp* data)
+ {
+   using namespace lisp;
+   assert(data);
+ 
+-  std::string filename;
+-  std::string highlight_filename;
+-  std::vector&lt;int&gt; colmap;
+-  std::vector&lt;int&gt; ids;
+-  int width  = 0;
+-  int height = 0;
++  TileDescription desc(this, data);
+ 
+-  Properties props(data);
+-  props.get(&quot;ids&quot;, ids);
+-  props.get(&quot;image&quot;, filename);
+-  props.get(&quot;colmap&quot;, colmap);
+-  props.get(&quot;width&quot;, width);
+-  props.get(&quot;height&quot;, height);
+-  props.print_unused_warnings(&quot;tiles&quot;);
+-
+-  if(filename == &quot;&quot;)
+-    throw std::runtime_error(&quot;Missing color-image&quot;);
+-
+-  if (debug)
+-    std::cout &lt;&lt; &quot;Loading tiles: &quot; &lt;&lt; filename &lt;&lt; std::endl;
+-
+-  SDL_Surface* image = IMG_Load_RW(get_physfs_SDLRWops(filename), 1);
+-  if(!image) 
+-    {
+-      std::ostringstream msg;
+-      msg &lt;&lt; &quot;Couldn't load image '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot; &lt;&lt; SDL_GetError();
+-      throw std::runtime_error(msg.str());
+-    }
+- 
+-  try {
+-    int num_tiles = width * height; //(image-&gt;w/TILE_RESOLUTION) * (image-&gt;h/TILE_RESOLUTION);
+-    if (int(colmap.size()) != num_tiles)
+-      {
+-        std::ostringstream str;
+-        str &lt;&lt; &quot;'colmap' information and num_tiles mismatch (&quot; 
+-            &lt;&lt; colmap.size() &lt;&lt; &quot; != &quot; &lt;&lt; num_tiles &lt;&lt; &quot;) for image '&quot; &lt;&lt; filename &lt;&lt; &quot;'&quot;;
+-        throw std::runtime_error(str.str());
+-      }
+-
+-    if (int(ids.size()) != num_tiles)
+-      {
+-        std::ostringstream str;
+-        str &lt;&lt; &quot;'ids' information and num_tiles mismatch (&quot; 
+-            &lt;&lt; ids.size() &lt;&lt; &quot; != &quot; &lt;&lt; num_tiles &lt;&lt; &quot;) for image '&quot; &lt;&lt; filename &lt;&lt; &quot;'&quot;;
+-        throw std::runtime_error(str.str());
+-      }
+-    
+-    int i = 0;
+-    for (int y = 0; y &lt; height*TILE_RESOLUTION; y += TILE_RESOLUTION)
+-      {
+-        for (int x = 0; x &lt; width*TILE_RESOLUTION; x += TILE_RESOLUTION)
+-          {
+-            int id = ids[i];
+-            int collider = colmap[i];
+-            i++;
+-            if(id == -1)
+-              continue;
+-            if(id &lt; (int) tiles.size() &amp;&amp; tiles[id] != 0)
+-              {
+-                std::ostringstream msg;
+-                msg &lt;&lt; &quot;Duplicate tile id: &quot; &lt;&lt; filename &lt;&lt; &quot; &quot; &lt;&lt; id;
+-                throw std::runtime_error(msg.str());
+-              } 
+-            if (id &gt;= int(tiles.size()))
+-              tiles.resize(id + 1, 0);
+-
+-            tiles[id] = new Tile(collider); 
+-            Tile&amp; tile = *(tiles[id]);
+-            tile.id = id;
+-
+-            if (surface_empty(image, x, y, TILE_RESOLUTION, TILE_RESOLUTION))
+-              continue;
+-            
+-            if(packers[color_packer]-&gt;is_full())
+-              {
+-                packers.push_back(new TilePacker(1024, 1024));
+-                color_packer = packers.size() - 1;
+-              }
+-            Rectf rect = packers[color_packer]-&gt;pack(image, x, y, TILE_RESOLUTION, TILE_RESOLUTION);
+-            tile.color_rect     = rect;
+-            tile.color_packer = color_packer;
+-            tile.texture = packers[color_packer]-&gt;get_texture();
+-          }
+-      }
+-  } catch(...) {
+-    SDL_FreeSurface(image);
+-    throw;
+-  }
+-  SDL_FreeSurface(image);
++  desc.load();
+ }
+ 
+ Tile*
+
+Modified: trunk/src/tile_factory.hpp
+===================================================================
+--- trunk/src/tile_factory.hpp	2005-11-28 16:50:09 UTC (rev 1133)
++++ trunk/src/tile_factory.hpp	2005-11-28 18:22:04 UTC (rev 1134)
+@@ -31,8 +31,6 @@
+ class TileFactory
+ {
+ private:
+-  // FIXME: Replace ths with a vector, map is potentially slow
+-  //typedef std::map&lt;int, Tile*&gt; Tiles;
+   typedef std::vector&lt;Tile*&gt; Tiles;
+   Tiles tiles;
+   typedef std::vector&lt;TilePacker*&gt; TilePackers;
+@@ -40,6 +38,8 @@
+   int color_packer;
+ 
+   static TileFactory* current_;
++
++  friend class TileDescription;
+ public:
+   static std::string tile_def_file;
+ 
+@@ -57,6 +57,8 @@
+ 
+   Texture get_texture(int tile_id);
+ 
++  void add(int id, Tile* tile);
++
+   /** Create the default TileFactor*/
+   static void init();
+ 
+
+Modified: trunk/src/tile_map.cpp
+===================================================================
+--- trunk/src/tile_map.cpp	2005-11-28 16:50:09 UTC (rev 1133)
++++ trunk/src/tile_map.cpp	2005-11-28 18:22:04 UTC (rev 1134)
+@@ -132,6 +132,7 @@
+           continue;                                    
+ 
+         int packer = tile-&gt;color_packer; 
++
+         if(packer &gt;= int(requests.size()))
+           requests.resize(packer+1);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000786.html">[Windstille-commit] r1133 - in trunk/src: . scripting
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#787">[ date ]</a>
+              <a href="thread.html#787">[ thread ]</a>
+              <a href="subject.html#787">[ subject ]</a>
+              <a href="author.html#787">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

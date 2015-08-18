@@ -1,0 +1,251 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3330 - trunk/windstille/src/sound
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3330%20-%20trunk/windstille/src/sound&In-Reply-To=%3C20100721214537.0A6FF480B05%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002326.html">
+   <LINK REL="Next"  HREF="002328.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3330 - trunk/windstille/src/sound</H1>
+    <B>grumbel at mail.berlios.de</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3330%20-%20trunk/windstille/src/sound&In-Reply-To=%3C20100721214537.0A6FF480B05%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3330 - trunk/windstille/src/sound">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Jul 21 23:45:36 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002326.html">[Windstille-commit] r3329 - trunk/windstille/src/sound
+</A></li>
+        <LI>Next message: <A HREF="002328.html">[Windstille-commit] r3331 - trunk/windstille/src/sound
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2327">[ date ]</a>
+              <a href="thread.html#2327">[ thread ]</a>
+              <a href="subject.html#2327">[ subject ]</a>
+              <a href="author.html#2327">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2010-07-21 23:45:36 +0200 (Wed, 21 Jul 2010)
+New Revision: 3330
+
+Modified:
+   trunk/windstille/src/sound/ogg_sound_file.cpp
+   trunk/windstille/src/sound/ogg_sound_file.hpp
+   trunk/windstille/src/sound/sound_file.hpp
+   trunk/windstille/src/sound/wav_sound_file.cpp
+   trunk/windstille/src/sound/wav_sound_file.hpp
+Log:
+Added eof() handling
+
+
+Modified: trunk/windstille/src/sound/ogg_sound_file.cpp
+===================================================================
+--- trunk/windstille/src/sound/ogg_sound_file.cpp	2010-07-21 16:06:46 UTC (rev 3329)
++++ trunk/windstille/src/sound/ogg_sound_file.cpp	2010-07-21 21:45:36 UTC (rev 3330)
+@@ -25,6 +25,7 @@
+ 
+ OggSoundFile::OggSoundFile(const Pathname&amp; filename) :
+   m_in(),
++  m_eof(false),
+   m_file_size(),
+   m_vorbis_file(),
+   m_channels(),
+@@ -33,6 +34,7 @@
+   m_size()
+ {
+   m_in.open(filename.get_sys_path().c_str(), std::ios::binary);
++
+   if (!m_in)
+   {
+     std::ostringstream str;
+@@ -102,13 +104,18 @@
+   int section = 0;
+   size_t totalBytesRead= 0;
+ 
+-  while(buffer_size&gt;0){
++  while(buffer_size&gt;0)
++  {
+     long bytesRead 
+-      = ov_read(&amp;m_vorbis_file, buffer, static_cast&lt;int&gt; (buffer_size), 0, 2, 1,
++      = ov_read(&amp;m_vorbis_file, buffer, static_cast&lt;int&gt;(buffer_size), 0, 2, 1,
+                 &amp;section);
+-    if(bytesRead==0){
++
++    if (bytesRead == 0)
++    {
++      m_eof = true;
+       break;
+     }
++
+     buffer_size -= bytesRead;
+     buffer += bytesRead;
+     totalBytesRead += bytesRead;
+@@ -120,15 +127,25 @@
+ void
+ OggSoundFile::reset()
+ {
++  m_eof = false;
+   ov_raw_seek(&amp;m_vorbis_file, 0);
+ }
+ 
++bool
++OggSoundFile::eof() const
++{
++  return m_eof;
++}
++
+ void
+ OggSoundFile::seek_to(float sec)
+ {
+-  ov_time_seek(&amp;m_vorbis_file, sec);
++  m_eof = false;
++
++  // the version 'lap' will do crosslapsing to remove clicking when seeking
++  ov_time_seek_lap(&amp;m_vorbis_file, sec);
+ }
+-
++
+ size_t
+ OggSoundFile::cb_read(void* ptr, size_t size, size_t nmemb, void* userdata)
+ {
+
+Modified: trunk/windstille/src/sound/ogg_sound_file.hpp
+===================================================================
+--- trunk/windstille/src/sound/ogg_sound_file.hpp	2010-07-21 16:06:46 UTC (rev 3329)
++++ trunk/windstille/src/sound/ogg_sound_file.hpp	2010-07-21 21:45:36 UTC (rev 3330)
+@@ -33,6 +33,7 @@
+ 
+   size_t read(void* buffer, size_t buffer_size);
+   void reset();
++  bool eof() const;
+ 
+   int    get_bits_per_sample() const { return m_bits_per_sample; }
+   size_t get_size() const { return m_size; }
+@@ -49,6 +50,7 @@
+   static long   cb_tell(void* source);
+   
+   std::ifstream  m_in;
++  bool m_eof;
+   size_t m_file_size;
+   OggVorbis_File m_vorbis_file;
+ 
+
+Modified: trunk/windstille/src/sound/sound_file.hpp
+===================================================================
+--- trunk/windstille/src/sound/sound_file.hpp	2010-07-21 16:06:46 UTC (rev 3329)
++++ trunk/windstille/src/sound/sound_file.hpp	2010-07-21 21:45:36 UTC (rev 3330)
+@@ -32,6 +32,7 @@
+ 
+   virtual size_t read(void* buffer, size_t buffer_size) = 0;
+   virtual void reset() = 0;
++  virtual bool eof() const = 0;
+ 
+   virtual int    get_bits_per_sample() const = 0;
+   virtual size_t get_size() const = 0;
+
+Modified: trunk/windstille/src/sound/wav_sound_file.cpp
+===================================================================
+--- trunk/windstille/src/sound/wav_sound_file.cpp	2010-07-21 16:06:46 UTC (rev 3329)
++++ trunk/windstille/src/sound/wav_sound_file.cpp	2010-07-21 21:45:36 UTC (rev 3330)
+@@ -27,6 +27,7 @@
+ 
+ WavSoundFile::WavSoundFile(const Pathname&amp; filename) :
+   file(),
++  m_eof(false),
+   datastart(),
+   m_channels(),
+   m_rate(),
+@@ -141,9 +142,17 @@
+ {
+ }
+ 
++bool
++WavSoundFile::eof() const
++{
++  return m_eof;
++}
++
+ void
+ WavSoundFile::reset()
+ {
++  m_eof = false;
++
+   if (!file.seekg(datastart))
+     throw std::runtime_error(&quot;Couldn't seek to data start&quot;);
+ }
+@@ -151,6 +160,8 @@
+ void
+ WavSoundFile::seek_to(float sec)
+ {
++  m_eof = false;
++
+   size_t byte_pos = static_cast&lt;size_t&gt;(sec * static_cast&lt;float&gt;(m_rate * m_bits_per_sample/8 * m_channels));
+ 
+   if (!file.seekg(datastart + byte_pos))
+@@ -164,7 +175,10 @@
+   size_t cur = static_cast&lt;size_t&gt;(file.tellg());
+ 
+   if (cur &gt;= end)
++  {
++    m_eof = true;
+     return 0;
++  }
+   
+   size_t readsize = std::min(static_cast&lt;size_t&gt; (end - cur), buffer_size);
+ 
+
+Modified: trunk/windstille/src/sound/wav_sound_file.hpp
+===================================================================
+--- trunk/windstille/src/sound/wav_sound_file.hpp	2010-07-21 16:06:46 UTC (rev 3329)
++++ trunk/windstille/src/sound/wav_sound_file.hpp	2010-07-21 21:45:36 UTC (rev 3330)
+@@ -29,12 +29,14 @@
+   WavSoundFile(const Pathname&amp; filename);
+   ~WavSoundFile();
+ 
++  bool eof() const;
+   size_t read(void* buffer, size_t buffer_size);
+   void reset();
+   void seek_to(float sec);
+ 
+ private:
+   std::ifstream file; 
++  bool m_eof;
+   size_t datastart;
+   int m_channels;
+   int m_rate;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002326.html">[Windstille-commit] r3329 - trunk/windstille/src/sound
+</A></li>
+	<LI>Next message: <A HREF="002328.html">[Windstille-commit] r3331 - trunk/windstille/src/sound
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2327">[ date ]</a>
+              <a href="thread.html#2327">[ thread ]</a>
+              <a href="subject.html#2327">[ subject ]</a>
+              <a href="author.html#2327">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

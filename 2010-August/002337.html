@@ -1,0 +1,168 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3340 - trunk/windstille/src/display
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2010-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3340%20-%20trunk/windstille/src/display&In-Reply-To=%3C20100829213054.27256480FD8%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002336.html">
+   <LINK REL="Next"  HREF="002338.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3340 - trunk/windstille/src/display</H1>
+    <B>grumbel at mail.berlios.de</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3340%20-%20trunk/windstille/src/display&In-Reply-To=%3C20100829213054.27256480FD8%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3340 - trunk/windstille/src/display">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Aug 29 23:30:54 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002336.html">[Windstille-commit] r3339 - trunk/windstille/extra/slideshow
+</A></li>
+        <LI>Next message: <A HREF="002338.html">[Windstille-commit] r3341 - trunk/windstille/extra/slideshow
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2337">[ date ]</a>
+              <a href="thread.html#2337">[ thread ]</a>
+              <a href="subject.html#2337">[ subject ]</a>
+              <a href="author.html#2337">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2010-08-29 23:30:53 +0200 (Sun, 29 Aug 2010)
+New Revision: 3340
+
+Modified:
+   trunk/windstille/src/display/display.cpp
+Log:
+Quick&amp;Dirty JPEG support for screenshots
+
+Modified: trunk/windstille/src/display/display.cpp
+===================================================================
+--- trunk/windstille/src/display/display.cpp	2010-08-29 13:54:01 UTC (rev 3339)
++++ trunk/windstille/src/display/display.cpp	2010-08-29 21:30:53 UTC (rev 3340)
+@@ -20,10 +20,13 @@
+ 
+ #include &lt;boost/scoped_array.hpp&gt;
+ #include &lt;png.h&gt;
++#include &lt;jpeglib.h&gt;
+ #include &lt;errno.h&gt;
+ #include &lt;fstream&gt;
+ #include &lt;GL/glew.h&gt;
+ #include &lt;GL/glext.h&gt;
++#include &lt;sstream&gt;
++#include &lt;stdexcept&gt;
+ 
+ #include &quot;display/color.hpp&quot;
+ #include &quot;math/quad.hpp&quot;
+@@ -478,7 +481,7 @@
+   glPixelStorei(GL_PACK_ALIGNMENT, 1);
+   glReadPixels(0, 0, size.width, size.height, GL_RGB, GL_UNSIGNED_BYTE, pixels.get());
+ 
+-  if (0)
++  if (false)
+   { // PPM saving
+     int pitch = size.width * 3;
+ 
+@@ -494,6 +497,60 @@
+ 
+     out.close();
+   }
++  else if (true)
++  {
++    FILE* m_out = fopen(filename.get_sys_path().c_str(), &quot;wb&quot;);
++
++    if (!m_out)
++    {
++      std::ostringstream out;
++      out &lt;&lt; &quot;FileJPEGCompressor(): Error: &quot; &lt;&lt; filename &lt;&lt; &quot;: &quot; &lt;&lt; strerror(errno);
++      throw std::runtime_error(out.str());
++    }
++    else
++    {
++      int pitch = size.width * 3;
++      struct jpeg_compress_struct m_cinfo;
++      struct jpeg_error_mgr m_jerr;
++
++      jpeg_std_error(&amp;m_jerr);
++      m_cinfo.err = &amp;m_jerr;
++
++      jpeg_create_compress(&amp;m_cinfo);
++
++      jpeg_stdio_dest(&amp;m_cinfo, m_out);
++
++      m_cinfo.image_width  = size.width;
++      m_cinfo.image_height = size.height;
++
++      m_cinfo.input_components = 3;         /* # of color components per pixel */
++      m_cinfo.in_color_space   = JCS_RGB;   /* colorspace of input image */
++
++      jpeg_set_defaults(&amp;m_cinfo);
++      //jpeg_set_quality(&amp;m_cinfo, quality, TRUE /* limit to baseline-JPEG values */);
++ 
++      jpeg_start_compress(&amp;m_cinfo, TRUE);
++
++      boost::scoped_array&lt;JSAMPROW&gt; row_pointer(new JSAMPROW[size.height]);
++  
++      for(int y = 0; y &lt; size.height; ++y)
++      {
++        row_pointer[size.height - y - 1] = reinterpret_cast&lt;JSAMPLE*&gt;(pixels.get() + y*pitch);
++      }
++
++      while(m_cinfo.next_scanline &lt; m_cinfo.image_height)
++      {
++        jpeg_write_scanlines(&amp;m_cinfo, &amp;row_pointer[m_cinfo.next_scanline], 
++                             size.height - m_cinfo.next_scanline);
++      }
++
++      jpeg_finish_compress(&amp;m_cinfo);  
++
++      jpeg_destroy_compress(&amp;m_cinfo);
++    
++      fclose(m_out);
++    }
++  }
+   else 
+   { // PNG saving
+     FILE* fp = fopen(filename.get_sys_path().c_str(), &quot;w&quot;);
+@@ -521,7 +578,7 @@
+                    PNG_COMPRESSION_TYPE_BASE, 
+                    PNG_FILTER_TYPE_BASE);
+       
+-      png_set_compression_level(png_ptr, 3);
++      png_set_compression_level(png_ptr, 0);
+       png_write_info(png_ptr, info_ptr);
+ 
+       boost::scoped_array&lt;png_bytep&gt; row_pointers(new png_bytep[size.height]);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002336.html">[Windstille-commit] r3339 - trunk/windstille/extra/slideshow
+</A></li>
+	<LI>Next message: <A HREF="002338.html">[Windstille-commit] r3341 - trunk/windstille/extra/slideshow
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2337">[ date ]</a>
+              <a href="thread.html#2337">[ thread ]</a>
+              <a href="subject.html#2337">[ subject ]</a>
+              <a href="author.html#2337">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

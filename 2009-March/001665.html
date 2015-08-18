@@ -1,0 +1,256 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2668 - in trunk/windstille: . src/input	src/objects
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2668%20-%20in%20trunk/windstille%3A%20.%20src/input%0A%09src/objects&In-Reply-To=%3C200903141954.n2EJsOua007379%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001664.html">
+   <LINK REL="Next"  HREF="001666.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2668 - in trunk/windstille: . src/input	src/objects</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2668%20-%20in%20trunk/windstille%3A%20.%20src/input%0A%09src/objects&In-Reply-To=%3C200903141954.n2EJsOua007379%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2668 - in trunk/windstille: . src/input	src/objects">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Mar 14 20:54:24 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001664.html">[Windstille-commit] r2667 - trunk/windstille/src/particles
+</A></li>
+        <LI>Next message: <A HREF="001666.html">[Windstille-commit] r2669 - trunk/windstille/src/objects
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1665">[ date ]</a>
+              <a href="thread.html#1665">[ thread ]</a>
+              <a href="subject.html#1665">[ subject ]</a>
+              <a href="author.html#1665">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-14 20:54:24 +0100 (Sat, 14 Mar 2009)
+New Revision: 2668
+
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/src/input/input_manager_sdl.cpp
+   trunk/windstille/src/objects/player.cpp
+Log:
+Mapped laserpointer to second analogstick, moved deadzone handling into application code
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-03-14 19:53:43 UTC (rev 2667)
++++ trunk/windstille/TODO	2009-03-14 19:54:24 UTC (rev 2668)
+@@ -11,6 +11,13 @@
+ Scripting
+ =========
+ 
++* ParticleSystem could be hooked up to scripting
++
++* add a way to bind keys to script functions for use in debugging
++
++  bind(&quot;F9&quot;, &quot;toggle_this&quot;)
++  bind(&quot;F9&quot;, function() { /* do stuff */ })
++
+ * maybe: introduce some cleaner seperation between scripts that are
+   allowed to suspend and those that aren't
+ 
+@@ -119,9 +126,6 @@
+   video_ for all display related stuff and so on, so that
+   tab-completion works better and things become more readable
+ 
+-* document scripting tricks somewhere:
+-  spawn_object(&quot;shockwave&quot;, {pos=[0,0]})
+-
+ * conversations really should be data with hooks for scripts, not pure
+   scripts (FIXME: not clear if there is enough benefit and flexibilty
+   to try that)
+@@ -131,7 +135,9 @@
+ Input Handling
+ ==============
+ 
+-* get rid of global game_time variable
++* Input deadzone is problematic when trying to get angle of a stick,
++  deadzone needs to act different there then when X/Y are handled
++  seperatly
+ 
+ * change of input context is troublesome: when the user selects a
+   dialog and confirms it, the character starts to walk into the
+@@ -161,6 +167,12 @@
+ Miscellaneous
+ =============
+ 
++* raycasting in laserpointer is broken, doesn't work if angle is 0
++  (maybe not worth to fix since it will be replaced with
++  NavigationMesh)
++
++* get rid of global game_time variable
++
+ * No object shall grab input by itself, instead the Screen should
+   route it, i.e. Player is grabbing input itself, this leads to
+   problems
+
+Modified: trunk/windstille/src/input/input_manager_sdl.cpp
+===================================================================
+--- trunk/windstille/src/input/input_manager_sdl.cpp	2009-03-14 19:53:43 UTC (rev 2667)
++++ trunk/windstille/src/input/input_manager_sdl.cpp	2009-03-14 19:54:24 UTC (rev 2668)
+@@ -35,7 +35,7 @@
+ 
+ InputManagerSDL* InputManagerSDL::current_ = 0;
+ 
+-const int dead_zone =  8192;
++const int dead_zone = 0;
+ 
+ class InputManagerSDLImpl
+ {
+@@ -378,14 +378,10 @@
+       if (event.which  == i-&gt;device &amp;&amp;
+           event.axis   == i-&gt;axis)
+         {
+-          if (event.value &lt; -dead_zone)
++          if (abs(event.value) &gt; dead_zone)
+             {
+               add_axis_event(i-&gt;event, event.value/(i-&gt;invert?-32768.0f:32768.0f));
+             }
+-          else if (event.value &gt; dead_zone)
+-            {
+-              add_axis_event(i-&gt;event, event.value/(i-&gt;invert?-32768.0f:32768.0f));
+-            }
+           else
+             {
+               add_axis_event(i-&gt;event, 0);
+@@ -401,18 +397,18 @@
+           event.axis  == i-&gt;axis)
+         {
+           if (i-&gt;up)
+-            {
++            { // signal button press when axis is up
+               if (event.value &lt; -dead_zone)
+                 add_button_event(i-&gt;event, true);
+               else 
+                 add_button_event(i-&gt;event, false);
+             }
+           else
+-            {
++            { // signal button press when axis is down
+               if (event.value &gt; dead_zone)
+                 add_button_event(i-&gt;event, true);
+-              else 
+-                add_button_event(i-&gt;event, false);              
++              else
++                add_button_event(i-&gt;event, false);
+             }
+         }
+     }
+@@ -698,7 +694,7 @@
+ }
+ 
+ void
+-InputManagerSDL::add_axis_event  (int name, float pos)
++InputManagerSDL::add_axis_event(int name, float pos)
+ {
+   // Convert analog axis events into digital menu movements
+   // FIXME: add key repeat
+
+Modified: trunk/windstille/src/objects/player.cpp
+===================================================================
+--- trunk/windstille/src/objects/player.cpp	2009-03-14 19:53:43 UTC (rev 2667)
++++ trunk/windstille/src/objects/player.cpp	2009-03-14 19:54:24 UTC (rev 2668)
+@@ -111,11 +111,13 @@
+   weapon-&gt;draw(sc);
+   sc.pop_modelview();
+ 
+-
++  if (laser_pointer-&gt;is_active())
++    {
+   sc.push_modelview();
+   sc.translate(pos.x, pos.y - 80);
+   laser_pointer-&gt;draw(sc);
+   sc.pop_modelview();
++    }
+ }
+ 
+ void
+@@ -140,24 +142,26 @@
+ Player::update(float delta)
+ {
+   weapon-&gt;update(delta);
+-  laser_pointer-&gt;update(delta);
+ 
++  if (laser_pointer-&gt;is_active())
++    laser_pointer-&gt;update(delta);
++
+   controller = InputManager::get_controller();
+ 
+-  {
+-    if (fabsf(controller.get_axis_state(X2_AXIS)) &gt; 0.2f ||
+-        fabsf(controller.get_axis_state(Y2_AXIS)) &gt; 0.2f)
+-      {
+-        float angle = atan2f(controller.get_axis_state(Y2_AXIS),
+-                             controller.get_axis_state(X2_AXIS));
++  if (fabsf(controller.get_axis_state(X2_AXIS)) &gt; 0.25f ||
++      fabsf(controller.get_axis_state(Y2_AXIS)) &gt; 0.25f)
++    {
++      float angle = atan2f(controller.get_axis_state(Y2_AXIS),
++                           controller.get_axis_state(X2_AXIS));
+ 
+-        laser_pointer-&gt;set_angle(angle);
+-      }
+-    // laser_pointer-&gt;set_angle(laser_pointer-&gt;get_angle() + controller.get_axis_state(Y_AXIS) * delta);
+-  }
++      laser_pointer-&gt;set_active(true);
++      laser_pointer-&gt;set_angle(angle);
++    }
++  else
++    {
++      laser_pointer-&gt;set_active(false);
++    }
+ 
+-  //std::cout &lt;&lt; controller.get_axis_state(Y2_AXIS) * M_PI &lt;&lt; std::endl;
+-
+   if (GameSession::current()-&gt;is_active())
+     {
+       switch(state)
+@@ -410,7 +414,7 @@
+ void
+ Player::update_walk()
+ {
+-  if (controller.get_axis_state(X_AXIS) == 0)
++  if (fabsf(controller.get_axis_state(X_AXIS)) &lt; 0.5f) // Hardcoded DEAD_ZONE, somewhat evil 
+     {
+       leave_walk();
+       set_stand();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001664.html">[Windstille-commit] r2667 - trunk/windstille/src/particles
+</A></li>
+	<LI>Next message: <A HREF="001666.html">[Windstille-commit] r2669 - trunk/windstille/src/objects
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1665">[ date ]</a>
+              <a href="thread.html#1665">[ thread ]</a>
+              <a href="subject.html#1665">[ subject ]</a>
+              <a href="author.html#1665">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

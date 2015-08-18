@@ -1,0 +1,155 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2717 - trunk/windstille/src/display
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2717%20-%20trunk/windstille/src/display&In-Reply-To=%3C200903210256.n2L2uGRo008090%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001713.html">
+   <LINK REL="Next"  HREF="001715.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2717 - trunk/windstille/src/display</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2717%20-%20trunk/windstille/src/display&In-Reply-To=%3C200903210256.n2L2uGRo008090%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2717 - trunk/windstille/src/display">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Mar 21 03:56:16 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001713.html">[Windstille-commit] r2716 - in trunk/windstille: . src/display	src/editor src/font
+</A></li>
+        <LI>Next message: <A HREF="001715.html">[Windstille-commit] r2718 - in trunk/windstille: . src src/app	src/display src/editor src/screen
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1714">[ date ]</a>
+              <a href="thread.html#1714">[ thread ]</a>
+              <a href="subject.html#1714">[ subject ]</a>
+              <a href="author.html#1714">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-21 03:56:15 +0100 (Sat, 21 Mar 2009)
+New Revision: 2717
+
+Modified:
+   trunk/windstille/src/display/software_surface.cpp
+   trunk/windstille/src/display/software_surface.hpp
+   trunk/windstille/src/display/surface_manager.cpp
+Log:
+Moved blit call into SoftwareSurface
+
+Modified: trunk/windstille/src/display/software_surface.cpp
+===================================================================
+--- trunk/windstille/src/display/software_surface.cpp	2009-03-21 02:41:49 UTC (rev 2716)
++++ trunk/windstille/src/display/software_surface.cpp	2009-03-21 02:56:15 UTC (rev 2717)
+@@ -19,6 +19,8 @@
+ #include &lt;sstream&gt;
+ #include &lt;stdexcept&gt;
+ #include &lt;SDL_image.h&gt;
++
++#include &quot;math/rect.hpp&quot;
+ #include &quot;physfs/physfs_sdl.hpp&quot;
+ #include &quot;software_surface.hpp&quot;
+ 
+@@ -112,5 +114,31 @@
+ {
+   return impl-&gt;surface;
+ }
++
++void
++SoftwareSurface::blit(SoftwareSurface&amp; dst, int x, int y) const
++{
++  SDL_Rect dst_rect;
++  dst_rect.x = x;
++  dst_rect.y = y;
++
++  SDL_BlitSurface(impl-&gt;surface, 0, dst.impl-&gt;surface, &amp;dst_rect);
++}
++
++void
++SoftwareSurface::blit(const Rect&amp; src_rect_, SoftwareSurface&amp; dst, int x, int y) const
++{
++  SDL_Rect src_rect;
++  src_rect.x = src_rect_.left;
++  src_rect.y = src_rect_.top;
++  src_rect.w = src_rect_.get_width();
++  src_rect.h = src_rect_.get_height();
++
++  SDL_Rect dst_rect;
++  dst_rect.x = x;
++  dst_rect.y = y;
++  
++  SDL_BlitSurface(impl-&gt;surface, &amp;src_rect, dst.impl-&gt;surface, &amp;dst_rect);
++}
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/display/software_surface.hpp
+===================================================================
+--- trunk/windstille/src/display/software_surface.hpp	2009-03-21 02:41:49 UTC (rev 2716)
++++ trunk/windstille/src/display/software_surface.hpp	2009-03-21 02:56:15 UTC (rev 2717)
+@@ -23,6 +23,7 @@
+ #include &lt;boost/shared_ptr.hpp&gt;
+ #include &lt;string&gt;
+ 
++class Rect;
+ class SoftwareSurfaceImpl;
+ 
+ class SoftwareSurface
+@@ -44,6 +45,9 @@
+   int   get_height() const;
+   void* get_pixels() const;
+ 
++  void blit(SoftwareSurface&amp; dst, int x, int y) const;
++  void blit(const Rect&amp; src_rect, SoftwareSurface&amp; dst, int x, int y) const;
++
+   SDL_Surface* get_surface() const;
+ 
+ private:
+
+Modified: trunk/windstille/src/display/surface_manager.cpp
+===================================================================
+--- trunk/windstille/src/display/surface_manager.cpp	2009-03-21 02:41:49 UTC (rev 2716)
++++ trunk/windstille/src/display/surface_manager.cpp	2009-03-21 02:56:15 UTC (rev 2717)
+@@ -139,7 +139,7 @@
+ 
+   SoftwareSurface convert(texture_w, texture_h);
+ 
+-  SDL_BlitSurface(image.get_surface(), 0, convert.get_surface(), 0);
++  image.blit(convert, 0, 0);
+ 
+   Texture texture = Texture(convert);
+   
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001713.html">[Windstille-commit] r2716 - in trunk/windstille: . src/display	src/editor src/font
+</A></li>
+	<LI>Next message: <A HREF="001715.html">[Windstille-commit] r2718 - in trunk/windstille: . src src/app	src/display src/editor src/screen
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1714">[ date ]</a>
+              <a href="thread.html#1714">[ thread ]</a>
+              <a href="subject.html#1714">[ subject ]</a>
+              <a href="author.html#1714">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

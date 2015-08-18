@@ -1,0 +1,472 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2737 - in trunk/windstille: . src src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2737%20-%20in%20trunk/windstille%3A%20.%20src%20src/editor&In-Reply-To=%3C200903231643.n2NGhGRP019410%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001733.html">
+   <LINK REL="Next"  HREF="001735.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2737 - in trunk/windstille: . src src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2737%20-%20in%20trunk/windstille%3A%20.%20src%20src/editor&In-Reply-To=%3C200903231643.n2NGhGRP019410%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2737 - in trunk/windstille: . src src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Mar 23 17:43:16 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001733.html">[Windstille-commit] r2736 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="001735.html">[Windstille-commit] r2738 - trunk/windstille/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1734">[ date ]</a>
+              <a href="thread.html#1734">[ thread ]</a>
+              <a href="subject.html#1734">[ subject ]</a>
+              <a href="author.html#1734">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-23 17:43:15 +0100 (Mon, 23 Mar 2009)
+New Revision: 2737
+
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/src/SConscript
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/editor_window.hpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+   trunk/windstille/src/editor/selection.cpp
+   trunk/windstille/src/editor/selection.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/editor/windstille_widget.hpp
+Log:
+Added raise/lower of objects
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-03-23 16:42:53 UTC (rev 2736)
++++ trunk/windstille/TODO	2009-03-23 16:43:15 UTC (rev 2737)
+@@ -185,6 +185,10 @@
+ Miscellaneous
+ =============
+ 
++* raise/lower of multiple objects at once is a bit wonky, when objects
++  reach the bottom/top they will change their relative order in the
++  selection
++
+ * move has_suffix, has_prefix and stuff into StringUtil class
+ 
+ * get rid of global debug
+@@ -481,6 +485,15 @@
+ Editor
+ ======
+ 
++* add ways to toggle light, color, highlight layers on/off in the
++  editor
++
++* add ways to insert objects to light, color, highlight layer (likely
++  best to have objects now for themselves on which layer they belong)
++
++* save bitmask along with object to allow pixel perfect click
++  selection
++
+ * add object snapping
+ 
+ * add grid
+
+Modified: trunk/windstille/src/SConscript
+===================================================================
+--- trunk/windstille/src/SConscript	2009-03-23 16:42:53 UTC (rev 2736)
++++ trunk/windstille/src/SConscript	2009-03-23 16:43:15 UTC (rev 2737)
+@@ -243,6 +243,7 @@
+         'editor/sector_model.cpp',
+         'editor/selection.cpp',
+         'editor/object_model.cpp',
++        'editor/control_point.cpp',
+         'editor/zoom_tool.cpp',
+         'editor/select_tool.cpp',
+         'editor/editor_window.cpp'
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-03-23 16:42:53 UTC (rev 2736)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-03-23 16:43:15 UTC (rev 2737)
+@@ -61,6 +61,12 @@
+     &quot;      &lt;menuitem action='Copy'/&gt;&quot;
+     &quot;      &lt;menuitem action='Paste'/&gt;&quot;
+     &quot;    &lt;/menu&gt;&quot;
++    &quot;    &lt;menu action='MenuObject'&gt;&quot;
++    &quot;      &lt;menuitem action='LowerObjectToBottom'/&gt;&quot;
++    &quot;      &lt;menuitem action='LowerObject'/&gt;&quot;
++    &quot;      &lt;menuitem action='RaiseObject'/&gt;&quot;
++    &quot;      &lt;menuitem action='RaiseObjectToTop'/&gt;&quot;
++    &quot;    &lt;/menu&gt;&quot;
+     &quot;    &lt;menu action='MenuView'&gt;&quot;
+     &quot;      &lt;menuitem action='ZoomIn'/&gt;&quot;
+     &quot;      &lt;menuitem action='ZoomOut'/&gt;&quot;
+@@ -75,6 +81,7 @@
+     &quot;      &lt;menuitem action='About'/&gt;&quot;
+     &quot;    &lt;/menu&gt;&quot;
+     &quot;  &lt;/menubar&gt;&quot;
++    &quot;&quot;
+     &quot;  &lt;toolbar  name='ToolBar'&gt;&quot;
+     &quot;    &lt;toolitem action='New'/&gt;&quot;
+     &quot;    &lt;toolitem action='Open'/&gt;&quot;
+@@ -88,11 +95,17 @@
+     &quot;    &lt;toolitem action='ZoomOut'/&gt;&quot;
+     &quot;    &lt;toolitem action='Zoom100'/&gt;&quot;
+     &quot;    &lt;separator/&gt;&quot;
++    &quot;    &lt;toolitem action='RaiseObjectToTop'/&gt;&quot;
++    &quot;    &lt;toolitem action='RaiseObject'/&gt;&quot;
++    &quot;    &lt;toolitem action='LowerObject'/&gt;&quot;
++    &quot;    &lt;toolitem action='LowerObjectToBottom'/&gt;&quot;
++    &quot;    &lt;separator/&gt;&quot;
+     &quot;    &lt;toolitem action='Play'/&gt;&quot;
+     &quot;    &lt;separator/&gt;&quot;
+     &quot;    &lt;toolitem action='About'/&gt;&quot;
+     &quot;    &lt;toolitem action='Quit'/&gt;&quot;
+     &quot;  &lt;/toolbar&gt;&quot;
++    &quot;&quot;
+     &quot;  &lt;toolbar  name='ToolBox'&gt;&quot;
+     &quot;    &lt;toolitem action='SelectTool'/&gt;&quot;
+     &quot;    &lt;toolitem action='NodeTool'/&gt;&quot;
+@@ -120,6 +133,16 @@
+   action_group-&gt;add(Gtk::Action::create(&quot;Copy&quot;,        Gtk::Stock::COPY));
+   action_group-&gt;add(Gtk::Action::create(&quot;Paste&quot;,       Gtk::Stock::PASTE));
+ 
++  action_group-&gt;add(Gtk::Action::create(&quot;MenuObject&quot;,    &quot;_Object&quot;));
++  action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;RaiseObjectToTop&quot;, &quot;object_raise_to_top&quot;, &quot;Raise To Top&quot;, &quot;Raise Object to Top&quot;),
++                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_windstille_widget), &amp;WindstilleWidget::selection_raise_to_top));
++  action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;RaiseObject&quot;, &quot;object_raise&quot;, &quot;Raise&quot;, &quot;Raise Object&quot;),
++                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_windstille_widget), &amp;WindstilleWidget::selection_raise));
++  action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;LowerObject&quot;, &quot;object_lower&quot;, &quot;Lower&quot;, &quot;Lower Object&quot;),
++                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_windstille_widget), &amp;WindstilleWidget::selection_lower));                    
++  action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;LowerObjectToBottom&quot;, &quot;object_lower_to_bottom&quot;, &quot;Lower To Bottom&quot;, &quot;Lower Object to Bottom&quot;),
++                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_windstille_widget), &amp;WindstilleWidget::selection_lower_to_bottom));
++
+   action_group-&gt;add(Gtk::Action::create(&quot;MenuView&quot;,    &quot;_View&quot;));
+   action_group-&gt;add(Gtk::Action::create(&quot;Zoom100&quot;,     Gtk::Stock::ZOOM_100),
+                     sigc::mem_fun(*this, &amp;EditorWindow::on_zoom_100));
+@@ -402,5 +425,15 @@
+   else
+     object_tree.set_model(0);
+ }
++
++void
++EditorWindow::call_with_windstille_widget(void (WindstilleWidget::*func)())
++{
++  WindstilleWidget* wst = get_windstille_widget();
++  if (wst)
++    {
++      (wst-&gt;*func)();
++    }
++}
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/editor_window.hpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.hpp	2009-03-23 16:42:53 UTC (rev 2736)
++++ trunk/windstille/src/editor/editor_window.hpp	2009-03-23 16:43:15 UTC (rev 2737)
+@@ -94,6 +94,8 @@
+   Tool* get_current_tool() const;
+   WindstilleWidget* get_windstille_widget();
+   
++  void call_with_windstille_widget(void (WindstilleWidget::*func)());
++
+ private:
+   EditorWindow(const EditorWindow&amp;);
+   EditorWindow&amp; operator=(const EditorWindow&amp;);
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-03-23 16:42:53 UTC (rev 2736)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-03-23 16:43:15 UTC (rev 2737)
+@@ -16,6 +16,7 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
++#include &lt;assert.h&gt;
+ #include &lt;iostream&gt;
+ #include &lt;gdkmm/pixbuf.h&gt;
+ 
+@@ -92,7 +93,78 @@
+   return selection;
+ }
+ 
++struct OverlapsWith
++{
++  Rectf rect;
++
++  OverlapsWith(const Rectf&amp; rect_)
++    : rect(rect_)
++  {}
++
++  bool operator()(const ObjectModelHandle&amp; object) {
++    return rect.is_overlapped(object-&gt;get_bounding_box());
++  }
++};
++
+ void
++SectorModel::raise(ObjectModelHandle object)
++{
++  Objects::iterator i = std::find(objects.begin(), objects.end(), object);
++  assert(i != objects.end());
++  Objects::iterator j = i;
++  ++j;
++  j = std::find_if(j, objects.end(), OverlapsWith(object-&gt;get_bounding_box()));
++
++  if (j == objects.end())
++    {
++      // object overlaps with no other object, no point in raising it
++    }
++  else
++    {
++      objects.erase(i);
++      objects.insert(++j, object);
++    }
++}
++
++void
++SectorModel::lower(ObjectModelHandle object)
++{
++  // Mostly the same as raise, just with reverse iterators
++  Objects::reverse_iterator i = std::find(objects.rbegin(), objects.rend(), object);
++
++  Objects::reverse_iterator j = i;
++  ++j;
++  j = std::find_if(j, objects.rend(), OverlapsWith(object-&gt;get_bounding_box()));
++
++  if (j == objects.rend())
++    {
++      // object overlaps with no other object, no point in lowering it
++    }
++  else
++    {
++      // the base() of base in one further then where the reverse
++      // iterator was, so we have to move back to get the same
++      // position
++      objects.erase(--(i.base()));
++      objects.insert(--(j.base()), object);
++    }
++}
++
++void
++SectorModel::raise_to_top(ObjectModelHandle object)
++{
++  objects.remove(object);
++  objects.push_back(object); 
++}
++
++void
++SectorModel::lower_to_bottom(ObjectModelHandle object)
++{
++  objects.remove(object);
++  objects.push_front(object); 
++}
++
++void
+ SectorModel::on_row_changed(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter)
+ {
+   std::cout &lt;&lt; &quot;ObjectTree:on_row_changed&quot; &lt;&lt; std::endl;
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-03-23 16:42:53 UTC (rev 2736)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-03-23 16:43:15 UTC (rev 2737)
+@@ -58,7 +58,7 @@
+ class SectorModel
+ {
+ private:
+-  typedef std::vector&lt;ObjectModelHandle&gt; Objects;
++  typedef std::list&lt;ObjectModelHandle&gt; Objects;
+ 
+   Gtk::TreeStore::iterator root_it;
+   Glib::RefPtr&lt;Gtk::TreeStore&gt; objects_tree;
+@@ -83,6 +83,11 @@
+   ObjectModelHandle get_object_at(const Vector2f&amp; pos) const;
+   SelectionHandle   get_selection(const Rectf&amp; rect) const;
+   
++  void raise_to_top(ObjectModelHandle object);
++  void lower_to_bottom(ObjectModelHandle object);
++  void raise(ObjectModelHandle object);
++  void lower(ObjectModelHandle object);
++
+ private:
+   SectorModel(const SectorModel&amp;);
+   SectorModel&amp; operator=(const SectorModel&amp;);
+
+Modified: trunk/windstille/src/editor/selection.cpp
+===================================================================
+--- trunk/windstille/src/editor/selection.cpp	2009-03-23 16:42:53 UTC (rev 2736)
++++ trunk/windstille/src/editor/selection.cpp	2009-03-23 16:43:15 UTC (rev 2737)
+@@ -32,18 +32,6 @@
+   objects.push_back(object);
+ }
+ 
+-Selection::iterator
+-Selection::begin()
+-{
+-  return objects.begin();
+-}
+-
+-Selection::iterator
+-Selection::end()
+-{
+-  return objects.end();
+-}
+-
+ bool
+ Selection::empty() const
+ {
+
+Modified: trunk/windstille/src/editor/selection.hpp
+===================================================================
+--- trunk/windstille/src/editor/selection.hpp	2009-03-23 16:42:53 UTC (rev 2736)
++++ trunk/windstille/src/editor/selection.hpp	2009-03-23 16:43:15 UTC (rev 2737)
+@@ -35,6 +35,7 @@
+ 
+ public:
+   typedef Objects::iterator iterator;
++  typedef Objects::reverse_iterator reverse_iterator;
+ 
+ public:
+   static SelectionHandle create() { return SelectionHandle(new Selection()); }
+@@ -43,9 +44,13 @@
+   ~Selection();
+ 
+   void add(const ObjectModelHandle&amp; object);
++  
++  Selection::iterator begin() { return objects.begin(); }
++  Selection::iterator end()   { return objects.end(); }
+ 
+-  iterator begin();
+-  iterator end();
++  Selection::reverse_iterator rbegin() { return objects.rbegin(); }
++  Selection::reverse_iterator rend() { return objects.rend(); }
++
+   bool empty() const;
+ 
+   bool has_object(ObjectModelHandle object) const;
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-03-23 16:42:53 UTC (rev 2736)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-03-23 16:43:15 UTC (rev 2737)
+@@ -204,6 +204,46 @@
+     }
+ }
+ 
++void
++WindstilleWidget::selection_raise()
++{
++  for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
++    {
++      sector_model-&gt;raise(*i);
++    }
++  queue_draw();
++}
++
++void
++WindstilleWidget::selection_lower()
++{
++  for(Selection::reverse_iterator i = selection-&gt;rbegin(); i != selection-&gt;rend(); ++i)
++    {
++      sector_model-&gt;lower(*i);
++    }
++  queue_draw();
++}
++
++void
++WindstilleWidget::selection_raise_to_top()
++{
++  for(Selection::reverse_iterator i = selection-&gt;rbegin(); i != selection-&gt;rend(); ++i)
++    {
++      sector_model-&gt;raise_to_top(*i);
++    }
++  queue_draw();
++}
++
++void
++WindstilleWidget::selection_lower_to_bottom()
++{
++  for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
++    {
++      sector_model-&gt;lower_to_bottom(*i);
++    }
++  queue_draw();
++}
++
+ bool
+ WindstilleWidget::scroll(GdkEventScroll* event)
+ {
+
+Modified: trunk/windstille/src/editor/windstille_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.hpp	2009-03-23 16:42:53 UTC (rev 2736)
++++ trunk/windstille/src/editor/windstille_widget.hpp	2009-03-23 16:43:15 UTC (rev 2737)
+@@ -32,6 +32,7 @@
+ #include &quot;display/graphic_context_state.hpp&quot;
+ #include &quot;display/scene_context.hpp&quot;
+ #include &quot;math/vector2f.hpp&quot;
++#include &quot;control_point.hpp&quot;
+ #include &quot;selection.hpp&quot;
+ 
+ class Tool;
+@@ -46,6 +47,7 @@
+ {
+ private:
+   std::auto_ptr&lt;SectorModel&gt; sector_model;
++  std::vector&lt;ControlPointHandle&gt; control_points;
+ 
+   GraphicContextState   state;
+   std::auto_ptr&lt;SceneContext&gt; sc;
+@@ -85,6 +87,12 @@
+   
+   void draw();
+ 
++  void selection_raise();
++  void selection_lower();
++
++  void selection_raise_to_top();
++  void selection_lower_to_bottom();
++
+   SectorModel* get_sector_model();
+   void set_selection(const SelectionHandle&amp; selection);
+   SelectionHandle get_selection() const;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001733.html">[Windstille-commit] r2736 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="001735.html">[Windstille-commit] r2738 - trunk/windstille/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1734">[ date ]</a>
+              <a href="thread.html#1734">[ thread ]</a>
+              <a href="subject.html#1734">[ subject ]</a>
+              <a href="author.html#1734">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

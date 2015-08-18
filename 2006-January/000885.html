@@ -1,0 +1,215 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1232 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1232%20-%20trunk/src&In-Reply-To=%3C200601180217.k0I2Hng1018688%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000884.html">
+   <LINK REL="Next"  HREF="000886.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1232 - trunk/src</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1232%20-%20trunk/src&In-Reply-To=%3C200601180217.k0I2Hng1018688%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1232 - trunk/src">grumbel at berlios.de
+       </A><BR>
+    <I>Wed Jan 18 03:17:49 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000884.html">[Windstille-commit] r1231 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000886.html">[Windstille-commit] r1233 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#885">[ date ]</a>
+              <a href="thread.html#885">[ thread ]</a>
+              <a href="subject.html#885">[ subject ]</a>
+              <a href="author.html#885">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-01-18 03:16:48 +0100 (Wed, 18 Jan 2006)
+New Revision: 1232
+
+Modified:
+   trunk/src/tile.hpp
+   trunk/src/tile_description.cpp
+   trunk/src/tile_factory.cpp
+   trunk/src/tile_factory.hpp
+   trunk/src/tile_map.cpp
+Log:
+- some more cleanup
+
+Modified: trunk/src/tile.hpp
+===================================================================
+--- trunk/src/tile.hpp	2006-01-18 01:56:58 UTC (rev 1231)
++++ trunk/src/tile.hpp	2006-01-18 02:16:48 UTC (rev 1232)
+@@ -48,7 +48,7 @@
+   // FIXME: Using a surface here might be a worthy consideration, just
+   // need to find a way to properly bucket-sort the request
+   int     color_packer;
+-  Rectf   color_rect;
++  Rectf   uv;
+   Texture texture;
+ 
+   /** bitmap that holds the collision attributes for this tile */
+
+Modified: trunk/src/tile_description.cpp
+===================================================================
+--- trunk/src/tile_description.cpp	2006-01-18 01:56:58 UTC (rev 1231)
++++ trunk/src/tile_description.cpp	2006-01-18 02:16:48 UTC (rev 1232)
+@@ -49,10 +49,7 @@
+ 
+ void
+ TileDescription::load(TileFactory* factory)
+-{
+-  // FIXME: This function messes far to much around with TileFactory's
+-  // internals
+-  
++{  
+   if (debug)
+     std::cout &lt;&lt; &quot;Loading tiles: &quot; &lt;&lt; filename &lt;&lt; std::endl;
+ 
+
+Modified: trunk/src/tile_factory.cpp
+===================================================================
+--- trunk/src/tile_factory.cpp	2006-01-18 01:56:58 UTC (rev 1231)
++++ trunk/src/tile_factory.cpp	2006-01-18 02:16:48 UTC (rev 1232)
+@@ -122,7 +122,7 @@
+   else
+     { // Load on demand
+       for(std::vector&lt;int&gt;::size_type i = 0; i &lt; desc.ids.size(); ++i)
+-        { // FIXME: Very very ugly load on demand
++        { 
+           int&amp; id = desc.ids[i];
+           if (id != 0)
+             {
+@@ -167,7 +167,7 @@
+           Rectf uv = packers[color_packer]-&gt;pack(image, 
+                                                  rect.left, rect.top,
+                                                  rect.get_width(), rect.get_height());
+-          tiles[id]-&gt;color_rect   = uv;
++          tiles[id]-&gt;uv   = uv;
+           tiles[id]-&gt;color_packer = color_packer;
+           tiles[id]-&gt;texture      = packers[color_packer]-&gt;get_texture();
+         }
+@@ -183,7 +183,6 @@
+     }
+   else
+     {
+-      // FIXME: Ugly load on demand
+       if (tiles[id] &amp;&amp; tiles[id]-&gt;desc)
+         tiles[id]-&gt;desc-&gt;load(this);
+ 
+
+Modified: trunk/src/tile_factory.hpp
+===================================================================
+--- trunk/src/tile_factory.hpp	2006-01-18 01:56:58 UTC (rev 1231)
++++ trunk/src/tile_factory.hpp	2006-01-18 02:16:48 UTC (rev 1232)
+@@ -62,6 +62,9 @@
+    */
+   Tile* create(int tile_id);
+ 
++  /** 
++   * Adds a surface to the TileFactory
++   */
+   void pack(int id, int colmap, SDL_Surface* image, const Rect&amp; rect);
+ 
+   /** Create the default TileFactor*/
+
+Modified: trunk/src/tile_map.cpp
+===================================================================
+--- trunk/src/tile_map.cpp	2006-01-18 01:56:58 UTC (rev 1231)
++++ trunk/src/tile_map.cpp	2006-01-18 02:16:48 UTC (rev 1232)
+@@ -127,35 +127,36 @@
+     for (int x = rect.left; x &lt; rect.right; ++x)
+       {
+         Tile* tile = field(x, y);
+-        if(tile == 0 || tile-&gt;color_packer &lt; 0)
+-          continue;                                    
+ 
+-        int packer = tile-&gt;color_packer; 
++        if (!(tile == 0 || tile-&gt;color_packer &lt; 0))
++          {
++            int packer = tile-&gt;color_packer; 
+ 
+-        if(packer &gt;= int(requests.size()))
+-          requests.resize(packer+1);
++            if(packer &gt;= int(requests.size()))
++              requests.resize(packer+1);
+ 
+-        VertexArrayDrawingRequest*&amp; request = requests[packer];
+-        if (!request)
+-          {
+-            request = new VertexArrayDrawingRequest(Vector(0, 0), z_pos,
+-                                                    sc.color().get_modelview());
+-            request-&gt;set_mode(GL_QUADS);
+-            request-&gt;set_blend_func(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+-            request-&gt;set_texture(tile-&gt;texture);
+-          }
++            VertexArrayDrawingRequest*&amp; request = requests[packer];
++            if (!request)
++              {
++                request = new VertexArrayDrawingRequest(Vector(0, 0), z_pos,
++                                                        sc.color().get_modelview());
++                request-&gt;set_mode(GL_QUADS);
++                request-&gt;set_blend_func(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++                request-&gt;set_texture(tile-&gt;texture);
++              }
+             
+-        request-&gt;texcoord(tile-&gt;color_rect.left, tile-&gt;color_rect.top);
+-        request-&gt;vertex(x * TILE_SIZE, y * TILE_SIZE);
++            request-&gt;texcoord(tile-&gt;uv.left, tile-&gt;uv.top);
++            request-&gt;vertex(x * TILE_SIZE, y * TILE_SIZE);
+ 
+-        request-&gt;texcoord(tile-&gt;color_rect.right, tile-&gt;color_rect.top);
+-        request-&gt;vertex(x * TILE_SIZE + TILE_SIZE, y * TILE_SIZE);
++            request-&gt;texcoord(tile-&gt;uv.right, tile-&gt;uv.top);
++            request-&gt;vertex(x * TILE_SIZE + TILE_SIZE, y * TILE_SIZE);
+ 
+-        request-&gt;texcoord(tile-&gt;color_rect.right, tile-&gt;color_rect.bottom);
+-        request-&gt;vertex(x * TILE_SIZE + TILE_SIZE, y * TILE_SIZE + TILE_SIZE);
++            request-&gt;texcoord(tile-&gt;uv.right, tile-&gt;uv.bottom);
++            request-&gt;vertex(x * TILE_SIZE + TILE_SIZE, y * TILE_SIZE + TILE_SIZE);
+             
+-        request-&gt;texcoord(tile-&gt;color_rect.left, tile-&gt;color_rect.bottom);
+-        request-&gt;vertex(x * TILE_SIZE, y * TILE_SIZE + TILE_SIZE); 
++            request-&gt;texcoord(tile-&gt;uv.left, tile-&gt;uv.bottom);
++            request-&gt;vertex(x * TILE_SIZE, y * TILE_SIZE + TILE_SIZE); 
++          }
+       }
+ 
+   for(std::vector&lt;VertexArrayDrawingRequest*&gt;::iterator i = requests.begin(); i != requests.end(); ++i)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000884.html">[Windstille-commit] r1231 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000886.html">[Windstille-commit] r1233 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#885">[ date ]</a>
+              <a href="thread.html#885">[ thread ]</a>
+              <a href="subject.html#885">[ subject ]</a>
+              <a href="author.html#885">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,286 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1192 - in trunk/src: . scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1192%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200601062051.k06KpNhY031372%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000844.html">
+   <LINK REL="Next"  HREF="000846.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1192 - in trunk/src: . scripting</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1192%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200601062051.k06KpNhY031372%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1192 - in trunk/src: . scripting">grumbel at berlios.de
+       </A><BR>
+    <I>Fri Jan  6 21:51:23 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000844.html">[Windstille-commit] r1191 - in trunk/src: . input math scripting sprite3d
+</A></li>
+        <LI>Next message: <A HREF="000846.html">[Windstille-commit] r1193 - in trunk/data/models/objects: . barrobot
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#845">[ date ]</a>
+              <a href="thread.html#845">[ thread ]</a>
+              <a href="subject.html#845">[ subject ]</a>
+              <a href="author.html#845">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-01-06 21:51:22 +0100 (Fri, 06 Jan 2006)
+New Revision: 1192
+
+Modified:
+   trunk/src/camera.cpp
+   trunk/src/camera.hpp
+   trunk/src/scripting/interface.cpp
+   trunk/src/scripting/interface.hpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/view.cpp
+Log:
+- added zooms to camera paths (little buggy right now)
+
+Modified: trunk/src/camera.cpp
+===================================================================
+--- trunk/src/camera.cpp	2006-01-06 19:25:20 UTC (rev 1191)
++++ trunk/src/camera.cpp	2006-01-06 20:51:22 UTC (rev 1192)
+@@ -29,18 +29,19 @@
+  * Simple linear interpolation to move along a given vector path
+  * FIXME: Could add curves and different speed per vertex
+  */
+-Vector interpolate_path(const std::vector&lt;Vector&gt;&amp; path, float length)
++Camera::PathPoint interpolate_path(const std::vector&lt;Camera::PathPoint&gt;&amp; path, float length)
+ {
+   float length_so_far = 0.0f;
+-  for(std::vector&lt;Vector&gt;::size_type i = 0; i &lt; path.size()-1; ++i)
++  for(std::vector&lt;Camera::PathPoint&gt;::size_type i = 0; i &lt; path.size()-1; ++i)
+     {
+-      Vector segment = path[i+1] - path[i];
+-      float segment_length = segment.length();
++      Vector segment = path[i+1].pos - path[i].pos;
++      float  segment_length = segment.length();
+ 
+       if (length_so_far + segment_length &gt; length)
+         {
+           float factor = (length - length_so_far) / segment_length;
+-          return path[i] + segment * factor;
++          return Camera::PathPoint(path[i].pos + segment * factor,
++                                   (factor * path[i+1].zoom) + ((1.0f - factor) * path[i].zoom));
+         }
+       length_so_far += segment_length;
+     }
+@@ -48,7 +49,7 @@
+ }
+ 
+ Camera::Camera()
+-  : pos(0, 0)
++  : pos(0, 0), zoom(1.0f)
+ {
+   path_pos = 0;
+   current_ = this;
+@@ -108,13 +109,14 @@
+         assert(!path.empty());
+         path_pos += delta * 50.0f;
+ 
+-        Vector p = interpolate_path(path, path_pos);
++        PathPoint p = interpolate_path(path, path_pos);
+         if (p == path.back())
+           {
+             script_manager-&gt;fire_wakeup_event(ScriptManager::CAMERA_DONE);
+             set_mode(CAMERA_INACTIVE);
+           }
+-        set_pos(p.x, p.y);
++        set_pos(p.pos.x, p.pos.y);
++        set_zoom(p.zoom);
+       }
+       break;
+     }
+@@ -131,8 +133,20 @@
+ }
+ 
+ void
+-Camera::set_path(const std::vector&lt;Vector&gt;&amp; path_)
++Camera::set_zoom(float zoom_)
+ {
++  zoom = zoom_;
++}
++
++float
++Camera::get_zoom() const
++{
++  return zoom;
++}
++
++void
++Camera::set_path(const std::vector&lt;Camera::PathPoint&gt;&amp; path_)
++{
+   path     = path_;
+   path_pos = 0;
+   mode     = CAMERA_FOLLOW_PATH;
+
+Modified: trunk/src/camera.hpp
+===================================================================
+--- trunk/src/camera.hpp	2006-01-06 19:25:20 UTC (rev 1191)
++++ trunk/src/camera.hpp	2006-01-06 20:51:22 UTC (rev 1192)
+@@ -30,12 +30,26 @@
+ public:
+   enum Mode { CAMERA_INACTIVE, CAMERA_FOLLOW_PLAYER, CAMERA_FOLLOW_PATH };
+ 
++  struct PathPoint
++  {
++    Vector pos;
++    float  zoom;
++
++    PathPoint(const Vector&amp; pos_, float zoom_)
++      : pos(pos_), zoom(zoom_) {}
++
++    bool operator==(const PathPoint&amp; p) {
++      return p.pos == pos &amp;&amp; p.zoom == zoom;
++    }
++  };
++
+ private:
+   Mode mode;
+ 
+   Vector pos;
+-  
+-  std::vector&lt;Vector&gt; path;
++  float  zoom;
++
++  std::vector&lt;PathPoint&gt; path;
+   float path_pos;
+ 
+   static Camera* current_;
+@@ -45,15 +59,19 @@
+   Camera();
+ 
+   void   update(float delta);
++
+   Vector get_pos() const { return pos; }
+   void   set_pos(float x, float y);
+ 
++  void   set_zoom(float zoom_);
++  float  get_zoom() const;
++
+   void   set_mode(Mode mode_);
+ 
+   /**
+    * Set Camera to follow the given path
+    */
+-  void   set_path(const std::vector&lt;Vector&gt;&amp; path_);
++  void   set_path(const std::vector&lt;PathPoint&gt;&amp; path_);
+ 
+ private:
+   Camera (const Camera&amp;);
+
+Modified: trunk/src/scripting/interface.cpp
+===================================================================
+--- trunk/src/scripting/interface.cpp	2006-01-06 19:25:20 UTC (rev 1191)
++++ trunk/src/scripting/interface.cpp	2006-01-06 20:51:22 UTC (rev 1192)
+@@ -85,15 +85,15 @@
+ }
+ 
+ 
+-std::vector&lt;Vector&gt; camera_path;
++std::vector&lt;Camera::PathPoint&gt; camera_path;
+ void camera_begin_path()
+ {
+   camera_path.clear();
+ }
+ 
+-void camera_add_point(float x, float y)
++void camera_add_point(float x, float y, float zoom)
+ {
+-  camera_path.push_back(Vector(x, y));
++  camera_path.push_back(Camera::PathPoint(Vector(x, y), zoom));
+ }
+ 
+ void camera_end_path()
+
+Modified: trunk/src/scripting/interface.hpp
+===================================================================
+--- trunk/src/scripting/interface.hpp	2006-01-06 19:25:20 UTC (rev 1191)
++++ trunk/src/scripting/interface.hpp	2006-01-06 20:51:22 UTC (rev 1192)
+@@ -48,7 +48,7 @@
+ 
+ void camera_set_active(bool active);
+ void camera_begin_path();
+-void camera_add_point(float x, float y);
++void camera_add_point(float x, float y, float zoom);
+ void camera_end_path();
+ 
+ void set_view(float x, float y);
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2006-01-06 19:25:20 UTC (rev 1191)
++++ trunk/src/scripting/wrapper.cpp	2006-01-06 20:51:22 UTC (rev 1192)
+@@ -300,8 +300,10 @@
+   sq_getfloat(v, 2, &amp;arg0);
+   float arg1;
+   sq_getfloat(v, 3, &amp;arg1);
++  float arg2;
++  sq_getfloat(v, 4, &amp;arg2);
+   
+-  Scripting::camera_add_point(arg0, arg1);
++  Scripting::camera_add_point(arg0, arg1, arg2);
+   
+   return 0;
+ }
+
+Modified: trunk/src/view.cpp
+===================================================================
+--- trunk/src/view.cpp	2006-01-06 19:25:20 UTC (rev 1191)
++++ trunk/src/view.cpp	2006-01-06 20:51:22 UTC (rev 1192)
+@@ -28,7 +28,7 @@
+ 
+ View::View()
+   : state(Display::get_width(), Display::get_height()),
+-    zoom(1), transform(0, 0)
++    zoom(1.0), transform(0, 0)
+ {
+   current_ = this;
+ }
+@@ -37,7 +37,7 @@
+ View::draw (SceneContext&amp; sc)
+ {
+   state.set_pos(camera.get_pos());
+-  state.set_zoom(zoom);
++  state.set_zoom(camera.get_zoom() + (zoom - 1.0f));
+   state.set_pos(state.get_pos() + Vector(transform.x, transform.y));
+ 
+   state.push(sc);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000844.html">[Windstille-commit] r1191 - in trunk/src: . input math scripting sprite3d
+</A></li>
+	<LI>Next message: <A HREF="000846.html">[Windstille-commit] r1193 - in trunk/data/models/objects: . barrobot
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#845">[ date ]</a>
+              <a href="thread.html#845">[ thread ]</a>
+              <a href="subject.html#845">[ subject ]</a>
+              <a href="author.html#845">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

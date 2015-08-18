@@ -1,0 +1,879 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1215 - in trunk/src: . display
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1215%20-%20in%20trunk/src%3A%20.%20display&In-Reply-To=%3C200601112235.k0BMZYP1004021%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000867.html">
+   <LINK REL="Next"  HREF="000869.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1215 - in trunk/src: . display</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1215%20-%20in%20trunk/src%3A%20.%20display&In-Reply-To=%3C200601112235.k0BMZYP1004021%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1215 - in trunk/src: . display">grumbel at berlios.de
+       </A><BR>
+    <I>Wed Jan 11 23:35:34 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000867.html">[Windstille-commit] r1214 - in trunk/src: . display
+</A></li>
+        <LI>Next message: <A HREF="000869.html">[Windstille-commit] r1216 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#868">[ date ]</a>
+              <a href="thread.html#868">[ thread ]</a>
+              <a href="subject.html#868">[ subject ]</a>
+              <a href="author.html#868">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-01-11 23:35:33 +0100 (Wed, 11 Jan 2006)
+New Revision: 1215
+
+Added:
+   trunk/src/shockwave.cpp
+   trunk/src/shockwave.hpp
+Modified:
+   trunk/src/SConscript
+   trunk/src/display/drawing_context.cpp
+   trunk/src/display/drawing_context.hpp
+   trunk/src/display/drawing_request.hpp
+   trunk/src/display/scene_context.cpp
+   trunk/src/display/scene_context.hpp
+   trunk/src/screen_manager.cpp
+   trunk/src/sector.cpp
+Log:
+- integrated shader support a bit better into the DrawingContext/Request stuff
+
+Modified: trunk/src/SConscript
+===================================================================
+--- trunk/src/SConscript	2006-01-11 16:20:12 UTC (rev 1214)
++++ trunk/src/SConscript	2006-01-11 22:35:33 UTC (rev 1215)
+@@ -72,6 +72,7 @@
+ 'screen_manager.cpp',
+ 'scriptable_object.cpp',
+ 'script_manager.cpp',
++'shockwave.cpp',
+ 'sector.cpp',
+ 'spawnpoint.cpp',
+ 'sprite3dview.cpp',
+
+Modified: trunk/src/display/drawing_context.cpp
+===================================================================
+--- trunk/src/display/drawing_context.cpp	2006-01-11 16:20:12 UTC (rev 1214)
++++ trunk/src/display/drawing_context.cpp	2006-01-11 22:35:33 UTC (rev 1215)
+@@ -33,6 +33,7 @@
+ #include &quot;display/opengl_state.hpp&quot;
+ #include &quot;display/surface_drawing_parameters.hpp&quot;
+ #include &quot;display/vertex_array_drawing_request.hpp&quot;
++#include &quot;display/scene_context.hpp&quot;
+ #include &quot;display/surface.hpp&quot;
+ 
+ struct DrawingRequestsSorter
+@@ -117,12 +118,15 @@
+ }
+ 
+ void
+-DrawingContext::render()
++DrawingContext::render(SceneContext&amp; sc)
+ {
+   std::stable_sort(drawingrequests.begin(), drawingrequests.end(), DrawingRequestsSorter());
+   
+   for(DrawingRequests::iterator i = drawingrequests.begin(); i != drawingrequests.end(); ++i)
+     {
++      if ((*i)-&gt;needs_framebuffer())
++        (*i)-&gt;set_framebuffer_texture(sc.request_framebuffer_texture((*i)-&gt;framebuffer_rect()));
++      
+       (*i)-&gt;draw();
+     }
+ }
+
+Modified: trunk/src/display/drawing_context.hpp
+===================================================================
+--- trunk/src/display/drawing_context.hpp	2006-01-11 16:20:12 UTC (rev 1214)
++++ trunk/src/display/drawing_context.hpp	2006-01-11 22:35:33 UTC (rev 1215)
+@@ -35,6 +35,7 @@
+ 
+ class Surface;
+ class SurfaceDrawingParameters;
++class SceneContext;
+ class Sprite;
+ 
+ /** The DrawingContext collects all DrawingRequests and allows you to
+@@ -56,7 +57,7 @@
+   ~DrawingContext();
+ 
+   /** Draws everything in the drawing context to the screen */
+-  void render();
++  void render(SceneContext&amp; sc);
+ 
+   /** Empties the drawing context */
+   void clear();
+
+Modified: trunk/src/display/drawing_request.hpp
+===================================================================
+--- trunk/src/display/drawing_request.hpp	2006-01-11 16:20:12 UTC (rev 1214)
++++ trunk/src/display/drawing_request.hpp	2006-01-11 22:35:33 UTC (rev 1215)
+@@ -27,17 +27,19 @@
+ #define HEADER_DRAWING_REQUEST_HXX
+ 
+ #include &quot;math/vector.hpp&quot;
++#include &quot;math/rect.hpp&quot;
+ #include &quot;math/matrix.hpp&quot;
++#include &quot;texture.hpp&quot;
+ 
+ /** 
+  */
+ class DrawingRequest
+ {
+ protected:
+-  Vector pos;
+-  float  z_pos;
+-  Matrix modelview;
+-
++  Vector  pos;
++  float   z_pos;
++  Matrix  modelview;
++  Texture framebuffer_texture;
+ public:
+   DrawingRequest(const Vector&amp; pos_, float z_pos = 0,  const Matrix&amp; modelview_ = Matrix::identity())
+     : pos(pos_), z_pos(z_pos), modelview(modelview_)
+@@ -51,6 +53,10 @@
+ 
+   Matrix get_modelview() const
+   { return modelview; }
++
++  virtual bool  needs_framebuffer() { return false; }
++  virtual Rectf framebuffer_rect() { return Rectf(); }
++  void set_framebuffer_texture(const Texture&amp; t) { framebuffer_texture = t; }
+ private:
+   DrawingRequest (const DrawingRequest&amp;);
+   DrawingRequest&amp; operator= (const DrawingRequest&amp;);
+
+Modified: trunk/src/display/scene_context.cpp
+===================================================================
+--- trunk/src/display/scene_context.cpp	2006-01-11 16:20:12 UTC (rev 1214)
++++ trunk/src/display/scene_context.cpp	2006-01-11 22:35:33 UTC (rev 1215)
+@@ -50,16 +50,12 @@
+   DrawingContext color;
+   DrawingContext light;
+   DrawingContext highlight; 
+-  unsigned int render_mask;
++  unsigned int   render_mask;
+ 
+-  Framebuffer framebuffer;
+-  Surface lightmap;
+-
+-  Framebuffer blur_framebuffer;
+-  ShaderProgram shader_program;
+-  ShaderProgram simple_program;
+-  Texture noise;
+-
++  Framebuffer screen_framebuffer;
++  Framebuffer tmp_framebuffer;
++  Framebuffer lightmap_framebuffer;
++  
+   SceneContextImpl() 
+     : render_mask(SceneContext::COLORMAP |
+                   SceneContext::LIGHTMAP | 
+@@ -67,28 +63,10 @@
+                   SceneContext::LIGHTMAPSCREEN |
+                   SceneContext::BLURMAP
+                   ),
+-      framebuffer(GL_TEXTURE_2D, 256, 256),
+-      lightmap(framebuffer.get_texture(), 
+-               Rectf(0, 0, (800/LIGHTMAP_DIV)/256.0f, (600/LIGHTMAP_DIV)/256.0f),
+-               800/LIGHTMAP_DIV, 600/LIGHTMAP_DIV),
+-      //lightmap(800/LIGHTMAP_DIV, 600/LIGHTMAP_DIV)
+-      //blur_framebuffer(GL_TEXTURE_2D, 1024, 1024)
+-      blur_framebuffer(GL_TEXTURE_RECTANGLE_ARB, 800, 600)
++      screen_framebuffer(GL_TEXTURE_RECTANGLE_ARB, 800, 600),
++      tmp_framebuffer(GL_TEXTURE_RECTANGLE_ARB, 800, 600),
++      lightmap_framebuffer(GL_TEXTURE_RECTANGLE_ARB, 800/LIGHTMAP_DIV, 600/LIGHTMAP_DIV)
+   {
+-    shader_program.attach(ShaderObject(GL_FRAGMENT_SHADER_ARB, &quot;data/shader/shockwave2.frag&quot;));
+-    shader_program.link();
+-    noise = Texture(&quot;images/noise3.png&quot;);
+-    noise.set_wrap(GL_REPEAT);
+-    noise.set_filter(GL_LINEAR);
+-
+-    glUseProgramObjectARB(shader_program.get_handle());
+-    shader_program.set_uniform1i(&quot;background_tex&quot;, 0);
+-    shader_program.set_uniform1i(&quot;noise_tex&quot;,   1);
+-    shader_program.set_uniform1f(&quot;time&quot;, fmod(SDL_GetTicks()/10000.0f, 1.0f));
+-    glUseProgramObjectARB(0);
+-
+-    simple_program.attach(ShaderObject(GL_FRAGMENT_SHADER_ARB, &quot;data/shader/simple.frag&quot;));
+-    simple_program.link();
+   }
+ };
+ 
+@@ -228,17 +206,14 @@
+ void
+ SceneContext::render_lightmap()
+ {
+-  // FIXME: 2006-01-09: shouldn't use Surface and just discard the
+-  // borders of a power of two texture, but instead use them and
+-  // set UV accordingly
++  Rect uv(0, 0, impl-&gt;lightmap_framebuffer.get_width(), impl-&gt;lightmap_framebuffer.get_height());
++
+   OpenGLState state;
+ 
+-  Rectf uv = impl-&gt;lightmap.get_uv();
+-
+-  state.bind_texture(impl-&gt;lightmap.get_texture());
++  state.bind_texture(impl-&gt;lightmap_framebuffer.get_texture());
+       
+   state.enable(GL_BLEND);
+-  state.set_blend_func(GL_DST_COLOR, GL_ZERO);
++  state.set_blend_func(GL_DST_COLOR, GL_ZERO); // multiple the lightmap with the screen
+   state.activate();
+ 
+   glBegin(GL_QUADS);
+@@ -247,14 +222,14 @@
+   glVertex2f(0, 0);
+ 
+   glTexCoord2f(uv.right, uv.bottom);
+-  glVertex2f(impl-&gt;lightmap.get_width() * LIGHTMAP_DIV, 0);
++  glVertex2f(impl-&gt;lightmap_framebuffer.get_width() * LIGHTMAP_DIV, 0);
+ 
+   glTexCoord2f(uv.right, uv.top);
+-  glVertex2f(impl-&gt;lightmap.get_width() * LIGHTMAP_DIV,
+-             impl-&gt;lightmap.get_height() * LIGHTMAP_DIV);
++  glVertex2f(impl-&gt;lightmap_framebuffer.get_width() * LIGHTMAP_DIV,
++             impl-&gt;lightmap_framebuffer.get_height() * LIGHTMAP_DIV);
+ 
+   glTexCoord2f(uv.left, uv.top);
+-  glVertex2f(0, impl-&gt;lightmap.get_height() * LIGHTMAP_DIV);
++  glVertex2f(0, impl-&gt;lightmap_framebuffer.get_height() * LIGHTMAP_DIV);
+ 
+   glEnd();
+ }
+@@ -278,194 +253,84 @@
+       
+   if (impl-&gt;render_mask &amp; LIGHTMAPSCREEN)
+     {
+-      if (0)
+-        { // render lightmap to screen
+-          Display::push_cliprect(Rect(Point(0, 0),
+-                                      Size(impl-&gt;lightmap.get_width(), impl-&gt;lightmap.get_height())));
++      // Render the lightmap to the lightmap_framebuffer
++      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;lightmap_framebuffer.get_handle());
+ 
+-          glPushMatrix();
+-          glScalef(1.0f/LIGHTMAP_DIV, 1.0f/LIGHTMAP_DIV, 1.0f);
++      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+ 
+-          impl-&gt;light.render();
+-          glPopMatrix();
+-      
+-          {
+-            OpenGLState state;
+-        
+-            // Weird y-pos is needed since OpenGL is upside down when it comes to y-coordinate
+-            state.bind_texture(impl-&gt;lightmap.get_texture());
+-            state.activate();
++      glPushMatrix();
++      glTranslatef(0, 600-(600/LIGHTMAP_DIV), 0);
++      glScalef(1.0f/LIGHTMAP_DIV, 1.0f/LIGHTMAP_DIV, 1.0f);
++      impl-&gt;light.render(*this);
++      glPopMatrix();
+ 
+-            glCopyTexSubImage2D(GL_TEXTURE_2D, 0,
+-                                0, 0, 
+-                                0, Display::get_height() - impl-&gt;lightmap.get_height(),
+-                                impl-&gt;lightmap.get_width(), impl-&gt;lightmap.get_height());
+-          }
+-
+-          Display::pop_cliprect();
+-        }
+-      else
+-        {
+-          glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;framebuffer.get_handle());
+-          glClear(GL_DEPTH_BUFFER_BIT);
+-
+-          glPushMatrix();
+-          glTranslatef(0, 600-(600/LIGHTMAP_DIV), 0);
+-          glScalef(1.0f/LIGHTMAP_DIV, 1.0f/LIGHTMAP_DIV, 1.0f);
+-          impl-&gt;light.render();
+-          glPopMatrix();
+-
+-          glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+-        }
++      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+     }
+ 
+   if (impl-&gt;render_mask &amp; COLORMAP)
+     {
+-      impl-&gt;color.render();
++      // Render the colormap to the screen_framebuffer
++      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;screen_framebuffer.get_handle());
++      impl-&gt;color.render(*this);
++      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+     }
+ 
++
+   if (impl-&gt;render_mask &amp; LIGHTMAP)
+-    {
++    { // Renders the lightmap to the screen
++      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;screen_framebuffer.get_handle());
+       render_lightmap();
++      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+     }
+ 
+   if (impl-&gt;render_mask &amp; HIGHLIGHTMAP)
+     {
+-      impl-&gt;highlight.render();
++      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;screen_framebuffer.get_handle());
++      impl-&gt;highlight.render(*this);
++      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+     }
+ 
+-  if (impl-&gt;render_mask &amp; BLURMAP)
+     {
+-      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;blur_framebuffer.get_handle());
+-      glClear(GL_DEPTH_BUFFER_BIT);
++      // Render the screen framebuffer to the actual screen 
++      OpenGLState state;
+ 
+-      glPushMatrix();
+-      glTranslatef(0, 600-(600/BLURMAP_DIV), 0);
+-      glScalef(1.0f/BLURMAP_DIV, 1.0f/BLURMAP_DIV, 1.0f);
+-      impl-&gt;color.render();
+-      render_lightmap();
+-      impl-&gt;highlight.render();
+-      glPopMatrix();
+-
+-      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);     
+-
+-      if (0)
+-        { // test render the blur buffer
+-
+-          Rectf uv(0, 0, 800, 600);
+-          //Rectf uv(0, 0, 1, 1);
+-
+-          float div = 0.5f;
+-          glUseProgramObjectARB(impl-&gt;simple_program.get_handle());
+-          impl-&gt;simple_program.set_uniform1i(&quot;background&quot;, 0);
+-
+-          OpenGLState state;
+-          state.bind_texture(impl-&gt;blur_framebuffer.get_texture(), 0);
+-          state.activate();
+-
+-          glBegin(GL_QUADS);
+-
+-          glTexCoord2f(uv.left, uv.bottom);
+-          glVertex2f(0, 0);
+-
+-          glTexCoord2f(uv.right, uv.bottom);
+-          glVertex2f(impl-&gt;blur_framebuffer.get_width() * div, 0);
+-
+-          glTexCoord2f(uv.right, uv.top);
+-          glVertex2f(impl-&gt;blur_framebuffer.get_width() * div,
+-                     impl-&gt;blur_framebuffer.get_height() * div);
+-
+-          glTexCoord2f(uv.left, uv.top);
+-          glVertex2f(0, impl-&gt;blur_framebuffer.get_height() * div);
+-
+-          glEnd();         
+-          glUseProgramObjectARB(0);
+-          glDisable(GL_TEXTURE_RECTANGLE_ARB);
+-        }
+-
+-      if (0)
+-        { // Draw funny effect with shader
+-          OpenGLState state;
+-
+-          Rectf uv(0, 0, 800, 600);
++      Rectf uv(0.375, 0.375, 
++               impl-&gt;screen_framebuffer.get_width()  + 0.375,
++               impl-&gt;screen_framebuffer.get_height() + 0.375);
+           
+-          state.bind_texture(impl-&gt;blur_framebuffer.get_texture(), 0);
+-          state.bind_texture(impl-&gt;noise, 1);
+-          state.disable(GL_BLEND);
++      state.bind_texture(impl-&gt;screen_framebuffer.get_texture(), 0);
++      state.activate();
+ 
+-          //state.enable(GL_BLEND);
+-          //state.set_blend_func(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+-          //state.set_blend_func(GL_SRC_ALPHA, GL_ONE);
+-          state.activate();
++      glBegin(GL_QUADS);
+ 
+-          glUseProgramObjectARB(impl-&gt;shader_program.get_handle());
++      glTexCoord2f(uv.left, uv.bottom);
++      glVertex2f(0, 0);
+ 
+-          glBegin(GL_QUADS);
++      glTexCoord2f(uv.right, uv.bottom);
++      glVertex2f(800, 0);
+ 
+-          glTexCoord2f(uv.left, uv.bottom);
+-          glVertex2f(0, 0);
++      glTexCoord2f(uv.right, uv.top);
++      glVertex2f(800, 600);
+ 
+-          glTexCoord2f(uv.right, uv.bottom);
+-          glVertex2f(impl-&gt;blur_framebuffer.get_width() * BLURMAP_DIV, 0);
++      glTexCoord2f(uv.left, uv.top);
++      glVertex2f(0, 600);
+ 
+-          glTexCoord2f(uv.right, uv.top);
+-          glVertex2f(impl-&gt;blur_framebuffer.get_width() * BLURMAP_DIV,
+-                     impl-&gt;blur_framebuffer.get_height() * BLURMAP_DIV);
+-
+-          glTexCoord2f(uv.left, uv.top);
+-          glVertex2f(0, impl-&gt;blur_framebuffer.get_height() * BLURMAP_DIV);
+-
+-          glEnd();
+-
+-          glUseProgramObjectARB(0);
+-        }
++      glEnd();
+     }
+ 
+-      if (0)
+-        { // Zoom
+-          OpenGLState state;
++    /*
++      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;blur_framebuffer.get_handle());
++      glClear(GL_DEPTH_BUFFER_BIT);
+ 
+-          Rectf uv(300+50, 200+50, 500-50, 400-50);
+-          
+-          state.bind_texture(impl-&gt;blur_framebuffer.get_texture(), 0);
+-          state.activate();
++      glPushMatrix();
++      glTranslatef(0, 600-(600/BLURMAP_DIV), 0);
++      glScalef(1.0f/BLURMAP_DIV, 1.0f/BLURMAP_DIV, 1.0f);
++      impl-&gt;color.render();
++      render_lightmap();
++      impl-&gt;highlight.render();
++      glPopMatrix();
++    */
+ 
+-          glBegin(GL_QUADS);
+-
+-          glTexCoord2f(uv.left, uv.bottom);
+-          glVertex2f(300, 200);
+-
+-          glTexCoord2f(uv.right, uv.bottom);
+-          glVertex2f(500, 200);
+-
+-          glTexCoord2f(uv.right, uv.top);
+-          glVertex2f(500, 400);
+-
+-          glTexCoord2f(uv.left, uv.top);
+-          glVertex2f(300, 400);
+-
+-          glEnd();
+-
+-        }
+-
+-
+-  if (1) 
+-    {
+-      OpenGLState state;
+-      state.bind_texture(impl-&gt;blur_framebuffer.get_texture(), 0);
+-      state.bind_texture(impl-&gt;noise, 1);
+-      state.disable(GL_BLEND);
+-      state.set_blend_func(GL_SRC_ALPHA, GL_ONE);
+-      state.activate();
+-
+-      glUseProgramObjectARB(impl-&gt;shader_program.get_handle());    
+-      float radius = 100 * (sinf(SDL_GetTicks()/3000.0f) + 1.0f);
+-      impl-&gt;shader_program.set_uniform1f(&quot;radius&quot;,   radius/512.0f*2.0f);
+-      draw_disc(int(radius));
+-      glUseProgramObjectARB(0);
+-    }
+-
+-
+   // Clear all DrawingContexts
+   impl-&gt;color.clear();
+   impl-&gt;light.clear();
+@@ -503,4 +368,41 @@
+     }
+ }
+ 
++Texture
++SceneContext::request_framebuffer_texture(const Rectf&amp; rect)
++{
++  glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;tmp_framebuffer.get_handle());
++
++  {
++    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
++    // Render the screen framebuffer to the actual screen 
++    OpenGLState state;
++    state.bind_texture(impl-&gt;screen_framebuffer.get_texture(), 0);
++    state.activate();
++
++    glBegin(GL_QUADS);
++    
++    glTexCoord2f(rect.left, rect.bottom);
++    glVertex2f(rect.left, rect.top);
++
++    glTexCoord2f(rect.right, rect.bottom);
++    glVertex2f(rect.right, rect.top);
++
++    glTexCoord2f(rect.right, rect.top);
++    glVertex2f(rect.right, rect.bottom);
++
++    glTexCoord2f(rect.left, rect.top);
++    glVertex2f(rect.left, rect.bottom);
++    
++    glEnd();
++  } 
++
++  glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
++
++  // FIXME: Hacky, hacky, need something like push/pop_framebuffer to avoid this
++  glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;screen_framebuffer.get_handle());
++
++  return impl-&gt;tmp_framebuffer.get_texture();
++}
++
+ /* EOF */
+
+Modified: trunk/src/display/scene_context.hpp
+===================================================================
+--- trunk/src/display/scene_context.hpp	2006-01-11 16:20:12 UTC (rev 1214)
++++ trunk/src/display/scene_context.hpp	2006-01-11 22:35:33 UTC (rev 1215)
+@@ -90,6 +90,7 @@
+   unsigned int get_render_mask();
+ 
+   DrawingContext&amp; get_layer(unsigned int t);
++  Texture request_framebuffer_texture(const Rectf&amp; rect);
+ 
+   void render_lightmap();
+   void render_colormap();
+
+Modified: trunk/src/screen_manager.cpp
+===================================================================
+--- trunk/src/screen_manager.cpp	2006-01-11 16:20:12 UTC (rev 1214)
++++ trunk/src/screen_manager.cpp	2006-01-11 22:35:33 UTC (rev 1215)
+@@ -249,7 +249,7 @@
+                     int count = 0;
+                     std::string filename;
+                     do {
+-                      filename = (boost::format(&quot;/tmp/windstille%05d.png&quot;) % count).str();
++                      filename = (boost::format(&quot;/tmp/windstille%04d.png&quot;) % count).str();
+                       count += 1;
+                     } while(access(filename.c_str(), F_OK) == 0);
+ 
+
+Modified: trunk/src/sector.cpp
+===================================================================
+--- trunk/src/sector.cpp	2006-01-11 16:20:12 UTC (rev 1214)
++++ trunk/src/sector.cpp	2006-01-11 22:35:33 UTC (rev 1215)
+@@ -46,6 +46,7 @@
+ #include &quot;laser_pointer.hpp&quot;
+ #include &quot;badguy/swarm.hpp&quot;
+ #include &quot;liquid.hpp&quot;
++#include &quot;shockwave.hpp&quot;
+ #include &quot;badguy/hedgehog.hpp&quot;
+ #include &quot;badguy/spider_mine.hpp&quot;
+ #include &quot;box.hpp&quot;
+@@ -169,6 +170,8 @@
+     add(new Trigger(props));
+   } else if(name == &quot;box&quot;) {
+     add(new Box(props));
++  } else if(name == &quot;shockwave&quot;) {
++    add(new Shockwave(props));
+   } else if(name == &quot;elevator&quot;) {
+     add(new Elevator(props));
+   } else if(name == &quot;character&quot;) {    
+
+Added: trunk/src/shockwave.cpp
+===================================================================
+--- trunk/src/shockwave.cpp	2006-01-11 16:20:12 UTC (rev 1214)
++++ trunk/src/shockwave.cpp	2006-01-11 22:35:33 UTC (rev 1215)
+@@ -0,0 +1,193 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &quot;display/opengl_state.hpp&quot;
++#include &quot;display/drawing_request.hpp&quot;
++#include &quot;display/texture.hpp&quot;
++#include &quot;display/shader_program.hpp&quot;
++#include &quot;display/shader_object.hpp&quot;
++#include &quot;shockwave.hpp&quot;
++
++class ShockwaveDrawingRequest : public DrawingRequest
++{
++public:
++  Texture       noise;
++  ShaderProgram shader_program;
++  float radius;
++
++  ShockwaveDrawingRequest(const Vector&amp; pos, 
++                          const Texture&amp;       noise_,
++                          const ShaderProgram&amp; shader_program_,
++                          float r,
++                          const Matrix&amp; modelview_) 
++    : DrawingRequest(pos, 500.0f, modelview_),
++      noise(noise_),
++      shader_program(shader_program_),
++      radius(r)
++  {
++  }
++
++  ~ShockwaveDrawingRequest()
++  {
++  }
++
++  bool  needs_framebuffer()
++  {
++    return true; 
++  }
++  
++  Rectf framebuffer_rect() 
++  {
++    return Rectf(0, 0, 800, 600); 
++  }
++  
++  void draw()
++  {
++    glPushMatrix();
++    glMultMatrixf(modelview.matrix);
++    if (0)
++      {
++        Rectf rect(0, 0, 800, 600);
++        // Render the screen framebuffer to the actual screen 
++        OpenGLState state;
++        state.bind_texture(framebuffer_texture, 0);
++        state.activate();
++
++        glBegin(GL_QUADS);
++    
++        glTexCoord2f(rect.left, rect.bottom);
++        glVertex2f(rect.left/2.0f, rect.bottom/2.0f);
++
++        glTexCoord2f(rect.right, rect.bottom);
++        glVertex2f(rect.right/2.0f, rect.bottom/2.0f);
++
++        glTexCoord2f(rect.right, rect.top);
++        glVertex2f(rect.right/2.0f, rect.top/2.0f);
++
++        glTexCoord2f(rect.left, rect.top);
++        glVertex2f(rect.left/2.0f, rect.top/2.0f);
++    
++        glEnd();
++      }
++    else
++      {
++        OpenGLState state;
++        state.bind_texture(framebuffer_texture, 0);
++        state.bind_texture(noise, 1);
++        state.disable(GL_BLEND);
++        state.set_blend_func(GL_SRC_ALPHA, GL_ONE);
++        state.activate();
++
++        glUseProgramObjectARB(shader_program.get_handle());    
++        shader_program.set_uniform1f(&quot;radius&quot;,   radius/512.0f*2.0f);
++        shader_program.set_uniform1i(&quot;background_tex&quot;, 0);
++        shader_program.set_uniform1i(&quot;noise_tex&quot;,   1);
++        draw_disc(int(radius));
++        glUseProgramObjectARB(0);
++      }
++    glPopMatrix();
++  }
++
++  void draw_disc(int count)
++  {
++    float radius = (count)*2.0f;
++    float minradius = 2.0f*count - 164.0f;
++    if (minradius &lt; 0)
++      minradius = 0;
++    glClear(GL_DEPTH_BUFFER_BIT);
++
++    int segments = 64;
++  
++    glBegin(GL_QUADS);
++    for (int i = 0; i &lt; segments; ++i)
++      {
++        float angel = (2*M_PI / segments);
++
++        float x1 =  sin(angel*i)*radius;
++        float y1 = -cos(angel*i)*radius;
++
++        float x2 =  sin(angel*(i+1))*radius;
++        float y2 = -cos(angel*(i+1))*radius;
++
++        glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
++        glTexCoord2f(x1/512.0f+0.5f, y1/512.0f+0.5f);
++        glVertex3f(x1+256, y1+256, 0);
++
++        glTexCoord2f(x2/512.0f+0.5f, y2/512.0f+0.5f);
++        glVertex3f(x2+256, y2+256, 0);
++
++
++        float x3 =  sin(angel*i)*minradius;
++        float y3 = -cos(angel*i)*minradius;
++
++        float x4 =  sin(angel*(i+1))*minradius;
++        float y4 = -cos(angel*(i+1))*minradius;
++
++        glColor4f(1.0f, 1.0f, 1.0f, 0.0f);
++        glTexCoord2f(x4/512.0f+0.5f, y4/512.0f+0.5f);
++        glVertex3f(x4+256, y4+256, 0);
++        glTexCoord2f(x3/512.0f+0.5f, y3/512.0f+0.5f);
++        glVertex3f(x3+256, y3+256, 0);
++      }
++    glEnd();
++  }
++};
++
++Shockwave::Shockwave(FileReader&amp; props)
++  : noise(&quot;images/noise3.png&quot;)
++{
++  props.get(&quot;pos&quot;, pos);
++  props.print_unused_warnings(&quot;Shockwave&quot;);
++
++  radius = 100.0f;
++
++  noise.set_wrap(GL_REPEAT);
++  noise.set_filter(GL_LINEAR);
++
++  shader_program.attach(ShaderObject(GL_FRAGMENT_SHADER_ARB, &quot;data/shader/shockwave2.frag&quot;));
++  shader_program.link();
++}
++
++Shockwave::~Shockwave()
++{
++}
++
++void
++Shockwave::draw (SceneContext&amp; sc)
++{
++  sc.highlight().draw(new ShockwaveDrawingRequest(pos,
++                                                   noise,
++                                                   shader_program,
++                                                   radius,
++                                                   sc.color().get_modelview()));
++}
++
++void
++Shockwave::update (float delta)
++{
++  radius = (sinf(SDL_GetTicks() / 500.0f) + 1.0f) * 100.0f;
++}
++
++/* EOF */
+
+Added: trunk/src/shockwave.hpp
+===================================================================
+--- trunk/src/shockwave.hpp	2006-01-11 16:20:12 UTC (rev 1214)
++++ trunk/src/shockwave.hpp	2006-01-11 22:35:33 UTC (rev 1215)
+@@ -0,0 +1,55 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_SHOCKWAVE_HPP
++#define HEADER_SHOCKWAVE_HPP
++
++#include &quot;display/shader_program.hpp&quot;
++#include &quot;display/texture.hpp&quot;
++#include &quot;game_object.hpp&quot;
++
++/** */
++class Shockwave : public GameObject
++{
++private:
++  Vector        pos;
++  Texture       noise;
++  ShaderProgram shader_program;
++  float radius;
++public:
++  Shockwave(FileReader&amp; props);
++  ~Shockwave();
++
++  void draw (SceneContext&amp; context);
++  void update (float delta);
++
++private:
++  Shockwave (const Shockwave&amp;);
++  Shockwave&amp; operator= (const Shockwave&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000867.html">[Windstille-commit] r1214 - in trunk/src: . display
+</A></li>
+	<LI>Next message: <A HREF="000869.html">[Windstille-commit] r1216 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#868">[ date ]</a>
+              <a href="thread.html#868">[ thread ]</a>
+              <a href="subject.html#868">[ subject ]</a>
+              <a href="author.html#868">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

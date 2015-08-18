@@ -1,0 +1,439 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2282 - trunk/griv/new
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2282%20-%20trunk/griv/new&In-Reply-To=%3C200808071539.m77Fd02Q015445%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001301.html">
+   <LINK REL="Next"  HREF="001303.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2282 - trunk/griv/new</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2282%20-%20trunk/griv/new&In-Reply-To=%3C200808071539.m77Fd02Q015445%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2282 - trunk/griv/new">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Aug  7 17:39:00 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001301.html">[Windstille-commit] r2281 - trunk/griv/new
+</A></li>
+        <LI>Next message: <A HREF="001303.html">[Windstille-commit] r2283 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1302">[ date ]</a>
+              <a href="thread.html#1302">[ thread ]</a>
+              <a href="subject.html#1302">[ subject ]</a>
+              <a href="author.html#1302">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-07 17:39:00 +0200 (Thu, 07 Aug 2008)
+New Revision: 2282
+
+Modified:
+   trunk/griv/new/SConstruct
+   trunk/griv/new/TODO
+   trunk/griv/new/file_database.cpp
+   trunk/griv/new/file_database.hpp
+   trunk/griv/new/griv.cpp
+   trunk/griv/new/software_surface.cpp
+   trunk/griv/new/software_surface.hpp
+   trunk/griv/new/sqlite.hpp
+   trunk/griv/new/tile_database.cpp
+   trunk/griv/new/tile_database.hpp
+Log:
+Misc stuff
+
+Modified: trunk/griv/new/SConstruct
+===================================================================
+--- trunk/griv/new/SConstruct	2008-08-07 15:37:58 UTC (rev 2281)
++++ trunk/griv/new/SConstruct	2008-08-07 15:39:00 UTC (rev 2282)
+@@ -1,7 +1,6 @@
+ # Zoomable Image Viewer
+ griv_env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O2&quot;, &quot;-g&quot;], 
+-                       LIBS=['jpeg', # must link jpeg before freeimage, else we get a crash
+-                             'freeimage', 
++                       LIBS=['freeimage', 
+                              'mhash', 
+                              'GL', 
+                              'GLU'])
+
+Modified: trunk/griv/new/TODO
+===================================================================
+--- trunk/griv/new/TODO	2008-08-07 15:37:58 UTC (rev 2281)
++++ trunk/griv/new/TODO	2008-08-07 15:39:00 UTC (rev 2282)
+@@ -4,5 +4,16 @@
+ * SoftwareSurface: load from memory, save to memory
+ * all GL stuff
+ 
++Image Library Requirements:
++===========================
++
++* fast JPEG thumbnailing would be a plus (FreeImage, EPEG)
++
++* fast width/height reading from file header (libjpeg, libpng)
++
++* support for PNG, JPEG, etc.
++
++* generation of subregion images without a copy
++
+ 
+ # EOF #
+\ No newline at end of file
+
+Modified: trunk/griv/new/file_database.cpp
+===================================================================
+--- trunk/griv/new/file_database.cpp	2008-08-07 15:37:58 UTC (rev 2281)
++++ trunk/griv/new/file_database.cpp	2008-08-07 15:39:00 UTC (rev 2282)
+@@ -27,6 +27,7 @@
+ #include &lt;sstream&gt;
+ #include &lt;stdexcept&gt;
+ 
++#include &lt;assert.h&gt;
+ #include &quot;jpeg.hpp&quot;
+ #include &quot;md5.hpp&quot;
+ #include &quot;filesystem.hpp&quot;
+@@ -44,6 +45,7 @@
+     get_by_file_id_stmt(db)
+ {
+   db-&gt;exec(&quot;CREATE TABLE IF NOT EXISTS files (&quot;
++           &quot;fileid    INTEGER PRIMARY KEY AUTOINCREMENT,&quot;
+            &quot;filename  TEXT UNIQUE, &quot;
+            &quot;md5       TEXT, &quot;
+            &quot;filesize  INTEGER, &quot;
+@@ -64,8 +66,10 @@
+ }
+  
+ int
+-FileDatabase::store_file_entry(const FileEntry&amp; entry)
++FileDatabase::store_file_entry(FileEntry&amp; entry)
+ {
++  assert(entry.fileid == -1);
++
+   store_stmt.bind_text(1, entry.filename);
+   store_stmt.bind_text(2, entry.md5);
+   store_stmt.bind_int (3, entry.filesize); // filesize
+@@ -74,8 +78,10 @@
+   store_stmt.bind_int (6, entry.mtime);        // mtime
+ 
+   store_stmt.execute();
++  
++  entry.fileid = sqlite3_last_insert_rowid(db-&gt;get_db());
+ 
+-  return sqlite3_last_insert_rowid(db-&gt;get_db());
++  return entry.fileid;
+ }
+ 
+ bool
+@@ -93,16 +99,18 @@
+                   &lt;&lt; reader.get_text(0)
+                   &lt;&lt; std::endl;
+ 
+-      entry.filename = reader.get_text(0);
+-      entry.md5      = reader.get_text(1);
+-      entry.filesize = reader.get_int(2);
+-      entry.width    = reader.get_int(3);
+-      entry.height   = reader.get_int(4);
++      entry.fileid   = reader.get_int (0);
++      entry.filename = reader.get_text(1);
++      entry.md5      = reader.get_text(2);
++      entry.filesize = reader.get_int (3);
++      entry.width    = reader.get_int (4);
++      entry.height   = reader.get_int (5);
+ 
+       return true;
+     }
+   else
+     {
++      entry.fileid   = -1;
+       entry.filename = filename;
+       entry.md5      = MD5::md5_file(filename);
+       entry.filesize = Filesystem::get_size(filename);
+@@ -110,9 +118,10 @@
+       
+       entry.width    = -1;
+       entry.height   = -1;
++      
++      // Doesn't work due to linking issues
++      // JPEG::get_size(entry.filename, entry.width, entry.height);
+ 
+-      JPEG::get_size(entry.filename, entry.width, entry.height);
+-
+       store_file_entry(entry);
+       
+       return true;
+
+Modified: trunk/griv/new/file_database.hpp
+===================================================================
+--- trunk/griv/new/file_database.hpp	2008-08-07 15:37:58 UTC (rev 2281)
++++ trunk/griv/new/file_database.hpp	2008-08-07 15:39:00 UTC (rev 2282)
+@@ -32,6 +32,7 @@
+ 
+ struct FileEntry 
+ {
++  int         fileid;
+   std::string filename; // 
+   std::string md5;      //
+   int         filesize; //
+@@ -51,7 +52,7 @@
+   SQLiteStatement get_by_filename_stmt;
+   SQLiteStatement get_by_file_id_stmt;
+ 
+-  int store_file_entry(const FileEntry&amp; entry);
++  int store_file_entry(FileEntry&amp; entry);
+  
+ public:
+   FileDatabase(SQLiteConnection* db);
+
+Modified: trunk/griv/new/griv.cpp
+===================================================================
+--- trunk/griv/new/griv.cpp	2008-08-07 15:37:58 UTC (rev 2281)
++++ trunk/griv/new/griv.cpp	2008-08-07 15:39:00 UTC (rev 2282)
+@@ -80,11 +80,20 @@
+ 
+   for(std::vector&lt;std::string&gt;::size_type i = 0; i &lt; rest.size(); ++i)
+     {
+-      if (0) // Tile Generation
++      FileEntry entry;
++      if (!file_db.get_file_entry(rest[i], entry))
+         {
++          std::cout &lt;&lt; &quot;Couldn't find entry for &quot; &lt;&lt; rest[i] &lt;&lt; std::endl;
++        }
++      else
++        {
++          std::cout &lt;&lt; entry &lt;&lt; std::endl;
++
+           // Generate Image Tiles
++          std::cout &lt;&lt; &quot;Generating tiles... &quot; &lt;&lt; rest[i]  &lt;&lt; std::endl;
+           SoftwareSurface surface(rest[i]);
+-      
++          std::cout &lt;&lt; &quot;Image loading&quot; &lt;&lt; std::endl;      
++
+           int scale = 0;
+ 
+           do
+@@ -98,30 +107,23 @@
+               for(int y = 0; y &lt;= surface.get_height()/256; ++y)
+                 for(int x = 0; x &lt;= surface.get_width()/256; ++x)
+                   {
+-                    std::ostringstream out;
+-                    out &lt;&lt; &quot;/tmp/out/tile-&quot; &lt;&lt; scale &lt;&lt; &quot;-&quot; &lt;&lt; y &lt;&lt; &quot;+&quot; &lt;&lt; x &lt;&lt; &quot;.jpg&quot;;
+-
+                     SoftwareSurface croped_surface = surface.crop(Rect(Vector2i(x * 256, y * 256),
+                                                                        Size(256, 256)));
+-                    croped_surface.save(out.str());
++
++                    Tile tile;
++                    tile.fileid = entry.fileid;
++                    tile.scale  = scale;
++                    tile.x = x;
++                    tile.y = y;
++                    tile.surface = croped_surface;
++          
++                    tile_db.store_tile(tile);
+                   }
+ 
+               scale += 1;
+             } while (surface.get_width() &gt; 32 ||
+                      surface.get_height() &gt; 32);
+         }
+-      else  // Data base test
+-        {
+-          FileEntry entry;
+-          if (!file_db.get_file_entry(rest[i], entry))
+-            {
+-              std::cout &lt;&lt; &quot;Couldn't find entry for &quot; &lt;&lt; rest[i] &lt;&lt; std::endl;
+-            }
+-          else
+-            {
+-              std::cout &lt;&lt; entry &lt;&lt; std::endl;
+-            }
+-        }
+     }
+ 
+   return 0;
+
+Modified: trunk/griv/new/software_surface.cpp
+===================================================================
+--- trunk/griv/new/software_surface.cpp	2008-08-07 15:37:58 UTC (rev 2281)
++++ trunk/griv/new/software_surface.cpp	2008-08-07 15:39:00 UTC (rev 2282)
+@@ -161,7 +161,7 @@
+ }
+ 
+ std::string
+-SoftwareSurface::get_data() const
++SoftwareSurface::get_jpeg_data() const
+ {
+   FIMEMORY* mem = FreeImage_OpenMemory();
+   FreeImage_SaveToMemory(FIF_JPEG, impl-&gt;bitmap, mem, 0);
+@@ -178,6 +178,16 @@
+   return data_str;
+ }
+ 
++SoftwareSurface
++SoftwareSurface::from_data(const std::string&amp; data)
++{
++  FIMEMORY* mem    = FreeImage_OpenMemory(reinterpret_cast&lt;BYTE*&gt;(const_cast&lt;char*&gt;(data.c_str())),
++                                          data.size());
++  FIBITMAP* bitmap = FreeImage_LoadFromMemory(FIF_JPEG, mem, 0);
++  FreeImage_CloseMemory(mem);
++  return SoftwareSurface(bitmap);
++}
++
+ // FreeImage_OpenMemory(BYTE *data FI_DEFAULT(0), DWORD size_in_bytes FI_DEFAULT(0));
+ // hmem = FreeImage_OpenMemory();
+ // FreeImage_SaveToMemory(fif, dib, hmem, 0);
+
+Modified: trunk/griv/new/software_surface.hpp
+===================================================================
+--- trunk/griv/new/software_surface.hpp	2008-08-07 15:37:58 UTC (rev 2281)
++++ trunk/griv/new/software_surface.hpp	2008-08-07 15:39:00 UTC (rev 2282)
+@@ -38,7 +38,7 @@
+ {
+ public:
+   SoftwareSurface();
+-  SoftwareSurface(const std::string&amp; filename);
++  explicit SoftwareSurface(const std::string&amp; filename);
+   SoftwareSurface(FIBITMAP* bitmap);
+   ~SoftwareSurface();
+ 
+@@ -51,8 +51,9 @@
+ 
+   void save(const std::string&amp; filename) const;
+ 
+-  std::string get_data() const;
+-
++  std::string get_jpeg_data() const;
++  
++  static SoftwareSurface from_data(const std::string&amp; data);
+ private:
+   boost::shared_ptr&lt;SoftwareSurfaceImpl&gt; impl;
+ };
+
+Modified: trunk/griv/new/sqlite.hpp
+===================================================================
+--- trunk/griv/new/sqlite.hpp	2008-08-07 15:37:58 UTC (rev 2281)
++++ trunk/griv/new/sqlite.hpp	2008-08-07 15:39:00 UTC (rev 2282)
+@@ -28,6 +28,8 @@
+ 
+ #include &lt;stdexcept&gt;
+ #include &lt;sqlite3.h&gt;
++
++#include &quot;blob.hpp&quot;
+ 
+ class SQLiteError : public std::exception
+ {
+
+Modified: trunk/griv/new/tile_database.cpp
+===================================================================
+--- trunk/griv/new/tile_database.cpp	2008-08-07 15:37:58 UTC (rev 2281)
++++ trunk/griv/new/tile_database.cpp	2008-08-07 15:39:00 UTC (rev 2282)
+@@ -42,10 +42,10 @@
+   get_stmt.prepare(&quot;SELECT * FROM tiles WHERE fileid = ?1 AND scale = ?2 AND x = ?3 AND y = ?4;&quot;);
+ }
+ 
+-Tile
+-TileDatabase::get_tile(uint32_t file_id, int scale, int x, int y)
++bool
++TileDatabase::get_tile(uint32_t fileid, int scale, int x, int y, Tile&amp; tile)
+ {
+-  get_stmt.bind_int(1, file_id);
++  get_stmt.bind_int(1, fileid);
+   get_stmt.bind_int(2, scale);
+   get_stmt.bind_int(3, x);
+   get_stmt.bind_int(4, y);
+@@ -54,29 +54,30 @@
+ 
+   if (reader.next())
+     {
+-      Tile tile;
+-      tile.file_id = reader.get_int (0);
++      tile.fileid  = reader.get_int (0);
+       tile.scale   = reader.get_int (1);
+       tile.x       = reader.get_int (2);
+       tile.y       = reader.get_int (3);
+-      tile.surface = reader.get_blob(4);
++      tile.surface = SoftwareSurface::from_data(reader.get_blob(4));
+ 
+-      return tile;
++      return true;
+     }
+   else
+     {
+-      return Tile();
++      return false;
+     }
+ }
+ 
+ void
+ TileDatabase::store_tile(const Tile&amp; tile)
+ {
+-  store_stmt.bind_int (1, tile.file_id);
++  // Insert some checking for uniqueness, or can the database handle that?
++
++  store_stmt.bind_int (1, tile.fileid);
+   store_stmt.bind_int (2, tile.scale);
+   store_stmt.bind_int (3, tile.x);
+   store_stmt.bind_int (4, tile.y);
+-  store_stmt.bind_blob(5, tile.surface.get_data());
++  store_stmt.bind_blob(5, tile.surface.get_jpeg_data());
+ 
+   store_stmt.execute();
+ }
+
+Modified: trunk/griv/new/tile_database.hpp
+===================================================================
+--- trunk/griv/new/tile_database.hpp	2008-08-07 15:37:58 UTC (rev 2281)
++++ trunk/griv/new/tile_database.hpp	2008-08-07 15:39:00 UTC (rev 2282)
+@@ -31,7 +31,7 @@
+ 
+ struct Tile
+ {
+-  int file_id;
++  int fileid;
+   int scale;
+   int x;
+   int y;
+@@ -49,7 +49,7 @@
+ public:
+   TileDatabase(SQLiteConnection* db);
+   
+-  Tile get_tile(uint32_t file_id, int scale, int x, int y);
++  bool get_tile(uint32_t file_id, int scale, int x, int y, Tile&amp; tile);
+   void store_tile(const Tile&amp; tile);
+   
+ private:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001301.html">[Windstille-commit] r2281 - trunk/griv/new
+</A></li>
+	<LI>Next message: <A HREF="001303.html">[Windstille-commit] r2283 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1302">[ date ]</a>
+              <a href="thread.html#1302">[ thread ]</a>
+              <a href="subject.html#1302">[ subject ]</a>
+              <a href="author.html#1302">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

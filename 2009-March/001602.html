@@ -1,0 +1,237 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2605 - in trunk/windstille/src: app objects
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2605%20-%20in%20trunk/windstille/src%3A%20app%20objects&In-Reply-To=%3C200903091847.n29IlTXf008272%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001601.html">
+   <LINK REL="Next"  HREF="001603.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2605 - in trunk/windstille/src: app objects</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2605%20-%20in%20trunk/windstille/src%3A%20app%20objects&In-Reply-To=%3C200903091847.n29IlTXf008272%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2605 - in trunk/windstille/src: app objects">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Mar  9 19:47:29 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001601.html">[Windstille-commit] r2604 - trunk/windstille/src/screen
+</A></li>
+        <LI>Next message: <A HREF="001603.html">[Windstille-commit] r2606 - trunk/windstille/src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1602">[ date ]</a>
+              <a href="thread.html#1602">[ thread ]</a>
+              <a href="subject.html#1602">[ subject ]</a>
+              <a href="author.html#1602">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-09 19:47:29 +0100 (Mon, 09 Mar 2009)
+New Revision: 2605
+
+Modified:
+   trunk/windstille/src/app/menu_manager.cpp
+   trunk/windstille/src/app/menu_manager.hpp
+   trunk/windstille/src/objects/background_gradient.cpp
+   trunk/windstille/src/objects/nightvision.cpp
+Log:
+Properly scale things on non-800x600 screens
+
+Modified: trunk/windstille/src/app/menu_manager.cpp
+===================================================================
+--- trunk/windstille/src/app/menu_manager.cpp	2009-03-09 17:14:01 UTC (rev 2604)
++++ trunk/windstille/src/app/menu_manager.cpp	2009-03-09 18:47:29 UTC (rev 2605)
+@@ -155,8 +155,8 @@
+   text_group-&gt;pack(text.release());
+   manager-&gt;get_root()-&gt;add_child(text_group.release());
+ 
+-  std::auto_ptr&lt;GroupComponent&gt; group(new GroupComponent(//create_centered_rect(250, 254),
+-                                                         Rectf(Vector2f(400-20, 200), Sizef(250, 254)),
++  std::auto_ptr&lt;GroupComponent&gt; group(new GroupComponent(create_positioned_rect(Vector2f(400-20, 200), 
++                                                                                Sizef(250, 254)),
+                                                          &quot;&quot;,
+                                                          manager-&gt;get_root()));
+ 
+@@ -479,6 +479,26 @@
+ }
+ 
+ Rectf
++MenuManager::create_positioned_rect(const Vector2f&amp; pos_, const Sizef&amp; size)
++{
++  Vector2f pos = pos_;
++
++  // move pos to center of rect
++  pos.x += size.width  / 2.0f;
++  pos.y += size.height / 2.0f;
++
++  // scale the coordinates
++  pos.x = pos.x * Display::get_width() / 800;
++  pos.y = pos.y * Display::get_height() / 600;
++
++  // move pos back to top/left
++  pos.x -= size.width  / 2.0f;
++  pos.y -= size.height / 2.0f;
++
++  return Rectf(pos, size);
++}
++
++Rectf
+ MenuManager::create_centered_rect(float w, float h)
+ {
+   return Rectf(Vector2f((Display::get_width()  - w)/2.0f,
+
+Modified: trunk/windstille/src/app/menu_manager.hpp
+===================================================================
+--- trunk/windstille/src/app/menu_manager.hpp	2009-03-09 17:14:01 UTC (rev 2604)
++++ trunk/windstille/src/app/menu_manager.hpp	2009-03-09 18:47:29 UTC (rev 2605)
+@@ -22,7 +22,12 @@
+ #include &lt;vector&gt;
+ #include &quot;math/rect.hpp&quot;
+ 
+-/** */
++/** 
++ *  The MenuManager creates and displays the metagame menus (main,
++ *  pause, options, ...) in Windstille. All the input redirection and
++ *  displaying is handled in ScreenManager, so MenuManager itself is
++ *  completly stateless.
++ */
+ class MenuManager 
+ {
+ public:
+@@ -37,8 +42,14 @@
+   static void display_help();
+   
+ private:
++  /** Position a menu with the given size \a w, \a h at the center of
++      the screen */
+   static Rectf create_centered_rect(float w, float h);
+ 
++  /** Position a menu at the given positions, while thread the
++      positions relative to the 800x600 ration */
++  static Rectf create_positioned_rect(const Vector2f&amp; pos, const Sizef&amp; size);
++
+   // Callbacks
+   static void menu_start_game();
+   static void menu_quit();
+
+Modified: trunk/windstille/src/objects/background_gradient.cpp
+===================================================================
+--- trunk/windstille/src/objects/background_gradient.cpp	2009-03-09 17:14:01 UTC (rev 2604)
++++ trunk/windstille/src/objects/background_gradient.cpp	2009-03-09 18:47:29 UTC (rev 2605)
+@@ -18,6 +18,7 @@
+ 
+ #include &lt;iostream&gt;
+ #include &quot;display/vertex_array_drawing_request.hpp&quot;
++#include &quot;display/display.hpp&quot;
+ #include &quot;background_gradient.hpp&quot;
+ 
+ BackgroundGradient::BackgroundGradient(FileReader&amp; props)
+@@ -66,7 +67,7 @@
+   Color topcolor(0.0f, 0.0f, 0.5f);
+   Color bottomcolor(0.5f, 0.5f, 1.0f);
+ 
+-  Rect rect(0, 0, 800, 600);
++  Rect rect(0, 0, Display::get_width(), Display::get_height());
+   VertexArrayDrawingRequest* array = new VertexArrayDrawingRequest(Vector2f(0, 0), z_pos, 
+                                                                    sc.color().get_modelview());
+ 
+
+Modified: trunk/windstille/src/objects/nightvision.cpp
+===================================================================
+--- trunk/windstille/src/objects/nightvision.cpp	2009-03-09 17:14:01 UTC (rev 2604)
++++ trunk/windstille/src/objects/nightvision.cpp	2009-03-09 18:47:29 UTC (rev 2605)
+@@ -20,6 +20,7 @@
+ #include &quot;math/random.hpp&quot;
+ #include &quot;math/matrix.hpp&quot;
+ #include &quot;display/vertex_array_drawing_request.hpp&quot;
++#include &quot;display/display.hpp&quot;
+ #include &quot;display/texture_manager.hpp&quot;
+ #include &quot;nightvision.hpp&quot;
+ 
+@@ -68,13 +69,13 @@
+       array-&gt;vertex(0, 0);
+ 
+       array-&gt;texcoord(u + w, v);
+-      array-&gt;vertex(800, 0);
++      array-&gt;vertex(Display::get_width(), 0);
+ 
+       array-&gt;texcoord(u + w, v + h);
+-      array-&gt;vertex(800, 600);
++      array-&gt;vertex(Display::get_width(), Display::get_height());
+ 
+       array-&gt;texcoord(u, v + h);
+-      array-&gt;vertex(0, 600);
++      array-&gt;vertex(0, Display::get_height());
+       
+       if (0) // second noise level
+         {
+@@ -86,13 +87,13 @@
+           array-&gt;vertex(0, 0, 1.0f);
+ 
+           array-&gt;texcoord(u + size, v);
+-          array-&gt;vertex(800, 0, 1.0f);
++          array-&gt;vertex(Display::get_width(), 0, 1.0f);
+ 
+           array-&gt;texcoord(u + size, v + size);
+-          array-&gt;vertex(800, 600, 1.0f);
++          array-&gt;vertex(Display::get_width(), Display::get_height(), 1.0f);
+ 
+           array-&gt;texcoord(u, v + size);
+-          array-&gt;vertex(0, 600, 1.0f);
++          array-&gt;vertex(0, Display::get_height(), 1.0f);
+         }
+ 
+       sc.light().draw(array);
+@@ -108,9 +109,16 @@
+ 
+       sc.highlight().push_modelview();
+       sc.highlight().set_modelview(Matrix::identity());
++
+       nightvision.set_alpha(0.5f);
+       nightvision.set_blend_func(GL_SRC_ALPHA, GL_ONE);
+-      sc.highlight().draw(nightvision, Vector2f(0, 0), 10000);
++      nightvision.set_scale(std::max(float(Display::get_width())  / nightvision.get_width(),
++                                     float(Display::get_height()) / nightvision.get_height()));
++
++      sc.highlight().draw(nightvision, 
++                          Vector2f(Display::get_width() /2  - (nightvision.get_width()  * nightvision.get_scale()/2),
++                                   Display::get_height()/2  - (nightvision.get_height() * nightvision.get_scale()/2)),
++                          10000);
+       sc.highlight().pop_modelview();
+     }
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001601.html">[Windstille-commit] r2604 - trunk/windstille/src/screen
+</A></li>
+	<LI>Next message: <A HREF="001603.html">[Windstille-commit] r2606 - trunk/windstille/src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1602">[ date ]</a>
+              <a href="thread.html#1602">[ thread ]</a>
+              <a href="subject.html#1602">[ subject ]</a>
+              <a href="author.html#1602">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

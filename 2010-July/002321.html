@@ -1,0 +1,249 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3324 - trunk/windstille/src/sound
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3324%20-%20trunk/windstille/src/sound&In-Reply-To=%3C20100721014616.04FF84805B1%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002320.html">
+   <LINK REL="Next"  HREF="002322.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3324 - trunk/windstille/src/sound</H1>
+    <B>grumbel at mail.berlios.de</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3324%20-%20trunk/windstille/src/sound&In-Reply-To=%3C20100721014616.04FF84805B1%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3324 - trunk/windstille/src/sound">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Jul 21 03:46:15 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002320.html">[Windstille-commit] r3323 - in trunk/windstille: extra src/sound
+</A></li>
+        <LI>Next message: <A HREF="002322.html">[Windstille-commit] r3325 - in trunk/windstille/src: app sound
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2321">[ date ]</a>
+              <a href="thread.html#2321">[ thread ]</a>
+              <a href="subject.html#2321">[ subject ]</a>
+              <a href="author.html#2321">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2010-07-21 03:46:15 +0200 (Wed, 21 Jul 2010)
+New Revision: 3324
+
+Modified:
+   trunk/windstille/src/sound/sound_manager.cpp
+   trunk/windstille/src/sound/sound_source.cpp
+   trunk/windstille/src/sound/sound_source.hpp
+   trunk/windstille/src/sound/stream_sound_source.cpp
+Log:
+Some more error checking and cleanup
+
+
+Modified: trunk/windstille/src/sound/sound_manager.cpp
+===================================================================
+--- trunk/windstille/src/sound/sound_manager.cpp	2010-07-20 22:09:29 UTC (rev 3323)
++++ trunk/windstille/src/sound/sound_manager.cpp	2010-07-21 01:46:15 UTC (rev 3324)
+@@ -154,9 +154,7 @@
+     }
+   
+     SoundSourcePtr source(new SoundSource(channel));
+-
+-    alSourcei(source-&gt;get_id(), AL_BUFFER, buffer);
+-
++    source-&gt;set_buffer(buffer);
+     return source;
+   }
+ }
+@@ -244,8 +242,6 @@
+       {
+         std::auto_ptr&lt;StreamSoundSource&gt; newmusic(new StreamSoundSource(m_music_channel, SoundFile::load(filename)));
+ 
+-        alSourcef(newmusic-&gt;get_id(), AL_ROLLOFF_FACTOR, 0);
+- 
+         if (fade) 
+         {
+           if (m_music_source.get() &amp;&amp;
+
+Modified: trunk/windstille/src/sound/sound_source.cpp
+===================================================================
+--- trunk/windstille/src/sound/sound_source.cpp	2010-07-20 22:09:29 UTC (rev 3323)
++++ trunk/windstille/src/sound/sound_source.cpp	2010-07-21 01:46:15 UTC (rev 3324)
+@@ -37,6 +37,7 @@
+ {
+   stop();
+   alDeleteSources(1, &amp;m_source);
++  SoundManager::check_al_error(&quot;Couldn't delete source: &quot;);
+ }
+ 
+ void
+@@ -66,8 +67,18 @@
+ {
+   // FIXME: Need to be adopted for streaming sound
+   alSourcef(m_source, AL_SEC_OFFSET, sec);
++  SoundManager::check_al_error(&quot;SoundSource::seek_to: &quot;);
+ }
+ 
++float
++SoundSource::get_pos() const
++{
++  float sec = 0.0f;
++  alGetSourcef(m_source, AL_SEC_OFFSET, &amp;sec);
++  SoundManager::check_al_error(&quot;SoundSource::get_pos: &quot;);
++  return sec;
++}
++
+ bool
+ SoundSource::is_playing() const
+ {
+@@ -80,18 +91,21 @@
+ SoundSource::set_looping(bool looping)
+ {
+   alSourcei(m_source, AL_LOOPING, looping ? AL_TRUE : AL_FALSE);
++  SoundManager::check_al_error(&quot;SoundSource::set_looping: &quot;);
+ }
+ 
+ void
+ SoundSource::set_position(const Vector2f&amp; position)
+ {
+   alSource3f(m_source, AL_POSITION, position.x, position.y, 0);
++  SoundManager::check_al_error(&quot;SoundSource::set_position: &quot;);
+ }
+ 
+ void
+ SoundSource::set_velocity(const Vector2f&amp; velocity)
+ {
+   alSource3f(m_source, AL_VELOCITY, velocity.x, velocity.y, 0);
++  SoundManager::check_al_error(&quot;SoundSource::set_velocity: &quot;);
+ }
+ 
+ void
+@@ -99,6 +113,7 @@
+ {
+   m_gain = gain;
+   alSourcef(m_source, AL_GAIN, m_channel.get_volume() * m_gain);
++  SoundManager::check_al_error(&quot;SoundSource::set_gain: &quot;);
+ }
+ 
+ float
+@@ -111,18 +126,28 @@
+ SoundSource::set_reference_distance(float distance)
+ {
+   alSourcef(m_source, AL_REFERENCE_DISTANCE, distance);
++  SoundManager::check_al_error(&quot;SoundSource::set_reference_distance: &quot;);
+ }
+ 
+ void
+ SoundSource::set_rolloff_factor(float factor)
+ {
+   alSourcef(m_source, AL_ROLLOFF_FACTOR, factor);
++  SoundManager::check_al_error(&quot;SoundSource::set_rolloff_factor: &quot;);
+ }
+ 
+ void
+ SoundSource::update_volume() const
+ {
+   alSourcef(m_source, AL_GAIN, m_channel.get_volume() * get_gain());
++  SoundManager::check_al_error(&quot;SoundSource::update_volume: &quot;);
+ }
+ 
++void
++SoundSource::set_buffer(ALuint buffer)
++{
++  alSourcei(m_source, AL_BUFFER, buffer);
++  SoundManager::check_al_error(&quot;SoundSource::set_buffer: &quot;);
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/sound/sound_source.hpp
+===================================================================
+--- trunk/windstille/src/sound/sound_source.hpp	2010-07-20 22:09:29 UTC (rev 3323)
++++ trunk/windstille/src/sound/sound_source.hpp	2010-07-21 01:46:15 UTC (rev 3324)
+@@ -43,18 +43,27 @@
+   void  set_gain(float gain);
+   float get_gain() const;
+ 
+-  void seek_to(float sec);
++  void  seek_to(float sec);
+ 
++  /** Return the current position in seconds */
++  float get_pos() const;
++
+   void set_position(const Vector2f&amp; position);
+   void set_velocity(const Vector2f&amp; position);
++
++  /** Distances closer then reference distance will increase the gain
++      (or keep it at 1.0f), while distances further away will lower it */
+   void set_reference_distance(float distance);
++
++  /** Higher factor will mean the sound gain lowers quicker with
++      distance, while lower factor will reduce the lowering of gain */
+   void set_rolloff_factor(float factor);
+ 
++  void set_buffer(ALuint buffer);
++
+   /** Needs to be called whenever the SoundChannels volume changes */
+   void update_volume() const;
+ 
+-  ALuint get_id() const { return m_source; }
+-  
+ protected:
+   SoundChannel&amp; m_channel;
+   ALuint m_source;
+
+Modified: trunk/windstille/src/sound/stream_sound_source.cpp
+===================================================================
+--- trunk/windstille/src/sound/stream_sound_source.cpp	2010-07-20 22:09:29 UTC (rev 3323)
++++ trunk/windstille/src/sound/stream_sound_source.cpp	2010-07-21 01:46:15 UTC (rev 3324)
+@@ -76,7 +76,7 @@
+ 
+       ALuint buffer;
+       alSourceUnqueueBuffers(m_source, 1, &amp;buffer);
+-      SoundManager::check_al_error(&quot;Couldn't unqueu audio buffer: &quot;);
++      SoundManager::check_al_error(&quot;Couldn't unqueue audio buffer: &quot;);
+ 
+       fillBufferAndQueue(buffer);
+     }
+@@ -143,7 +143,7 @@
+     {
+       file-&gt;reset();
+     }
+-  } 
++  }
+   while(bytesread &lt; STREAMFRAGMENTSIZE);
+   
+   alBufferData(buffer, format, bufferdata.get(), STREAMFRAGMENTSIZE, file-&gt;get_rate());
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002320.html">[Windstille-commit] r3323 - in trunk/windstille: extra src/sound
+</A></li>
+	<LI>Next message: <A HREF="002322.html">[Windstille-commit] r3325 - in trunk/windstille/src: app sound
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2321">[ date ]</a>
+              <a href="thread.html#2321">[ thread ]</a>
+              <a href="subject.html#2321">[ subject ]</a>
+              <a href="author.html#2321">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

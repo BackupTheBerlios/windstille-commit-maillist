@@ -1,0 +1,352 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1202 - in trunk/src: . scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1202%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200601081420.k08EKV0f016291%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000854.html">
+   <LINK REL="Next"  HREF="000856.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1202 - in trunk/src: . scripting</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1202%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200601081420.k08EKV0f016291%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1202 - in trunk/src: . scripting">grumbel at berlios.de
+       </A><BR>
+    <I>Sun Jan  8 15:20:31 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000854.html">[Windstille-commit] r1201 - in trunk/src: . gui particles
+</A></li>
+        <LI>Next message: <A HREF="000856.html">[Windstille-commit] r1203 - in trunk: data/levels data/scripts src src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#855">[ date ]</a>
+              <a href="thread.html#855">[ thread ]</a>
+              <a href="subject.html#855">[ subject ]</a>
+              <a href="author.html#855">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-01-08 15:20:30 +0100 (Sun, 08 Jan 2006)
+New Revision: 1202
+
+Modified:
+   trunk/src/game_session.cpp
+   trunk/src/game_session.hpp
+   trunk/src/particle_viewer.cpp
+   trunk/src/script_manager.cpp
+   trunk/src/script_manager.hpp
+   trunk/src/scripting/interface.cpp
+   trunk/src/scripting/interface.hpp
+   trunk/src/scripting/wrapper.cpp
+Log:
+- replaced WakeupEvent with WakeupData, so one can also store userdata in a wakeupevent (pointer to a gameobject, an id and such)
+
+Modified: trunk/src/game_session.cpp
+===================================================================
+--- trunk/src/game_session.cpp	2006-01-07 16:51:56 UTC (rev 1201)
++++ trunk/src/game_session.cpp	2006-01-08 14:20:30 UTC (rev 1202)
+@@ -469,4 +469,10 @@
+   impl-&gt;next_action = GameSessionImpl::NO_ACTION;
+ }
+ 
++SceneContext*
++GameSession::get_scene_context()
++{
++  return &amp;(impl-&gt;sc);
++}
++
+ /* EOF */
+
+Modified: trunk/src/game_session.hpp
+===================================================================
+--- trunk/src/game_session.hpp	2006-01-07 16:51:56 UTC (rev 1201)
++++ trunk/src/game_session.hpp	2006-01-08 14:20:30 UTC (rev 1202)
+@@ -89,6 +89,7 @@
+ 
+   void quit();
+ 
++  SceneContext* get_scene_context();
+ private:
+   SharedPtr&lt;GameSessionImpl&gt; impl;
+ };
+
+Modified: trunk/src/particle_viewer.cpp
+===================================================================
+--- trunk/src/particle_viewer.cpp	2006-01-07 16:51:56 UTC (rev 1201)
++++ trunk/src/particle_viewer.cpp	2006-01-08 14:20:30 UTC (rev 1202)
+@@ -71,7 +71,7 @@
+     velocity_slider-&gt;set_step(50);
+     velocity_slider-&gt;set_pos(10);//psystem-&gt;get_count());
+ 
+-    count_slider-&gt;set_range(1, 200);
++    count_slider-&gt;set_range(1, 500);
+     count_slider-&gt;set_step(10);
+     count_slider-&gt;set_pos(psystem-&gt;get_count());
+ 
+
+Modified: trunk/src/script_manager.cpp
+===================================================================
+--- trunk/src/script_manager.cpp	2006-01-07 16:51:56 UTC (rev 1201)
++++ trunk/src/script_manager.cpp	2006-01-08 14:20:30 UTC (rev 1202)
+@@ -127,7 +127,7 @@
+     int vm_state = sq_getvmstate(squirrel_vm.vm);
+     
+     if(vm_state == SQ_VMSTATE_SUSPENDED &amp;&amp; squirrel_vm.wakeup_time &gt; 0 &amp;&amp; game_time &gt;= squirrel_vm.wakeup_time) {
+-      squirrel_vm.waiting_for_events = 0;
++      squirrel_vm.waiting_for_events = WakeupData(NO_EVENT);
+       try {
+         if(sq_wakeupvm(squirrel_vm.vm, false, false) &lt; 0) {
+           throw SquirrelError(squirrel_vm.vm, &quot;Couldn't resume script&quot;);
+@@ -151,8 +151,21 @@
+ }
+ 
+ void
++ScriptManager::set_wakeup_event(HSQUIRRELVM vm, WakeupData  event, float timeout)
++{
++  set_wakeup_event(vm, event.type, timeout);
++}
++
++void
++ScriptManager::fire_wakeup_event(WakeupData  event)
++{
++  fire_wakeup_event(event.type);
++}
++
++void
+ ScriptManager::set_wakeup_event(HSQUIRRELVM vm, WakeupEvent event, float time)
+ {
++  assert(event &gt;= 0 &amp;&amp; event &lt; MAX_WAKEUP_EVENT_COUNT);
+   // find the VM in the list and update it
+   for(SquirrelVMs::iterator i = squirrel_vms.begin(); i != squirrel_vms.end(); ++i) {
+     SquirrelVM&amp; squirrel_vm = *i;
+@@ -162,7 +175,7 @@
+       } else {
+         squirrel_vm.wakeup_time = game_time + time;
+       }
+-      squirrel_vm.waiting_for_events |= event;
++      squirrel_vm.waiting_for_events = WakeupData(event);
+       return;
+     }
+   }
+@@ -171,9 +184,10 @@
+ void
+ ScriptManager::fire_wakeup_event(WakeupEvent event)
+ {
++  assert(event &gt;= 0 &amp;&amp; event &lt; MAX_WAKEUP_EVENT_COUNT);
+   for(SquirrelVMs::iterator i = squirrel_vms.begin(); i != squirrel_vms.end(); ++i) {
+     SquirrelVM&amp; vm = *i;
+-    if(vm.waiting_for_events &amp; event) {
++    if(vm.waiting_for_events.type == event) {
+       vm.wakeup_time = game_time;
+     }
+   }
+@@ -193,9 +207,11 @@
+ }
+ 
+ ScriptManager::SquirrelVM::SquirrelVM(const std::string&amp; arg_name, HSQUIRRELVM arg_vm, HSQOBJECT arg_obj)
+-  : name(arg_name), vm(arg_vm), vm_obj(arg_obj)
++  : name(arg_name),
++    vm(arg_vm), 
++    vm_obj(arg_obj)
+ {
+-  waiting_for_events = 0;
+-  wakeup_time = 0;
++  waiting_for_events = WakeupData(NO_EVENT);
++  wakeup_time        = 0;
+ }
+ 
+
+Modified: trunk/src/script_manager.hpp
+===================================================================
+--- trunk/src/script_manager.hpp	2006-01-07 16:51:56 UTC (rev 1201)
++++ trunk/src/script_manager.hpp	2006-01-08 14:20:30 UTC (rev 1202)
+@@ -34,16 +34,32 @@
+   }
+ 
+   enum WakeupEvent {
+-    // FIXME: Does/should this be a bitmask is a are normal enum enough?
+-    TIME                = (1 &lt;&lt; 0),
+-    DIALOG_CLOSED       = (1 &lt;&lt; 1),
+-    CONVERSATION_CLOSED = (1 &lt;&lt; 2),
+-    FADE_DONE           = (1 &lt;&lt; 3),
+-    CAMERA_DONE         = (1 &lt;&lt; 4)
+-  };                  
++    NO_EVENT,
++    TIME,
++    DIALOG_CLOSED,
++    CONVERSATION_CLOSED,
++    FADE_DONE,
++    CAMERA_DONE,
++    GAMEOBJECT_DONE,
++    MAX_WAKEUP_EVENT_COUNT
++  };
+ 
++  struct WakeupData {
++    WakeupEvent type;
++
++    explicit WakeupData() : type(NO_EVENT) {}
++    explicit WakeupData(WakeupEvent type_) : type(type_) {}
++
++    union {
++      // GAMEOBJECT_DONE
++      GameObject* game_object;
++    };
++  };
++
+   void set_wakeup_event(HSQUIRRELVM vm, WakeupEvent event, float timeout = -1);
++  void set_wakeup_event(HSQUIRRELVM vm, WakeupData  event, float timeout = -1);
+   void fire_wakeup_event(WakeupEvent event);
++  void fire_wakeup_event(WakeupData  event);
+   
+   bool run_before(HSQUIRRELVM vm);
+ 
+@@ -54,9 +70,9 @@
+     SquirrelVM(const std::string&amp; arg_name, HSQUIRRELVM arg_vm, HSQOBJECT arg_obj);
+     std::string name;
+     HSQUIRRELVM vm;
+-    HSQOBJECT vm_obj;
+-    float wakeup_time;
+-    int waiting_for_events;
++    HSQOBJECT   vm_obj;
++    float       wakeup_time;
++    WakeupData  waiting_for_events;
+   };
+   
+   typedef std::list&lt;SquirrelVM&gt; SquirrelVMs;
+
+Modified: trunk/src/scripting/interface.cpp
+===================================================================
+--- trunk/src/scripting/interface.cpp	2006-01-07 16:51:56 UTC (rev 1201)
++++ trunk/src/scripting/interface.cpp	2006-01-08 14:20:30 UTC (rev 1202)
+@@ -294,6 +294,17 @@
+   GameSession::current()-&gt;fadein(time);
+ }
+ 
++int  render_mask_get()
++{
++  return GameSession::current()-&gt;get_scene_context()-&gt;get_render_mask();
++}
++
++void render_mask_set(int mask)
++{
++  GameSession::current()-&gt;get_scene_context()-&gt;set_render_mask(mask);
++}
++
++
+ } // namespace Scripting
+ 
+ /* EOF */
+
+Modified: trunk/src/scripting/interface.hpp
+===================================================================
+--- trunk/src/scripting/interface.hpp	2006-01-07 16:51:56 UTC (rev 1201)
++++ trunk/src/scripting/interface.hpp	2006-01-08 14:20:30 UTC (rev 1202)
+@@ -31,8 +31,7 @@
+ #include &lt;squirrel.h&gt;
+ #endif
+ 
+-namespace Scripting
+-{
++namespace Scripting {
+ 
+ void set_sector(const std::string&amp; filename);
+ 
+@@ -109,6 +108,9 @@
+ void internal_fadeout_rgb(float time, float r, float g, float b);
+ void internal_fadein(float time);
+ 
++int  render_mask_get();
++void render_mask_set(int mask);
++
+ } // namespace Scripting
+ 
+ #endif
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2006-01-07 16:51:56 UTC (rev 1201)
++++ trunk/src/scripting/wrapper.cpp	2006-01-08 14:20:30 UTC (rev 1202)
+@@ -652,6 +652,25 @@
+   return 0;
+ }
+ 
++static int render_mask_get_wrapper(HSQUIRRELVM v)
++{
++  
++  int return_value = Scripting::render_mask_get();
++  
++  sq_pushinteger(v, return_value);
++  return 1;
++}
++
++static int render_mask_set_wrapper(HSQUIRRELVM v)
++{
++  int arg0;
++  sq_getinteger(v, 2, &amp;arg0);
++  
++  Scripting::render_mask_set(arg0);
++  
++  return 0;
++}
++
+ static int spawn_object_wrapper(HSQUIRRELVM v)
+ {
+   return Scripting::spawn_object(v);
+@@ -1168,6 +1187,22 @@
+     throw SquirrelError(v, msg.str());
+   }
+ 
++  sq_pushstring(v, &quot;render_mask_get&quot;, -1);
++  sq_newclosure(v, &amp;render_mask_get_wrapper, 0);
++  if(SQ_FAILED(sq_createslot(v, -3))) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'render_mask_get'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  sq_pushstring(v, &quot;render_mask_set&quot;, -1);
++  sq_newclosure(v, &amp;render_mask_set_wrapper, 0);
++  if(SQ_FAILED(sq_createslot(v, -3))) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'render_mask_set'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
+   sq_pushstring(v, &quot;spawn_object&quot;, -1);
+   sq_newclosure(v, &amp;spawn_object_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000854.html">[Windstille-commit] r1201 - in trunk/src: . gui particles
+</A></li>
+	<LI>Next message: <A HREF="000856.html">[Windstille-commit] r1203 - in trunk: data/levels data/scripts src src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#855">[ date ]</a>
+              <a href="thread.html#855">[ thread ]</a>
+              <a href="subject.html#855">[ subject ]</a>
+              <a href="author.html#855">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

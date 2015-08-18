@@ -1,0 +1,222 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3212 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3212%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909090507.n8957T9H007773%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002208.html">
+   <LINK REL="Next"  HREF="002210.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3212 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3212%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909090507.n8957T9H007773%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3212 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Sep  9 07:07:29 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002208.html">[Windstille-commit] r3211 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="002210.html">[Windstille-commit] r3213 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2209">[ date ]</a>
+              <a href="thread.html#2209">[ thread ]</a>
+              <a href="subject.html#2209">[ subject ]</a>
+              <a href="author.html#2209">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-09 07:07:28 +0200 (Wed, 09 Sep 2009)
+New Revision: 3212
+
+Modified:
+   trunk/windstille/src/editor/document.cpp
+   trunk/windstille/src/editor/document.hpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+Log:
+Moved file loading into constructor, implemented undo_group_begin/end
+
+Modified: trunk/windstille/src/editor/document.cpp
+===================================================================
+--- trunk/windstille/src/editor/document.cpp	2009-09-09 04:45:59 UTC (rev 3211)
++++ trunk/windstille/src/editor/document.cpp	2009-09-09 05:07:28 UTC (rev 3212)
+@@ -35,20 +35,21 @@
+ Document::Document()
+   : m_undo_manager(new UndoManager()),
+     m_sector_model(new SectorModel()),
++    m_group_command(),
+     m_selection(Selection::create()),
+     m_control_points(),
+-    m_sig_on_change()
++    m_sig_on_change()    
+ {
+ }
+ 
+ Document::Document(const std::string&amp; filename)
+   : m_undo_manager(new UndoManager()),
+-    m_sector_model(new SectorModel()),
++    m_sector_model(new SectorModel(filename)),
++    m_group_command(),
+     m_selection(Selection::create()),
+     m_control_points(),
+     m_sig_on_change()
+ {
+-  m_sector_model-&gt;load(filename);
+ }
+ 
+ Document::~Document()
+@@ -70,11 +71,15 @@
+ void
+ Document::undo_group_begin()
+ {
++  assert(!m_group_command);
++  m_group_command.reset(new GroupCommand());
+ }
+ 
+ void
+ Document::undo_group_end()
+ {
++  execute(m_group_command);
++  m_group_command.reset();
+ }
+ 
+ bool
+@@ -92,11 +97,17 @@
+ void
+ Document::execute(CommandHandle cmd)
+ {
+-  // FIXME: All stuff should be routed through this
+-  m_undo_manager-&gt;execute(cmd);
+-  EditorWindow::current()-&gt;update_undo_state();
+-  m_sector_model-&gt;rebuild_scene_graph();
+-  m_sig_on_change();
++  if (m_group_command)
++  {
++    m_group_command-&gt;add(cmd);
++  }
++  else
++  {
++    m_undo_manager-&gt;execute(cmd);
++    EditorWindow::current()-&gt;update_undo_state();
++    m_sector_model-&gt;rebuild_scene_graph();
++    m_sig_on_change();
++  }
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/editor/document.hpp
+===================================================================
+--- trunk/windstille/src/editor/document.hpp	2009-09-09 04:45:59 UTC (rev 3211)
++++ trunk/windstille/src/editor/document.hpp	2009-09-09 05:07:28 UTC (rev 3212)
+@@ -22,6 +22,7 @@
+ #include &lt;boost/scoped_ptr.hpp&gt;
+ #include &lt;boost/function.hpp&gt;
+ 
++#include &quot;editor/group_command.hpp&quot;
+ #include &quot;editor/selection.hpp&quot;
+ #include &quot;editor/command.hpp&quot;
+ #include &quot;editor/layer.hpp&quot;
+@@ -40,6 +41,7 @@
+   boost::scoped_ptr&lt;UndoManager&gt; m_undo_manager;
+   boost::scoped_ptr&lt;SectorModel&gt; m_sector_model;
+ 
++  boost::shared_ptr&lt;GroupCommand&gt; m_group_command;
+   SelectionHandle m_selection;
+ 
+   std::vector&lt;ControlPointHandle&gt; m_control_points;
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-09-09 04:45:59 UTC (rev 3211)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-09-09 05:07:28 UTC (rev 3212)
+@@ -38,6 +38,16 @@
+ 
+ LayerManagerColumns* LayerManagerColumns::instance_ = 0;
+ 
++
++SectorModel::SectorModel(const std::string&amp; filename)
++  : nav_graph(new NavigationGraph()),
++    scene_graph(new SceneGraph()),
++    layer_tree(),
++    ambient_color()
++{
++  load(filename);
++}
++
+ SectorModel::SectorModel()
+   : nav_graph(new NavigationGraph()),
+     scene_graph(new SceneGraph()),
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-09-09 04:45:59 UTC (rev 3211)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-09-09 05:07:28 UTC (rev 3212)
+@@ -86,6 +86,7 @@
+   typedef std::vector&lt;LayerHandle&gt; Layers;
+ 
+   SectorModel();
++  SectorModel(const std::string&amp; filename);
+   ~SectorModel();
+ 
+   void draw(SceneContext&amp; sc, const SelectMask&amp; layers);
+@@ -129,10 +130,6 @@
+ 
+   SnapData snap_object(const Rectf&amp; object, const std::set&lt;ObjectModelHandle&gt;&amp; ignore_objects) const;
+ 
+-  void load(const std::string&amp; filename);
+-  void load_layer(const FileReader&amp; filename, 
+-                  std::map&lt;std::string, ObjectModelHandle&gt;&amp; id_table,
+-                  std::map&lt;ObjectModelHandle, std::string&gt;&amp; parent_table);
+   void write(FileWriter&amp; writer) const;
+ 
+   NavigationGraph&amp; get_nav_graph()   const { return *nav_graph; }
+@@ -147,6 +144,12 @@
+   void rebuild_scene_graph();
+ 
+ private:
++  void load(const std::string&amp; filename);
++  void load_layer(const FileReader&amp; filename, 
++                  std::map&lt;std::string, ObjectModelHandle&gt;&amp; id_table,
++                  std::map&lt;ObjectModelHandle, std::string&gt;&amp; parent_table); 
++
++private:
+   SectorModel(const SectorModel&amp;);
+   SectorModel&amp; operator=(const SectorModel&amp;);
+ };
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002208.html">[Windstille-commit] r3211 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="002210.html">[Windstille-commit] r3213 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2209">[ date ]</a>
+              <a href="thread.html#2209">[ thread ]</a>
+              <a href="subject.html#2209">[ subject ]</a>
+              <a href="author.html#2209">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

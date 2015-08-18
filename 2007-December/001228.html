@@ -1,0 +1,676 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1577 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-December/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1577%20-%20trunk/griv&In-Reply-To=%3C200712032302.lB3N2p8P009336%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001227.html">
+   <LINK REL="Next"  HREF="001229.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1577 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1577%20-%20trunk/griv&In-Reply-To=%3C200712032302.lB3N2p8P009336%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1577 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Dec  4 00:02:51 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001227.html">[Windstille-commit] r1576 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001229.html">[Windstille-commit] r1578 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1228">[ date ]</a>
+              <a href="thread.html#1228">[ thread ]</a>
+              <a href="subject.html#1228">[ subject ]</a>
+              <a href="author.html#1228">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-12-04 00:02:50 +0100 (Tue, 04 Dec 2007)
+New Revision: 1577
+
+Added:
+   trunk/griv/thumbnail_manager.cpp
+   trunk/griv/thumbnail_manager.hpp
+Removed:
+   trunk/griv/thumb_cache.cpp
+   trunk/griv/thumb_cache.hpp
+Modified:
+   trunk/griv/README
+   trunk/griv/SConstruct
+   trunk/griv/TODO
+   trunk/griv/loader.cpp
+   trunk/griv/loader.hpp
+   trunk/griv/md5.cpp
+   trunk/griv/thumbnail_store.cpp
+   trunk/griv/thumbnail_store.hpp
+Log:
+- renamed ThumbnailStore to ThumbnailManager
+
+Modified: trunk/griv/README
+===================================================================
+--- trunk/griv/README	2007-12-03 22:28:52 UTC (rev 1576)
++++ trunk/griv/README	2007-12-03 23:02:50 UTC (rev 1577)
+@@ -3,7 +3,7 @@
+ 
+ griv is a image viewer that allows you to directly zoom into
+ thumbnails. Its goal is to allow its viewer to view 100'000 images at
+-once fluently without any noticable load times.
++once, fluently without any noticable load times.
+ 
+ Usage:
+ ======
+@@ -13,9 +13,9 @@
+  $ ./griv [PATHNAME]...
+ 
+ Optionally you can pre-generate the thumbnails, which results in
+-a smoother experience by calling:
++a smoother experience by calling (strongly recomment):
+ 
+- $ ./thumbgen -s 16,32,64,128,256,512,1024 [PATHNAME]...
++ $ ./thumbgen -a [PATHNAME]...
+ 
+ For very large image collections it is recomment that you pregenerate
+ the URL list to avoid slow startup due to file-io:
+
+Modified: trunk/griv/SConstruct
+===================================================================
+--- trunk/griv/SConstruct	2007-12-03 22:28:52 UTC (rev 1576)
++++ trunk/griv/SConstruct	2007-12-03 23:02:50 UTC (rev 1577)
+@@ -20,6 +20,7 @@
+                           'large_surface.cpp',
+                           'software_surface.cpp',
+                           'thumbnail_store.cpp',
++                          'thumbnail_manager.cpp',
+                           'display.cpp', 
+                           'texture.cpp', 
+                           'workspace.cpp'])
+
+Modified: trunk/griv/TODO
+===================================================================
+--- trunk/griv/TODO	2007-12-03 22:28:52 UTC (rev 1576)
++++ trunk/griv/TODO	2007-12-03 23:02:50 UTC (rev 1577)
+@@ -8,6 +8,10 @@
+ 
+ - move over input code from Pingus to support Spacenavigator and such
+ 
++- need a way to cleanly shut down the whole thing instead of just exit()
++
++- don't store MD5 as string, but as raw bits/bytes
++
+ Less Important:
+ ===============
+ 
+
+Modified: trunk/griv/loader.cpp
+===================================================================
+--- trunk/griv/loader.cpp	2007-12-03 22:28:52 UTC (rev 1576)
++++ trunk/griv/loader.cpp	2007-12-03 23:02:50 UTC (rev 1577)
+@@ -32,7 +32,7 @@
+ #include &quot;image.hpp&quot;
+ #include &quot;loader.hpp&quot;
+ #include &quot;surface.hpp&quot;
+-#include &quot;thumbnail_store.hpp&quot;
++#include &quot;thumbnail_manager.hpp&quot;
+ 
+ Loader loader;
+ 
+@@ -73,7 +73,7 @@
+ {
+   if (!store)
+     {
+-      store = new ThumbnailStore();
++      store = new ThumbnailManager();
+     }
+ 
+   if (!thread)
+
+Modified: trunk/griv/loader.hpp
+===================================================================
+--- trunk/griv/loader.hpp	2007-12-03 22:28:52 UTC (rev 1576)
++++ trunk/griv/loader.hpp	2007-12-03 23:02:50 UTC (rev 1577)
+@@ -32,7 +32,7 @@
+ #include &lt;string&gt;
+ #include &lt;vector&gt;
+ 
+-class ThumbnailStore;
++class ThumbnailManager;
+ class Image;
+ 
+ struct Job
+@@ -50,7 +50,7 @@
+ private:
+   typedef std::vector&lt;Job&gt; Jobs;
+   Jobs jobs;
+-  ThumbnailStore* store;
++  ThumbnailManager* store;
+   SDL_mutex* mutex;
+   SDL_Thread* thread;
+   bool keep_thread_running;
+
+Modified: trunk/griv/md5.cpp
+===================================================================
+--- trunk/griv/md5.cpp	2007-12-03 22:28:52 UTC (rev 1576)
++++ trunk/griv/md5.cpp	2007-12-03 23:02:50 UTC (rev 1577)
+@@ -78,7 +78,6 @@
+   std::ostringstream out;
+   for (int i = 0; i &lt; 16; i++)
+     out &lt;&lt; std::setfill('0') &lt;&lt; std::setw(2) &lt;&lt; std::hex &lt;&lt; int(hash[i]);
+-
+   return out.str();  
+ }
+ 
+
+Deleted: trunk/griv/thumb_cache.cpp
+===================================================================
+--- trunk/griv/thumb_cache.cpp	2007-12-03 22:28:52 UTC (rev 1576)
++++ trunk/griv/thumb_cache.cpp	2007-12-03 23:02:50 UTC (rev 1577)
+@@ -1,55 +0,0 @@
+-/*  $Id$
+-**   __      __ __             ___        __   __ __   __
+-**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
+-**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
+-**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
+-**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
+-**         \/          \/      \/    \/                         \/
+-**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+-**
+-**  This program is free software; you can redistribute it and/or
+-**  modify it under the terms of the GNU General Public License
+-**  as published by the Free Software Foundation; either version 2
+-**  of the License, or (at your option) any later version.
+-**
+-**  This program is distributed in the hope that it will be useful,
+-**  but WITHOUT ANY WARRANTY; without even the implied warranty of
+-**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-**  GNU General Public License for more details.
+-** 
+-**  You should have received a copy of the GNU General Public License
+-**  along with this program; if not, write to the Free Software
+-**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
+-**  02111-1307, USA.
+-*/
+-
+-#include &quot;thumb_cache.hpp&quot;
+-
+-ThumbCache::ThumbCache(const std::string&amp; filename)
+-{
+-  in = std::ifstream(filename.c_str(), std::ios::in | std::ios::binary);
+-}
+-
+-ThumbCache::~ThumbCache()
+-{
+-}
+-
+-SDL_Surface*
+-ThumbCache::get(int offset)
+-{
+-  
+-}
+-
+-void
+-ThumbCache::add(SDL_Surface* surface)
+-{
+-  
+-}
+-
+-void
+-ThumbCache::save(const std::string&amp; filename)
+-{
+-  
+-}
+-
+-/* EOF */
+
+Deleted: trunk/griv/thumb_cache.hpp
+===================================================================
+--- trunk/griv/thumb_cache.hpp	2007-12-03 22:28:52 UTC (rev 1576)
++++ trunk/griv/thumb_cache.hpp	2007-12-03 23:02:50 UTC (rev 1577)
+@@ -1,53 +0,0 @@
+-/*  $Id$
+-**   __      __ __             ___        __   __ __   __
+-**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
+-**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
+-**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
+-**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
+-**         \/          \/      \/    \/                         \/
+-**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+-**
+-**  This program is free software; you can redistribute it and/or
+-**  modify it under the terms of the GNU General Public License
+-**  as published by the Free Software Foundation; either version 2
+-**  of the License, or (at your option) any later version.
+-**
+-**  This program is distributed in the hope that it will be useful,
+-**  but WITHOUT ANY WARRANTY; without even the implied warranty of
+-**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-**  GNU General Public License for more details.
+-** 
+-**  You should have received a copy of the GNU General Public License
+-**  along with this program; if not, write to the Free Software
+-**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
+-**  02111-1307, USA.
+-*/
+-
+-#ifndef HEADER_THUMB_CACHE_HPP
+-#define HEADER_THUMB_CACHE_HPP
+-
+-#include &lt;fstream&gt;
+-
+-/** */
+-class ThumbCache
+-{
+-private:
+-  std::ifstream in;
+-  
+-public:
+-  ThumbCache(const std::string&amp; filename);
+-  ~ThumbCache();
+-
+-  SDL_Surface* get(int offset);
+-  void add(SDL_Surface* surface);
+-  
+-  void save(const std::string&amp; filename);
+-
+-private:
+-  ThumbCache (const ThumbCache&amp;);
+-  ThumbCache&amp; operator= (const ThumbCache&amp;);
+-};
+-
+-#endif
+-
+-/* EOF */
+
+Copied: trunk/griv/thumbnail_manager.cpp (from rev 1576, trunk/griv/thumbnail_store.cpp)
+===================================================================
+--- trunk/griv/thumbnail_store.cpp	2007-12-03 22:28:52 UTC (rev 1576)
++++ trunk/griv/thumbnail_manager.cpp	2007-12-03 23:02:50 UTC (rev 1577)
+@@ -0,0 +1,154 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &quot;epeg/Epeg.h&quot;
++#include &lt;sstream&gt;
++#include &lt;iostream&gt;
++#include &lt;stdexcept&gt;
++#include &quot;SDL_image.h&quot;
++#include &quot;filesystem.hpp&quot;
++#include &quot;md5.hpp&quot;
++#include &quot;software_surface.hpp&quot;
++#include &quot;thumbnail_manager.hpp&quot;
++
++ThumbnailManager::ThumbnailManager()
++{
++  
++}
++
++ThumbnailManager::~ThumbnailManager()
++{
++  std::cout &lt;&lt; &quot;destroying ThumbnailManager&quot; &lt;&lt; std::endl;
++}
++
++SoftwareSurface* 
++ThumbnailManager::get_by_url(const std::string&amp; url, int thumb_size) // URL is <A HREF="file://...">file://...</A> *not* just a pathname
++{
++  if (thumb_size == -1) // load original
++    {
++      try 
++        { 
++          return new SoftwareSurface(url.substr(7)); // cut <A HREF="file://">file://</A> part
++        }
++      catch(std::exception&amp; err) 
++        {
++          std::cout &lt;&lt; &quot;Loader: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
++          return 0;
++        }
++    }
++  else
++    {
++      std::string md5 = MD5::md5_string(url);
++
++      std::ostringstream out;
++      out &lt;&lt; Filesystem::get_home() &lt;&lt; &quot;/.griv/cache/by_url/&quot;
++          &lt;&lt; thumb_size &lt;&lt; &quot;/&quot; &lt;&lt; md5.substr(0,2) &lt;&lt; &quot;/&quot; &lt;&lt; md5.substr(2) &lt;&lt; &quot;.jpg&quot;;
++  
++      std::string thumb_filename = out.str();
++  
++      try 
++        {
++          return new SoftwareSurface(thumb_filename);
++        }
++      catch(std::exception&amp; err) 
++        {
++          // Try to generate the thumbnail
++          try {
++            generate(url.substr(7), thumb_filename, thumb_size); // cut <A HREF="file://">file://</A> part
++          } catch (std::exception&amp; err) {
++            std::cout &lt;&lt; err.what() &lt;&lt; std::endl;
++            return 0;
++          }
++
++          // FIXME: This will fail for some images, which ones?
++          try {
++            return new SoftwareSurface(thumb_filename.c_str());
++          } catch(std::exception&amp; err) {
++            std::cout &lt;&lt; &quot;ThumbnailManager: FIXME: This shouldn't happen: &quot; &lt;&lt; err.what() &lt;&lt; &quot;\n&quot;
++                      &lt;&lt; &quot;  - for &quot; &lt;&lt; url
++                      &lt;&lt; std::endl;
++            return 0;
++          }
++        }
++    }
++}
++
++void
++ThumbnailManager::generate(const std::string&amp; filename, const std::string&amp; thumb_location, int thumb_size)
++{
++  Epeg_Image* img = epeg_file_open(filename.c_str());
++  if (!img)
++    {
++      throw std::runtime_error(&quot;ThumbnailManager::generate: Cannot open &quot; + filename);
++    }
++  
++  int w, h;
++  unsigned char* data = 0;
++  int   data_len = 0;
++  epeg_size_get(img, &amp;w, &amp;h);
++
++  if (w &gt; thumb_size || h &gt; thumb_size)
++    {
++      epeg_quality_set(img, 80);
++      epeg_thumbnail_comments_enable(img, 1);
++
++      if (w &gt; h)
++        epeg_decode_size_set(img, thumb_size, thumb_size * h / w);
++      else
++        epeg_decode_size_set(img, thumb_size * w / h, thumb_size);
++  
++      epeg_decode_colorspace_set(img, EPEG_RGB8);
++
++      std::cout &lt;&lt; &quot;.&quot; &lt;&lt; std::flush;
++      //std::cout &lt;&lt; thumb_size &lt;&lt; &quot; - &quot; &lt;&lt; filename &lt;&lt; &quot; =&gt; &quot; &lt;&lt; thumb_location &lt;&lt; std::endl;
++
++      epeg_file_output_set(img, thumb_location.c_str());
++      epeg_memory_output_set(img, &amp;data, &amp;data_len);
++      epeg_encode(img);
++    }
++      
++  epeg_close(img);
++
++  if (!data)
++    {
++      std::cout &lt;&lt; &quot;ThumbnailManager: generate: failed: &quot; &lt;&lt; filename &lt;&lt; std::endl;
++    }
++  else
++    {
++      Ofstreams::iterator i = ofstreams.find(thumb_size);
++      if (i == ofstreams.end())
++        {
++          std::cout &lt;&lt; &quot;ThumbnailManager: Don't have cache store for &quot; &lt;&lt; thumb_size &lt;&lt; std::endl;
++        }
++      else
++        {
++          
++        }
++      
++      free(data);
++    }
++}
++
++/* EOF */
+
+Copied: trunk/griv/thumbnail_manager.hpp (from rev 1572, trunk/griv/thumbnail_store.hpp)
+===================================================================
+--- trunk/griv/thumbnail_store.hpp	2007-12-02 20:32:00 UTC (rev 1572)
++++ trunk/griv/thumbnail_manager.hpp	2007-12-03 23:02:50 UTC (rev 1577)
+@@ -0,0 +1,58 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_THUMBNAIL_STORE_HPP
++#define HEADER_THUMBNAIL_STORE_HPP
++
++#include &quot;SDL.h&quot;
++#include &lt;fstream&gt;
++#include &lt;string&gt;
++#include &lt;map&gt;
++
++class SoftwareSurface;
++
++/** */
++class ThumbnailManager
++{
++private:
++  typedef std::map&lt;int, std::ofstream*&gt; Ofstreams;
++  Ofstreams ofstreams;
++
++public:
++  ThumbnailManager();
++  ~ThumbnailManager();
++
++  SoftwareSurface* get_by_url(const std::string&amp; url, int thumb_size);
++  
++  void generate(const std::string&amp; filename, const std::string&amp; thumb_location, int thumb_size);
++
++private:
++  ThumbnailManager (const ThumbnailManager&amp;);
++  ThumbnailManager&amp; operator= (const ThumbnailManager&amp;);
++};
++
++#endif
++
++/* EOF */
+
+Modified: trunk/griv/thumbnail_store.cpp
+===================================================================
+--- trunk/griv/thumbnail_store.cpp	2007-12-03 22:28:52 UTC (rev 1576)
++++ trunk/griv/thumbnail_store.cpp	2007-12-03 23:02:50 UTC (rev 1577)
+@@ -40,92 +40,17 @@
+ 
+ ThumbnailStore::~ThumbnailStore()
+ {
++  std::cout &lt;&lt; &quot;destroying ThumbnailStore&quot; &lt;&lt; std::endl;
+ }
+ 
+-SoftwareSurface* 
+-ThumbnailStore::get_by_url(const std::string&amp; url, int thumb_size) // URL is <A HREF="file://...">file://...</A> *not* just a pathname
++void
++ThumbnailStore::store()
+ {
+-  if (thumb_size == -1) // load original
+-    {
+-      try 
+-        { 
+-          return new SoftwareSurface(url.substr(7)); // cut <A HREF="file://">file://</A> part
+-        }
+-      catch(std::exception&amp; err) 
+-        {
+-          std::cout &lt;&lt; &quot;Loader: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
+-          return 0;
+-        }
+-    }
+-  else
+-    {
+-      std::string md5 = MD5::md5_string(url);
+-
+-      std::ostringstream out;
+-      out &lt;&lt; Filesystem::get_home() &lt;&lt; &quot;/.griv/cache/by_url/&quot;
+-          &lt;&lt; thumb_size &lt;&lt; &quot;/&quot; &lt;&lt; md5.substr(0,2) &lt;&lt; &quot;/&quot; &lt;&lt; md5.substr(2) &lt;&lt; &quot;.jpg&quot;;
+-  
+-      std::string thumb_filename = out.str();
+-  
+-      try 
+-        {
+-          return new SoftwareSurface(thumb_filename);
+-        }
+-      catch(std::exception&amp; err) 
+-        {
+-          // Try to generate the thumbnail
+-          try {
+-            generate(url.substr(7), thumb_filename, thumb_size); // cut <A HREF="file://">file://</A> part
+-          } catch (std::exception&amp; err) {
+-            std::cout &lt;&lt; err.what() &lt;&lt; std::endl;
+-            return 0;
+-          }
+-
+-          // FIXME: This will fail for some images, which ones?
+-          try {
+-            return new SoftwareSurface(thumb_filename.c_str());
+-          } catch(std::exception&amp; err) {
+-            std::cout &lt;&lt; &quot;ThumbnailStore: FIXME: This shouldn't happen: &quot; &lt;&lt; err.what() &lt;&lt; &quot;\n&quot;
+-                      &lt;&lt; &quot;  - for &quot; &lt;&lt; url
+-                      &lt;&lt; std::endl;
+-            return 0;
+-          }
+-        }
+-    }
+ }
+ 
+ void
+-ThumbnailStore::generate(const std::string&amp; filename, const std::string&amp; thumb_location, int thumb_size)
++ThumbnailStore::retrieve()
+ {
+-  Epeg_Image* img = epeg_file_open(filename.c_str());
+-  if (!img)
+-    {
+-      throw std::runtime_error(&quot;ThumbnailStore::generate: Cannot open &quot; + filename);
+-    }
+-  
+-  int w, h;
+-  epeg_size_get(img, &amp;w, &amp;h);
+-
+-  if (w &gt; thumb_size || h &gt; thumb_size)
+-    {
+-      epeg_quality_set(img, 80);
+-      epeg_thumbnail_comments_enable(img, 1);
+-
+-      if (w &gt; h)
+-        epeg_decode_size_set(img, thumb_size, thumb_size * h / w);
+-      else
+-        epeg_decode_size_set(img, thumb_size * w / h, thumb_size);
+-  
+-      epeg_decode_colorspace_set(img, EPEG_RGB8);
+-
+-      std::cout &lt;&lt; &quot;.&quot; &lt;&lt; std::flush;
+-      //std::cout &lt;&lt; thumb_size &lt;&lt; &quot; - &quot; &lt;&lt; filename &lt;&lt; &quot; =&gt; &quot; &lt;&lt; thumb_location &lt;&lt; std::endl;
+-
+-      epeg_file_output_set(img, thumb_location.c_str());
+-      epeg_encode(img);
+-    }
+-      
+-  epeg_close(img);
+ }
+ 
+ /* EOF */
+
+Modified: trunk/griv/thumbnail_store.hpp
+===================================================================
+--- trunk/griv/thumbnail_store.hpp	2007-12-03 22:28:52 UTC (rev 1576)
++++ trunk/griv/thumbnail_store.hpp	2007-12-03 23:02:50 UTC (rev 1577)
+@@ -27,7 +27,9 @@
+ #define HEADER_THUMBNAIL_STORE_HPP
+ 
+ #include &quot;SDL.h&quot;
++#include &lt;fstream&gt;
+ #include &lt;string&gt;
++#include &lt;map&gt;
+ 
+ class SoftwareSurface;
+ 
+@@ -35,14 +37,14 @@
+ class ThumbnailStore
+ {
+ private:
++  std::ofstream out;
+ 
+ public:
+   ThumbnailStore();
+   ~ThumbnailStore();
+ 
+-  SoftwareSurface* get_by_url(const std::string&amp; url, int thumb_size);
+-  
+-  void generate(const std::string&amp; filename, const std::string&amp; thumb_location, int thumb_size);
++  void store();
++  void retrieve();
+ 
+ private:
+   ThumbnailStore (const ThumbnailStore&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001227.html">[Windstille-commit] r1576 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001229.html">[Windstille-commit] r1578 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1228">[ date ]</a>
+              <a href="thread.html#1228">[ thread ]</a>
+              <a href="subject.html#1228">[ subject ]</a>
+              <a href="author.html#1228">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

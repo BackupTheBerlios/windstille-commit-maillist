@@ -1,0 +1,264 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r674 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r674%20-%20trunk/src&In-Reply-To=%3C200507182228.j6IMShFY025917%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000326.html">
+   <LINK REL="Next"  HREF="000328.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r674 - trunk/src</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r674%20-%20trunk/src&In-Reply-To=%3C200507182228.j6IMShFY025917%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r674 - trunk/src">grumbel at berlios.de
+       </A><BR>
+    <I>Tue Jul 19 00:28:43 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000326.html">[Windstille-commit] r673 - in trunk/data: levels scripts
+</A></li>
+        <LI>Next message: <A HREF="000328.html">[Windstille-commit] r675 - in trunk/data: levels scripts scripts/newformat2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#327">[ date ]</a>
+              <a href="thread.html#327">[ thread ]</a>
+              <a href="subject.html#327">[ subject ]</a>
+              <a href="author.html#327">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-07-19 00:28:41 +0200 (Tue, 19 Jul 2005)
+New Revision: 674
+
+Added:
+   trunk/src/conversation.cpp
+   trunk/src/conversation.hpp
+Log:
+- removed the answers stuff from dialog, conversation replaces it
+
+Added: trunk/src/conversation.cpp
+===================================================================
+--- trunk/src/conversation.cpp	2005-07-18 22:28:06 UTC (rev 673)
++++ trunk/src/conversation.cpp	2005-07-18 22:28:41 UTC (rev 674)
+@@ -0,0 +1,128 @@
++//  $Id$
++//
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++//
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#include &lt;ClanLib/Display/display.h&gt;
++#include &quot;input/controller.hpp&quot;
++#include &quot;input/input_manager.hpp&quot;
++#include &quot;fonts.hpp&quot;
++#include &quot;script_manager.hpp&quot;
++#include &quot;conversation.hpp&quot;
++
++Conversation* Conversation::current_ = 0;
++
++Conversation::Conversation()
++{
++  current_ = this;
++  visible = false;
++  selection = 0;
++}
++
++void
++Conversation::add(const std::string&amp; text)
++{
++  choices.push_back(text);
++  if (selection &gt;= int(choices.size()))
++    selection = 0;
++}
++
++void
++Conversation::draw()
++{
++  if (visible)
++    {
++      Fonts::dialog.set_alignment(origin_top_left);
++      Fonts::dialog_h.set_alignment(origin_top_left);
++
++      int x = 100;
++      int y = 300;
++
++      CL_Rect rect(CL_Point(x - 20, y - 20 + Fonts::dialog.get_height()/2 - 5),
++                   CL_Size(300 + 20, // FIXME:
++                           (Fonts::dialog.get_height() + 10) * choices.size() + 20));
++    
++      CL_Display::fill_rect(rect,
++                            CL_Gradient(CL_Color(0,0,100,228),
++                                        CL_Color(0,0,100,228),
++                                        CL_Color(0,0,0,128),
++                                        CL_Color(0,0,0,128)));
++      CL_Display::draw_rect(rect, CL_Color(255,255,255, 80));
++ 
++      for(int i = 0; i &lt; int(choices.size()); ++i)
++        {
++          if (i == selection)
++            Fonts::dialog_h.draw(x, y, choices[i]);
++          else
++            Fonts::dialog.draw(x, y, choices[i]);
++      
++          y += Fonts::dialog.get_height() + 10;
++        }
++    }
++}
++
++void
++Conversation::update(float delta)
++{
++  if (visible)
++    {
++      Controller controller = InputManager::get_controller();
++      const InputEventLst&amp; events = controller.get_events();
++  
++      for(InputEventLst::const_iterator i = events.begin(); i != events.end(); ++i)
++        {
++          if (i-&gt;type == BUTTON_EVENT &amp;&amp; i-&gt;button.down)
++            {
++              switch (i-&gt;button.name)
++                {
++                case UP_BUTTON:
++                  selection -= 1;
++                  if (selection &lt; 0)
++                    selection = choices.size() - 1;
++                  break;
++              
++                case DOWN_BUTTON:
++                  selection += 1;
++                  if (selection &gt;= int(choices.size()))
++                    selection = 0;
++                  break;
++
++                case FIRE_BUTTON:
++                  visible = false;
++                  choices.clear();
++                  script_manager-&gt;fire_wakeup_event(ScriptManager::CONVERSATION_CLOSED);
++                  return;
++                  break;
++                }
++            }
++        }
++    }
++}
++
++int
++Conversation::get_selection() const
++{
++  return selection;
++}
++
++void
++Conversation::show()
++{
++  visible = true;
++}
++
++/* EOF */
+
+Added: trunk/src/conversation.hpp
+===================================================================
+--- trunk/src/conversation.hpp	2005-07-18 22:28:06 UTC (rev 673)
++++ trunk/src/conversation.hpp	2005-07-18 22:28:41 UTC (rev 674)
+@@ -0,0 +1,53 @@
++//  $Id$
++// 
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++// 
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#ifndef HEADER_CONVERSATION_HXX
++#define HEADER_CONVERSATION_HXX
++
++#include &lt;vector&gt;
++#include &lt;string&gt;
++
++/** Displays a list of text strings from which the user can select
++    one, used to form multiple-choice dialogs */
++class Conversation
++{
++private:
++  bool visible;
++  int selection;
++
++  typedef std::vector&lt;std::string&gt; Choices;
++  Choices choices;
++  
++  static Conversation* current_;
++public:
++  static Conversation* current() { assert(current_); return current_; }
++  
++  Conversation();
++
++  void draw();
++  void update(float delta);
++
++  void add(const std::string&amp; text);
++  int  get_selection() const;
++  void show();
++};
++
++#endif
++
++/* EOF */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000326.html">[Windstille-commit] r673 - in trunk/data: levels scripts
+</A></li>
+	<LI>Next message: <A HREF="000328.html">[Windstille-commit] r675 - in trunk/data: levels scripts scripts/newformat2
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#327">[ date ]</a>
+              <a href="thread.html#327">[ thread ]</a>
+              <a href="subject.html#327">[ subject ]</a>
+              <a href="author.html#327">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

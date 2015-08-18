@@ -1,0 +1,493 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1565 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1565%20-%20trunk/griv&In-Reply-To=%3C200711221453.lAMErwkp015514%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001215.html">
+   <LINK REL="Next"  HREF="001217.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1565 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1565%20-%20trunk/griv&In-Reply-To=%3C200711221453.lAMErwkp015514%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1565 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Nov 22 15:53:58 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001215.html">[Windstille-commit] r1564 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001217.html">[Windstille-commit] r1566 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1216">[ date ]</a>
+              <a href="thread.html#1216">[ thread ]</a>
+              <a href="subject.html#1216">[ subject ]</a>
+              <a href="author.html#1216">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-22 15:53:58 +0100 (Thu, 22 Nov 2007)
+New Revision: 1565
+
+Added:
+   trunk/griv/cache.cpp
+   trunk/griv/cache.hpp
+   trunk/griv/jpeg.cpp
+   trunk/griv/jpeg.hpp
+   trunk/griv/math.hpp
+   trunk/griv/packer.cpp
+Modified:
+   trunk/griv/SConstruct
+   trunk/griv/TODO
+Log:
+- added some missing files
+- started file cache
+
+Modified: trunk/griv/SConstruct
+===================================================================
+--- trunk/griv/SConstruct	2007-11-21 21:21:42 UTC (rev 1564)
++++ trunk/griv/SConstruct	2007-11-22 14:53:58 UTC (rev 1565)
+@@ -4,6 +4,7 @@
+ libgriv = libgriv_env.StaticLibrary('griv', ['filesystem.cpp', 
+                                              'command_line.cpp',
+                                              'jpeg.cpp',
++                                             'cache.cpp',
+                                              'md5.cpp'])
+ 
+ libepeg_env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-O2&quot;, &quot;-g&quot;])
+@@ -25,4 +26,8 @@
+                            LIBS=[libgriv, libepeg, 'jpeg', 'mhash'])
+ thumbgen_env.Program('thumbgen', ['thumbgen.cpp'])
+ 
++#packer_env = Environment(CCFLAGS=['-Wall', '-Werror', '-O2', '-g'], 
++#                           LIBS=[libgriv, libepeg, 'jpeg', 'mhash'])
++#packer_env.Program('packer', ['packer.cpp'])
++
+ # EOF #
+
+Modified: trunk/griv/TODO
+===================================================================
+--- trunk/griv/TODO	2007-11-21 21:21:42 UTC (rev 1564)
++++ trunk/griv/TODO	2007-11-22 14:53:58 UTC (rev 1565)
+@@ -21,7 +21,25 @@
+ - implement faster realpath(), i.e. no link resolution
+ 
+ - cache file sets
++
++Cache Files:
++============
+ 
++
++
++struct FileEntry {
++       std::string filename_md5;
++       std::string md5;
++       int mtime;  // mtime at which the thumbnail was done
++       int thumbnail_id; // offset into the thumbnail database
++       int width;  // image width
++       int height; // image height
++};
++
++struct ThumbnailEntry {
++       char        rgb[16*16*3];
++};
++
+ 
+ Misc Stuff:
+ ===========
+
+Added: trunk/griv/cache.cpp
+===================================================================
+--- trunk/griv/cache.cpp	2007-11-21 21:21:42 UTC (rev 1564)
++++ trunk/griv/cache.cpp	2007-11-22 14:53:58 UTC (rev 1565)
+@@ -0,0 +1,62 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &lt;fstream&gt;
++#include &quot;cache.hpp&quot;
++
++Cache::Cache(const std::string&amp; filename)
++{
++  std::ifstream in(filename.c_str(), std::ios::in | std::ios::binary);
++
++  while(!in.eof())
++    {
++      FileEntry entry;
++      
++      in.read(entry.filename_md5,  sizeof(char) * 33);
++      in.read(entry.md5,           sizeof(char) * 33);
++      in.read((char*)(&amp;entry.mtime),        sizeof(unsigned int));
++      in.read((char*)(&amp;entry.thumbnail_id), sizeof(unsigned int));
++      in.read((char*)(&amp;entry.width),        sizeof(unsigned int));
++      in.read((char*)(&amp;entry.height),       sizeof(unsigned int));
++      
++      entries[entry.filename_md5] = entry;
++    }
++}
++
++const FileEntry*
++Cache::get_entry(const std::string&amp; url) const
++{
++  Entries::const_iterator i = entries.find(url);
++  if (i == entries.end())
++    {
++      return 0;
++    }
++  else
++    {
++      return &amp;i-&gt;second;
++    }
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/cache.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/cache.hpp
+===================================================================
+--- trunk/griv/cache.hpp	2007-11-21 21:21:42 UTC (rev 1564)
++++ trunk/griv/cache.hpp	2007-11-22 14:53:58 UTC (rev 1565)
+@@ -0,0 +1,56 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_CACHE_HPP
++#define HEADER_CACHE_HPP
++
++#include &lt;string&gt;
++#include &lt;map&gt;
++
++struct FileEntry {
++  char filename_md5[33];
++  char md5[33];
++  int  mtime;  // mtime at which the thumbnail was done
++  int  thumbnail_id; // offset into the thumbnail database
++  int  width;  // image width
++  int  height; // image height
++};
++
++/** */
++class Cache
++{
++
++private:
++  typedef std::map&lt;std::string, FileEntry&gt; Entries;
++  Entries entries;
++
++public:
++  Cache(const std::string&amp; filename);
++  const FileEntry* get_entry(const std::string&amp; url) const;
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/cache.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/jpeg.cpp
+===================================================================
+--- trunk/griv/jpeg.cpp	2007-11-21 21:21:42 UTC (rev 1564)
++++ trunk/griv/jpeg.cpp	2007-11-22 14:53:58 UTC (rev 1565)
+@@ -0,0 +1,53 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &lt;stdexcept&gt;
++#include &lt;jpeglib.h&gt;
++#include &quot;jpeg.hpp&quot;
++
++void
++JPEG::get_size(const std::string&amp; filename, int&amp; w, int&amp; h)
++{
++  FILE* in = fopen(filename.c_str(), &quot;rb&quot;);
++  if (!in)
++    throw std::runtime_error(&quot;JPEG::get_size: Couldn't open &quot; + filename);
++
++  struct jpeg_decompress_struct  jinfo;
++  struct jpeg_error_mgr jerr;
++        
++  jpeg_create_decompress(&amp;jinfo);
++  jinfo.err = jpeg_std_error(&amp;jerr);
++  jpeg_stdio_src(&amp;jinfo, in);
++  jpeg_read_header(&amp;jinfo, FALSE);
++
++  w = jinfo.image_width;
++  h = jinfo.image_height;
++
++  jpeg_destroy_decompress(&amp;jinfo);
++
++  fclose(in);
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/jpeg.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/jpeg.hpp
+===================================================================
+--- trunk/griv/jpeg.hpp	2007-11-21 21:21:42 UTC (rev 1564)
++++ trunk/griv/jpeg.hpp	2007-11-22 14:53:58 UTC (rev 1565)
+@@ -0,0 +1,39 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_JPEG_HPP
++#define HEADER_JPEG_HPP
++
++/** */
++class JPEG
++{
++private:
++public:
++  static void get_size(const std::string&amp; filename, int&amp; w, int&amp; h);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/jpeg.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/math.hpp
+===================================================================
+--- trunk/griv/math.hpp	2007-11-21 21:21:42 UTC (rev 1564)
++++ trunk/griv/math.hpp	2007-11-22 14:53:58 UTC (rev 1565)
+@@ -0,0 +1,56 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_MATH_HPP
++#define HEADER_MATH_HPP
++
++/** */
++class Math
++{
++public:
++  static inline int round_to_power_of_two(int n)
++  {
++    n = n - 1;
++
++    n = n | (n &gt;&gt; 1);
++    n = n | (n &gt;&gt; 2);
++    n = n | (n &gt;&gt; 4);
++    n = n | (n &gt;&gt; 8);
++    n = n | (n &gt;&gt; 16);
++  
++    n = n + 1;
++  
++    return n;
++  }
++
++  static inline bool is_power_of_two(int n)
++  {
++    return (n &gt; 0) &amp;&amp; ((n &amp; (n - 1)) == 0);
++  }
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/math.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/packer.cpp
+===================================================================
+--- trunk/griv/packer.cpp	2007-11-21 21:21:42 UTC (rev 1564)
++++ trunk/griv/packer.cpp	2007-11-22 14:53:58 UTC (rev 1565)
+@@ -0,0 +1,11 @@
++#include &quot;filesystem.hpp&quot;
++#include &quot;md5.hpp&quot;
++#include &lt;iostream&gt;
++
++int main(int argc, char** argv)
++{
++  
++  return 0;
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/packer.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001215.html">[Windstille-commit] r1564 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001217.html">[Windstille-commit] r1566 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1216">[ date ]</a>
+              <a href="thread.html#1216">[ thread ]</a>
+              <a href="subject.html#1216">[ subject ]</a>
+              <a href="author.html#1216">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

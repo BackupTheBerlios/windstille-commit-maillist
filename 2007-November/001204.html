@@ -1,0 +1,345 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1553 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1553%20-%20trunk/griv&In-Reply-To=%3C200711161427.lAGERb4g012261%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001203.html">
+   <LINK REL="Next"  HREF="001205.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1553 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1553%20-%20trunk/griv&In-Reply-To=%3C200711161427.lAGERb4g012261%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1553 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Nov 16 15:27:37 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001203.html">[Windstille-commit] r1552 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001205.html">[Windstille-commit] r1554 - in trunk/griv: . epeg
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1204">[ date ]</a>
+              <a href="thread.html#1204">[ thread ]</a>
+              <a href="subject.html#1204">[ subject ]</a>
+              <a href="author.html#1204">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-16 15:27:37 +0100 (Fri, 16 Nov 2007)
+New Revision: 1553
+
+Modified:
+   trunk/griv/SConstruct
+   trunk/griv/filesystem.cpp
+   trunk/griv/filesystem.hpp
+   trunk/griv/loader.cpp
+   trunk/griv/loader.hpp
+   trunk/griv/thumbnail_store.cpp
+   trunk/griv/thumbnail_store.hpp
+Log:
+- added automatic thumbnailing
+
+Modified: trunk/griv/SConstruct
+===================================================================
+--- trunk/griv/SConstruct	2007-11-16 14:02:11 UTC (rev 1552)
++++ trunk/griv/SConstruct	2007-11-16 14:27:37 UTC (rev 1553)
+@@ -3,12 +3,13 @@
+ libgriv_env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O0&quot;, &quot;-g&quot;])
+ libgriv = libgriv_env.StaticLibrary('griv', ['filesystem.cpp', 'md5.cpp'])
+ 
+-griv_env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O0&quot;, &quot;-g&quot;], LIBS=[libgriv, 'SDL_image', 'mhash', 'GL', 'GLU'])
++griv_env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O0&quot;, &quot;-g&quot;], LIBS=[libgriv, 'SDL_image', 'mhash', 'GL', 'GLU', 'epeg'])
+ griv_env.ParseConfig(&quot;sdl-config --libs --cflags&quot;)
+ 
+ griv_env.Program('griv', ['griv.cpp',
+                           'loader.cpp',
+                           'image.cpp',
++                          'thumbnail_store.cpp',
+                           'display.cpp', 
+                           'texture.cpp', 
+                           'workspace.cpp'])
+
+Modified: trunk/griv/filesystem.cpp
+===================================================================
+--- trunk/griv/filesystem.cpp	2007-11-16 14:02:11 UTC (rev 1552)
++++ trunk/griv/filesystem.cpp	2007-11-16 14:27:37 UTC (rev 1553)
+@@ -23,12 +23,16 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;errno.h&gt;
++#include &lt;sys/stat.h&gt;
++#include &lt;sys/types.h&gt;
+ #include &lt;stdexcept&gt;
+ #include &lt;iostream&gt;
+ #include &lt;dirent.h&gt;
+ #include &lt;sys/stat.h&gt;
+ #include &lt;sys/types.h&gt;
+ #include &lt;unistd.h&gt;
++#include &lt;boost/format.hpp&gt;
+ //#include &lt;attr/xattr.h&gt;
+ 
+ #include &quot;filesystem.hpp&quot;
+@@ -106,9 +110,42 @@
+     {
+       throw std::runtime_error(&quot;Couldn't get HOME environment variable&quot;);
+     }
++
++  mkdir(home_directory + &quot;/.griv&quot;);
++  mkdir(home_directory + &quot;/.griv/cache&quot;);
++  mkdir(home_directory + &quot;/.griv/cache/by_url&quot;);
++
++  std::string base = home_directory + &quot;/.griv/cache/by_url&quot;;
++  std::string hex  = &quot;0123456789abcdef&quot;;
++  int res[]  = { 16, 32, 64, 128, 256, 512, 1024 };
++  for(size_t r = 0; r &lt; 7; ++r)
++    {
++      Filesystem::mkdir((boost::format(&quot;%s/%d&quot;) % base % res[r]).str());
++      for(std::string::iterator i = hex.begin(); i != hex.end(); ++i)
++        for(std::string::iterator j = hex.begin(); j != hex.end(); ++j)
++          {
++            Filesystem::mkdir((boost::format(&quot;%s/%d/%c%c&quot;) % base % res[r] % *i % *j).str());
++          }
++    }
+ }
+ 
+ void
++Filesystem::mkdir(const std::string&amp; pathname)
++{
++  if (!Filesystem::exist(pathname))
++    {
++      if (::mkdir(pathname.c_str(), S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IXGRP) != 0)
++	{
++	  throw std::runtime_error(&quot;Filesystem::mkdir: &quot; + pathname + &quot;: &quot; + strerror(errno));
++	}
++      else
++	{
++	  std::cout &lt;&lt; &quot;Filesystem::mkdir: &quot; &lt;&lt; pathname &lt;&lt; std::endl;
++	}
++    }
++}
++
++void
+ Filesystem::deinit()
+ {
+ }
+
+Modified: trunk/griv/filesystem.hpp
+===================================================================
+--- trunk/griv/filesystem.hpp	2007-11-16 14:02:11 UTC (rev 1552)
++++ trunk/griv/filesystem.hpp	2007-11-16 14:27:37 UTC (rev 1553)
+@@ -37,6 +37,7 @@
+ public:
+   static bool is_directory(const std::string&amp; pathname);
+   static bool exist(const std::string&amp; pathname);
++  static void mkdir(const std::string&amp; pathname);
+   static std::vector&lt;std::string&gt; open_directory(const std::string&amp; pathname);
+   static std::string getxattr(const std::string&amp; pathname);
+   static std::string get_home() { return home_directory; }
+
+Modified: trunk/griv/loader.cpp
+===================================================================
+--- trunk/griv/loader.cpp	2007-11-16 14:02:11 UTC (rev 1552)
++++ trunk/griv/loader.cpp	2007-11-16 14:27:37 UTC (rev 1553)
+@@ -31,6 +31,7 @@
+ #include &quot;SDL_image.h&quot;
+ #include &quot;image.hpp&quot;
+ #include &quot;loader.hpp&quot;
++#include &quot;thumbnail_store.hpp&quot;
+ 
+ Loader loader;
+ 
+@@ -38,6 +39,7 @@
+ {
+   mutex  = SDL_CreateMutex();
+   thread = 0;
++  store  = 0;
+ }
+ 
+ Loader::~Loader()
+@@ -61,6 +63,10 @@
+ void
+ Loader::launch_thread()
+ {
++  if (!store)
++    {
++      store = new ThumbnailStore();
++    }
+   thread = SDL_CreateThread(&amp;Loader::thread_func, 0);
+ }
+ 
+@@ -86,15 +92,7 @@
+ 
+       if (job.image-&gt;res != res &amp;&amp; res != 0)
+         {
+-          // Unlock
+-          std::string m = MD5::md5_string(job.image-&gt;url);
+-          std::ostringstream out;
+-          out &lt;&lt; Filesystem::get_home() &lt;&lt; &quot;/.griv/cache/by_url/&quot;
+-              &lt;&lt; res &lt;&lt; &quot;/&quot; &lt;&lt; m.substr(0,2) &lt;&lt; &quot;/&quot; &lt;&lt; m.substr(2) &lt;&lt; &quot;.jpg&quot;;
+-
+-          //std::cout &lt;&lt; &quot;Loading: &quot; &lt;&lt; job.filename &lt;&lt; std::endl;
+-          //std::cout &lt;&lt; out.str() &lt;&lt; std::endl;
+-          SDL_Surface* img = IMG_Load(out.str().c_str());
++          SDL_Surface* img = store-&gt;get_by_url(job.image-&gt;url, res);
+           if (img)
+             {
+               job.image-&gt;receive(img, res);
+
+Modified: trunk/griv/loader.hpp
+===================================================================
+--- trunk/griv/loader.hpp	2007-11-16 14:02:11 UTC (rev 1552)
++++ trunk/griv/loader.hpp	2007-11-16 14:27:37 UTC (rev 1553)
+@@ -32,6 +32,7 @@
+ #include &lt;string&gt;
+ #include &lt;vector&gt;
+ 
++class ThumbnailStore;
+ class Image;
+ 
+ struct Job
+@@ -49,6 +50,7 @@
+ private:
+   typedef std::vector&lt;Job&gt; Jobs;
+   Jobs jobs;
++  ThumbnailStore* store;
+   SDL_mutex* mutex;
+   SDL_Thread* thread;
+ 
+
+Modified: trunk/griv/thumbnail_store.cpp
+===================================================================
+--- trunk/griv/thumbnail_store.cpp	2007-11-16 14:02:11 UTC (rev 1552)
++++ trunk/griv/thumbnail_store.cpp	2007-11-16 14:27:37 UTC (rev 1553)
+@@ -24,6 +24,11 @@
+ */
+ 
+ #include &lt;Epeg.h&gt;
++#include &lt;sstream&gt;
++#include &lt;iostream&gt;
++#include &lt;stdexcept&gt;
++#include &quot;SDL_image.h&quot;
++#include &quot;filesystem.hpp&quot;
+ #include &quot;md5.hpp&quot;
+ #include &quot;thumbnail_store.hpp&quot;
+ 
+@@ -37,25 +42,27 @@
+ }
+ 
+ SDL_Surface* 
+-ThumbnailStore::get_by_url(const std::string&amp; url, int res) // URL is <A HREF="file://...">file://...</A> *not* just a pathname
++ThumbnailStore::get_by_url(const std::string&amp; url, int thumb_size) // URL is <A HREF="file://...">file://...</A> *not* just a pathname
+ {
+   std::string md5 = MD5::md5_string(url);
+ 
+   std::ostringstream out;
+   out &lt;&lt; Filesystem::get_home() &lt;&lt; &quot;/.griv/cache/by_url/&quot;
+-      &lt;&lt; res &lt;&lt; &quot;/&quot; &lt;&lt; md5.substr(0,2) &lt;&lt; &quot;/&quot; &lt;&lt; md5.substr(2) &lt;&lt; &quot;.jpg&quot;;
++      &lt;&lt; thumb_size &lt;&lt; &quot;/&quot; &lt;&lt; md5.substr(0,2) &lt;&lt; &quot;/&quot; &lt;&lt; md5.substr(2) &lt;&lt; &quot;.jpg&quot;;
+   
+   std::string thumb_filename = out.str();
+   SDL_Surface* img = IMG_Load(thumb_filename.c_str());
+ 
+   if (!img)
+     {
++      // Try to generate the thumbnail
+       try {
+-        generate(url.substr(7)); // cut <A HREF="file://">file://</A> part
++        generate(url.substr(7), thumb_filename, thumb_size); // cut <A HREF="file://">file://</A> part
+       } catch (std::exception&amp; err) {
+         std::cout &lt;&lt; err.what() &lt;&lt; std::endl;
+         return 0;
+       }
++
+       img = IMG_Load(thumb_filename.c_str());
+     }
+ 
+@@ -63,7 +70,7 @@
+ }
+ 
+ void
+-ThumbnailStore::generate(const std::string&amp; filename, int thumb_size)
++ThumbnailStore::generate(const std::string&amp; filename, const std::string&amp; thumb_location, int thumb_size)
+ {
+   Epeg_Image* img = epeg_file_open(filename.c_str());
+   if (!img)
+@@ -86,13 +93,10 @@
+   
+       epeg_decode_colorspace_set(img, EPEG_RGB8);
+ 
+-      std::ostringstream str;
+-      str &lt;&lt; Filesystem::get_home() &lt;&lt; &quot;/.griv/cache/by_url/&quot;
+-          &lt;&lt; thumb_size &lt;&lt; &quot;/&quot; &lt;&lt; m.substr(0,2) &lt;&lt; &quot;/&quot; &lt;&lt; m.substr(2) &lt;&lt; &quot;.jpg&quot;;
++      std::cout &lt;&lt; &quot;.&quot; &lt;&lt; std::flush;
++      //std::cout &lt;&lt; thumb_size &lt;&lt; &quot; - &quot; &lt;&lt; filename &lt;&lt; &quot; =&gt; &quot; &lt;&lt; thumb_location &lt;&lt; std::endl;
+ 
+-      std::cout &lt;&lt; thumb_size &lt;&lt; &quot; - &quot; &lt;&lt; filename &lt;&lt; &quot; =&gt; &quot; &lt;&lt; str.str() &lt;&lt; std::endl;
+-
+-      epeg_file_output_set(img, str.str().c_str());
++      epeg_file_output_set(img, thumb_location.c_str());
+       epeg_encode(img);
+     }
+       
+
+Modified: trunk/griv/thumbnail_store.hpp
+===================================================================
+--- trunk/griv/thumbnail_store.hpp	2007-11-16 14:02:11 UTC (rev 1552)
++++ trunk/griv/thumbnail_store.hpp	2007-11-16 14:27:37 UTC (rev 1553)
+@@ -26,6 +26,9 @@
+ #ifndef HEADER_THUMBNAIL_STORE_HPP
+ #define HEADER_THUMBNAIL_STORE_HPP
+ 
++#include &quot;SDL.h&quot;
++#include &lt;string&gt;
++
+ /** */
+ class ThumbnailStore
+ {
+@@ -34,9 +37,9 @@
+   ThumbnailStore();
+   ~ThumbnailStore();
+ 
+-  SDL_Surface* get_by_url(const std::string&amp; url, int res);
++  SDL_Surface* get_by_url(const std::string&amp; url, int thumb_size);
+   
+-  void generate(const std::string&amp; filename);
++  void generate(const std::string&amp; filename, const std::string&amp; thumb_location, int thumb_size);
+ 
+ private:
+   ThumbnailStore (const ThumbnailStore&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001203.html">[Windstille-commit] r1552 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001205.html">[Windstille-commit] r1554 - in trunk/griv: . epeg
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1204">[ date ]</a>
+              <a href="thread.html#1204">[ thread ]</a>
+              <a href="subject.html#1204">[ subject ]</a>
+              <a href="author.html#1204">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

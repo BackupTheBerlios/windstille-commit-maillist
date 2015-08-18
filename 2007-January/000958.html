@@ -1,0 +1,477 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1305 - trunk/txt2png
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-January/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1305%20-%20trunk/txt2png&In-Reply-To=%3C200701250616.l0P6GUob021166%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000957.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1305 - trunk/txt2png</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1305%20-%20trunk/txt2png&In-Reply-To=%3C200701250616.l0P6GUob021166%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1305 - trunk/txt2png">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Jan 25 07:16:30 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000957.html">[Windstille-commit] r1304 - trunk/html2image
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#958">[ date ]</a>
+              <a href="thread.html#958">[ thread ]</a>
+              <a href="subject.html#958">[ subject ]</a>
+              <a href="author.html#958">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-01-25 07:16:29 +0100 (Thu, 25 Jan 2007)
+New Revision: 1305
+
+Modified:
+   trunk/txt2png/ttf_font.cpp
+   trunk/txt2png/ttf_font.hpp
+   trunk/txt2png/txt2png.cpp
+Log:
+- added proper word warping
+
+Modified: trunk/txt2png/ttf_font.cpp
+===================================================================
+--- trunk/txt2png/ttf_font.cpp	2007-01-22 01:26:22 UTC (rev 1304)
++++ trunk/txt2png/ttf_font.cpp	2007-01-25 06:16:29 UTC (rev 1305)
+@@ -136,13 +136,23 @@
+ }
+ 
+ const TTFCharacter&amp;
+-TTFFont::get_character(int c) const
++TTFFont::get_character(char c) const
+ {
+-  assert(c &gt;= 0 &amp;&amp; c &lt; 256);
+-  if (impl-&gt;characters[c] == 0)
++  if (impl-&gt;characters[(unsigned char)c] == 0)
+     return *impl-&gt;characters['?'];
+   else
+-    return *impl-&gt;characters[c];
++    return *impl-&gt;characters[(unsigned char)c];
++
++  /*  unsigned char c = c_;
++  if (!(c &gt;= 0 &amp;&amp; c &lt; 256) || impl-&gt;characters[c] == 0)
++    {
++      std::cout &lt;&lt; &quot;Unknown character: &quot; &lt;&lt; c &lt;&lt; &quot; '&quot; &lt;&lt; c &lt;&lt; &quot;'&quot; &lt;&lt; std::endl;
++      return *impl-&gt;characters['?'];
++    }
++  else
++    {
++      return *impl-&gt;characters[c];
++      }*/
+ }
+ 
+ int
+
+Modified: trunk/txt2png/ttf_font.hpp
+===================================================================
+--- trunk/txt2png/ttf_font.hpp	2007-01-22 01:26:22 UTC (rev 1304)
++++ trunk/txt2png/ttf_font.hpp	2007-01-25 06:16:29 UTC (rev 1305)
+@@ -73,7 +73,7 @@
+       FontEffoct */
+   int get_size() const;
+ 
+-  const TTFCharacter&amp; get_character(int c) const;
++  const TTFCharacter&amp; get_character(char c) const;
+ 
+   //void draw(float x_pos, float y_pos, const std::string&amp; str, const Color&amp; color = Color(1.0f, 1.0f, 1.0f));
+   //void draw_center(float x_pos, float y_pos, const std::string&amp; str, const Color&amp; color = Color(1.0f, 1.0f, 1.0f));
+
+Modified: trunk/txt2png/txt2png.cpp
+===================================================================
+--- trunk/txt2png/txt2png.cpp	2007-01-22 01:26:22 UTC (rev 1304)
++++ trunk/txt2png/txt2png.cpp	2007-01-25 06:16:29 UTC (rev 1305)
+@@ -20,6 +20,7 @@
+   int text_y;
+   int text_w;
+   int text_h;
++  int vspace;
+   bool area_set;
+   bool break_lines;
+   bool info_mode;
+@@ -36,6 +37,8 @@
+     canvas_width  = 480;
+     canvas_height = 272;
+       
++    vspace = 0;
++
+     text_x = -1;
+     text_y = -1;
+     text_w = -1;
+@@ -49,95 +52,178 @@
+ 
+ Options options;
+ 
+-void render(Bitmap&amp; canvas, TTFFont&amp; font, const std::string&amp; text, 
+-            int start_x, int start_y,
+-            int text_width, int text_height)
++
++class TextStream
+ {
+-  int page = 0;
+-  int x = 0;
+-  int y = 0; // &lt;- refers to the baseline of the font!
++private:
++  std::string text;
++  int count;
++  int lines;
++public:
++  TextStream(const std::string&amp; text_)
++    : text(text_),
++      count(0),
++      lines(0)
++  {
++  }
++  
++  char read() { 
++    if (text[count] == '\n')
++      lines += 1;
+ 
+-  for(std::string::size_type i = 0; i &lt; text.size(); ++i)
+-    {
+-      if (text[i] == '\n')
+-        {
+-          x = 0;
+-          y += font.get_height();
++    return text[count++];
++  }
+ 
+-          if (y &gt;= text_height)
+-            { // FIXME :Duplicate code
+-              y = 0;
+-              x = 0;
+-              
+-              std::ostringstream tstr;
+-              if (!options.title.empty())
+-                tstr &lt;&lt; options.title &lt;&lt; &quot; &quot;;
++  std::string read_word() {
++    std::string word;
+ 
+-              tstr &lt;&lt; &quot;Page &quot;
+-                   &lt;&lt; std::setfill('0') &lt;&lt; std::setw(2) &lt;&lt; page &lt;&lt; &quot;/21 - &quot; 
+-                   &lt;&lt; std::setw(3) &lt;&lt; 100 * page / 21 &lt;&lt; &quot;%&quot;;
+-              render(canvas, font, tstr.str(),
+-                     canvas.get_width()/2 - font.get_width(tstr.str())/2, 
+-                     canvas.get_height() - font.get_height() + font.get_character('M').bitmap-&gt;get_height()+2,
+-                     canvas.get_width(), canvas.get_height());
+-              canvas.invert(0, canvas.get_height() - font.get_height(),
+-                            canvas.get_width(), canvas.get_height());
++    if (text[count] == '\n' ||
++        text[count] == ' '  ||
++        text[count] == '\t')
++      {
++        word += text[count++];
++        return word;
++      }
++    else
++      {
++        while (text[count] != '\n' &amp;&amp;
++               text[count] != ' '  &amp;&amp;
++               text[count] != '\t')
++          {
++            word  += text[count++];
++          }
++        return word;
++      }
++  }
+ 
+-              std::ostringstream str;
+-              str &lt;&lt; &quot;out/page&quot; &lt;&lt; std::setfill('0') &lt;&lt; std::setw(3) &lt;&lt; page &lt;&lt; &quot;.jpg&quot;;
+-              std::cout &lt;&lt; &quot;Writing: &quot; &lt;&lt; str.str() &lt;&lt; std::endl;
+-              canvas.write_jpg(str.str());
+-              canvas.clear();
++  void unread(const std::string&amp; word)
++  {
++    for(std::string::size_type i = 0; i &lt; word.size(); ++i)
++      {
++        if (word[i] == '\n')
++          {
++            lines -= 1;
++          }
++        count -= 1;
++      }
++  }
+ 
+-              page += 1;
+-            }
+-        }
+-      else if (text[i] == '\r')
+-        {
+-          // ignore so both DOS and Unix files look fine
+-        }
+-      else if (text[i] == '\t')
+-        {
+-          int cw = font.get_character(' ').advance * 8;
+-          x = (x/cw + 1) * cw;
+-        }
+-      else
+-        {
+-          const TTFCharacter&amp; glyph = font.get_character(text[i]);
++  int get_line() { return lines; }
++  
++  bool eof() {
++    return count &gt;= int(text.size());
++  }
++};
+ 
+-          canvas.blit(*glyph.bitmap, 
+-                      x + glyph.x_offset + start_x,
+-                      y + glyph.y_offset + start_y);
++class Renderer
++{
++public:
++  int x;
++  int y;
++  TTFFont* font;
++  Bitmap*  canvas;
++  int start_x;
++  int start_y;
++  int text_width;
++  int text_height;
++  bool done;
++  TextStream* stream;
+ 
+-          x += glyph.advance;
++  Renderer()
++  {
++    x = 0;
++    y = 0; // &lt;- refers to the baseline of the font not to top-left corner!
++    start_x = 0;
++    start_y = 0;
++  }
+ 
+-          if (x &gt;= text_width)
+-            {
+-              std::cout &lt;&lt; &quot;Illegal line break on page &quot; &lt;&lt; page &lt;&lt; std::endl;
+-              x = 0;
+-              y += font.get_height();              
+-            }
++  void print(const std::string&amp; text)
++  {
++    for (std::string::const_iterator c = text.begin(); c != text.end(); ++c)
++      {
++        const TTFCharacter&amp; glyph = font-&gt;get_character(*c);
++        canvas-&gt;blit(*glyph.bitmap, 
++                     x + glyph.x_offset + start_x,
++                     y + glyph.y_offset + start_y);
++        x += glyph.advance;
++      }
++  }
+ 
+-          if (y &gt;= text_height)
+-            {
+-              y = 0;
+-              x = 0;
++  void render(Bitmap&amp; canvas_, TTFFont&amp; font_, TextStream&amp; stream_,
++              int start_x_, int start_y_,
++              int text_width_, int text_height_)
++  {
++    font   = &amp;font_;
++    canvas = &amp;canvas_;
++    start_x = start_x_;
++    start_y = start_y_;
++    text_width  = text_width_;
++    text_height = text_height_;
++    stream = &amp;stream_;
++    done = false;
+ 
+-              canvas.invert(0, canvas.get_height() - font.get_height(),
+-                            canvas.get_width(), canvas.get_height());
++    while(!stream-&gt;eof() &amp;&amp; !done)
++      {
++        std::string word = stream-&gt;read_word();
+ 
++        if (word == &quot;\n&quot;)
++          {
++            if (x == 0 &amp;&amp; y == 0)
++              {
++                // ignore newlines at the top of a file
++              }
++            else
++              {
++                x = 0;
++                y += font-&gt;get_height() + options.vspace;
+ 
+-              std::ostringstream str;
+-              str &lt;&lt; &quot;out/page&quot; &lt;&lt; std::setfill('0') &lt;&lt; std::setw(3) &lt;&lt; page &lt;&lt; &quot;.pgm&quot;;
+-              std::cout &lt;&lt; &quot;Writing: &quot; &lt;&lt; str.str() &lt;&lt; std::endl;
+-              canvas.write_pgm(str.str());
+-              canvas.clear();
++                if (y &gt;= text_height)
++                  {
++                    // We are done with rendering
++                    done = true;
++                  }
++              }
++          }
++        else if (word == &quot;\t&quot;)
++          { // magic to get taps correctly aligned 
++            int cw = font-&gt;get_character(' ').advance * 8;
++            x = (x/cw + 1) * cw;
++          }
++        else if (word == &quot; &quot;)
++          { 
++            print(&quot; &quot;);
++          }
++        else if (word == &quot;###PAGEBREAK###&quot;)
++          {
++            print(&quot;                                                            * * *&quot;);
++            done = true;
++          }
++        else
++          {
++            // read a whole word, now try to render it
++            if (x + font-&gt;get_width(word) &gt;= text_width)
++              { // word would print over-print, so we make a linebreak
++                y += font-&gt;get_height() + options.vspace;
++                x = 0;
+ 
+-              page += 1;
+-            }
+-        }
+-    }
+-}
++                if (y &gt;= text_height)
++                  {
++                    done = true;
++                    stream-&gt;unread(word);
++                  }
++                else
++                  {
++                    print(word);
++                  }
++              }
++            else
++              {
++                print(word);
++              }
++          }
++      }
++  }
++};
+ 
+ void parse_args(int argc, char** argv, Options&amp; options)
+ {
+@@ -158,6 +244,7 @@
+   argp.add_option('c',  &quot;canvas&quot;,   &quot;WxH&quot;,      &quot;Use a canvas for size WxH+X+Y&quot;);
+   argp.add_option('b',  &quot;break&quot;,    &quot;&quot;,        &quot;Break long lines&quot;);
+   argp.add_option('i',  &quot;info&quot;,     &quot;&quot;,        &quot;Print information about the text&quot;);
++  argp.add_option('v',  &quot;vspace&quot;,   &quot;NUM&quot;,     &quot;Amount of pixels between lines&quot;);
+   argp.add_option('h',  &quot;help&quot;,     &quot;&quot;,        &quot;Display this help&quot;);
+   
+   argp.parse_args(argc, argv);
+@@ -227,9 +314,17 @@
+               std::cerr &lt;&lt; &quot;Expected Integer as argument for --size&quot; &lt;&lt; std::endl;
+               exit(EXIT_FAILURE);
+             }
++          break;
+ 
++        case 'v': // vspace
++          if (sscanf(argp.get_argument().c_str(), &quot;%d&quot;, &amp;options.vspace) != 1)
++            {
++              std::cerr &lt;&lt; &quot;Expected Integer as argument for --vspace&quot; &lt;&lt; std::endl;
++              exit(EXIT_FAILURE);
++            }
+           break;
+ 
++
+         case 'h':
+           argp.print_help();
+           exit(EXIT_SUCCESS);
+@@ -278,12 +373,52 @@
+ 
+       //std::cout &lt;&lt; &quot;Render...&quot; &lt;&lt; std::endl;
+ 
+-      if (options.area_set)
+-        render(bitmap, font, text, options.text_x, options.text_y, options.text_w, options.text_h);
+-      else
+-        render(bitmap, font, text,
+-               4, font.get_height(), bitmap.get_width() - 4, bitmap.get_height() - font.get_height()*2);
++      if (!options.area_set)
++        {
++          options.text_x = 4;
++          options.text_y = font.get_height();
++          options.text_w = bitmap.get_width() - 4;
++          options.text_h = bitmap.get_height() - font.get_height()*2;
++        }
++
++      
++      TextStream stream(text);
++      int page = 0;
+   
++      while(!stream.eof())
++        { 
++          Renderer renderer;
++          renderer.render(bitmap, font, stream, options.text_x, options.text_y, options.text_w, options.text_h);
++
++          page += 1;
++
++          if (options.status)
++            {
++              std::ostringstream tstr;
++              if (!options.title.empty())
++                tstr &lt;&lt; options.title &lt;&lt; &quot; - &quot;;
++          
++              tstr &lt;&lt; &quot;Page &quot;
++                   &lt;&lt; std::setfill(' ') &lt;&lt; std::setw(2) &lt;&lt; page &lt;&lt; &quot;/21 - &quot; 
++                   &lt;&lt; std::setw(2) &lt;&lt; 100 * page / 21 &lt;&lt; &quot;%&quot;;
++              {
++                TextStream tmpstr(tstr.str());
++                Renderer renderer;
++                renderer.render(bitmap, font, tmpstr,
++                                bitmap.get_width()/2 - font.get_width(tstr.str())/2, 
++                                bitmap.get_height() - font.get_height() + font.get_character('M').bitmap-&gt;get_height()+2,
++                                bitmap.get_width(), bitmap.get_height());
++              }
++              bitmap.invert(0, bitmap.get_height() - font.get_height(),
++                            bitmap.get_width(), bitmap.get_height());
++            }
++
++          std::ostringstream str;
++          str &lt;&lt; options.output_file &lt;&lt; std::setfill('0') &lt;&lt; std::setw(3) &lt;&lt; page &lt;&lt; &quot;.jpg&quot;;
++          std::cout &lt;&lt; &quot;Writing: &quot; &lt;&lt; str.str() &lt;&lt; std::endl;
++          bitmap.write_jpg(str.str());
++          bitmap.clear();
++        }
+       TTFFont::deinit();
+     }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000957.html">[Windstille-commit] r1304 - trunk/html2image
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#958">[ date ]</a>
+              <a href="thread.html#958">[ thread ]</a>
+              <a href="subject.html#958">[ subject ]</a>
+              <a href="author.html#958">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

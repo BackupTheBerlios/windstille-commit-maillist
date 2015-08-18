@@ -1,0 +1,622 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2591 - in trunk/windstille/src: app engine gui	screen scripting sound
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2591%20-%20in%20trunk/windstille/src%3A%20app%20engine%20gui%0A%09screen%20scripting%20sound&In-Reply-To=%3C200903091117.n29BHSOu029783%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001587.html">
+   <LINK REL="Next"  HREF="001589.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2591 - in trunk/windstille/src: app engine gui	screen scripting sound</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2591%20-%20in%20trunk/windstille/src%3A%20app%20engine%20gui%0A%09screen%20scripting%20sound&In-Reply-To=%3C200903091117.n29BHSOu029783%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2591 - in trunk/windstille/src: app engine gui	screen scripting sound">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Mar  9 12:17:28 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001587.html">[Windstille-commit] r2590 - trunk/windstille/src/objects
+</A></li>
+        <LI>Next message: <A HREF="001589.html">[Windstille-commit] r2592 - in trunk/windstille: data/controller	src/input
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1588">[ date ]</a>
+              <a href="thread.html#1588">[ thread ]</a>
+              <a href="subject.html#1588">[ subject ]</a>
+              <a href="author.html#1588">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-09 12:17:27 +0100 (Mon, 09 Mar 2009)
+New Revision: 2591
+
+Modified:
+   trunk/windstille/src/app/config.cpp
+   trunk/windstille/src/app/menu_manager.cpp
+   trunk/windstille/src/app/menu_manager.hpp
+   trunk/windstille/src/app/windstille_main.cpp
+   trunk/windstille/src/engine/sector.cpp
+   trunk/windstille/src/gui/menu_component.cpp
+   trunk/windstille/src/gui/menu_item.cpp
+   trunk/windstille/src/screen/game_session.cpp
+   trunk/windstille/src/screen/screen_manager.cpp
+   trunk/windstille/src/scripting/interface.cpp
+   trunk/windstille/src/sound/sound_manager.cpp
+   trunk/windstille/src/sound/sound_manager.hpp
+Log:
+Added music/voice/sfx volume controls, only dummy in SoundManager so far, replaced sound_manager with SoundManager::current()
+
+Modified: trunk/windstille/src/app/config.cpp
+===================================================================
+--- trunk/windstille/src/app/config.cpp	2009-03-09 11:14:24 UTC (rev 2590)
++++ trunk/windstille/src/app/config.cpp	2009-03-09 11:17:27 UTC (rev 2591)
+@@ -59,6 +59,9 @@
+   add(new ConfigValue&lt;std::string&gt;(&quot;playback-file&quot;,   _(&quot;File from which a demo is played&quot;), false));
+ 
+   add(new ConfigValue&lt;int&gt;(&quot;master-volume&quot;,  _(&quot;Master Volume&quot;), true, 100));
++  add(new ConfigValue&lt;int&gt;(&quot;music-volume&quot;,   _(&quot;Music Volume&quot;),  true, 100));
++  add(new ConfigValue&lt;int&gt;(&quot;voice-volume&quot;,   _(&quot;Voice Volume&quot;),  true, 100));
++  add(new ConfigValue&lt;int&gt;(&quot;sfx-volume&quot;,     _(&quot;SFX Volume&quot;),    true, 100));
+ 
+   add(new ConfigValue&lt;bool&gt;(&quot;wiimote&quot;, _(&quot;Try to connect to Wiimote on startup&quot;), true, false));
+ }
+
+Modified: trunk/windstille/src/app/menu_manager.cpp
+===================================================================
+--- trunk/windstille/src/app/menu_manager.cpp	2009-03-09 11:14:24 UTC (rev 2590)
++++ trunk/windstille/src/app/menu_manager.cpp	2009-03-09 11:17:27 UTC (rev 2591)
+@@ -65,17 +65,34 @@
+ 
+   menu-&gt;set_font(Fonts::vera20);
+ 
+-  std::auto_ptr&lt;SliderMenuItem&gt; music_volume_item(new SliderMenuItem(menu.get(), &quot;Master Volume&quot;,   
+-                                                                     config.get_int(&quot;master-volume&quot;), 0, 100, 10));
+-  music_volume_item-&gt;sig_change().connect(boost::bind(&amp;MenuManager::menu_music_volume, this, _1));
+-  menu-&gt;add_item(music_volume_item.release());
++  {
++    std::auto_ptr&lt;SliderMenuItem&gt; master_volume_item(new SliderMenuItem(menu.get(), &quot;Master Volume&quot;,   
++                                                                        config.get_int(&quot;master-volume&quot;), 0, 100, 10));
++    master_volume_item-&gt;sig_change().connect(boost::bind(&amp;MenuManager::menu_master_volume, this, _1));
++    menu-&gt;add_item(master_volume_item.release());
++  }
+ 
+-  std::auto_ptr&lt;SliderMenuItem&gt; sfx_volume_item(new SliderMenuItem(menu.get(), &quot;SFX Volume&quot;,   100, 0, 100, 10));
+-  menu-&gt;add_item(sfx_volume_item.release());
++  {
++    std::auto_ptr&lt;SliderMenuItem&gt; music_volume_item(new SliderMenuItem(menu.get(), &quot;Music Volume&quot;,   
++                                                                       config.get_int(&quot;music-volume&quot;), 0, 100, 10));
++    music_volume_item-&gt;sig_change().connect(boost::bind(&amp;MenuManager::menu_music_volume, this, _1));
++    menu-&gt;add_item(music_volume_item.release());
++  }
+ 
+-  std::auto_ptr&lt;SliderMenuItem&gt; voice_volume_item(new SliderMenuItem(menu.get(), &quot;Voice Volume&quot;, 100, 0, 100, 10));
+-  menu-&gt;add_item(voice_volume_item.release());
++  {
++    std::auto_ptr&lt;SliderMenuItem&gt; sfx_volume_item(new SliderMenuItem(menu.get(), &quot;SFX Volume&quot;,  
++                                                                     config.get_int(&quot;sfx-volume&quot;), 0, 100, 10));
++    sfx_volume_item-&gt;sig_change().connect(boost::bind(&amp;MenuManager::menu_sfx_volume, this, _1));
++    menu-&gt;add_item(sfx_volume_item.release());
++  }
+ 
++  {
++    std::auto_ptr&lt;SliderMenuItem&gt; voice_volume_item(new SliderMenuItem(menu.get(), &quot;Voice Volume&quot;, 
++                                                                       config.get_int(&quot;voice-volume&quot;), 0, 100, 10));
++    voice_volume_item-&gt;sig_change().connect(boost::bind(&amp;MenuManager::menu_voice_volume, this, _1));
++    menu-&gt;add_item(voice_volume_item.release());
++  }
++
+   std::auto_ptr&lt;EnumMenuItem&gt; aspect_item(new EnumMenuItem(menu.get(), &quot;Aspect Ratio&quot;, 0));
+   aspect_item-&gt;add_pair(0, &quot;4:3&quot;);
+   aspect_item-&gt;add_pair(1, &quot;5:4&quot;);
+@@ -608,10 +625,31 @@
+ }
+ 
+ void
+-MenuManager::menu_music_volume(int i)
++MenuManager::menu_master_volume(int i)
+ {
+   config.set_int(&quot;master-volume&quot;, i);
+-  sound_manager-&gt;set_listener_gain((i/100.0f));
++  SoundManager::current()-&gt;set_master_volume((i/100.0f));
+ }
+ 
++void
++MenuManager::menu_music_volume(int i)
++{
++  config.set_int(&quot;music-volume&quot;, i);
++  SoundManager::current()-&gt;set_music_volume((i/100.0f));
++}
++
++void
++MenuManager::menu_voice_volume(int i)
++{
++  config.set_int(&quot;voice-volume&quot;, i);
++  SoundManager::current()-&gt;set_voice_volume((i/100.0f));
++}
++
++void
++MenuManager::menu_sfx_volume(int i)
++{
++  config.set_int(&quot;sfx-volume&quot;, i);
++  SoundManager::current()-&gt;set_sfx_volume((i/100.0f));
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/app/menu_manager.hpp
+===================================================================
+--- trunk/windstille/src/app/menu_manager.hpp	2009-03-09 11:14:24 UTC (rev 2590)
++++ trunk/windstille/src/app/menu_manager.hpp	2009-03-09 11:17:27 UTC (rev 2591)
+@@ -46,7 +46,12 @@
+   void menu_show_fps(int i);
+   void menu_fullscreen(int i);
+   void menu_continue();
++
++  void menu_master_volume(int i);
++  void menu_voice_volume(int i);
++  void menu_sfx_volume(int i);
+   void menu_music_volume(int i);
++
+   void menu_ambient_light(int i, int component);
+   void menu_start_scenario(std::string scenario);
+   void menu_show_model(std::string scenario);
+@@ -56,6 +61,7 @@
+   void menu_show_particle_system(std::string file);
+   void menu_gamma(int i);
+   void menu_wiimote();
++
+ private:
+   MenuManager (const MenuManager&amp;);
+   MenuManager&amp; operator= (const MenuManager&amp;);
+
+Modified: trunk/windstille/src/app/windstille_main.cpp
+===================================================================
+--- trunk/windstille/src/app/windstille_main.cpp	2009-03-09 11:14:24 UTC (rev 2590)
++++ trunk/windstille/src/app/windstille_main.cpp	2009-03-09 11:17:27 UTC (rev 2591)
+@@ -154,10 +154,10 @@
+ 
+   if (debug) std::cout &lt;&lt; &quot;Initialising Fonts&quot; &lt;&lt; std::endl;
+   Fonts::init(); 
+-  sound_manager = new SoundManager();
+-  sound_manager-&gt;set_listener_gain(config.get_int(&quot;master-volume&quot;)/100.0f);
+-  sound_manager-&gt;enable_sound(config.get_bool(&quot;sound&quot;));
+-  sound_manager-&gt;enable_music(config.get_bool(&quot;music&quot;));
++  new SoundManager();
++  SoundManager::current()-&gt;set_master_volume(config.get_int(&quot;master-volume&quot;)/100.0f);
++  SoundManager::current()-&gt;enable_sound(config.get_bool(&quot;sound&quot;));
++  SoundManager::current()-&gt;enable_music(config.get_bool(&quot;music&quot;));
+ 
+   if (debug) std::cout &lt;&lt; &quot;Initialising ScriptManager&quot; &lt;&lt; std::endl;
+   texture_manager  = new TextureManager();
+@@ -232,8 +232,7 @@
+   delete texture_manager;
+   texture_manager = 0;
+   
+-  delete sound_manager;
+-  sound_manager = 0;
++  delete SoundManager::current();
+   Fonts::deinit();
+ 
+   TTFFont::deinit();
+
+Modified: trunk/windstille/src/engine/sector.cpp
+===================================================================
+--- trunk/windstille/src/engine/sector.cpp	2009-03-09 11:14:24 UTC (rev 2590)
++++ trunk/windstille/src/engine/sector.cpp	2009-03-09 11:17:27 UTC (rev 2591)
+@@ -178,7 +178,7 @@
+   commit_adds();
+   commit_removes();
+ 
+-  sound_manager-&gt;play_music(music);
++  SoundManager::current()-&gt;play_music(music);
+ 
+   if (!init_script.empty())
+     {
+
+Modified: trunk/windstille/src/gui/menu_component.cpp
+===================================================================
+--- trunk/windstille/src/gui/menu_component.cpp	2009-03-09 11:14:24 UTC (rev 2590)
++++ trunk/windstille/src/gui/menu_component.cpp	2009-03-09 11:17:27 UTC (rev 2591)
+@@ -121,7 +121,7 @@
+             {
+               if (allow_cancel) // FIXME: Could use a signal instead
+                 {
+-                  sound_manager-&gt;play(&quot;sounds/menu_click.wav&quot;);
++                  SoundManager::current()-&gt;play(&quot;sounds/menu_click.wav&quot;);
+                   set_active(false);
+                 }
+             }
+@@ -135,7 +135,7 @@
+             }          
+           else if (i-&gt;button.name == MENU_UP_BUTTON)
+             {
+-              sound_manager-&gt;play(&quot;sounds/menu_change.wav&quot;);
++              SoundManager::current()-&gt;play(&quot;sounds/menu_change.wav&quot;);
+               
+               current_item = current_item - 1;
+               if (current_item &lt; 0)
+@@ -155,7 +155,7 @@
+             }
+           else if (i-&gt;button.name == MENU_DOWN_BUTTON)
+             {
+-              sound_manager-&gt;play(&quot;sounds/menu_change.wav&quot;);
++              SoundManager::current()-&gt;play(&quot;sounds/menu_change.wav&quot;);
+ 
+               if (dynamic_cast&lt;TabComponent*&gt;(parent))
+                 {
+
+Modified: trunk/windstille/src/gui/menu_item.cpp
+===================================================================
+--- trunk/windstille/src/gui/menu_item.cpp	2009-03-09 11:14:24 UTC (rev 2590)
++++ trunk/windstille/src/gui/menu_item.cpp	2009-03-09 11:17:27 UTC (rev 2591)
+@@ -93,7 +93,7 @@
+ void
+ EnumMenuItem::incr()
+ {
+-  sound_manager-&gt;play(&quot;sounds/menu_click.wav&quot;);           
++  SoundManager::current()-&gt;play(&quot;sounds/menu_click.wav&quot;);           
+ 
+   index -= 1;
+   if (index &lt; 0)
+@@ -104,7 +104,7 @@
+ void
+ EnumMenuItem::decr()
+ {
+-  sound_manager-&gt;play(&quot;sounds/menu_click.wav&quot;);
++  SoundManager::current()-&gt;play(&quot;sounds/menu_click.wav&quot;);
+ 
+   index += 1;
+   if (index &gt;= static_cast&lt;int&gt;(labels.size()))
+@@ -147,7 +147,7 @@
+ void
+ SliderMenuItem::decr()
+ {
+-  sound_manager-&gt;play(&quot;sounds/menu_click.wav&quot;);
++  SoundManager::current()-&gt;play(&quot;sounds/menu_click.wav&quot;);
+ 
+   value += step;
+   if (value &gt; max_value)
+@@ -158,7 +158,7 @@
+ void
+ SliderMenuItem::incr()
+ {
+-  sound_manager-&gt;play(&quot;sounds/menu_click.wav&quot;);
++  SoundManager::current()-&gt;play(&quot;sounds/menu_click.wav&quot;);
+ 
+   value -= step;
+   if (value &lt; min_value)
+@@ -203,7 +203,7 @@
+ void
+ ButtonMenuItem::click()
+ {
+-  sound_manager-&gt;play(&quot;sounds/menu_click.wav&quot;);
++  SoundManager::current()-&gt;play(&quot;sounds/menu_click.wav&quot;);
+ 
+   on_click();
+ }
+
+Modified: trunk/windstille/src/screen/game_session.cpp
+===================================================================
+--- trunk/windstille/src/screen/game_session.cpp	2009-03-09 11:14:24 UTC (rev 2590)
++++ trunk/windstille/src/screen/game_session.cpp	2009-03-09 11:17:27 UTC (rev 2591)
+@@ -290,7 +290,7 @@
+ {
+   impl-&gt;filename = arg_filename;
+  
+-  sound_manager-&gt;stop_music();
++  SoundManager::current()-&gt;stop_music();
+ 
+   if (impl-&gt;fade_state == GameSessionImpl::FADEOUT)
+     {
+@@ -388,7 +388,7 @@
+ {
+   if (impl-&gt;fade_state != GameSessionImpl::FADEOUT)
+     {
+-      sound_manager-&gt;stop_music();
++      SoundManager::current()-&gt;stop_music();
+       impl-&gt;fade_state  = GameSessionImpl::FADEOUT;
+       impl-&gt;fade_time   = 1.0f;
+       impl-&gt;next_action = GameSessionImpl::QUIT_ACTION;
+
+Modified: trunk/windstille/src/screen/screen_manager.cpp
+===================================================================
+--- trunk/windstille/src/screen/screen_manager.cpp	2009-03-09 11:14:24 UTC (rev 2590)
++++ trunk/windstille/src/screen/screen_manager.cpp	2009-03-09 11:17:27 UTC (rev 2591)
+@@ -116,7 +116,7 @@
+ 
+       overlap_delta = delta;
+ 
+-      sound_manager-&gt;update();
++      SoundManager::current()-&gt;update();
+ 
+       if (!screens.empty())
+         screens.back()-&gt;draw();
+
+Modified: trunk/windstille/src/scripting/interface.cpp
+===================================================================
+--- trunk/windstille/src/scripting/interface.cpp	2009-03-09 11:14:24 UTC (rev 2590)
++++ trunk/windstille/src/scripting/interface.cpp	2009-03-09 11:17:27 UTC (rev 2591)
+@@ -45,17 +45,17 @@
+ 
+ void play_music(const std::string&amp; musicfile)
+ {
+-  sound_manager-&gt;play_music(musicfile);
++  SoundManager::current()-&gt;play_music(musicfile);
+ }
+ 
+ void stop_music(float fadetime)
+ {
+-  sound_manager-&gt;stop_music(fadetime);
++  SoundManager::current()-&gt;stop_music(fadetime);
+ }
+ 
+ void play_sound(const std::string&amp; soundfile)
+ {
+-  sound_manager-&gt;play(soundfile);
++  SoundManager::current()-&gt;play(soundfile);
+ }
+ 
+ void caption_clear()
+
+Modified: trunk/windstille/src/sound/sound_manager.cpp
+===================================================================
+--- trunk/windstille/src/sound/sound_manager.cpp	2009-03-09 11:14:24 UTC (rev 2590)
++++ trunk/windstille/src/sound/sound_manager.cpp	2009-03-09 11:17:27 UTC (rev 2591)
+@@ -1,5 +1,22 @@
+-#include &quot;sound_manager.hpp&quot;
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2005 Matthias Braun &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">matze at braunis.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
+ 
++#include &lt;assert.h&gt;
+ #include &lt;stdexcept&gt;
+ #include &lt;iostream&gt;
+ #include &lt;sstream&gt;
+@@ -9,36 +26,46 @@
+ #include &quot;sound_source.hpp&quot;
+ #include &quot;stream_sound_source.hpp&quot;
+ 
+-SoundManager* sound_manager = 0;
++#include &quot;sound_manager.hpp&quot;
+ 
++SoundManager* SoundManager::current_ = 0;
++
+ SoundManager::SoundManager()
+   : device(0), context(0), sound_enabled(false), music_source(0),
+     next_music_source(0), music_enabled(true)
+ {
+-  try {
+-    device = alcOpenDevice(0);
+-    if(device == 0) {
++  assert(current_ == 0);
++  current_ = this; 
++
++  try 
++    {
++      device = alcOpenDevice(0);
++      if(device == 0) 
++        {
++          print_openal_version();
++          throw std::runtime_error(&quot;Couldn't open audio device.&quot;);
++        }
++
++      int attributes[] = { 0 };
++
++      context = alcCreateContext(device, attributes);
++      check_alc_error(&quot;Couldn't create audio context: &quot;);
++      alcMakeContextCurrent(context);
++      check_alc_error(&quot;Couldn't select audio context: &quot;);
++
++      check_al_error(&quot;Audio error after init: &quot;);
++      sound_enabled = true;
++    } 
++  catch(std::exception&amp; e) 
++    {
++      device = 0;
++      context = 0;
++      std::cerr &lt;&lt; &quot;Couldn't initialize audio device:&quot; &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
+       print_openal_version();
+-      throw std::runtime_error(&quot;Couldn't open audio device.&quot;);
++      // disable sound
++      enable_sound(false);
++      std::cout &lt;&lt; &quot;Disabling sound\n&quot;;
+     }
+-
+-    int attributes[] = { 0 };
+-    context = alcCreateContext(device, attributes);
+-    check_alc_error(&quot;Couldn't create audio context: &quot;);
+-    alcMakeContextCurrent(context);
+-    check_alc_error(&quot;Couldn't select audio context: &quot;);
+-
+-    check_al_error(&quot;Audio error after init: &quot;);
+-    sound_enabled = true;
+-  } catch(std::exception&amp; e) {
+-    device = 0;
+-    context = 0;
+-    std::cerr &lt;&lt; &quot;Couldn't initialize audio device:&quot; &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
+-    print_openal_version();
+-    // disable sound
+-    enable_sound(false);
+-    std::cout &lt;&lt; &quot;Disabling sound\n&quot;;
+-  }
+ }
+ 
+ SoundManager::~SoundManager()
+@@ -61,6 +88,8 @@
+   if(device != 0) {
+     alcCloseDevice(device);
+   }
++
++  current_ = 0; 
+ }
+ 
+ ALuint
+@@ -214,12 +243,30 @@
+ }
+ 
+ void
+-SoundManager::set_listener_gain(float volume)
++SoundManager::set_master_volume(float volume)
+ {
+   alListenerf(AL_GAIN, volume);
+ }
+ 
+ void
++SoundManager::set_voice_volume(float volume)
++{
++  std::cout &lt;&lt; &quot;SoundManager::set_voice_volume(&quot; &lt;&lt; volume &lt;&lt; &quot;): unimplemented&quot; &lt;&lt; std::endl;
++}
++
++void
++SoundManager::set_sfx_volume(float volume)
++{
++  std::cout &lt;&lt; &quot;SoundManager::set_sfx_volume(&quot; &lt;&lt; volume &lt;&lt; &quot;): unimplemented&quot; &lt;&lt; std::endl;
++}
++
++void
++SoundManager::set_music_volume(float volume)
++{
++  std::cout &lt;&lt; &quot;SoundManager::set_music_volume(&quot; &lt;&lt; volume &lt;&lt; &quot;): unimplemented&quot; &lt;&lt; std::endl;
++}
++
++void
+ SoundManager::update()
+ {
+   if (!sound_enabled)
+@@ -306,5 +353,5 @@
+     throw std::runtime_error(msg.str());
+   }  
+ }
+-
++
+ /* EOF */
+
+Modified: trunk/windstille/src/sound/sound_manager.hpp
+===================================================================
+--- trunk/windstille/src/sound/sound_manager.hpp	2009-03-09 11:14:24 UTC (rev 2590)
++++ trunk/windstille/src/sound/sound_manager.hpp	2009-03-09 11:17:27 UTC (rev 2591)
+@@ -33,7 +33,7 @@
+ class SoundFile;
+ class SoundSource;
+ class StreamSoundSource;
+-
++
+ class SoundManager
+ {
+ public:
+@@ -41,24 +41,21 @@
+   virtual ~SoundManager();
+ 
+   void enable_sound(bool sound_enabled);
++  void enable_music(bool music_enabled);
++
++  void set_listener_position(const Vector2f&amp; position);
++  void set_listener_velocity(const Vector2f&amp; velocity);
++
++  void set_master_volume(float volume);
++  void set_voice_volume(float volume);
++  void set_sfx_volume(float volume);
++  void set_music_volume(float volume);
++
+   /**
+-   * Creates a new sound source object which plays the specified soundfile.
+-   * You are responsible for deleting the sound source later (this will stop the
+-   * sound).
+-   * This function might throw exceptions. It returns 0 if no audio device is
+-   * available.
+-   */
+-  SoundSource* create_sound_source(const std::string&amp; filename);
+-  /**
+    * Convenience function to simply play a sound at a given position.
+    */
+   void play(const std::string&amp; name, const Vector2f&amp; pos = Vector2f(-1, -1));
+ 
+-  void set_listener_position(const Vector2f&amp; position);
+-  void set_listener_velocity(const Vector2f&amp; velocity);
+-  void set_listener_gain(float volume);
+-
+-  void enable_music(bool music_enabled);
+   void play_music(const std::string&amp; filename, bool fade = true);
+   void stop_music(bool fade = true);
+ 
+@@ -68,6 +65,15 @@
+   friend class SoundSource;
+   friend class StreamSoundSource;
+ 
++  /**
++   * Creates a new sound source object which plays the specified soundfile.
++   * You are responsible for deleting the sound source later (this will stop the
++   * sound).
++   * This function might throw exceptions. It returns 0 if no audio device is
++   * available.
++   */
++  SoundSource* create_sound_source(const std::string&amp; filename);
++
+   static ALuint load_file_into_buffer(const std::string&amp; filename);
+   static ALenum get_sample_format(SoundFile* file);
+ 
+@@ -89,10 +95,13 @@
+ 
+   bool music_enabled;
+   std::string current_music;
++
++private:
++  static SoundManager* current_; 
++public:
++  static SoundManager* current() { return current_; } 
+ };
+-
+-extern SoundManager* sound_manager;
+-
++
+ #endif
+ 
+ /* EOF */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001587.html">[Windstille-commit] r2590 - trunk/windstille/src/objects
+</A></li>
+	<LI>Next message: <A HREF="001589.html">[Windstille-commit] r2592 - in trunk/windstille: data/controller	src/input
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1588">[ date ]</a>
+              <a href="thread.html#1588">[ thread ]</a>
+              <a href="subject.html#1588">[ subject ]</a>
+              <a href="author.html#1588">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

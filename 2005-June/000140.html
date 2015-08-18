@@ -1,0 +1,428 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r483 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r483%20-%20trunk/src&In-Reply-To=%3C200506291757.j5THvYtH008908%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000139.html">
+   <LINK REL="Next"  HREF="000141.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r483 - trunk/src</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r483%20-%20trunk/src&In-Reply-To=%3C200506291757.j5THvYtH008908%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r483 - trunk/src">grumbel at sheep.berlios.de
+       </A><BR>
+    <I>Wed Jun 29 19:57:34 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000139.html">[Windstille-commit] r482 - in trunk/src: . input
+</A></li>
+        <LI>Next message: <A HREF="000141.html">[Windstille-commit] r484 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#140">[ date ]</a>
+              <a href="thread.html#140">[ thread ]</a>
+              <a href="subject.html#140">[ subject ]</a>
+              <a href="author.html#140">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-06-29 19:57:11 +0200 (Wed, 29 Jun 2005)
+New Revision: 483
+
+Modified:
+   trunk/src/Jamfile
+   trunk/src/tile.hxx
+   trunk/src/tile_factory.cxx
+   trunk/src/tile_factory.hxx
+   trunk/src/tile_map.cxx
+   trunk/src/tile_packer.cxx
+   trunk/src/tile_packer.hxx
+Log:
+- some more work on the tilepacker, still disabled by default
+
+Modified: trunk/src/Jamfile
+===================================================================
+--- trunk/src/Jamfile	2005-06-29 17:56:12 UTC (rev 482)
++++ trunk/src/Jamfile	2005-06-29 17:57:11 UTC (rev 483)
+@@ -16,6 +16,8 @@
+         bomb.hxx
+         brush.cxx
+         brush.hxx
++        blitter.cxx
++        blitter.hxx
+         camera.cxx
+         camera.hxx
+         collision_manager.cxx
+@@ -72,6 +74,8 @@
+         tile.cxx
+         tile_factory.cxx
+         tile_factory.hxx
++        tile_packer.cxx
++        tile_packer.hxx
+         tile.hxx
+         tile_map.cxx
+         tile_map.hxx
+
+Modified: trunk/src/tile.hxx
+===================================================================
+--- trunk/src/tile.hxx	2005-06-29 17:56:12 UTC (rev 482)
++++ trunk/src/tile.hxx	2005-06-29 17:57:11 UTC (rev 483)
+@@ -22,6 +22,7 @@
+ 
+ #include &lt;assert.h&gt;
+ #include &lt;ClanLib/Display/sprite.h&gt;
++#include &lt;ClanLib/GL/opengl_surface.h&gt;
+ 
+ /** A Tile is a surface or sprite together with information for
+  *  collision detection (aka colmap). The collision map is at a
+@@ -32,8 +33,14 @@
+ private:
+   CL_Sprite color;
+   CL_Sprite highlight;
+-  
++
+ public:
++  CL_Rect          color_rect;
++  int              color_packer;
++
++  CL_Rect          highlight_rect;
++  int              highlight_packer;
++
+   int id; 
+   /** Bitmaps that holds the collision attributes for this tile */
+   unsigned int colmap;
+
+Modified: trunk/src/tile_factory.cxx
+===================================================================
+--- trunk/src/tile_factory.cxx	2005-06-29 17:56:12 UTC (rev 482)
++++ trunk/src/tile_factory.cxx	2005-06-29 17:57:11 UTC (rev 483)
+@@ -17,6 +17,7 @@
+ //  along with this program; if not, write to the Free Software
+ //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ #include &lt;string&gt;
++#include &lt;ClanLib/gl.h&gt;
+ #include &lt;ClanLib/Core/System/system.h&gt;
+ #include &lt;ClanLib/Display/pixel_buffer.h&gt;
+ #include &lt;ClanLib/Display/pixel_format.h&gt;
+@@ -27,6 +28,7 @@
+ #include &lt;memory&gt;
+ #include &quot;globals.hxx&quot;
+ #include &quot;tile.hxx&quot;
++#include &quot;tile_packer.hxx&quot;
+ #include &quot;tile_factory.hxx&quot;
+ #include &quot;lisp/lisp.hpp&quot;
+ #include &quot;lisp/parser.hpp&quot;
+@@ -57,6 +59,11 @@
+       std::cout &lt;&lt; &quot;Unknown tag in tiles file: &quot; &lt;&lt; iter.item() &lt;&lt; &quot;\n&quot;;
+     }
+   }
++
++  //GLint glMaxTexDim = -1;
++  //  clGetIntegerv(GL_MAX_TEXTURE_SIZE, &amp;glMaxTexDim);
++  //std::cout &lt;&lt; &quot;Error: &quot; &lt;&lt; gluErrorString(clGetError()) &lt;&lt; std::endl;
++  //std::cout &lt;&lt; &quot;Max Texture Size: &quot; &lt;&lt; glMaxTexDim &lt;&lt; std::endl;
+ }
+ 
+ TileFactory::~TileFactory()
+@@ -111,6 +118,11 @@
+   if ((id + num_tiles) &gt;= int(tiles.size()))
+     tiles.resize(id + num_tiles + 1);
+ 
++  packers.push_back(new TilePacker(1024, 1024));
++  packers.push_back(new TilePacker(1024, 1024));
++  color_packer     = 0;
++  highlight_packer = 1;
++
+   // FIMXE: Tiles should share one OpenGL texture
+   for (int y = 0; y &lt; image.get_height(); y += TILE_SIZE)
+     {
+@@ -145,7 +157,30 @@
+ 
+           tiles[id] = new Tile(chopped_image, hl_chopped_image,
+                                colmap[y/TILE_SIZE * image.get_width()/TILE_SIZE + x/TILE_SIZE]);
++          
+           tiles[id]-&gt;id = id;
++
++          tiles[id]-&gt;color_rect     = packers[color_packer]-&gt;pack(chopped_image);
++          tiles[id]-&gt;color_packer   = color_packer;
++
++          if (hl_chopped_image)
++            {
++              tiles[id]-&gt;highlight_rect   = packers[highlight_packer]-&gt;pack(hl_chopped_image);
++              tiles[id]-&gt;highlight_packer = highlight_packer;
++            }
++
++          if (packers[color_packer]-&gt;is_full())
++            {
++              packers.push_back(new TilePacker(1024, 1024));
++              color_packer = packers.size() - 1;
++            }
++
++          if (packers[highlight_packer]-&gt;is_full())
++            {
++              packers.push_back(new TilePacker(1024, 1024));
++              highlight_packer = packers.size() - 1;
++            }
++
+           id += 1;
+         }
+     }
+
+Modified: trunk/src/tile_factory.hxx
+===================================================================
+--- trunk/src/tile_factory.hxx	2005-06-29 17:56:12 UTC (rev 482)
++++ trunk/src/tile_factory.hxx	2005-06-29 17:57:11 UTC (rev 483)
+@@ -25,6 +25,7 @@
+ #include &quot;lisp/lisp.hpp&quot;
+ 
+ class Tile;
++class TilePacker;
+ 
+ /** */
+ class TileFactory
+@@ -34,6 +35,9 @@
+   //typedef std::map&lt;int, Tile*&gt; Tiles;
+   typedef std::vector&lt;Tile*&gt; Tiles;
+   Tiles tiles;
++  std::vector&lt;TilePacker*&gt; packers;
++  int highlight_packer;
++  int color_packer;
+ 
+   static TileFactory* current_;
+ public:
+
+Modified: trunk/src/tile_map.cxx
+===================================================================
+--- trunk/src/tile_map.cxx	2005-06-29 17:56:12 UTC (rev 482)
++++ trunk/src/tile_map.cxx	2005-06-29 17:57:11 UTC (rev 483)
+@@ -122,14 +122,91 @@
+ 
+   void draw(CL_GraphicContext* gc)
+   {
+-    Field&lt;Tile*&gt;&amp; field = tilemap-&gt;field;
+-
+     gc-&gt;push_modelview();
+     gc-&gt;add_modelview(modelview);
+ 
++    draw_classic(gc);
++
++    gc-&gt;pop_modelview();
++  }
++
++  void draw_new(CL_GraphicContext* gc)
++  {
++    Field&lt;Tile*&gt;&amp; field = tilemap-&gt;field;
++    std::vector&lt;float&gt; raw_texcoords;
++    std::vector&lt;float&gt; raw_vertices;
++
++    // FIXME: handle texture somewhere here
+     for (int y = rect.top;   y &lt; rect.bottom; ++y)
+       for (int x = rect.left; x &lt; rect.right; ++x)
+         {
++          Tile* tile = field(x, y);
++          if (tile &amp;&amp; !highlight)
++            {
++              raw_vertices.push_back(x * TILE_SIZE);
++              raw_vertices.push_back(y * TILE_SIZE);
++              raw_vertices.push_back(0);
++
++              raw_texcoords.push_back(tile-&gt;color_rect.left / 1024.0f);
++              raw_texcoords.push_back(tile-&gt;color_rect.top  / 1024.0f);
++
++
++              raw_vertices.push_back(x * TILE_SIZE + TILE_SIZE);
++              raw_vertices.push_back(y * TILE_SIZE);
++              raw_vertices.push_back(0);
++
++              raw_texcoords.push_back(tile-&gt;color_rect.right / 1024.0f);
++              raw_texcoords.push_back(tile-&gt;color_rect.top  / 1024.0f);
++
++
++              raw_vertices.push_back(x * TILE_SIZE + TILE_SIZE);
++              raw_vertices.push_back(y * TILE_SIZE + TILE_SIZE);
++              raw_vertices.push_back(0);
++
++              raw_texcoords.push_back(tile-&gt;color_rect.right / 1024.0f);
++              raw_texcoords.push_back(tile-&gt;color_rect.bottom  / 1024.0f);
++
++
++              raw_vertices.push_back(x * TILE_SIZE);
++              raw_vertices.push_back(y * TILE_SIZE + TILE_SIZE);
++              raw_vertices.push_back(0);
++
++              raw_texcoords.push_back(tile-&gt;color_rect.left / 1024.0f);
++              raw_texcoords.push_back(tile-&gt;color_rect.bottom  / 1024.0f);
++            }
++        }
++
++    std::vector&lt;float&gt; raw_data;
++
++    // FIXME: this can be optimized away
++    std::copy(raw_vertices.begin(),  raw_vertices.end(),  std::back_inserter(raw_data));
++    std::copy(raw_texcoords.begin(),  raw_texcoords.end(),  std::back_inserter(raw_data));
++
++    int texcoord_offset = raw_vertices.size() * sizeof(float);
++
++    float* data = &amp;*raw_data.begin();
++
++    clVertexPointer  (3, CL_FLOAT, 0, data);
++    clTexCoordPointer(2, CL_FLOAT, 0, data + texcoord_offset);
++    
++    clEnableClientState(CL_TEXTURE_COORD_ARRAY);
++    clEnableClientState(CL_VERTEX_ARRAY);
++
++    // Draw arrays
++    clDrawArrays(CL_QUADS, 0, raw_vertices.size()/4);
++
++    // Disable arrays
++    clDisableClientState(CL_TEXTURE_COORD_ARRAY);
++    clDisableClientState(CL_VERTEX_ARRAY);
++  }
++
++  void draw_classic(CL_GraphicContext* gc)
++  {
++    Field&lt;Tile*&gt;&amp; field = tilemap-&gt;field;
++
++    for (int y = rect.top;   y &lt; rect.bottom; ++y)
++      for (int x = rect.left; x &lt; rect.right; ++x)
++        {
+           if (field(x,y))
+             {
+               if (!highlight)
+@@ -143,8 +220,6 @@
+                 }
+             }
+         }
+-
+-    gc-&gt;pop_modelview();
+   }
+ };
+ 
+
+Modified: trunk/src/tile_packer.cxx
+===================================================================
+--- trunk/src/tile_packer.cxx	2005-06-29 17:56:12 UTC (rev 482)
++++ trunk/src/tile_packer.cxx	2005-06-29 17:57:11 UTC (rev 483)
+@@ -22,6 +22,7 @@
+ #include &lt;ClanLib/Core/Math/point.h&gt;
+ #include &lt;ClanLib/Display/pixel_buffer.h&gt;
+ #include &lt;ClanLib/Display/pixel_format.h&gt;
++#include &lt;ClanLib/gl.h&gt;
+ #include &quot;windstille_error.hxx&quot;
+ #include &quot;blitter.hxx&quot;
+ #include &quot;globals.hxx&quot;
+@@ -30,9 +31,6 @@
+ class TilePackerImpl
+ {
+ public:
+-  int width;
+-  int height;
+-  
+   // Position for the next tile
+   int x_pos;
+   int y_pos;
+@@ -43,13 +41,10 @@
+ TilePacker::TilePacker(int width, int height)
+   : impl(new TilePackerImpl())
+ {
+-  impl-&gt;width  = width;
+-  impl-&gt;height = height;
+-
+   impl-&gt;x_pos = 0;
+   impl-&gt;y_pos = 0;
+ 
+-  impl-&gt;buffer = CL_PixelBuffer(impl-&gt;width, impl-&gt;height, impl-&gt;width*4,
++  impl-&gt;buffer = CL_PixelBuffer(width, height, width*4,
+                                 CL_PixelFormat::rgba8888);
+ }
+ 
+@@ -74,8 +69,13 @@
+   // we move by TILE_SIZE+1 to avoid tiles bleeding into each other
+   // when blending
+   impl-&gt;x_pos += TILE_SIZE + 1; 
+-  impl-&gt;y_pos += TILE_SIZE + 1;
+ 
++  if (impl-&gt;x_pos + TILE_SIZE &gt; impl-&gt;buffer.get_width())
++    {
++      impl-&gt;x_pos = 0;
++      impl-&gt;y_pos += TILE_SIZE + 1;
++    }
++
+   return rect;
+ }
+ 
+@@ -83,13 +83,13 @@
+ bool
+ TilePacker::is_full() const
+ {
+-  return (impl-&gt;y_pos + TILE_SIZE &gt; impl-&gt;height);
++  return (impl-&gt;y_pos + TILE_SIZE &gt; impl-&gt;buffer.get_height());
+ }
+ 
+-CL_OpenGLSurface
++CL_Texture
+ TilePacker::create_texture()
+ {
+-  return CL_OpenGLSurface(impl-&gt;buffer);
++  return CL_Texture(CL_TEXTURE_2D, impl-&gt;buffer);
+ }
+ 
+ /* EOF */
+
+Modified: trunk/src/tile_packer.hxx
+===================================================================
+--- trunk/src/tile_packer.hxx	2005-06-29 17:56:12 UTC (rev 482)
++++ trunk/src/tile_packer.hxx	2005-06-29 17:57:11 UTC (rev 483)
+@@ -20,7 +20,7 @@
+ #ifndef HEADER_TILE_PACKER_HXX
+ #define HEADER_TILE_PACKER_HXX
+ 
+-#include &lt;ClanLib/GL/opengl_surface.h&gt;
++#include &lt;ClanLib/GL/texture.h&gt;
+ 
+ class TilePackerImpl;
+ 
+@@ -42,7 +42,7 @@
+   /** Return true if the PixelBuffer is full */
+   bool is_full() const;
+ 
+-  CL_OpenGLSurface create_texture();
++  CL_Texture create_texture();
+ 
+ private:
+   TilePackerImpl* impl;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000139.html">[Windstille-commit] r482 - in trunk/src: . input
+</A></li>
+	<LI>Next message: <A HREF="000141.html">[Windstille-commit] r484 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#140">[ date ]</a>
+              <a href="thread.html#140">[ thread ]</a>
+              <a href="subject.html#140">[ subject ]</a>
+              <a href="author.html#140">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

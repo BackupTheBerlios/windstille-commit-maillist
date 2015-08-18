@@ -1,0 +1,462 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2371 - in trunk/griv/src: . math
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2371%20-%20in%20trunk/griv/src%3A%20.%20math&In-Reply-To=%3C200808301811.m7UIBEnA026076%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001367.html">
+   <LINK REL="Next"  HREF="001369.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2371 - in trunk/griv/src: . math</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2371%20-%20in%20trunk/griv/src%3A%20.%20math&In-Reply-To=%3C200808301811.m7UIBEnA026076%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2371 - in trunk/griv/src: . math">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Aug 30 20:11:14 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001367.html">[Windstille-commit] r2370 - in trunk/griv: . src
+</A></li>
+        <LI>Next message: <A HREF="001369.html">[Windstille-commit] r2372 - trunk/griv/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1368">[ date ]</a>
+              <a href="thread.html#1368">[ thread ]</a>
+              <a href="subject.html#1368">[ subject ]</a>
+              <a href="author.html#1368">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-30 20:11:13 +0200 (Sat, 30 Aug 2008)
+New Revision: 2371
+
+Modified:
+   trunk/griv/src/database_thread.cpp
+   trunk/griv/src/file_database.cpp
+   trunk/griv/src/file_database.hpp
+   trunk/griv/src/image.cpp
+   trunk/griv/src/jpeg_decoder_thread.cpp
+   trunk/griv/src/math/rgb.hpp
+   trunk/griv/src/software_surface.cpp
+   trunk/griv/src/software_surface.hpp
+   trunk/griv/src/space_navigator.cpp
+   trunk/griv/src/space_navigator.hpp
+   trunk/griv/src/tile_database.cpp
+   trunk/griv/src/viewer.cpp
+   trunk/griv/src/viewer.hpp
+Log:
+Added simplistic rotation, change database format to handle color and thumbnail in filetable
+
+Modified: trunk/griv/src/database_thread.cpp
+===================================================================
+--- trunk/griv/src/database_thread.cpp	2008-08-30 02:50:33 UTC (rev 2370)
++++ trunk/griv/src/database_thread.cpp	2008-08-30 18:11:13 UTC (rev 2371)
+@@ -226,6 +226,9 @@
+                   // FIXME: Make some better error checking in case of loading failure
+                   if (tile_msg-&gt;tile.surface)
+                     {
++                      // FIXME: if (tile_msg-&gt;tile.scale == file_entry.max_scale)
++                      //   file_db.store_tile(tile_msg-&gt;tile);
++                      // else
+                       tile_db.store_tile(tile_msg-&gt;tile);
+                     }
+                   else
+
+Modified: trunk/griv/src/file_database.cpp
+===================================================================
+--- trunk/griv/src/file_database.cpp	2008-08-30 02:50:33 UTC (rev 2370)
++++ trunk/griv/src/file_database.cpp	2008-08-30 18:11:13 UTC (rev 2371)
+@@ -32,11 +32,13 @@
+ #include &quot;filesystem.hpp&quot;
+ #include &quot;software_surface.hpp&quot;
+ #include &quot;file_entry.hpp&quot;
++#include &quot;tile_entry.hpp&quot;
+ #include &quot;file_database.hpp&quot;
+ 
+ FileDatabase::FileDatabase(SQLiteConnection* db)
+   : db(db),
+     store_stmt(db),
++    store_tile_stmt(db),
+     get_by_filename_stmt(db),
+     get_all_stmt(db),
+     get_by_file_id_stmt(db)
+@@ -48,11 +50,15 @@
+            &quot;filesize  INTEGER, &quot;
+            &quot;width     INTEGER, &quot;
+            &quot;height    INTEGER, &quot;
+-           &quot;mtime     INTEGER);&quot;);
++           &quot;mtime     INTEGER, &quot;
++           &quot;color     INTEGER, &quot;
++           &quot;thumbnail BLOB);&quot;);
+ 
+   db-&gt;exec(&quot;CREATE UNIQUE INDEX IF NOT EXISTS files_index ON files ( filename );&quot;);
+ 
+   store_stmt.prepare(&quot;INSERT INTO files (filename, md5, filesize, width, height, mtime) VALUES (?1, ?2, ?3, ?4, ?5, ?6);&quot;);
++  store_tile_stmt.prepare(&quot;UPDATE files SET thumbnail=?1, color=?2 WHERE fileid=?3&quot;);
++
+   get_by_filename_stmt.prepare(&quot;SELECT * FROM files WHERE filename = ?1;&quot;);
+   get_by_file_id_stmt.prepare(&quot;SELECT * FROM files WHERE rowid = ?1;&quot;);
+   get_all_stmt.prepare(&quot;SELECT * FROM files ORDER BY filename&quot;);
+@@ -76,7 +82,9 @@
+   store_stmt.bind_int (3, entry.filesize); 
+   store_stmt.bind_int (4, entry.size.width); 
+   store_stmt.bind_int (5, entry.size.height);
+-  store_stmt.bind_int (6, entry.mtime); 
++  // FIXME: Should we handle them her or depend on store_tile()?
++  // store_stmt.bind_int (6, entry.color); 
++  // store_stmt.bind_int (7, entry.surface.get_raw_data()); 
+ 
+   store_stmt.execute();
+   
+@@ -85,6 +93,16 @@
+   return entry.fileid;
+ }
+ 
++void
++FileDatabase::store_tile(TileEntry&amp; entry)
++{
++  store_tile_stmt.bind_blob(1, entry.surface.get_raw_data());
++  store_tile_stmt.bind_int (2, entry.surface.get_average_color().get_uint32());
++  store_tile_stmt.bind_int (3, entry.fileid);
++
++  store_tile_stmt.execute();
++}
++
+ bool
+ FileDatabase::get_file_entry(const std::string&amp; filename, FileEntry* entry)
+ {
+@@ -105,6 +123,8 @@
+       entry-&gt;filesize    = reader.get_int (3);
+       entry-&gt;size.width  = reader.get_int (4);
+       entry-&gt;size.height = reader.get_int (5);
++      entry-&gt;color       = RGB(reader.get_int(6));
++      entry-&gt;surface     = SoftwareSurface::from_raw_data(reader.get_blob(7));
+ 
+       return true;
+     }
+
+Modified: trunk/griv/src/file_database.hpp
+===================================================================
+--- trunk/griv/src/file_database.hpp	2008-08-30 02:50:33 UTC (rev 2370)
++++ trunk/griv/src/file_database.hpp	2008-08-30 18:11:13 UTC (rev 2371)
+@@ -34,6 +34,7 @@
+ #include &quot;math/size.hpp&quot;
+ 
+ class FileEntry;
++class TileEntry;
+ 
+ /** The FileDatabase keeps a record of all files that have been
+     view. It keeps information on the last modification time and
+@@ -48,6 +49,7 @@
+ private:
+   SQLiteConnection* db;
+   SQLiteStatement store_stmt;
++  SQLiteStatement store_tile_stmt;
+   SQLiteStatement get_by_filename_stmt;
+   SQLiteStatement get_all_stmt;
+   SQLiteStatement get_by_file_id_stmt;
+@@ -73,6 +75,8 @@
+   bool get_file_entry(const std::string&amp; filename, FileEntry* entry);
+   void get_file_entries(std::vector&lt;FileEntry&gt;&amp; entries);
+ 
++  void store_tile(TileEntry&amp; entry);
++
+   void check();
+ 
+ private:
+
+Modified: trunk/griv/src/image.cpp
+===================================================================
+--- trunk/griv/src/image.cpp	2008-08-30 02:50:33 UTC (rev 2370)
++++ trunk/griv/src/image.cpp	2008-08-30 18:11:13 UTC (rev 2371)
+@@ -253,8 +253,7 @@
+           Size s(Math::min(256, (impl-&gt;file_entry.size.width  / Math::pow2(tiledb_scale)) - 256 * x),
+                  Math::min(256, (impl-&gt;file_entry.size.height / Math::pow2(tiledb_scale)) - 256 * y));
+ 
+-          Framebuffer::fill_rect(Rectf(pos, s*scale),
+-                                 RGB(255, 0, 255));
++          Framebuffer::fill_rect(Rectf(pos, s*scale), impl-&gt;file_entry.color);
+         }
+     }
+ }
+
+Modified: trunk/griv/src/jpeg_decoder_thread.cpp
+===================================================================
+--- trunk/griv/src/jpeg_decoder_thread.cpp	2008-08-30 02:50:33 UTC (rev 2370)
++++ trunk/griv/src/jpeg_decoder_thread.cpp	2008-08-30 18:11:13 UTC (rev 2371)
+@@ -61,7 +61,7 @@
+         {
+           JPEGDecoderThreadMessage msg = queue.front();
+           queue.pop();
+-          msg.callback(SoftwareSurface::from_data(msg.blob));
++          msg.callback(SoftwareSurface::from_jpeg_data(msg.blob));
+         }
+       queue.wait();
+     }
+
+Modified: trunk/griv/src/math/rgb.hpp
+===================================================================
+--- trunk/griv/src/math/rgb.hpp	2008-08-30 02:50:33 UTC (rev 2370)
++++ trunk/griv/src/math/rgb.hpp	2008-08-30 18:11:13 UTC (rev 2371)
+@@ -42,6 +42,16 @@
+   RGB(uint8_t r, uint8_t g, uint8_t b)
+     : r(r), g(g), b(b)
+   {}
++
++  RGB(uint32_t c)
++    : r((c&gt;&gt; 0) &amp; 0xFF), 
++      g((c&gt;&gt; 8) &amp; 0xFF),
++      b((c&gt;&gt;16) &amp; 0xFF)
++  {}
++
++  uint32_t get_uint32() const {
++    return ((r &lt;&lt; 0) | (g &lt;&lt; 8) | (b &lt;&lt; 16));
++  }
+ };
+ 
+ #endif
+
+Modified: trunk/griv/src/software_surface.cpp
+===================================================================
+--- trunk/griv/src/software_surface.cpp	2008-08-30 02:50:33 UTC (rev 2370)
++++ trunk/griv/src/software_surface.cpp	2008-08-30 18:11:13 UTC (rev 2371)
+@@ -182,6 +182,13 @@
+   return JPEG::save(*this, 75);
+ }
+ 
++Blob
++SoftwareSurface::get_raw_data() const
++{
++  assert(impl-&gt;pitch != impl-&gt;size.width*3);
++  return Blob(impl-&gt;pixels, impl-&gt;size.height * impl-&gt;pitch);
++}
++
+ SoftwareSurface
+ SoftwareSurface::from_file(const std::string&amp; filename)
+ {
+@@ -189,11 +196,18 @@
+ }
+ 
+ SoftwareSurface
+-SoftwareSurface::from_data(const Blob&amp; blob)
++SoftwareSurface::from_jpeg_data(const Blob&amp; blob)
+ {
+   return JPEG::load_from_mem(blob.get_data(), blob.size());
+ }
+ 
++SoftwareSurface
++SoftwareSurface::from_raw_data(const Blob&amp; blob)
++{
++  std::cout &lt;&lt; &quot;SoftwareSurface::from_raw_data(const Blob&amp; blob): Implement me&quot; &lt;&lt; std::endl;
++  return SoftwareSurface();
++}
++
+ uint8_t*
+ SoftwareSurface::get_data() const
+ {
+
+Modified: trunk/griv/src/software_surface.hpp
+===================================================================
+--- trunk/griv/src/software_surface.hpp	2008-08-30 02:50:33 UTC (rev 2370)
++++ trunk/griv/src/software_surface.hpp	2008-08-30 18:11:13 UTC (rev 2371)
+@@ -42,10 +42,10 @@
+ 
+   ~SoftwareSurface();
+ 
+-  Size get_size()  const;
+-  int get_width()  const;
+-  int get_height() const;
+-  int get_pitch()  const;
++  Size get_size()   const;
++  int  get_width()  const;
++  int  get_height() const;
++  int  get_pitch()  const;
+ 
+   SoftwareSurface halve() const;
+   SoftwareSurface scale(const Size&amp; size) const;
+@@ -54,8 +54,10 @@
+   void save(const std::string&amp; filename) const;
+   
+   Blob get_jpeg_data() const;
++  Blob get_raw_data()  const;
+   
+-  static SoftwareSurface from_data(const Blob&amp; blob);
++  static SoftwareSurface from_jpeg_data(const Blob&amp; blob);
++  static SoftwareSurface from_raw_data(const Blob&amp; blob);
+   static SoftwareSurface from_file(const std::string&amp; filename);
+  
+   void put_pixel(int x, int y, const RGB&amp; rgb);
+
+Modified: trunk/griv/src/space_navigator.cpp
+===================================================================
+--- trunk/griv/src/space_navigator.cpp	2008-08-30 02:50:33 UTC (rev 2370)
++++ trunk/griv/src/space_navigator.cpp	2008-08-30 18:11:13 UTC (rev 2371)
+@@ -31,7 +31,8 @@
+ #include &quot;space_navigator.hpp&quot;
+ 
+ SpaceNavigator::SpaceNavigator()
+-  : usable(false)
++  : usable(false),
++    allow_rotate(false)
+ {
+   if (spnav_open() != 0)
+     {
+@@ -88,13 +89,20 @@
+                   viewer.get_state().move(Vector2f(-event.motion.x / 10.0f,
+                                                    +event.motion.z / 10.0f));
+ 
+-                  viewer.get_state().rotate(event.motion.ry / 100.0f);                                       
++                  if (allow_rotate)
++                    viewer.get_state().rotate(event.motion.ry / 200.0f);
+                 }
+                 break;
+             
+               case SPNAV_EVENT_BUTTON:
+                 if (0)
+-                  std::cout &lt;&lt; &quot;ButtonEvent: &quot; &lt;&lt; event.button.press &lt;&lt; event.button.bnum &lt;&lt; std::endl;
++                std::cout &lt;&lt; &quot;ButtonEvent: &quot; &lt;&lt; event.button.press &lt;&lt; event.button.bnum &lt;&lt; std::endl;
++
++                if (event.button.bnum == 0 &amp;&amp; event.button.press)
++                  viewer.get_state().set_angle(0.0f);
++                
++                if (event.button.bnum == 1 &amp;&amp; event.button.press)
++                  allow_rotate = !allow_rotate;
+                 break;
+ 
+               default:
+
+Modified: trunk/griv/src/space_navigator.hpp
+===================================================================
+--- trunk/griv/src/space_navigator.hpp	2008-08-30 02:50:33 UTC (rev 2370)
++++ trunk/griv/src/space_navigator.hpp	2008-08-30 18:11:13 UTC (rev 2371)
+@@ -32,6 +32,7 @@
+ {
+ private:
+   bool usable;
++  bool allow_rotate;
+ 
+ public:
+   SpaceNavigator();
+
+Modified: trunk/griv/src/tile_database.cpp
+===================================================================
+--- trunk/griv/src/tile_database.cpp	2008-08-30 02:50:33 UTC (rev 2370)
++++ trunk/griv/src/tile_database.cpp	2008-08-30 18:11:13 UTC (rev 2371)
+@@ -95,7 +95,7 @@
+       tile.pos.y   = reader.get_int (3);
+ 
+       // FIXME: Do this in a JPEGDecoderThread
+-      tile.surface = SoftwareSurface::from_data(reader.get_blob(4));
++      tile.surface = SoftwareSurface::from_jpeg_data(reader.get_blob(4));
+ 
+       return true;
+     }
+
+Modified: trunk/griv/src/viewer.cpp
+===================================================================
+--- trunk/griv/src/viewer.cpp	2008-08-30 02:50:33 UTC (rev 2370)
++++ trunk/griv/src/viewer.cpp	2008-08-30 18:11:13 UTC (rev 2371)
+@@ -61,10 +61,17 @@
+ }
+ 
+ void
++ViewerState::set_angle(float r)
++{
++  angle = r;
++}
++
++void
+ ViewerState::move(const Vector2f&amp; pos)
+ {
+-  offset.x += pos.x;
+-  offset.y += pos.y;
++  // FIXME: Implement a proper 2D Matrix instead of this hackery
++  offset.x += pos.x * cosf(angle/180.0f*M_PI) +  pos.y * sinf(angle/180.0f*M_PI);
++  offset.y -= pos.x * sinf(angle/180.0f*M_PI) -  pos.y * cosf(angle/180.0f*M_PI);
+ }
+ 
+ Vector2f
+@@ -131,6 +138,22 @@
+             case SDLK_F11:
+               Framebuffer::toggle_fullscreen();
+               break;
++
++            case SDLK_LEFT:
++              state.rotate(90.0f);
++              break;
++
++            case SDLK_RIGHT:
++              state.rotate(-90.0f);
++              break;
++
++            case SDLK_UP:
++              state.set_angle(0.0f);
++              break;
++
++            case SDLK_DOWN:
++              state.set_angle(0.0f);
++              break;
+                 
+             case SDLK_g:
+               draw_grid = !draw_grid;
+@@ -220,9 +243,12 @@
+       glTranslatef(-Framebuffer::get_width()/2, -Framebuffer::get_height()/2, 0.0f);
+     }
+ 
++  glTranslatef(Framebuffer::get_width()/2, Framebuffer::get_height()/2, 0.0f);
++  glRotatef(state.get_angle(), 0.0f, 0.0f, 1.0f); // Rotates around 0.0
++  glTranslatef(-Framebuffer::get_width()/2, -Framebuffer::get_height()/2, 0.0f);
++
+   glTranslatef(state.get_offset().x, state.get_offset().y, 0.0f);
+   glScalef(state.get_scale(), state.get_scale(), 1.0f);
+-  //glRotatef(state.get_angle(), 0.0f, 0.0f, 1.0f);
+ 
+   Rectf cliprect = state.screen2world(Rect(0, 0, Framebuffer::get_width(), Framebuffer::get_height())); 
+ 
+
+Modified: trunk/griv/src/viewer.hpp
+===================================================================
+--- trunk/griv/src/viewer.hpp	2008-08-30 02:50:33 UTC (rev 2370)
++++ trunk/griv/src/viewer.hpp	2008-08-30 18:11:13 UTC (rev 2371)
+@@ -47,6 +47,7 @@
+   void zoom(float factor);
+   void move(const Vector2f&amp; pos);
+   void rotate(float r);
++  void set_angle(float r);
+ 
+   Vector2f screen2world(const Vector2i&amp;) const;
+   Rectf    screen2world(const Rect&amp;) const;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001367.html">[Windstille-commit] r2370 - in trunk/griv: . src
+</A></li>
+	<LI>Next message: <A HREF="001369.html">[Windstille-commit] r2372 - trunk/griv/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1368">[ date ]</a>
+              <a href="thread.html#1368">[ thread ]</a>
+              <a href="subject.html#1368">[ subject ]</a>
+              <a href="author.html#1368">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

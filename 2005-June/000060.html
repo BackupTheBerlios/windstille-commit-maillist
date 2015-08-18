@@ -1,0 +1,448 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r404 - in trunk: data/images src src/display
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r404%20-%20in%20trunk%3A%20data/images%20src%20src/display&In-Reply-To=%3C200506240223.j5O2NtLU003297%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000059.html">
+   <LINK REL="Next"  HREF="000061.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r404 - in trunk: data/images src src/display</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r404%20-%20in%20trunk%3A%20data/images%20src%20src/display&In-Reply-To=%3C200506240223.j5O2NtLU003297%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r404 - in trunk: data/images src src/display">grumbel at sheep.berlios.de
+       </A><BR>
+    <I>Fri Jun 24 04:23:55 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000059.html">[Windstille-commit] r403 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000061.html">[Windstille-commit] r405 - trunk/data/images
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#60">[ date ]</a>
+              <a href="thread.html#60">[ thread ]</a>
+              <a href="subject.html#60">[ subject ]</a>
+              <a href="author.html#60">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-06-24 04:23:45 +0200 (Fri, 24 Jun 2005)
+New Revision: 404
+
+Modified:
+   trunk/data/images/virtualreality-background.png
+   trunk/src/SConstruct
+   trunk/src/display/drawing_context.cxx
+   trunk/src/display/drawing_context.hxx
+   trunk/src/game_session.cxx
+   trunk/src/game_session.hxx
+   trunk/src/particle_system.cxx
+   trunk/src/particle_system.hxx
+   trunk/src/ptest.cxx
+Log:
+- integrated particle engine into the game, not 100% done, since some particle drawer bypass the SceneContext and others use the SceneContext without implementing their own DrawingRequests, which might make them slow
+
+Modified: trunk/data/images/virtualreality-background.png
+===================================================================
+(Binary files differ)
+
+Modified: trunk/src/SConstruct
+===================================================================
+--- trunk/src/SConstruct	2005-06-23 21:36:42 UTC (rev 403)
++++ trunk/src/SConstruct	2005-06-24 02:23:45 UTC (rev 404)
+@@ -91,6 +91,9 @@
+     # Collision stuff
+     'collision_manager.cxx',
+ 
++    'particle_system.cxx',
++    'random.cxx',
++
+     # drawing
+     'display/drawing_context.cxx',
+     'display/scene_context.cxx',
+@@ -134,12 +137,12 @@
+                          LIBPATH=['.'] + clanLib_env['LIBPATH'],
+                          LIBS=clanLib_env['LIBS'])
+ 
+-ptest = env.Program('ptest',
+-                    ['ptest.cxx', 'particle_system.cxx', 'random.cxx'],
+-                    CPPPATH   = [env['CPPPATH']] + clanLib_env['CPPPATH'],
+-                    LINKFLAGS = clanLib_env['LINKFLAGS'],
+-                    LIBPATH   = clanLib_env['LIBPATH'],
+-                    LIBS      = clanLib_env['LIBS'])
++# ptest = env.Program('ptest',
++#                     ['ptest.cxx', 'particle_system.cxx', 'random.cxx'],
++#                    CPPPATH   = [env['CPPPATH']] + clanLib_env['CPPPATH'],
++#                    LINKFLAGS = clanLib_env['LINKFLAGS'],
++#                    LIBPATH   = clanLib_env['LIBPATH'],
++#                    LIBS      = clanLib_env['LIBS'])
+ 
+ # Unkomment ctest and comment ptest and windstille to compile
+ # ctest or alternativly fix the SConstruct file
+
+Modified: trunk/src/display/drawing_context.cxx
+===================================================================
+--- trunk/src/display/drawing_context.cxx	2005-06-23 21:36:42 UTC (rev 403)
++++ trunk/src/display/drawing_context.cxx	2005-06-24 02:23:45 UTC (rev 404)
+@@ -83,6 +83,28 @@
+   }
+ };
+ 
++class SurfaceDrawingRequest : public DrawingRequest
++{
++private:
++  CL_Surface sprite;
++
++public:
++  SurfaceDrawingRequest(const CL_Surface&amp; sprite_, const CL_Vector&amp; pos_, const CL_Matrix4x4&amp; modelview_)
++    : DrawingRequest(pos_, modelview_),
++      sprite(sprite_)
++  {}
++  virtual ~SurfaceDrawingRequest() {}
++
++  void draw(CL_GraphicContext* gc) {
++    // FIXME: frequent push/pops might be slow
++    gc-&gt;push_modelview();
++    gc-&gt;add_modelview(modelview);
++    sprite.draw(static_cast&lt;int&gt;(pos.x),
++                static_cast&lt;int&gt;(pos.y), gc);
++    gc-&gt;pop_modelview();
++  }
++};
++
+ class TextDrawingRequest : public DrawingRequest
+ {
+ private:
+@@ -142,6 +164,13 @@
+ }
+ 
+ void
++DrawingContext::draw(const CL_Surface&amp;   sprite,  float x, float y, float z)
++{ // FIXME: This should get flattend down to a simple texture draw
++  // command for easier sorting after texture-id/alpha
++  draw(new SurfaceDrawingRequest(sprite, CL_Vector(x, y, z), modelview_stack.back()));
++}
++
++void
+ DrawingContext::draw(const CL_Sprite&amp;   sprite,  float x, float y, float z)
+ { // FIXME: This should get flattend down to a simple texture draw
+   // command for easier sorting after texture-id/alpha
+
+Modified: trunk/src/display/drawing_context.hxx
+===================================================================
+--- trunk/src/display/drawing_context.hxx	2005-06-23 21:36:42 UTC (rev 403)
++++ trunk/src/display/drawing_context.hxx	2005-06-24 02:23:45 UTC (rev 404)
+@@ -26,6 +26,7 @@
+ #include &lt;vector&gt;
+ #include &quot;drawing_request.hxx&quot;
+ 
++class CL_Surface;
+ class CL_Sprite;
+ 
+ /** The DrawingContext collects all DrawingRequests and allows you to
+@@ -60,6 +61,7 @@
+   /*{ */
+   void draw(DrawingRequest* request);
+   void draw(const CL_Sprite&amp;   sprite,  float x, float y, float z = 0);
++  void draw(const CL_Surface&amp;   sprite,  float x, float y, float z = 0);
+   void draw(const std::string&amp; text,    float x, float y, float z = 0);
+ 
+   void draw_line (float x1, float y1, float x2, float y2, 
+
+Modified: trunk/src/game_session.cxx
+===================================================================
+--- trunk/src/game_session.cxx	2005-06-23 21:36:42 UTC (rev 403)
++++ trunk/src/game_session.cxx	2005-06-24 02:23:45 UTC (rev 404)
+@@ -37,6 +37,7 @@
+ #include &quot;windstille_main.hxx&quot;
+ #include &quot;display/scene_context.hxx&quot;
+ #include &quot;input/input_manager.hxx&quot;
++#include &quot;particle_system.hxx&quot;
+ 
+ #include &quot;game_session.hxx&quot;
+ 
+@@ -209,7 +210,8 @@
+ GameSession::on_startup ()
+ { 
+   slots.push_back(CL_Keyboard::sig_key_down().connect(this, &amp;GameSession::on_key_down));
+-  CL_Display::get_current_window()-&gt;hide_cursor();
++  slots.push_back(CL_Mouse::sig_key_down().connect(this, &amp;GameSession::on_mouse_down));
++  //CL_Display::get_current_window()-&gt;hide_cursor();
+ 
+   MusicManager::current()-&gt;play(datadir + &quot;music/techdemo.ogg&quot;, true);
+   blink = 0.0f;
+@@ -241,6 +243,49 @@
+       world-&gt;add(new Door(24, 6));
+       world-&gt;add(new Door(32, 14));
+       world-&gt;add(new Door(8, 22));
++
++      CL_Surface surface1(&quot;smoke.png&quot;);
++      CL_Surface surface2(&quot;smoke2.png&quot;);
++
++      ParticleSystem* psystem2 = new ParticleSystem();
++      psystem2-&gt;set_drawer(new SparkDrawer());
++      psystem2-&gt;set_pos(0,0);
++      psystem2-&gt;set_speed(300, 550);
++      psystem2-&gt;set_cone(-25-90, 25-90);
++      psystem2-&gt;set_gravity(0, 20);
++      psystem2-&gt;set_line_distribution(-50, 0, 50, 0);
++
++      ParticleSystem* psystem3 = new ParticleSystem();
++      psystem3-&gt;set_lifetime(8);
++      psystem3-&gt;set_count(30);
++      surface2.set_blend_func(blend_src_alpha, blend_one_minus_src_alpha);
++      surface2.set_alignment(origin_center);
++      psystem3-&gt;set_drawer(new SurfaceDrawer(surface2));
++      psystem3-&gt;set_pos(0,0);
++      psystem3-&gt;set_speed(70, 100);
++      psystem3-&gt;set_cone(-25-90, 25-90);
++      psystem3-&gt;set_gravity(0, -1);
++      psystem3-&gt;set_size(1.0f, 3.0f);
++      psystem3-&gt;set_line_distribution(-50, 0, 50, 0);
++ 
++      ParticleSystem* psystem = new ParticleSystem();
++      psystem-&gt;set_count(100);
++      surface1.set_blend_func(blend_src_alpha, blend_one);
++      surface1.set_alignment(origin_center);
++      psystem-&gt;set_drawer(new SurfaceDrawer(surface1));
++      psystem-&gt;set_pos(0,0);
++      psystem-&gt;set_speed(200, 300);
++      psystem-&gt;set_cone(-5-90, 5-90);
++      psystem-&gt;set_gravity(0, 0);
++      psystem-&gt;set_line_distribution(-50, 0, 50, 0);
++
++      psystem-&gt;set_spawn_point (768, 832);
++      psystem2-&gt;set_spawn_point(768, 832);
++      psystem3-&gt;set_spawn_point(768, 832);
++
++      world-&gt;add(psystem3);
++      world-&gt;add(psystem2);
++      world-&gt;add(psystem);
+     }
+ }
+ 
+@@ -263,6 +308,19 @@
+ }
+ 
+ void
++GameSession::on_mouse_down(const CL_InputEvent&amp; event)
++{
++  switch(event.id)
++    {
++    case CL_MOUSE_LEFT:
++      console.add(&quot;Click at: &quot;, CL_Point(view-&gt;screen2world(event.mouse_pos)));
++      break;
++    default:
++      break;
++    }
++}
++
++void
+ GameSession::on_key_down(const CL_InputEvent&amp; event)
+ {
+   switch(event.id)
+@@ -289,6 +347,7 @@
+ 
+     default:
+       // ignore key
++      //console.add(&quot;Key pressed:: &quot;, event.id);
+       break;
+     }
+ }
+
+Modified: trunk/src/game_session.hxx
+===================================================================
+--- trunk/src/game_session.hxx	2005-06-23 21:36:42 UTC (rev 403)
++++ trunk/src/game_session.hxx	2005-06-24 02:23:45 UTC (rev 404)
+@@ -64,6 +64,7 @@
+ 
+   std::vector&lt;CL_Slot&gt; slots;
+   void on_key_down  (const CL_InputEvent&amp; event);
++  void on_mouse_down  (const CL_InputEvent&amp; event);
+ 
+   static GameSession* current_; 
+ public:
+
+Modified: trunk/src/particle_system.cxx
+===================================================================
+--- trunk/src/particle_system.cxx	2005-06-23 21:36:42 UTC (rev 403)
++++ trunk/src/particle_system.cxx	2005-06-24 02:23:45 UTC (rev 404)
+@@ -20,6 +20,7 @@
+ #include &lt;math.h&gt;
+ #include &lt;ClanLib/gl.h&gt;
+ #include &quot;particle_system.hxx&quot;
++#include &quot;display/scene_context.hxx&quot;
+ #include &quot;random.hxx&quot;
+ 
+ class Randomizer 
+@@ -97,7 +98,7 @@
+ }
+ 
+ void
+-SurfaceDrawer::draw(ParticleSystem&amp; psys) 
++SurfaceDrawer::draw(SceneContext&amp; sc, ParticleSystem&amp; psys) 
+ {          
+   for(ParticleSystem::Particles::iterator i = psys.begin(); i != psys.end(); ++i)
+     {
+@@ -113,14 +114,16 @@
+           surface.set_scale(psys.size_start + psys.get_progress(i-&gt;t)*(psys.size_stop - psys.size_start),
+                             psys.size_start + psys.get_progress(i-&gt;t)*(psys.size_stop - psys.size_start));
+           surface.set_angle(i-&gt;angle);
+-          surface.draw(int(psys.get_x_pos() + i-&gt;x),
+-                       int(psys.get_y_pos() + i-&gt;y));
++          
++          sc.color().draw(surface, 
++                          psys.get_x_pos() + i-&gt;x,
++                          psys.get_y_pos() + i-&gt;y);
+         }
+     }
+ }
+ 
+ void
+-SparkDrawer::draw(ParticleSystem&amp; psys) 
++SparkDrawer::draw(SceneContext&amp; sc, ParticleSystem&amp; psys) 
+ {
+   CL_OpenGLState state(CL_Display::get_current_window()-&gt;get_gc());
+   state.set_active();
+@@ -180,11 +183,11 @@
+ }
+   
+ void
+-ParticleSystem::draw()
++ParticleSystem::draw(SceneContext&amp; sc)
+ {
+   if (drawer)
+     {
+-      drawer-&gt;draw(*this);
++      drawer-&gt;draw(sc, *this);
+     }
+   else
+     {
+
+Modified: trunk/src/particle_system.hxx
+===================================================================
+--- trunk/src/particle_system.hxx	2005-06-23 21:36:42 UTC (rev 403)
++++ trunk/src/particle_system.hxx	2005-06-24 02:23:45 UTC (rev 404)
+@@ -22,7 +22,9 @@
+ 
+ #include &lt;ClanLib/display.h&gt;
+ #include &lt;vector&gt;
++#include &quot;game_object.hxx&quot;
+ 
++class SceneContext;
+ class Randomizer;
+ class Particle;
+ class ParticleSystem;
+@@ -31,13 +33,13 @@
+ {
+ public:
+   virtual ~Drawer() {}
+-  virtual void draw(ParticleSystem&amp; psys) =0;
++  virtual void draw(SceneContext&amp; sc, ParticleSystem&amp; psys) =0;
+ };
+ 
+ class SparkDrawer : public Drawer
+ {
+ public:
+-  void draw(ParticleSystem&amp; psys);
++  void draw(SceneContext&amp; sc, ParticleSystem&amp; psys);
+ };
+ 
+ class SurfaceDrawer : public Drawer
+@@ -50,7 +52,7 @@
+   virtual ~SurfaceDrawer();
+   
+   void set_surface(const CL_Surface&amp; sur);
+-  void draw(ParticleSystem&amp; psys);
++  void draw(SceneContext&amp; sc, ParticleSystem&amp; psys);
+ };
+ 
+ struct Particle {
+@@ -72,7 +74,7 @@
+ 
+ 
+ /** */
+-class ParticleSystem
++class ParticleSystem : public GameObject
+ {
+ public:
+   typedef std::vector&lt;Particle&gt; Particles;
+@@ -117,7 +119,7 @@
+   void set_drawer(Drawer*);
+ 
+   /** Draws the particle system to the screen */
+-  virtual void draw();
++  virtual void draw(SceneContext&amp; sc);
+ 
+   /** Update the particle system \a delta seconds */
+   virtual void update(float delta);
+
+Modified: trunk/src/ptest.cxx
+===================================================================
+--- trunk/src/ptest.cxx	2005-06-23 21:36:42 UTC (rev 403)
++++ trunk/src/ptest.cxx	2005-06-24 02:23:45 UTC (rev 404)
+@@ -7,6 +7,7 @@
+ #include &lt;ClanLib/display.h&gt;
+ #include &lt;ClanLib/gl.h&gt;
+ #include &quot;particle_system.hxx&quot;
++#include &quot;display/scene_context.hxx&quot;
+ 
+ void screenshot(const char* filename)
+ {
+@@ -87,6 +88,8 @@
+         //psystem.set_circle_distribution(100.0f);
+         //psystem.set_rect_distribution(200.0f, 50);
+ 
++        SceneContext sc;
++
+         // Loop until the user hits escape:
+         int count = 0;
+         unsigned int start_time =  CL_System::get_time();
+@@ -109,9 +112,9 @@
+ 
+             last_time = cur_time;
+ 
+-            psystem3.draw();
+-            psystem.draw();
+-            psystem2.draw();
++            psystem3.draw(sc);
++            psystem.draw(sc);
++            psystem2.draw(sc);
+ 
+             // Flip front and backbuffer. This makes the changes visible:
+             CL_Display::flip();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000059.html">[Windstille-commit] r403 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000061.html">[Windstille-commit] r405 - trunk/data/images
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#60">[ date ]</a>
+              <a href="thread.html#60">[ thread ]</a>
+              <a href="subject.html#60">[ subject ]</a>
+              <a href="author.html#60">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

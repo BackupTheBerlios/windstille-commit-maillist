@@ -1,0 +1,266 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3339 - trunk/windstille/extra/slideshow
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2010-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3339%20-%20trunk/windstille/extra/slideshow&In-Reply-To=%3C20100829135402.04ED8480FDA%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002335.html">
+   <LINK REL="Next"  HREF="002337.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3339 - trunk/windstille/extra/slideshow</H1>
+    <B>grumbel at mail.berlios.de</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3339%20-%20trunk/windstille/extra/slideshow&In-Reply-To=%3C20100829135402.04ED8480FDA%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3339 - trunk/windstille/extra/slideshow">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Aug 29 15:54:01 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002335.html">[Windstille-commit] r3338 - in trunk/windstille/extra: . slideshow
+</A></li>
+        <LI>Next message: <A HREF="002337.html">[Windstille-commit] r3340 - trunk/windstille/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2336">[ date ]</a>
+              <a href="thread.html#2336">[ thread ]</a>
+              <a href="subject.html#2336">[ subject ]</a>
+              <a href="author.html#2336">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2010-08-29 15:54:01 +0200 (Sun, 29 Aug 2010)
+New Revision: 3339
+
+Modified:
+   trunk/windstille/extra/slideshow/script.slideshow
+   trunk/windstille/extra/slideshow/slide_builder.cpp
+   trunk/windstille/extra/slideshow/slide_builder.hpp
+   trunk/windstille/extra/slideshow/slide_object.cpp
+Log:
+slideshow: implemented left,right,top,bottom handling, fixed position handling
+
+Modified: trunk/windstille/extra/slideshow/script.slideshow
+===================================================================
+--- trunk/windstille/extra/slideshow/script.slideshow	2010-08-29 00:44:35 UTC (rev 3338)
++++ trunk/windstille/extra/slideshow/script.slideshow	2010-08-29 13:54:01 UTC (rev 3339)
+@@ -2,23 +2,44 @@
+ 
+ fade 1.0
+ 
++image portrait.jpg
++  zoom 0.1
++  pos center center
++
++  duration 4
++
++  zoom 1.5
++  pos center center
++end
++
++fade 1.0
++
+ image landscape.jpg
+   zoom 0.1
+   pos center center
+ 
+-  duration 20
++  duration 3
+ 
+-  zoom 5.0
+-  pos 320 240
++  zoom 3.0
++  pos center center
++end
+ 
+-  duration 2
++fade 1.0
+ 
+-  zoom 0.75
+-  pos 320 240
++image landscape.jpg
++  zoom 0.1
++  pos center center
++
++  duration 3
++
++  zoom 3.0
++  pos center center
+ end
+ 
+-fade 2.0
++fade 1.0
+ 
++breakpoint &quot;Foobar&quot;
++
+ image two.jpg
+   zoom 1.0
+   pos 320 200
+
+Modified: trunk/windstille/extra/slideshow/slide_builder.cpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slide_builder.cpp	2010-08-29 00:44:35 UTC (rev 3338)
++++ trunk/windstille/extra/slideshow/slide_builder.cpp	2010-08-29 13:54:01 UTC (rev 3339)
+@@ -130,6 +130,10 @@
+         {
+           handle_end(args);
+         }
++        else if (args[0] == &quot;breakpoint&quot;)
++        {
++          handle_breakpoint(args);
++        }
+         else
+         {
+           error(&quot;unknown tag '&quot; + args[0] + &quot;'&quot;);
+@@ -189,42 +193,54 @@
+   {
+     error(&quot;pos already given&quot;);
+   }
++  else if (!m_node_has_zoom)
++  {
++    error(&quot;zoom must come before pos&quot;);
++  }
+   else
+   {
+     m_node_has_pos = true;
+ 
++    float img_w = m_image-&gt;get_width()  * m_path_node.zoom;
++    float img_h = m_image-&gt;get_height() * m_path_node.zoom;
++
++    float scr_w = m_screen_size.width;
++    float scr_h = m_screen_size.height;
++
+     if (args[1] == &quot;left&quot;)
+     {
+-      m_path_node.pos.x = m_screen_size.width/2.0f;
++      m_path_node.pos.x = img_w/2.0f - scr_w/2.0f + scr_w/2.0f;
+     }
+     else if (args[1] == &quot;right&quot;)
+     {
+-      m_path_node.pos.x = m_image-&gt;get_width() - m_screen_size.width/2.0f;
++      m_path_node.pos.x = -img_w/2.0f + scr_w/2.0f + scr_w/2.0f;
+     }
+     else if (args[1] == &quot;center&quot;)
+     {
+-      m_path_node.pos.x = m_screen_size.width/2.0f;
++      m_path_node.pos.x = scr_w/2;
+     }
+     else
+     {
+-      m_path_node.pos.x = boost::lexical_cast&lt;float&gt;(args[1]);
++      float x = boost::lexical_cast&lt;float&gt;(args[1]) * m_path_node.zoom;
++      m_path_node.pos.x = img_w/2.0f - x + scr_w/2.0f;
+     }
+ 
+     if (args[2] == &quot;top&quot;)
+     {
+-      m_path_node.pos.y = 0.0f;
++      m_path_node.pos.y = img_h/2.0f - scr_h/2.0f + scr_h/2.0f;
+     }
+     else if (args[2] == &quot;bottom&quot;)
+     {
+-      m_path_node.pos.y = m_image-&gt;get_height() - m_screen_size.height/2.0f;
++      m_path_node.pos.y = -img_h/2.0f + scr_h/2.0f + scr_h/2.0f;
+     }
+     else if (args[2] == &quot;center&quot;)
+     {
+-      m_path_node.pos.y = m_screen_size.height/2.0f;
++      m_path_node.pos.y = scr_h/2;
+     }
+     else
+     {
+-      m_path_node.pos.y = boost::lexical_cast&lt;float&gt;(args[2]);
++      float y = boost::lexical_cast&lt;float&gt;(args[2]) * m_path_node.zoom;
++      m_path_node.pos.y = img_h/2.0f - y + scr_h/2.0f;
+     }
+ 
+     std::cout &lt;&lt; &quot;  (pos &quot; &lt;&lt; m_path_node.pos.x &lt;&lt; &quot; &quot; &lt;&lt; m_path_node.pos.y &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
+@@ -261,9 +277,19 @@
+     {
+       m_path_node.zoom = m_screen_size.height / m_image-&gt;get_height();
+     }
++    else if (args[1] == &quot;original&quot;)
++    {
++      m_path_node.zoom = 1.0f;
++    }
+     else
+     {
+       m_path_node.zoom = boost::lexical_cast&lt;float&gt;(args[1]);
++      
++      // 1.0f means &quot;fit&quot;, so recalculate values relative to that
++      float fit = std::min(m_screen_size.width / m_image-&gt;get_width(),
++                           m_screen_size.height / m_image-&gt;get_height());
++      m_path_node.zoom = fit * m_path_node.zoom;
++
+       std::cout &lt;&lt; &quot;  (zoom &quot; &lt;&lt; m_path_node.zoom &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
+     }
+ 
+@@ -361,4 +387,10 @@
+   }
+ }
+ 
++void
++SlideBuilder::handle_breakpoint(const std::vector&lt;std::string&gt;&amp; args)
++{
++  std::cout &lt;&lt; &quot;breakpoint not implemented&quot; &lt;&lt; std::endl;
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/extra/slideshow/slide_builder.hpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slide_builder.hpp	2010-08-29 00:44:35 UTC (rev 3338)
++++ trunk/windstille/extra/slideshow/slide_builder.hpp	2010-08-29 13:54:01 UTC (rev 3339)
+@@ -68,6 +68,7 @@
+   void handle_duration(const std::vector&lt;std::string&gt;&amp; args);
+   void handle_fade(const std::vector&lt;std::string&gt;&amp; args);
+   void handle_end(const std::vector&lt;std::string&gt;&amp; args);
++  void handle_breakpoint(const std::vector&lt;std::string&gt;&amp; args);
+ 
+   void add_node();
+ 
+
+Modified: trunk/windstille/extra/slideshow/slide_object.cpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slide_object.cpp	2010-08-29 00:44:35 UTC (rev 3338)
++++ trunk/windstille/extra/slideshow/slide_object.cpp	2010-08-29 13:54:01 UTC (rev 3339)
+@@ -64,6 +64,7 @@
+   // zoom needs to grow exponentially to be linear
+   float scale = node.zoom;
+ 
++  // recalc pos so that we are draw the image centered
+   pos.x -= m_surface.get_width() /2.0f * scale;
+   pos.y -= m_surface.get_height()/2.0f * scale;
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002335.html">[Windstille-commit] r3338 - in trunk/windstille/extra: . slideshow
+</A></li>
+	<LI>Next message: <A HREF="002337.html">[Windstille-commit] r3340 - trunk/windstille/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2336">[ date ]</a>
+              <a href="thread.html#2336">[ thread ]</a>
+              <a href="subject.html#2336">[ subject ]</a>
+              <a href="author.html#2336">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

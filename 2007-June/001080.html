@@ -1,0 +1,678 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1428 - in trunk/windstille/src: . gui input
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1428%20-%20in%20trunk/windstille/src%3A%20.%20gui%20input&In-Reply-To=%3C200706140536.l5E5ak58002528%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001079.html">
+   <LINK REL="Next"  HREF="001081.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1428 - in trunk/windstille/src: . gui input</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1428%20-%20in%20trunk/windstille/src%3A%20.%20gui%20input&In-Reply-To=%3C200706140536.l5E5ak58002528%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1428 - in trunk/windstille/src: . gui input">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Jun 14 07:36:46 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001079.html">[Windstille-commit] r1427 - in trunk/windstille/data/images: .	controller
+</A></li>
+        <LI>Next message: <A HREF="001081.html">[Windstille-commit] r1429 - in trunk/media/images: . gui
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1080">[ date ]</a>
+              <a href="thread.html#1080">[ thread ]</a>
+              <a href="subject.html#1080">[ subject ]</a>
+              <a href="author.html#1080">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-06-14 07:36:45 +0200 (Thu, 14 Jun 2007)
+New Revision: 1428
+
+Modified:
+   trunk/windstille/src/controller_def.hpp
+   trunk/windstille/src/game_session.cpp
+   trunk/windstille/src/gui/menu_component.cpp
+   trunk/windstille/src/input/input_configurator.cpp
+   trunk/windstille/src/input/input_manager_impl.hpp
+   trunk/windstille/src/input/input_manager_sdl.cpp
+   trunk/windstille/src/input/input_manager_sdl.hpp
+   trunk/windstille/src/pda.cpp
+   trunk/windstille/src/player.cpp
+   trunk/windstille/src/sprite3dview.cpp
+   trunk/windstille/src/sprite3dview.hpp
+   trunk/windstille/src/windstille_main.cpp
+Log:
+- changed the input code so that it works well with a gamepad
+- added default config for xbox360 gamepad
+
+Modified: trunk/windstille/src/controller_def.hpp
+===================================================================
+--- trunk/windstille/src/controller_def.hpp	2007-06-13 22:56:15 UTC (rev 1427)
++++ trunk/windstille/src/controller_def.hpp	2007-06-14 05:36:45 UTC (rev 1428)
+@@ -51,17 +51,22 @@
+     PAUSE_BUTTON,     // used to pause the game
+     AIM_BUTTON,       // used to draw the gun and aim
+ 
+-    // These are not to be used alone, but only as alternatives for
+-    // other keys
+-    ESCAPE_BUTTON,    // hardcoded to escape key
+-    ENTER_BUTTON,     // hardcoded to enter key
++    // Keys for menu navigation, they come with hardcoded defaults for
++    // the keyboard, a joystick might emmit them as well
++    ESCAPE_BUTTON,
++    ENTER_BUTTON,
+ 
++    MENU_UP_BUTTON,  
++    MENU_DOWN_BUTTON,
++    MENU_LEFT_BUTTON,
++    MENU_RIGHT_BUTTON,
++
+     LAST_EVENT
+   };
+ 
+ #define JUMP_BUTTON   PRIMARY_BUTTON
+-#define RUN_BUTTON    SECONDARY_BUTTON
+-#define USE_BUTTON    TERTIARY_BUTTON
++#define RUN_BUTTON    TERTIARY_BUTTON
++#define USE_BUTTON    SECONDARY_BUTTON
+ #define OK_BUTTON     PRIMARY_BUTTON
+ #define CANCEL_BUTTON SECONDARY_BUTTON
+ 
+
+Modified: trunk/windstille/src/game_session.cpp
+===================================================================
+--- trunk/windstille/src/game_session.cpp	2007-06-13 22:56:15 UTC (rev 1427)
++++ trunk/windstille/src/game_session.cpp	2007-06-14 05:36:45 UTC (rev 1428)
+@@ -198,8 +198,8 @@
+   else if (cutscene_value &lt; 0.0f)
+     cutscene_value = 0.0f;
+ 
+-  if (controller.button_was_pressed(PAUSE_BUTTON))
+-    pause = !pause;
++  // if (controller.button_was_pressed(PAUSE_BUTTON))
++  // pause = !pause;
+ 
+   Uint8 *keystate = SDL_GetKeyState(NULL);
+ 
+@@ -285,7 +285,8 @@
+       else
+         current_gui = &inventory;
+     }
+-  else if (controller.button_was_pressed(ESCAPE_BUTTON))
++  else if (controller.button_was_pressed(ESCAPE_BUTTON) ||
++           controller.button_was_pressed(PAUSE_BUTTON))
+     {
+       menu_manager.display_pause_menu();
+     }
+
+Modified: trunk/windstille/src/gui/menu_component.cpp
+===================================================================
+--- trunk/windstille/src/gui/menu_component.cpp	2007-06-13 22:56:15 UTC (rev 1427)
++++ trunk/windstille/src/gui/menu_component.cpp	2007-06-14 05:36:45 UTC (rev 1428)
+@@ -118,7 +118,9 @@
+             {
+               items[current_item]-&gt;click();
+             }
+-          else if (i-&gt;button.name == CANCEL_BUTTON || i-&gt;button.name == ESCAPE_BUTTON)
++          else if (i-&gt;button.name == CANCEL_BUTTON || 
++                   i-&gt;button.name == ESCAPE_BUTTON ||
++                   i-&gt;button.name == PAUSE_BUTTON)
+             {
+               if (allow_cancel) // FIXME: Could use a signal instead
+                 {
+@@ -126,62 +128,53 @@
+                   set_active(false);
+                 }
+             }
+-        }
+-      else if (i-&gt;type == AXIS_EVENT)
+-        {
+-          if (i-&gt;axis.name == X_AXIS)
++          else if (i-&gt;button.name == MENU_LEFT_BUTTON)
+             {
+-              if (i-&gt;axis.pos &lt; 0)
+-                {
+-                  items[current_item]-&gt;incr();
+-                }
+-              else if (i-&gt;axis.pos &gt; 0)
+-                {
+-                  items[current_item]-&gt;decr();
+-                }
++              items[current_item]-&gt;incr();              
+             }
+-          else if (i-&gt;axis.name == Y_AXIS)
++          else if (i-&gt;button.name == MENU_RIGHT_BUTTON)
+             {
+-              if (i-&gt;axis.pos &lt; 0)
+-                { // up
+-                  sound_manager-&gt;play(&quot;sounds/menu_change.wav&quot;);
+-                                        
+-                  current_item = current_item - 1;
+-                  if (current_item &lt; 0)
++              items[current_item]-&gt;decr();              
++            }          
++          else if (i-&gt;button.name == MENU_UP_BUTTON)
++            {
++              sound_manager-&gt;play(&quot;sounds/menu_change.wav&quot;);
++              
++              current_item = current_item - 1;
++              if (current_item &lt; 0)
++                {
++                  if (dynamic_cast&lt;TabComponent*&gt;(parent))
+                     {
+-                      if (dynamic_cast&lt;TabComponent*&gt;(parent))
+-                        {
+-                          current_item = 0;
+-                          set_active(false);
+-                        }
+-                      else
+-                        { 
+-                          current_item = static_cast&lt;int&gt;(items.size())-1; 
+-                        }
++                      current_item = 0;
++                      set_active(false);
+                     }
+-                  
+-                  adjust_scroll_offset();
++                  else
++                    { 
++                      current_item = static_cast&lt;int&gt;(items.size())-1; 
++                    }
+                 }
+-              else if (i-&gt;axis.pos &gt; 0)
+-                { // down
+-                  sound_manager-&gt;play(&quot;sounds/menu_change.wav&quot;);
++                  
++              adjust_scroll_offset();
++            }
++          else if (i-&gt;button.name == MENU_DOWN_BUTTON)
++            {
++              sound_manager-&gt;play(&quot;sounds/menu_change.wav&quot;);
+ 
+-                  if (dynamic_cast&lt;TabComponent*&gt;(parent))
++              if (dynamic_cast&lt;TabComponent*&gt;(parent))
++                {
++                  current_item = Math::mid(0, current_item + 1, static_cast&lt;int&gt;(items.size()-1)); 
++                }
++              else
++                {
++                  current_item += 1;
++                  if (current_item &gt;= static_cast&lt;int&gt;(items.size()))
+                     {
+-                      current_item = Math::mid(0, current_item + 1, static_cast&lt;int&gt;(items.size()-1)); 
++                      current_item = 0;
+                     }
+-                  else
+-                    {
+-                      current_item += 1;
+-                      if (current_item &gt;= static_cast&lt;int&gt;(items.size()))
+-                        {
+-                          current_item = 0;
+-                        }
+ 
+-                    }
+-
+-                  adjust_scroll_offset();
+                 }
++
++              adjust_scroll_offset();
+             }
+         }
+     }
+
+Modified: trunk/windstille/src/input/input_configurator.cpp
+===================================================================
+--- trunk/windstille/src/input/input_configurator.cpp	2007-06-13 22:56:15 UTC (rev 1427)
++++ trunk/windstille/src/input/input_configurator.cpp	2007-06-14 05:36:45 UTC (rev 1428)
+@@ -57,9 +57,6 @@
+   add_configure_item(ConfigureItem::CONFIGURE_AXIS, Y_AXIS);
+   add_configure_item(ConfigureItem::CONFIGURE_AXIS, X_AXIS);
+ 
+-  // add_configure_item(ConfigureItem::CONFIGURE_AXIS, X2_AXIS);
+-  // add_configure_item(ConfigureItem::CONFIGURE_AXIS, Y2_AXIS);
+-
+   print_item();
+ 
+   InputManagerSDL::current()-&gt;clear_bindings();
+
+Modified: trunk/windstille/src/input/input_manager_impl.hpp
+===================================================================
+--- trunk/windstille/src/input/input_manager_impl.hpp	2007-06-13 22:56:15 UTC (rev 1427)
++++ trunk/windstille/src/input/input_manager_impl.hpp	2007-06-14 05:36:45 UTC (rev 1428)
+@@ -44,10 +44,10 @@
+   const Controller&amp; get_controller() const;
+   void clear();
+ 
+-  void add_axis_event  (int name, float pos);
+-  void add_ball_event  (int name, float pos);
+-  void add_button_event(int name, bool down);
+-  void add_keyboard_event(int name, KeyboardEvent::KeyType key_type, int code);
++  virtual void add_axis_event  (int name, float pos);
++  virtual void add_ball_event  (int name, float pos);
++  virtual void add_button_event(int name, bool down);
++  virtual void add_keyboard_event(int name, KeyboardEvent::KeyType key_type, int code);
+ private:
+   InputManagerImpl(const InputManagerImpl&amp;);
+   InputManagerImpl&amp; operator=(const InputManagerImpl&amp;);
+
+Modified: trunk/windstille/src/input/input_manager_sdl.cpp
+===================================================================
+--- trunk/windstille/src/input/input_manager_sdl.cpp	2007-06-13 22:56:15 UTC (rev 1427)
++++ trunk/windstille/src/input/input_manager_sdl.cpp	2007-06-14 05:36:45 UTC (rev 1428)
+@@ -202,6 +202,22 @@
+     {
+       add_button_event(ESCAPE_BUTTON, event.state);
+     }
++  else if (event.keysym.sym == SDLK_LEFT)
++    {
++      add_button_event(MENU_LEFT_BUTTON, event.state);
++    }
++  else if (event.keysym.sym == SDLK_RIGHT)
++    {
++      add_button_event(MENU_RIGHT_BUTTON, event.state);
++    }
++  else if (event.keysym.sym == SDLK_UP)
++    {
++      add_button_event(MENU_UP_BUTTON, event.state);
++    }
++  else if (event.keysym.sym == SDLK_DOWN)
++    {
++      add_button_event(MENU_DOWN_BUTTON, event.state);
++    }
+ 
+   // Dynamic bindings
+   for (std::vector&lt;KeyboardButtonBinding&gt;::const_iterator i = impl-&gt;keyboard_button_bindings.begin();
+@@ -475,4 +491,66 @@
+   impl-&gt;keyboard_axis_bindings.clear();
+ }
+ 
++void
++InputManagerSDL::add_axis_event  (int name, float pos)
++{
++  // Convert analog axis events into digital menu movements
++  // FIXME: add key repeat
++  float click_threshold = 0.5f;
++  float release_threshold = 0.3f;
++
++  // FIXME: need state info
++  float old_pos = controller.get_axis_state(name);
++  if (name == X_AXIS)
++    {
++      if (controller.get_button_state(MENU_LEFT_BUTTON) == 0 &amp;&amp;
++          pos &lt; -click_threshold &amp;&amp; old_pos &gt; -click_threshold) 
++        {
++          add_button_event(MENU_LEFT_BUTTON, 1);
++        } 
++      else if (controller.get_button_state(MENU_LEFT_BUTTON) == 1 &amp;&amp;
++               old_pos &lt; -release_threshold &amp;&amp; pos &gt; -release_threshold) 
++        {
++          add_button_event(MENU_LEFT_BUTTON, 0);
++        } 
++      
++      else if (controller.get_button_state(MENU_RIGHT_BUTTON) == 0 &amp;&amp;
++               pos &gt; click_threshold &amp;&amp; old_pos &lt; click_threshold) 
++        {
++          add_button_event(MENU_RIGHT_BUTTON, 1);
++        } 
++      else  if (controller.get_button_state(MENU_RIGHT_BUTTON) == 1 &amp;&amp;
++                old_pos &gt; release_threshold &amp;&amp; pos &lt; release_threshold) 
++        {
++          add_button_event(MENU_RIGHT_BUTTON, 0);
++        }
++    }
++  else if (name == Y_AXIS)
++    {
++      if (controller.get_button_state(MENU_UP_BUTTON) == 0 &amp;&amp;
++          pos &lt; -click_threshold &amp;&amp; old_pos &gt; -click_threshold) 
++        {
++          add_button_event(MENU_UP_BUTTON, 1);
++        } 
++      else if (controller.get_button_state(MENU_UP_BUTTON) == 1 &amp;&amp;
++               old_pos &lt; -release_threshold &amp;&amp; pos &gt; -release_threshold) 
++        {
++          add_button_event(MENU_UP_BUTTON, 0);
++        }
++
++      else  if (controller.get_button_state(MENU_DOWN_BUTTON) == 0 &amp;&amp;
++                pos &gt; click_threshold &amp;&amp; old_pos &lt; click_threshold) 
++        {
++          add_button_event(MENU_DOWN_BUTTON, 1);
++        } 
++      else  if (controller.get_button_state(MENU_DOWN_BUTTON) == 1 &amp;&amp;
++                old_pos &gt; release_threshold &amp;&amp; pos &lt; release_threshold) 
++        {
++          add_button_event(MENU_DOWN_BUTTON, 0);
++        }
++    }
++
++  InputManagerImpl::add_axis_event(name, pos);
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/input/input_manager_sdl.hpp
+===================================================================
+--- trunk/windstille/src/input/input_manager_sdl.hpp	2007-06-13 22:56:15 UTC (rev 1427)
++++ trunk/windstille/src/input/input_manager_sdl.hpp	2007-06-14 05:36:45 UTC (rev 1428)
+@@ -113,6 +113,7 @@
+ 
+   void on_event(const SDL_Event&amp; event);
+ 
++  void add_axis_event  (int name, float pos);
+ private:
+   void on_key_event(const SDL_KeyboardEvent&amp; key);
+   void on_mouse_button_event(const SDL_MouseButtonEvent&amp; button);
+
+Modified: trunk/windstille/src/pda.cpp
+===================================================================
+--- trunk/windstille/src/pda.cpp	2007-06-13 22:56:15 UTC (rev 1427)
++++ trunk/windstille/src/pda.cpp	2007-06-14 05:36:45 UTC (rev 1428)
+@@ -67,37 +67,40 @@
+ {
+   const InputEventLst&amp; events = controller.get_events();
+   for(InputEventLst::const_iterator i = events.begin(); i != events.end(); ++i) {
+-    if (i-&gt;type == AXIS_EVENT &amp;&amp; i-&gt;axis.name == X_AXIS) {
+-      if (i-&gt;axis.pos &gt; 0) {
+-        state = static_cast&lt;pda_state&gt;(state + 1);
+-        if (state &gt; PDA_DIALOGS)
+-          state = PDA_OBJECTIVES;
++    if (i-&gt;type == BUTTON_EVENT)
++      {
++        if (i-&gt;axis.name == MENU_LEFT_BUTTON &amp;&amp; i-&gt;button.down) 
++          {
++            state = static_cast&lt;pda_state&gt;(state + 1);
++            if (state &gt; PDA_DIALOGS)
++              state = PDA_OBJECTIVES;
++          }
++        else if (i-&gt;axis.name == MENU_RIGHT_BUTTON &amp;&amp; i-&gt;button.down) 
++          {
++            state = static_cast&lt;pda_state&gt;(state - 1);
++            if (state &lt; PDA_OBJECTIVES)
++              state = PDA_DIALOGS;
++          }
+       }
+-      else if (i-&gt;axis.pos &lt; 0) {
+-        state = static_cast&lt;pda_state&gt;(state - 1);
+-        if (state &lt; PDA_OBJECTIVES)
+-          state = PDA_DIALOGS;
+-      }
+-    }
+   }
+   
+   int width  = 600;
+   int height = 400;
+   
+   switch (state) {
+-    case PDA_OBJECTIVES:
+-      show_objectives();
+-      break;
+-    case PDA_DIALOGS:
+-      show_dialogs();
+-      break;
++  case PDA_OBJECTIVES:
++    show_objectives();
++    break;
++  case PDA_DIALOGS:
++    show_dialogs();
++    break;
+   }
+  
+   if (new_text != old_text) {
+     delete text_area;
+     text_area = new TextArea(Rect(Point(100,
+-                100),
+-                Size(width, height)), false);
++                                        100),
++                                  Size(width, height)), false);
+     text_area-&gt;set_font(Fonts::ttffont);
+     text_area-&gt;set_text(new_text);
+     
+
+Modified: trunk/windstille/src/player.cpp
+===================================================================
+--- trunk/windstille/src/player.cpp	2007-06-13 22:56:15 UTC (rev 1427)
++++ trunk/windstille/src/player.cpp	2007-06-14 05:36:45 UTC (rev 1428)
+@@ -231,7 +231,7 @@
+ void
+ Player::update_walk_stand()
+ {
+-  if (controller.get_axis_state(Y_AXIS) &gt; 0) {
++  if (controller.get_axis_state(Y_AXIS) &gt; 0.5f) {
+     TileMap* tilemap = Sector::current()-&gt;get_tilemap2();
+     if (tilemap)
+       {
+@@ -257,7 +257,7 @@
+             return;
+           }
+       }
+-  } else if (controller.get_axis_state(Y_AXIS) &lt; 0) {
++  } else if (controller.get_axis_state(Y_AXIS) &lt; -0.5f) {
+     TileMap* tilemap = Sector::current()-&gt;get_tilemap2();
+     if (tilemap)
+       {
+@@ -290,11 +290,11 @@
+ {
+   assert(contact);
+ 
+-  if (controller.get_axis_state(X_AXIS) &lt; 0 ||
+-      controller.get_axis_state(Y_AXIS) &gt; 0)
++  if (controller.get_axis_state(X_AXIS) &lt; -0.5f ||
++      controller.get_axis_state(Y_AXIS) &gt; 0.5f)
+     contact-&gt;advance(-WALK_SPEED * delta * 0.7f);
+-  else if (controller.get_axis_state(X_AXIS) &gt; 0 ||
+-           controller.get_axis_state(Y_AXIS) &lt; 0)
++  else if (controller.get_axis_state(X_AXIS) &gt; 0.5f ||
++           controller.get_axis_state(Y_AXIS) &lt; -0.5f)
+     contact-&gt;advance(WALK_SPEED * delta * 0.7f);
+ 
+   velocity = Vector(0, 0);
+@@ -340,7 +340,7 @@
+     }
+     
+   if(controller.button_was_pressed(JUMP_BUTTON)
+-     &amp;&amp; controller.get_axis_state(Y_AXIS) &gt; 1.0f) 
++     &amp;&amp; controller.get_axis_state(Y_AXIS) &gt; 0.5f) 
+     {
+       set_jump_up_begin();
+     } 
+@@ -355,14 +355,14 @@
+       sprite.set_action(&quot;PullGun&quot;);
+       state = PULL_GUN;
+     }
+-  else if (controller.get_axis_state(X_AXIS) &lt; 0) 
++  else if (controller.get_axis_state(X_AXIS) &lt; -0.5f) 
+     {
+       if(get_direction() == WEST)
+         set_walk(WEST);
+       else
+         set_turnaround();
+     }
+-  else if (controller.get_axis_state(X_AXIS) &gt; 0) 
++  else if (controller.get_axis_state(X_AXIS) &gt; 0.5f) 
+     {
+       if(get_direction() == EAST)
+         set_walk(EAST);
+@@ -397,8 +397,8 @@
+     return;
+   }
+ 
+-  if(get_direction() == WEST &amp;&amp; controller.get_axis_state(X_AXIS) &gt; 0
+-     || get_direction() == EAST &amp;&amp; controller.get_axis_state(X_AXIS) &lt; 0) {
++  if(get_direction() == WEST &amp;&amp; controller.get_axis_state(X_AXIS) &gt; 0.5f
++     || get_direction() == EAST &amp;&amp; controller.get_axis_state(X_AXIS) &lt; -0.5f) {
+     leave_walk();
+     set_turnaround();
+     return;
+@@ -439,11 +439,11 @@
+     return;
+   }
+   
+-  if(!(controller.get_axis_state(Y_AXIS) &gt; 0) &amp;&amp; sprite.get_speed() &gt; 0) {
++  if(!(controller.get_axis_state(Y_AXIS) &gt; 0.5f) &amp;&amp; sprite.get_speed() &gt; 0) {
+     sprite.set_speed(-1.0);
+     sprite.set_next_action(&quot;Stand&quot;);
+     state = STAND;
+-  } else if(controller.get_axis_state(Y_AXIS) &gt; 0 &amp;&amp; sprite.get_speed() &lt; 0) {
++  } else if(controller.get_axis_state(Y_AXIS) &gt; 0.5f &amp;&amp; sprite.get_speed() &lt; 0) {
+     sprite.set_speed(1.0);
+     sprite.set_next_action(&quot;Ducking&quot;);
+   }
+@@ -459,7 +459,7 @@
+ void
+ Player::update_ducked()
+ {
+-  if(!controller.get_axis_state(Y_AXIS) &gt; 0) {
++  if(!controller.get_axis_state(Y_AXIS) &gt; 0.5f) {
+     state = DUCKING;
+     sprite.set_action(&quot;StandToDuck&quot;, -1.0);
+     sprite.set_next_action(&quot;Stand&quot;);
+@@ -486,8 +486,8 @@
+       set_walk(WEST);
+     }
+   } 
+-  if(sprite.get_rot() &amp;&amp; controller.get_axis_state(X_AXIS) &gt; 0
+-     || !sprite.get_rot() &amp;&amp; controller.get_axis_state(X_AXIS) &lt; 0) {
++  if(sprite.get_rot() &amp;&amp; controller.get_axis_state(X_AXIS) &gt; 0.5f
++     || !sprite.get_rot() &amp;&amp; controller.get_axis_state(X_AXIS) &lt; -0.5f) {
+     sprite.set_speed(-1.0);
+     sprite.set_next_action(&quot;Walk&quot;);
+     state = WALK;
+
+Modified: trunk/windstille/src/sprite3dview.cpp
+===================================================================
+--- trunk/windstille/src/sprite3dview.cpp	2007-06-13 22:56:15 UTC (rev 1427)
++++ trunk/windstille/src/sprite3dview.cpp	2007-06-14 05:36:45 UTC (rev 1428)
+@@ -43,7 +43,7 @@
+ 
+   rotx  = 0.0f;
+   roty  = 0.0f;
+-  scale = 1.0f;
++  scale = 2.0f;
+ }
+ 
+ Sprite3DView::~Sprite3DView()
+@@ -68,9 +68,9 @@
+ 
+   sc.push_modelview();
+   sc.translate(Display::get_width()/2, Display::get_height()/2 + 200);
+-  sc.scale(3.0f, 3.0f);
+-  sc.rotate(rotx, 0.0f, 1.0f, 0.0f);
+-  sc.rotate(roty, 1.0f, 0.0f, 0.0f);
++  sc.scale(scale, scale);
++  sc.rotate(roty, 0.0f, 1.0f, 0.0f);
++  sc.rotate(rotx, 1.0f, 0.0f, 0.0f);
+   sprite.draw(sc.color(), Vector(0,0), 0); 
+   sc.pop_modelview();
+ 
+@@ -112,14 +112,14 @@
+   //std::cout &lt;&lt; &quot;Delta: &quot; &lt;&lt; delta &lt;&lt; std::endl;
+ 
+   int last_action = current_action;
+-  if (controller.axis_was_pressed_up(Y_AXIS))
++  if (controller.button_was_pressed(MENU_DOWN_BUTTON))
+     {
+       if (current_action == int(actions.size())-1)
+         current_action = 0;
+       else
+         current_action += 1;
+     }
+-  else if (controller.axis_was_pressed_down(Y_AXIS))
++  else if (controller.button_was_pressed(MENU_UP_BUTTON))
+     {
+       if (current_action == 0)
+         current_action = actions.size()-1;
+@@ -127,6 +127,15 @@
+         current_action -= 1;
+     }
+ 
++  if (controller.get_button_state(PRIMARY_BUTTON))
++    {
++      scale *= 1.0f + 0.3f * delta;
++    }
++  else if (controller.get_button_state(PDA_BUTTON))
++    {
++      scale /= 1.0f + 0.3f * delta;
++    }
++  
+   if (last_action != current_action &amp;&amp; !actions.empty())
+     {
+       sprite.set_action(actions[current_action]);
+@@ -140,4 +149,10 @@
+     screen_manager.pop_screen();
+ }
+ 
++void
++Sprite3DView::handle_event(const SDL_Event&amp; )
++{
++  
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/sprite3dview.hpp
+===================================================================
+--- trunk/windstille/src/sprite3dview.hpp	2007-06-13 22:56:15 UTC (rev 1427)
++++ trunk/windstille/src/sprite3dview.hpp	2007-06-14 05:36:45 UTC (rev 1428)
+@@ -54,6 +54,8 @@
+   void update(float delta, const Controller&amp; controller);
+ 
+   void set_model(const std::string&amp; filename);
++  
++  void handle_event(const SDL_Event&amp; );
+ 
+ private:
+   Sprite3DView (const Sprite3DView&amp;);
+
+Modified: trunk/windstille/src/windstille_main.cpp
+===================================================================
+--- trunk/windstille/src/windstille_main.cpp	2007-06-13 22:56:15 UTC (rev 1427)
++++ trunk/windstille/src/windstille_main.cpp	2007-06-14 05:36:45 UTC (rev 1428)
+@@ -83,6 +83,12 @@
+       controller_description.add_button(&quot;primary-button&quot;,   PRIMARY_BUTTON);
+       controller_description.add_button(&quot;secondary-button&quot;, SECONDARY_BUTTON);
+       controller_description.add_button(&quot;tertiary-button&quot;,  TERTIARY_BUTTON);
++
++      controller_description.add_button(&quot;menu-up-button&quot;,  MENU_UP_BUTTON);
++      controller_description.add_button(&quot;menu-down-button&quot;,  MENU_DOWN_BUTTON);
++
++      controller_description.add_button(&quot;menu-left-button&quot;,  MENU_LEFT_BUTTON);
++      controller_description.add_button(&quot;menu-right-button&quot;,  MENU_RIGHT_BUTTON);
+   
+       controller_description.add_button(&quot;pda-button&quot;, PDA_BUTTON);
+       controller_description.add_button(&quot;inventory-button&quot;, INVENTORY_BUTTON);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001079.html">[Windstille-commit] r1427 - in trunk/windstille/data/images: .	controller
+</A></li>
+	<LI>Next message: <A HREF="001081.html">[Windstille-commit] r1429 - in trunk/media/images: . gui
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1080">[ date ]</a>
+              <a href="thread.html#1080">[ thread ]</a>
+              <a href="subject.html#1080">[ subject ]</a>
+              <a href="author.html#1080">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

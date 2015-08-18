@@ -1,0 +1,480 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1021 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1021%20-%20trunk/src&In-Reply-To=%3C200508262021.j7QKLL9S026300%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000677.html">
+   <LINK REL="Next"  HREF="000679.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1021 - trunk/src</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1021%20-%20trunk/src&In-Reply-To=%3C200508262021.j7QKLL9S026300%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1021 - trunk/src">grumbel at berlios.de
+       </A><BR>
+    <I>Fri Aug 26 22:21:21 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000677.html">[Windstille-commit] r1020 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000679.html">[Windstille-commit] r1022 - trunk/data/blender/sophie
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#678">[ date ]</a>
+              <a href="thread.html#678">[ thread ]</a>
+              <a href="subject.html#678">[ subject ]</a>
+              <a href="author.html#678">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-08-26 22:21:13 +0200 (Fri, 26 Aug 2005)
+New Revision: 1021
+
+Modified:
+   trunk/src/baby_xml.cpp
+   trunk/src/baby_xml.hpp
+Log:
+- added attribute parsing
+
+Modified: trunk/src/baby_xml.cpp
+===================================================================
+--- trunk/src/baby_xml.cpp	2005-08-26 18:13:08 UTC (rev 1020)
++++ trunk/src/baby_xml.cpp	2005-08-26 20:21:13 UTC (rev 1021)
+@@ -23,92 +23,244 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;sstream&gt;
+ #include &lt;stdexcept&gt;
++#include &lt;iostream&gt;
+ #include &quot;baby_xml.hpp&quot;
+ 
+-BabyXML::BabyXML(const std::string&amp; text)
++class BabyXMLReader
+ {
+-  State state = START;
++public:
++  BabyXML* xml;
++  std::string text;
++  int cursor;
++  int line_no;
++  int column_no;
++  
++  BabyXMLReader(const std::string&amp; text_, BabyXML* xml_) 
++    : xml(xml_),
++      text(text_),
++      cursor(0),
++      line_no(0),
++      column_no(0)
++  {
++    std::string content;
++    
++    while(!eof())
++      {
++        char c = look_ahead();
++        switch(c)
++          {
++          case '&lt;':
++            if (!content.empty())
++              {
++                xml-&gt;add_node(BabyXML::Node(BabyXML::Node::TEXT, content));
++                content = &quot;&quot;;
++              }
++            read_element();
++            break;
+ 
+-  if (!text.empty())
+-    {
+-      Node node;
+-      
+-      for(int i = 0; i &lt; int(text.size()); ++i)
+-        {
+-          switch(state)
+-            {
+-            case START: // looking for type the next node
+-              if (text[i] == '&lt;')
+-                {
+-                  if (i+1 &lt; int(text.size()) &amp;&amp; text[i+1] == '/')
+-                    {
+-                      node = Node(Node::END_TAG);
+-                      i += 1;
+-                    }
+-                  else
+-                    {
+-                      node = Node(Node::START_TAG);
+-                    }
+-                }
+-              else if (text[i] == '&amp;')
+-                {
+-                  node = Node(Node::ENTITY);
+-                }
+-              else
+-                {
+-                  node = Node(Node::TEXT);
+-                  node.content += text[i];
+-                }
+-              state = END;
+-              break;
++          case '&amp;':
++            content += read_entity();
++            break;
+ 
+-            case END: // looking for end of current node
+-              if ((node.type == Node::START_TAG || node.type == Node::END_TAG) &amp;&amp; text[i] == '&gt;')
+-                {
+-                  nodes.push_back(node);
+-                  state = START;
+-                }
+-              else if (node.type == Node::TEXT &amp;&amp; (text[i] == '&lt;' || text[i] == '&amp;'))
+-                {
+-                  nodes.push_back(node);
+-                  i -= 1;
+-                  state = START;
+-                }
+-              else if (node.type == Node::ENTITY &amp;&amp; text[i] == ';')
+-                {
+-                  std::string entity;
+-                  if (node.content == &quot;quot&quot;)
+-                    entity = &quot;\&quot;&quot;;
+-                  else if (node.content == &quot;gt&quot;)
+-                    entity = &quot;&gt;&quot;;
+-                  else if (node.content == &quot;lt&quot;)
+-                    entity = &quot;&lt;&quot;;
+-                  else
+-                    throw std::runtime_error(&quot;Unknown entity: '&quot; + node.content + &quot;'&quot;);
++          default:
++            content += c;
++            incr_cursor();
++            break;
++          }
++      }
++  }
+ 
+-                  if (!nodes.empty() &amp;&amp; nodes.back().type == Node::TEXT)
+-                    {
+-                      node = nodes.back();
+-                      nodes.pop_back();
+-                      node.content += entity;
+-                    }
+-                  else
+-                    {
+-                      node = Node(Node::TEXT, entity);
+-                    }
+-                }
+-              else
+-                {
+-                  node.content += text[i];
+-                }
+-              break;
+-            }
++  void skip_space()
++  {
++    while(true) 
++      {
++        char c = look_ahead();
++        if (c != ' ' &amp;&amp; c != '\t') {
++          break;
++        } else {
++          incr_cursor();
+         }
++      }
++  }
+ 
+-      if (state == END)
+-        nodes.push_back(node);
+-    }
++  void read_char(char expect)
++  {
++    char c = look_ahead();
++    if (c != expect)
++      {
++        std::ostringstream str;
++        str &lt;&lt; &quot;Syntax Error:&quot; &lt;&lt; line_no &lt;&lt; &quot;:&quot; &lt;&lt; column_no 
++            &lt;&lt; &quot;: Syntax error: read_char(): expected '&quot; &lt;&lt; expect &lt;&lt; &quot;' got '&quot; &lt;&lt; c &lt;&lt; &quot;'&quot;;
++        throw std::runtime_error(str.str());
++      }
++    else
++      {
++        incr_cursor();
++      }
++  }
++
++  void read_element()
++  {
++    BabyXML::Node node;
++
++    read_char('&lt;');
++    if (look_ahead() == '/') 
++      {
++        node.type = BabyXML::Node::END_TAG;
++        incr_cursor();
++        node.content = read_identifer();
++      }
++    else
++      {
++        node.type = BabyXML::Node::START_TAG;
++        node.content    = read_identifer();
++        node.attributes = read_attributes();
++      }
++    
++    skip_space();
++    read_char('&gt;');
++
++    xml-&gt;add_node(node);
++  }
++
++  /** Read a string of the form: '&quot;your string&quot;' */
++  std::string read_string()
++  {
++    char start = look_ahead();
++    if (start != '\'' &amp;&amp; start != '&quot;')
++      {
++        std::ostringstream str;
++        str &lt;&lt; &quot;Syntax Error:&quot; &lt;&lt; line_no &lt;&lt; &quot;:&quot; &lt;&lt; column_no 
++            &lt;&lt; &quot;: Syntax error: read_string(): expected ' or \&quot; got '&quot; &lt;&lt; start &lt;&lt; &quot;'&quot;;
++        throw std::runtime_error(str.str());
++      }
++    incr_cursor();
++    
++    std::string content;
++    while(true)
++      {
++        char c = look_ahead();
++        if (c == '&quot;' || c == '\'') 
++          {
++            if (c != start)
++              {
++                std::ostringstream str;
++                str &lt;&lt; &quot;Syntax Error:&quot; &lt;&lt; line_no &lt;&lt; &quot;:&quot; &lt;&lt; column_no 
++                    &lt;&lt; &quot;: Syntax error: read_string(): quote mismatch&quot;;
++                throw std::runtime_error(str.str());
++              }
++            incr_cursor();
++            break;
++          } 
++        else if (c == '&amp;') 
++          {
++            c += read_entity();
++          } 
++        else 
++          {
++            incr_cursor();
++            content += c;
++          }
++      }
++    return content;
++  }
++
++  char read_entity()
++  {
++    read_char('&amp;');
++    std::string identifer = read_identifer();
++    read_char(';');
++
++    if (identifer == &quot;quot&quot;)
++      return '&quot;';
++    else if (identifer == &quot;gt&quot;)
++      return '&gt;';
++    else if (identifer == &quot;lt&quot;)
++      return '&lt;';
++    else
++      {
++        std::ostringstream str;
++        str &lt;&lt; &quot;Syntax Error:&quot; &lt;&lt; line_no &lt;&lt; &quot;:&quot; &lt;&lt; column_no &lt;&lt; &quot;: Unknown entity: '&amp;&quot; + identifer + &quot;;'&quot;;
++        throw std::runtime_error(str.str());
++      }
++  }
++  
++  std::vector&lt;BabyXML::Attribute&gt; read_attributes()
++  {
++    std::vector&lt;BabyXML::Attribute&gt; attributes;
++    while(true) 
++      {
++        skip_space();
++
++        char c = look_ahead();
++        if (c == '&gt;' || c == '&amp;' || c == '&lt;' || c == ';')
++          {
++            break;
++          }
++
++        attributes.push_back(BabyXML::Attribute());
++
++        attributes.back().name = read_identifer();
++        read_char('=');
++        attributes.back().value = read_string();
++      }
++    return attributes;
++  }
++
++  std::string read_identifer()
++  {
++    std::string identifer;
++    while(true) 
++      {
++        char c = look_ahead();
++        if (c == '&lt;' || c == '&gt;' || c == '&amp;' || c == ';' || c == ' ' || c == '\t' || c == '=') {
++          break;
++        } else {
++          identifer += c;
++          incr_cursor();
++        }
++      }
++
++    if (identifer.empty())
++      {
++        std::ostringstream str;
++        str &lt;&lt; &quot;Syntax Error:&quot; &lt;&lt; line_no &lt;&lt; &quot;:&quot; &lt;&lt; column_no &lt;&lt; &quot;: Identifer is empty&quot;;
++        throw std::runtime_error(str.str());
++      }
++
++    return identifer;
++  }
++
++  bool eof()
++  {
++    return cursor &gt;= int(text.size());
++  }
++
++  char look_ahead()
++  {
++    return text[cursor];
++  }
++
++  void incr_cursor()
++  {
++    cursor += 1;
++    if (text[cursor] == '\n')
++      {
++        line_no += 1;
++        column_no = 0;
++      }
++    else
++      {
++        column_no += 1;
++      }
++  }
++};
++
++BabyXML::BabyXML(const std::string&amp; text)
++{
++  BabyXMLReader(text, this);
+ }
+ 
+ BabyXML::~BabyXML()
+@@ -116,12 +268,18 @@
+   
+ }
+ 
++void
++BabyXML::add_node(const Node&amp; node)
++{
++  nodes.push_back(node);
++}
++
+ #ifdef TEST_BABY_XML
+ #include &lt;iostream&gt;
+ 
+ int main()
+ {
+-  BabyXML xml(&quot;&lt;strong&gt;Hello &lt;World&gt; &lt;b&gt;&quot;blabla&quot;&lt;/b&gt; Blablub&lt;/strong&gt;&quot;);
++  BabyXML xml(&quot;&lt;strong size='10'&gt;Hello &lt; World&gt; &lt;b&gt;&quot;blabla&quot;&lt;/b&gt; Blablub&lt;/strong&gt;&quot;);
+ 
+   for(BabyXML::iterator i = xml.begin(); i != xml.end(); ++i)
+     {
+@@ -132,7 +290,14 @@
+       else if (i-&gt;type == BabyXML::Node::TEXT)
+         std::cout &lt;&lt; &quot;TEXT: &quot;;
+ 
+-      std::cout &lt;&lt; &quot;'&quot; &lt;&lt; i-&gt;content &lt;&lt; &quot;'&quot; &lt;&lt; std::endl;
++      std::cout &lt;&lt; &quot;'&quot; &lt;&lt; i-&gt;content &lt;&lt; &quot;'&quot;;
++
++      for(std::vector&lt;BabyXML::Attribute&gt;::iterator j = i-&gt;attributes.begin(); j != i-&gt;attributes.end(); ++j)
++        {
++          std::cout &lt;&lt; &quot; &quot; &lt;&lt; j-&gt;name &lt;&lt; &quot;=&quot; &lt;&lt; j-&gt;value;
++        }
++
++      std::cout &lt;&lt; std::endl;
+     }
+ }
+ #endif
+
+Modified: trunk/src/baby_xml.hpp
+===================================================================
+--- trunk/src/baby_xml.hpp	2005-08-26 18:13:08 UTC (rev 1020)
++++ trunk/src/baby_xml.hpp	2005-08-26 20:21:13 UTC (rev 1021)
+@@ -34,18 +34,25 @@
+ class BabyXML
+ {
+ public:
+-  class Node
++  struct Attribute
+   {
+-  public:
+-    enum Type { TEXT, START_TAG, END_TAG, ENTITY } type;
++    std::string name;
++    std::string value;
++  };
+ 
++  struct Node
++  {
++    enum Type { NONE, TEXT, START_TAG, END_TAG, ENTITY };
++    typedef std::vector&lt;Attribute&gt; Attributes;
++
++    Type type;
+     std::string content;
+-    Node() {}
++    Attributes attributes;
++
++    Node() : type(NONE) {}
+     Node(Type type_, const std::string&amp; content_ = std::string()) : type(type_), content(content_) {}
+   };
+ 
+-  enum State { START, END } state;
+-
+   typedef std::vector&lt;Node&gt; Nodes;
+   typedef Nodes::iterator       iterator;
+   typedef Nodes::const_iterator const_iterator;
+@@ -56,6 +63,8 @@
+   BabyXML(const std::string&amp; text);
+   ~BabyXML();
+ 
++  void add_node(const Node&amp; node);
++
+   iterator begin() { return nodes.begin(); }
+   iterator end()   { return nodes.end(); }
+ };
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000677.html">[Windstille-commit] r1020 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000679.html">[Windstille-commit] r1022 - trunk/data/blender/sophie
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#678">[ date ]</a>
+              <a href="thread.html#678">[ thread ]</a>
+              <a href="subject.html#678">[ subject ]</a>
+              <a href="author.html#678">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

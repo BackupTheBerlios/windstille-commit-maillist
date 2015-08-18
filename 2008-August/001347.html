@@ -1,0 +1,159 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2350 - trunk/griv/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2350%20-%20trunk/griv/src&In-Reply-To=%3C200808212039.m7LKd19o023028%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001346.html">
+   <LINK REL="Next"  HREF="001348.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2350 - trunk/griv/src</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2350%20-%20trunk/griv/src&In-Reply-To=%3C200808212039.m7LKd19o023028%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2350 - trunk/griv/src">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Aug 21 22:39:01 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001346.html">[Windstille-commit] r2349 - trunk/griv/src
+</A></li>
+        <LI>Next message: <A HREF="001348.html">[Windstille-commit] r2351 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1347">[ date ]</a>
+              <a href="thread.html#1347">[ thread ]</a>
+              <a href="subject.html#1347">[ subject ]</a>
+              <a href="author.html#1347">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-21 22:39:01 +0200 (Thu, 21 Aug 2008)
+New Revision: 2350
+
+Modified:
+   trunk/griv/src/tile_database.cpp
+   trunk/griv/src/tile_entry.hpp
+   trunk/griv/src/tile_generator.cpp
+   trunk/griv/src/viewer_thread.cpp
+Log:
+Replaced int x,y with Vector2i pos
+
+Modified: trunk/griv/src/tile_database.cpp
+===================================================================
+--- trunk/griv/src/tile_database.cpp	2008-08-21 20:32:00 UTC (rev 2349)
++++ trunk/griv/src/tile_database.cpp	2008-08-21 20:39:01 UTC (rev 2350)
+@@ -87,8 +87,8 @@
+     {
+       tile.fileid  = reader.get_int (0);
+       tile.scale   = reader.get_int (1);
+-      tile.x       = reader.get_int (2);
+-      tile.y       = reader.get_int (3);
++      tile.pos.x   = reader.get_int (2);
++      tile.pos.y   = reader.get_int (3);
+ 
+       // FIXME: Do this in the JPEGDecoderThread
+       tile.surface = SoftwareSurface::from_data(reader.get_blob(4));
+@@ -112,8 +112,8 @@
+   // just storing a duplicate
+   store_stmt.bind_int (1, tile.fileid);
+   store_stmt.bind_int (2, tile.scale);
+-  store_stmt.bind_int (3, tile.x);
+-  store_stmt.bind_int (4, tile.y);
++  store_stmt.bind_int (3, tile.pos.x);
++  store_stmt.bind_int (4, tile.pos.y);
+   store_stmt.bind_blob(5, blob);
+ 
+   store_stmt.execute();
+
+Modified: trunk/griv/src/tile_entry.hpp
+===================================================================
+--- trunk/griv/src/tile_entry.hpp	2008-08-21 20:32:00 UTC (rev 2349)
++++ trunk/griv/src/tile_entry.hpp	2008-08-21 20:39:01 UTC (rev 2350)
+@@ -32,9 +32,9 @@
+ class TileEntry
+ {
+ public:
+-  int fileid;
+-  int scale;
+-  int x, y;
++  int      fileid; // FIXME: Can we replace this with a FileEntry object?!
++  int      scale;
++  Vector2i pos;
+   SoftwareSurface surface;
+ 
+   TileEntry()
+
+Modified: trunk/griv/src/tile_generator.cpp
+===================================================================
+--- trunk/griv/src/tile_generator.cpp	2008-08-21 20:32:00 UTC (rev 2349)
++++ trunk/griv/src/tile_generator.cpp	2008-08-21 20:39:01 UTC (rev 2350)
+@@ -64,8 +64,8 @@
+             TileEntry tile;
+             tile.fileid = fileid;
+             tile.scale  = scale;
+-            tile.x = x;
+-            tile.y = y;
++            tile.pos.x = x;
++            tile.pos.y = y;
+             tile.surface = croped_surface;
+           
+             callback(tile);
+@@ -124,8 +124,8 @@
+       TileEntry tile;
+       tile.fileid  = entry.fileid;
+       tile.scale   = scale;
+-      tile.x       = 0;
+-      tile.y       = 0;
++      tile.pos.x   = 0;
++      tile.pos.y   = 0;
+       tile.surface = surface;
+           
+       callback(tile);
+
+Modified: trunk/griv/src/viewer_thread.cpp
+===================================================================
+--- trunk/griv/src/viewer_thread.cpp	2008-08-21 20:32:00 UTC (rev 2349)
++++ trunk/griv/src/viewer_thread.cpp	2008-08-21 20:39:01 UTC (rev 2350)
+@@ -93,7 +93,7 @@
+         {
+           TileMessage msg = tile_queue.front();
+ 
+-          msg.image.receive_tile(msg.tile.x, msg.tile.y, 
++          msg.image.receive_tile(msg.tile.pos.x, msg.tile.pos.y, 
+                                  msg.tile.scale, msg.tile.surface);
+ 
+           tile_queue.pop();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001346.html">[Windstille-commit] r2349 - trunk/griv/src
+</A></li>
+	<LI>Next message: <A HREF="001348.html">[Windstille-commit] r2351 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1347">[ date ]</a>
+              <a href="thread.html#1347">[ thread ]</a>
+              <a href="subject.html#1347">[ subject ]</a>
+              <a href="author.html#1347">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

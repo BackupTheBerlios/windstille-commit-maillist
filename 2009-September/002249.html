@@ -1,0 +1,461 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3252 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3252%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909151713.n8FHDMDO009918%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002248.html">
+   <LINK REL="Next"  HREF="002250.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3252 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3252%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909151713.n8FHDMDO009918%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3252 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Sep 15 19:13:22 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002248.html">[Windstille-commit] r3251 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="002250.html">[Windstille-commit] r3253 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2249">[ date ]</a>
+              <a href="thread.html#2249">[ thread ]</a>
+              <a href="subject.html#2249">[ subject ]</a>
+              <a href="author.html#2249">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-15 19:13:04 +0200 (Tue, 15 Sep 2009)
+New Revision: 3252
+
+Modified:
+   trunk/windstille/src/editor/layer.cpp
+   trunk/windstille/src/editor/layer.hpp
+   trunk/windstille/src/editor/navgraph_edge_object_model.hpp
+   trunk/windstille/src/editor/navgraph_node_object_model.cpp
+   trunk/windstille/src/editor/navgraph_node_object_model.hpp
+   trunk/windstille/src/editor/object_model.cpp
+   trunk/windstille/src/editor/object_model.hpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+   trunk/windstille/src/editor/select_tool.cpp
+Log:
+Changed snap_object() to a snap_to_object(), thus reversing the logic, also implemented snapping for NavGraphNode
+
+Modified: trunk/windstille/src/editor/layer.cpp
+===================================================================
+--- trunk/windstille/src/editor/layer.cpp	2009-09-14 22:01:29 UTC (rev 3251)
++++ trunk/windstille/src/editor/layer.cpp	2009-09-15 17:13:04 UTC (rev 3252)
+@@ -189,10 +189,8 @@
+ }
+ 
+ SnapData
+-Layer::snap_object(const Rectf&amp; rect, const std::set&lt;ObjectModelHandle&gt;&amp; ignore_objects) const
++Layer::snap_object(ObjectModelHandle object, const std::set&lt;ObjectModelHandle&gt;&amp; ignore_objects) const
+ {
+-  //float min_x_offset = std::numeric_limits&lt;float&gt;::max();
+-  //float min_y_offset = std::numeric_limits&lt;float&gt;::max();
+   SnapData best_snap;
+ 
+   // Find the smallest snap offset
+@@ -202,7 +200,7 @@
+     if ((*i)-&gt;is_snappable() &amp;&amp;
+         ignore_objects.find(*i) == ignore_objects.end())
+     {
+-      SnapData snap = (*i)-&gt;snap_object(rect);
++      SnapData snap = object-&gt;snap_to_object((*i)-&gt;get_bounding_box());
+       best_snap.merge(snap);
+     }
+   }
+
+Modified: trunk/windstille/src/editor/layer.hpp
+===================================================================
+--- trunk/windstille/src/editor/layer.hpp	2009-09-14 22:01:29 UTC (rev 3251)
++++ trunk/windstille/src/editor/layer.hpp	2009-09-15 17:13:04 UTC (rev 3252)
+@@ -80,7 +80,7 @@
+   void raise(ObjectModelHandle object);
+   void lower(ObjectModelHandle object);
+ 
+-  SnapData snap_object(const Rectf&amp; rect, const std::set&lt;ObjectModelHandle&gt;&amp; ignore_objects) const;
++  SnapData snap_object(ObjectModelHandle object, const std::set&lt;ObjectModelHandle&gt;&amp; ignore_objects) const;
+ 
+   void write(FileWriter&amp; writer) const;
+ 
+
+Modified: trunk/windstille/src/editor/navgraph_edge_object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_edge_object_model.hpp	2009-09-14 22:01:29 UTC (rev 3251)
++++ trunk/windstille/src/editor/navgraph_edge_object_model.hpp	2009-09-15 17:13:04 UTC (rev 3252)
+@@ -45,6 +45,8 @@
+   void write(FileWriter&amp; writer) const;
+   void write_real(FileWriter&amp; writer) const;
+ 
++  bool is_snappable() const { return false; }
++
+   boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; get_lhs() const { return m_lhs; }
+   boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; get_rhs() const { return m_rhs; }
+ 
+
+Modified: trunk/windstille/src/editor/navgraph_node_object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_node_object_model.cpp	2009-09-14 22:01:29 UTC (rev 3251)
++++ trunk/windstille/src/editor/navgraph_node_object_model.cpp	2009-09-15 17:13:04 UTC (rev 3252)
+@@ -22,6 +22,7 @@
+ #include &quot;scenegraph/vertex_array_drawable.hpp&quot;
+ #include &quot;scenegraph/scene_graph.hpp&quot;
+ #include &quot;navigation/node.hpp&quot;
++#include &quot;editor/constants.hpp&quot;
+ 
+ NavGraphNodeObjectModel::NavGraphNodeObjectModel(const FileReader&amp; reader)
+   : ObjectModel(reader),
+@@ -91,20 +92,20 @@
+ SnapData
+ NavGraphNodeObjectModel::snap_to_grid(float grid_size) const
+ {
+-  const float snap_threshold = 16.0f;
++  std::cout &lt;&lt; &quot;NavGraphNodeObjectModel:grid&quot; &lt;&lt; std::endl;
+ 
+   float snap_x = float_snap_to_grid(get_world_pos().x, grid_size);
+   float snap_y = float_snap_to_grid(get_world_pos().y, grid_size);
+ 
+   SnapData snap;
+ 
+-  if (fabs(snap_x) &lt; snap_threshold)
++  if (fabs(snap_x) &lt; g_snap_threshold)
+     {
+       snap.x_set = true;
+       snap.offset.x = snap_x;
+     }
+ 
+-  if (fabs(snap_y) &lt; snap_threshold)
++  if (fabs(snap_y) &lt; g_snap_threshold)
+     {
+       snap.y_set = true;
+       snap.offset.y = snap_y;
+@@ -113,6 +114,47 @@
+   return snap;
+ }
+ 
++SnapData
++NavGraphNodeObjectModel::snap_to_object(const Rectf&amp; in) const
++{
++  const Vector2f&amp; pos = get_world_pos();
++
++  SnapData snap;
++
++  Rectf dist(in.left   - pos.x,
++             in.top    - pos.y,
++             in.right  - pos.x,
++             in.bottom - pos.y);
++
++  if (fabsf(dist.left) &lt;= fabsf(dist.right) &amp;&amp; 
++      fabsf(dist.left) &lt; g_snap_threshold)
++  {
++    snap.x_set    = true;
++    snap.offset.x = dist.left;    
++  }
++  else if (fabsf(dist.left) &gt; fabsf(dist.right) &amp;&amp; 
++           fabsf(dist.right) &lt; g_snap_threshold)
++  {
++    snap.x_set    = true;
++    snap.offset.x = dist.right;
++  }
++
++  if (fabsf(dist.top) &lt;= fabsf(dist.bottom) &amp;&amp; 
++      fabsf(dist.top) &lt; g_snap_threshold)
++  {
++    snap.y_set    = true;
++    snap.offset.y = dist.top;    
++  }
++  else if (fabsf(dist.top) &gt; fabsf(dist.bottom) &amp;&amp; 
++           fabsf(dist.bottom) &lt; g_snap_threshold)
++  {
++    snap.y_set    = true;
++    snap.offset.y = dist.bottom;
++  }
++
++  return snap;
++}
++
+ ObjectModelHandle 
+ NavGraphNodeObjectModel::clone() const
+ {
+
+Modified: trunk/windstille/src/editor/navgraph_node_object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_node_object_model.hpp	2009-09-14 22:01:29 UTC (rev 3251)
++++ trunk/windstille/src/editor/navgraph_node_object_model.hpp	2009-09-15 17:13:04 UTC (rev 3252)
+@@ -45,6 +45,7 @@
+   ObjectModelHandle clone() const;
+   void write(FileWriter&amp; writer) const;
+ 
++  SnapData snap_to_object(const Rectf&amp; rect) const;
+   SnapData snap_to_grid(float grid_size) const;
+ 
+ private:
+
+Modified: trunk/windstille/src/editor/object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/object_model.cpp	2009-09-14 22:01:29 UTC (rev 3251)
++++ trunk/windstille/src/editor/object_model.cpp	2009-09-15 17:13:04 UTC (rev 3252)
+@@ -16,14 +16,16 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
++#include &quot;editor/object_model.hpp&quot;
++
+ #include &lt;iostream&gt;
+ #include &lt;sstream&gt;
+ 
++#include &quot;display/scene_context.hpp&quot;
++#include &quot;display/surface_drawing_parameters.hpp&quot;
++#include &quot;editor/constants.hpp&quot;
+ #include &quot;editor/editor_window.hpp&quot;
+ #include &quot;util/file_reader.hpp&quot;
+-#include &quot;display/surface_drawing_parameters.hpp&quot;
+-#include &quot;display/scene_context.hpp&quot;
+-#include &quot;editor/object_model.hpp&quot;
+ 
+ ObjectModel::ObjectModel(const std::string&amp; name_, const Vector2f&amp; rel_pos_)
+   : name(name_),
+@@ -196,8 +198,6 @@
+ SnapData
+ ObjectModel::snap_to_grid(float grid_size) const
+ {
+-  const float snap_threshold = 16.0f;
+-
+   const Rectf&amp; r = get_bounding_box();
+ 
+   Rectf snap_rect(float_snap_to_grid(r.left,   grid_size),
+@@ -210,13 +210,13 @@
+   {
+     SnapData snap;
+ 
+-    if (fabs(snap_rect.left) &lt; snap_threshold)
++    if (fabs(snap_rect.left) &lt; g_snap_threshold)
+     {
+       snap.x_set = true;
+       snap.offset.x = snap_rect.left;
+     }
+ 
+-    if (fabs(snap_rect.top) &lt; snap_threshold)
++    if (fabs(snap_rect.top) &lt; g_snap_threshold)
+     {
+       snap.y_set = true;
+       snap.offset.y = snap_rect.top;
+@@ -228,13 +228,13 @@
+   {
+     SnapData snap;
+ 
+-    if (fabs(snap_rect.right) &lt; snap_threshold)
++    if (fabs(snap_rect.right) &lt; g_snap_threshold)
+     {
+       snap.x_set = true;
+       snap.offset.x = snap_rect.right;
+     }
+ 
+-    if (fabs(snap_rect.bottom) &lt; snap_threshold)
++    if (fabs(snap_rect.bottom) &lt; g_snap_threshold)
+     {
+       snap.y_set = true;
+       snap.offset.y = snap_rect.bottom;
+@@ -247,17 +247,15 @@
+ }
+ 
+ SnapData
+-ObjectModel::snap_object(const Rectf&amp; in) const
++ObjectModel::snap_to_object(const Rectf&amp; in) const
+ {
+   const Rectf&amp; rect = get_bounding_box();
+-  float snap_threshold = 16.0f;
+   
+-  // Reset offset to zero, since it might not be
+   SnapData snap;
+ 
+-  float left_dist   = fabsf(rect.left - in.right);
+-  float right_dist  = fabsf(rect.right - in.left);
+-  float top_dist    = fabsf(rect.top - in.bottom);
++  float left_dist   = fabsf(rect.left   - in.right);
++  float right_dist  = fabsf(rect.right  - in.left);
++  float top_dist    = fabsf(rect.top    - in.bottom);
+   float bottom_dist = fabsf(rect.bottom - in.top);
+   float x_dist = std::min(left_dist, right_dist);
+   float y_dist = std::min(top_dist, bottom_dist);
+@@ -268,13 +266,13 @@
+     {
+       float y_snap = 0.0f;
+ 
+-      if (fabs(rect.top - in.top) &lt; snap_threshold)
++      if (fabs(rect.top - in.top) &lt; g_snap_threshold)
+       {
+         y_snap = rect.top - in.top;
+         snap.y_set = true;
+       }
+ 
+-      if (fabs(rect.bottom - in.bottom) &lt; snap_threshold)
++      if (fabs(rect.bottom - in.bottom) &lt; g_snap_threshold)
+       {
+         y_snap = rect.bottom - in.bottom;
+         snap.y_set = true;
+@@ -282,7 +280,7 @@
+ 
+       if (left_dist &lt; right_dist)
+       { // snap to left edge
+-        if (left_dist &lt; snap_threshold)
++        if (left_dist &lt; g_snap_threshold)
+         {
+           snap.offset.x = rect.left - in.right;
+           snap.offset.y = y_snap;
+@@ -291,7 +289,7 @@
+       }
+       else
+       { // snap to right edge
+-        if (right_dist &lt; snap_threshold)
++        if (right_dist &lt; g_snap_threshold)
+         {
+           snap.offset.x = rect.right - in.left;
+           snap.offset.y = y_snap;
+@@ -306,13 +304,13 @@
+     {
+       float x_snap = 0.0f;
+ 
+-      if (fabs(rect.left - in.left) &lt; snap_threshold)
++      if (fabs(rect.left - in.left) &lt; g_snap_threshold)
+       {
+         x_snap = rect.left - in.left;
+         snap.x_set = true;
+       }
+ 
+-      if (fabs(rect.right - in.right) &lt; snap_threshold)
++      if (fabs(rect.right - in.right) &lt; g_snap_threshold)
+       {
+         x_snap = rect.right - in.right;
+         snap.x_set = true;
+@@ -320,7 +318,7 @@
+ 
+       if (top_dist &lt; bottom_dist)
+       { // snap to top edge
+-        if (top_dist &lt; snap_threshold)
++        if (top_dist &lt; g_snap_threshold)
+         {
+           snap.offset.x = x_snap;
+           snap.offset.y = rect.top - in.bottom;
+@@ -329,7 +327,7 @@
+       }
+       else
+       { // snap to bottom edge
+-        if (bottom_dist &lt; snap_threshold)
++        if (bottom_dist &lt; g_snap_threshold)
+         {
+           snap.offset.x = x_snap;
+           snap.offset.y = rect.bottom - in.top;
+@@ -339,6 +337,8 @@
+     }      
+   }
+ 
++  snap.offset = -snap.offset;
++
+   return snap;
+ }
+ 
+
+Modified: trunk/windstille/src/editor/object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/object_model.hpp	2009-09-14 22:01:29 UTC (rev 3251)
++++ trunk/windstille/src/editor/object_model.hpp	2009-09-15 17:13:04 UTC (rev 3252)
+@@ -64,7 +64,7 @@
+   virtual SelectMask get_select_mask() const { return select_mask; }
+   virtual void   set_select_mask(const SelectMask&amp; select_mask_) { select_mask = select_mask_; }
+ 
+-  virtual SnapData snap_object(const Rectf&amp; rect) const;
++  virtual SnapData snap_to_object(const Rectf&amp; rect) const;
+   virtual SnapData snap_to_grid(float grid_size) const;
+ 
+   virtual bool get_hflip() const { return false; }
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-09-14 22:01:29 UTC (rev 3251)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-09-15 17:13:04 UTC (rev 3252)
+@@ -335,7 +335,7 @@
+ }
+ 
+ SnapData
+-SectorModel::snap_object(const Rectf&amp; rect, const std::set&lt;ObjectModelHandle&gt;&amp; ignore_objects) const
++SectorModel::snap_object(ObjectModelHandle object, const std::set&lt;ObjectModelHandle&gt;&amp; ignore_objects) const
+ {
+   const Layers&amp; layers = get_layers();
+ 
+@@ -344,7 +344,7 @@
+   {
+     if ((*i)-&gt;is_visible())
+     {
+-      snap_data.merge((*i)-&gt;snap_object(rect, ignore_objects));
++      snap_data.merge((*i)-&gt;snap_object(object, ignore_objects));
+     }
+   }
+ 
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-09-14 22:01:29 UTC (rev 3251)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-09-15 17:13:04 UTC (rev 3252)
+@@ -90,7 +90,7 @@
+   void raise(ObjectModelHandle object);
+   void lower(ObjectModelHandle object);
+ 
+-  SnapData snap_object(const Rectf&amp; object, const std::set&lt;ObjectModelHandle&gt;&amp; ignore_objects) const;
++  SnapData snap_object(ObjectModelHandle object, const std::set&lt;ObjectModelHandle&gt;&amp; ignore_objects) const;
+ 
+   void write(FileWriter&amp; writer) const;
+ 
+
+Modified: trunk/windstille/src/editor/select_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/select_tool.cpp	2009-09-14 22:01:29 UTC (rev 3251)
++++ trunk/windstille/src/editor/select_tool.cpp	2009-09-15 17:13:04 UTC (rev 3252)
+@@ -131,7 +131,7 @@
+ 
+   for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
+   {
+-    SnapData snap = wst.get_document().get_sector_model().snap_object((*i)-&gt;get_bounding_box(), ignore_objects);
++    SnapData snap = wst.get_document().get_sector_model().snap_object(*i, ignore_objects);
+     best_snap.merge(snap);
+   }
+  
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002248.html">[Windstille-commit] r3251 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="002250.html">[Windstille-commit] r3253 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2249">[ date ]</a>
+              <a href="thread.html#2249">[ thread ]</a>
+              <a href="subject.html#2249">[ subject ]</a>
+              <a href="author.html#2249">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

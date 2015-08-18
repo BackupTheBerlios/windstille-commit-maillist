@@ -1,0 +1,386 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1580 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-December/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1580%20-%20trunk/griv&In-Reply-To=%3C200712041731.lB4HVVWi021510%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001230.html">
+   <LINK REL="Next"  HREF="001232.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1580 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1580%20-%20trunk/griv&In-Reply-To=%3C200712041731.lB4HVVWi021510%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1580 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Dec  4 18:31:31 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001230.html">[Windstille-commit] r1579 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001232.html">[Windstille-commit] r1581 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1231">[ date ]</a>
+              <a href="thread.html#1231">[ thread ]</a>
+              <a href="subject.html#1231">[ subject ]</a>
+              <a href="author.html#1231">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-12-04 18:31:30 +0100 (Tue, 04 Dec 2007)
+New Revision: 1580
+
+Modified:
+   trunk/griv/TODO
+   trunk/griv/file_entry_cache.cpp
+   trunk/griv/file_entry_cache.hpp
+   trunk/griv/griv.cpp
+   trunk/griv/thumbnail_store.cpp
+   trunk/griv/thumbnail_store.hpp
+   trunk/griv/workspace.cpp
+   trunk/griv/workspace.hpp
+Log:
+- added sorting/randomizing (9,0,r)
+- made some space in the file cache to store thumbnail indices
+
+Modified: trunk/griv/TODO
+===================================================================
+--- trunk/griv/TODO	2007-12-04 15:25:17 UTC (rev 1579)
++++ trunk/griv/TODO	2007-12-04 17:31:30 UTC (rev 1580)
+@@ -12,6 +12,16 @@
+ 
+ - don't store MD5 as string, but as raw bits/bytes
+ 
++- addd linear/nearest filtering toggle
++
++- make set_zoom() not change the current viewpoint
++
++- prioritize loader jobs:
++  
++  1) images currently displayed
++  2) images without any thumbnails
++  3) images close to the current view
++
+ Less Important:
+ ===============
+ 
+@@ -25,6 +35,7 @@
+ - write fast file system routines, use readdir(), d_type instead of
+   stat to check for a directory -&gt; only works on EXT3
+ 
++
+ Bugs:
+ =====
+ 
+@@ -40,6 +51,7 @@
+  - ...images to workspace... 8033/8047 doesn't display 100% when done
+ 
+  - not handled properly by epeg: /share/photos/flickr/farm3.static.flickr.com/2123/1782745732_d7f5c8cc8c_o.jpg
++
+ 
+ Cache Files:
+ ============
+
+Modified: trunk/griv/file_entry_cache.cpp
+===================================================================
+--- trunk/griv/file_entry_cache.cpp	2007-12-04 15:25:17 UTC (rev 1579)
++++ trunk/griv/file_entry_cache.cpp	2007-12-04 17:31:30 UTC (rev 1580)
+@@ -23,6 +23,7 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;assert.h&gt;
+ #include &lt;iostream&gt;
+ #include &quot;filesystem.hpp&quot;
+ #include &quot;jpeg.hpp&quot;
+@@ -44,11 +45,20 @@
+           FileEntry entry;
+       
+           in.read(entry.url_md5,  sizeof(char) * 33);
+-          in.read((char*)(&amp;entry.mtime),        sizeof(unsigned int));
+-          in.read((char*)(&amp;entry.thumbnail_id), sizeof(unsigned int));
+-          in.read((char*)(&amp;entry.width),        sizeof(unsigned int));
+-          in.read((char*)(&amp;entry.height),       sizeof(unsigned int));
++          in.read((char*)(&amp;entry.mtime),        sizeof(entry.mtime));
++          in.read((char*)(&amp;entry.width),        sizeof(entry.width));
++          in.read((char*)(&amp;entry.height),       sizeof(entry.height));
+ 
++          uint8_t num_thumbnails = 0;
++          in.read((char*)(&amp;num_thumbnails), sizeof(num_thumbnails));
++          for(int i = 0; i &lt; num_thumbnails; ++i)
++            {
++              ThumbnailEntry thumb_entry;
++              in.read((char*)(&amp;thumb_entry.offset), sizeof(thumb_entry.offset));
++              in.read((char*)(&amp;thumb_entry.len),    sizeof(thumb_entry.len));
++              entry.thumbnails.push_back(thumb_entry);
++            }
++          
+           // FIXME: Do error checking to avoid adding incomplete entries
+           entries[entry.url_md5] = entry;
+         }
+@@ -70,11 +80,20 @@
+           i != entries.end(); ++i)
+         {
+           const FileEntry&amp; entry = i-&gt;second;
++
+           out.write(entry.url_md5,  sizeof(char) * 33);
+-          out.write((char*)(&amp;entry.mtime),        sizeof(unsigned int));
+-          out.write((char*)(&amp;entry.thumbnail_id), sizeof(unsigned int));
+-          out.write((char*)(&amp;entry.width),        sizeof(unsigned int));
+-          out.write((char*)(&amp;entry.height),       sizeof(unsigned int));
++          out.write((char*)(&amp;entry.mtime),        sizeof(entry.mtime));
++          out.write((char*)(&amp;entry.width),        sizeof(entry.width));
++          out.write((char*)(&amp;entry.height),       sizeof(entry.height));
++
++          assert(entry.thumbnails.size() &lt; 256);
++          uint8_t num_thumbnails = entry.thumbnails.size();
++          out.write((char*)(&amp;num_thumbnails), sizeof(num_thumbnails));
++          for(int i = 0; i &lt; num_thumbnails; ++i)
++            {
++              out.write((char*)(&amp;entry.thumbnails[i].offset), sizeof(entry.thumbnails[i].offset));
++              out.write((char*)(&amp;entry.thumbnails[i].len),    sizeof(entry.thumbnails[i].len));
++            }        
+         }
+     }
+ }
+@@ -91,7 +110,6 @@
+       try { 
+         strcpy(entry.url_md5, url_md5.c_str());
+         entry.mtime = Filesystem::get_mtime(url.substr(7));
+-        entry.thumbnail_id = 0;
+         JPEG::get_size(url.substr(7), entry.width, entry.height);
+       } catch (std::exception&amp; err) {
+         std::cout &lt;&lt; url &lt;&lt; &quot;: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
+
+Modified: trunk/griv/file_entry_cache.hpp
+===================================================================
+--- trunk/griv/file_entry_cache.hpp	2007-12-04 15:25:17 UTC (rev 1579)
++++ trunk/griv/file_entry_cache.hpp	2007-12-04 17:31:30 UTC (rev 1580)
+@@ -29,14 +29,28 @@
+ #include &lt;string&gt;
+ #include &lt;map&gt;
+ 
+-struct FileEntry {
+-  char url_md5[33];
+-  int  mtime;  // mtime at which the thumbnail was done
+-  int  thumbnail_id; // offset into the thumbnail database
+-  int  width;  // image width
+-  int  height; // image height
++struct ThumbnailEntry
++{
++  uint64_t offset;
++  uint32_t len;
+ };
+ 
++struct FileEntry 
++{
++  char     url_md5[33]; // FIXME: Could save raw MD5 instead of string version
++  uint32_t mtime;  // mtime of the file
++  int      width;  // image width
++  int      height; // image height
++  
++  /** 
++      thumbnails[0] -&gt; 16x16
++      thumbnails[1] -&gt; 32x32
++      ...
++      thumbnails[N] -&gt; (16 + 2^N)x(16 + 2^N)
++   */
++  std::vector&lt;ThumbnailEntry&gt; thumbnails;
++};
++
+ /** */
+ class FileEntryCache
+ {
+
+Modified: trunk/griv/griv.cpp
+===================================================================
+--- trunk/griv/griv.cpp	2007-12-04 15:25:17 UTC (rev 1579)
++++ trunk/griv/griv.cpp	2007-12-04 17:31:30 UTC (rev 1580)
+@@ -157,21 +157,6 @@
+                 gamma = 1.0f;
+                 SDL_SetGamma(gamma, gamma, gamma);
+               }
+-            else if (event.key.keysym.sym == SDLK_9)
+-              {
+-                workspace-&gt;layout(4,3);
+-                force_redraw = true;
+-              }
+-            else if (event.key.keysym.sym == SDLK_8)
+-              {
+-                workspace-&gt;layout(8,3);
+-                force_redraw = true;
+-              }
+-            else if (event.key.keysym.sym == SDLK_7)
+-              {
+-                workspace-&gt;layout(16,3);
+-                force_redraw = true;
+-              }
+             else if (event.key.keysym.sym == SDLK_1)
+               {
+                 workspace-&gt;set_zoom(16.0f);
+@@ -196,6 +181,29 @@
+               {
+                 workspace-&gt;set_zoom(512.0f);
+               }
++            else if (event.key.keysym.sym == SDLK_7)
++              {
++                workspace-&gt;set_zoom(1024.0f);
++              }
++            else if (event.key.keysym.sym == SDLK_8)
++              {
++                workspace-&gt;set_zoom(2048.0f);
++              }
++            else if (event.key.keysym.sym == SDLK_9)
++              {
++                workspace-&gt;layout_sort(true);
++                force_redraw = true;
++              }
++            else if (event.key.keysym.sym == SDLK_0)
++              {
++                workspace-&gt;layout_sort(false);
++                force_redraw = true;
++              }
++            else if (event.key.keysym.sym == SDLK_r)
++              {
++                workspace-&gt;layout_random();
++                force_redraw = true;
++              }
+             else if (event.key.keysym.sym == SDLK_UP)
+               {
+                 workspace-&gt;rotation = 0.0f;
+
+Modified: trunk/griv/thumbnail_store.cpp
+===================================================================
+--- trunk/griv/thumbnail_store.cpp	2007-12-04 15:25:17 UTC (rev 1579)
++++ trunk/griv/thumbnail_store.cpp	2007-12-04 17:31:30 UTC (rev 1580)
+@@ -34,23 +34,25 @@
+ #include &quot;thumbnail_store.hpp&quot;
+ 
+ ThumbnailStore::ThumbnailStore(const std::string&amp; filename)
++  : filename(filename)
+ {
+-  out.open();
+ }
+ 
+ ThumbnailStore::~ThumbnailStore()
+ {
+-  std::cout &lt;&lt; &quot;destroying ThumbnailStore&quot; &lt;&lt; std::endl;
+ }
+ 
+ void
+ ThumbnailStore::store()
+ {
++  //  std::ofstream out((filename + &quot;.dat&quot;).c_str());
++  
+ }
+ 
+ void
+ ThumbnailStore::retrieve()
+ {
++  
+ }
+ 
+ /* EOF */
+
+Modified: trunk/griv/thumbnail_store.hpp
+===================================================================
+--- trunk/griv/thumbnail_store.hpp	2007-12-04 15:25:17 UTC (rev 1579)
++++ trunk/griv/thumbnail_store.hpp	2007-12-04 17:31:30 UTC (rev 1580)
+@@ -37,8 +37,8 @@
+ class ThumbnailStore
+ {
+ private:
+-  std::ofstream out;
+-  
++  std::string filename;
++
+ public:
+   ThumbnailStore(const std::string&amp; filename);
+   ~ThumbnailStore();
+
+Modified: trunk/griv/workspace.cpp
+===================================================================
+--- trunk/griv/workspace.cpp	2007-12-04 15:25:17 UTC (rev 1579)
++++ trunk/griv/workspace.cpp	2007-12-04 17:31:30 UTC (rev 1580)
+@@ -110,7 +110,32 @@
+     }
+ }
+ 
++void 
++Workspace::layout_random()
++{
++  std::random_shuffle(images.begin(), images.end());
++  layout(4,3);
++}
++
++struct ImageSorter
++{
++  bool operator()(const Image* a, const Image* b) {
++    return a-&gt;url &lt; b-&gt;url;
++  }
++};
++
+ void
++Workspace::layout_sort(bool reverse)
++{
++  std::sort(images.begin(), images.end(), ImageSorter());
++  
++  if (reverse)
++    std::reverse(images.begin(), images.end());
++
++  layout(4,3);
++}
++
++void
+ Workspace::layout(int aspect_w, int aspect_h)
+ {
+   int w = int(sqrt(aspect_w * images.size() / aspect_h));
+
+Modified: trunk/griv/workspace.hpp
+===================================================================
+--- trunk/griv/workspace.hpp	2007-12-04 15:25:17 UTC (rev 1579)
++++ trunk/griv/workspace.hpp	2007-12-04 17:31:30 UTC (rev 1580)
+@@ -55,7 +55,8 @@
+ 
+   int size() { return images.size(); }
+   void layout(int w, int h);
+-
++  void layout_random();
++  void layout_sort(bool reverse);
+ };
+ 
+ #endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001230.html">[Windstille-commit] r1579 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001232.html">[Windstille-commit] r1581 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1231">[ date ]</a>
+              <a href="thread.html#1231">[ thread ]</a>
+              <a href="subject.html#1231">[ subject ]</a>
+              <a href="author.html#1231">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

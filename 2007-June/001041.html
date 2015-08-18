@@ -1,0 +1,757 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1388 - in trunk/windstille: . src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1388%20-%20in%20trunk/windstille%3A%20.%20src&In-Reply-To=%3C200706111349.l5BDngqT008376%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001040.html">
+   <LINK REL="Next"  HREF="001042.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1388 - in trunk/windstille: . src</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1388%20-%20in%20trunk/windstille%3A%20.%20src&In-Reply-To=%3C200706111349.l5BDngqT008376%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1388 - in trunk/windstille: . src">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Jun 11 15:49:42 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001040.html">[Windstille-commit] r1387 - trunk/windstille/src
+</A></li>
+        <LI>Next message: <A HREF="001042.html">[Windstille-commit] r1389 - in trunk/windstille/src: . gui
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1041">[ date ]</a>
+              <a href="thread.html#1041">[ thread ]</a>
+              <a href="subject.html#1041">[ subject ]</a>
+              <a href="author.html#1041">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-06-11 15:49:41 +0200 (Mon, 11 Jun 2007)
+New Revision: 1388
+
+Added:
+   trunk/windstille/src/menu_manager.cpp
+   trunk/windstille/src/menu_manager.hpp
+Modified:
+   trunk/windstille/
+   trunk/windstille/src/SConscript
+   trunk/windstille/src/game_session.cpp
+   trunk/windstille/src/title_screen.cpp
+   trunk/windstille/src/title_screen.hpp
+Log:
+- added pause menu
+- moved menu code in a separate class
+
+
+Property changes on: trunk/windstille
+___________________________________________________________________
+Name: svn:ignore
+   - 
+.sconsign.dblite
+windstille
+
+   + 
+cache/
+.sconsign.dblite
+windstille
+
+
+Modified: trunk/windstille/src/SConscript
+===================================================================
+--- trunk/windstille/src/SConscript	2007-06-11 02:47:15 UTC (rev 1387)
++++ trunk/windstille/src/SConscript	2007-06-11 13:49:41 UTC (rev 1388)
+@@ -148,6 +148,7 @@
+ 'math/quaternion.cpp',
+ 'math/rect.cpp',
+ 'math/vector.cpp',
++'menu_manager.cpp',
+ 'particle_viewer.cpp',
+ 'particles/particle_system.cpp',
+ 'particles/spark_drawer.cpp',
+
+Modified: trunk/windstille/src/game_session.cpp
+===================================================================
+--- trunk/windstille/src/game_session.cpp	2007-06-11 02:47:15 UTC (rev 1387)
++++ trunk/windstille/src/game_session.cpp	2007-06-11 13:49:41 UTC (rev 1388)
+@@ -31,6 +31,7 @@
+ #include &lt;sqstdio.h&gt; 
+ #include &lt;sqstdaux.h&gt; 
+ 
++#include &quot;menu_manager.hpp&quot;
+ #include &quot;font/fonts.hpp&quot;
+ #include &quot;sector.hpp&quot;
+ #include &quot;console.hpp&quot;
+@@ -287,8 +288,7 @@
+ 
+   if(keystate[SDLK_ESCAPE])
+     {
+-      // FIXME: Display pause/option menu here
+-      GameSession::current()-&gt;quit();
++      menu_manager.display_pause_menu();
+     }
+ }
+ 
+
+Added: trunk/windstille/src/menu_manager.cpp
+===================================================================
+--- trunk/windstille/src/menu_manager.cpp	2007-06-11 02:47:15 UTC (rev 1387)
++++ trunk/windstille/src/menu_manager.cpp	2007-06-11 13:49:41 UTC (rev 1388)
+@@ -0,0 +1,309 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &quot;config.hpp&quot;
++#include &quot;console.hpp&quot;
++#include &quot;display/display.hpp&quot;
++#include &quot;font/fonts.hpp&quot;
++#include &quot;gui/gui_manager.hpp&quot;
++#include &quot;gui/root_component.hpp&quot;
++#include &quot;screen_manager.hpp&quot;
++#include &quot;gui/menu_component.hpp&quot;
++#include &quot;game_session.hpp&quot;
++#include &quot;sector.hpp&quot;
++#include &quot;menu_manager.hpp&quot;
++
++MenuManager menu_manager;
++
++MenuManager::MenuManager()
++{
++}
++
++void
++MenuManager::display_option_menu()
++{
++  using namespace GUI;
++  GUIManager* manager = new GUIManager();
++
++  // Begin Main Menu
++  MenuComponent* menu = new MenuComponent(Rectf(Vector(400-200, 200), Sizef(400, 500)), true,
++                                          manager-&gt;get_root());
++
++  menu-&gt;set_font(Fonts::vera20);
++
++  SliderMenuItem* music_volume_item = new SliderMenuItem(menu,  &quot;Music Volume&quot;, 100, 0, 100, 10);
++  menu-&gt;add_item(music_volume_item);
++
++  SliderMenuItem* sfx_volume_item   = new SliderMenuItem(menu,  &quot;SFX Volume&quot;,   100, 0, 100, 10);
++  menu-&gt;add_item(sfx_volume_item);
++
++  SliderMenuItem* voice_volume_item = new SliderMenuItem(menu,  &quot;Voice Volume&quot;, 100, 0, 100, 10);
++  menu-&gt;add_item(voice_volume_item);
++
++  EnumMenuItem* aspect_item = new EnumMenuItem(menu,  &quot;Aspect Ratio&quot;, 0);
++  aspect_item-&gt;add_pair(0, &quot;4:3&quot;);
++  aspect_item-&gt;add_pair(1, &quot;5:4&quot;);
++  aspect_item-&gt;add_pair(2, &quot;16:9&quot;);
++  aspect_item-&gt;add_pair(3, &quot;16:10&quot;);
++  aspect_item-&gt;add_pair(4, &quot;letterbox&quot;);
++  menu-&gt;add_item(aspect_item);
++  
++  EnumMenuItem* show_fps_item = new EnumMenuItem(menu,  &quot;Show FPS&quot;, config.get_bool(&quot;show-fps&quot;));
++  show_fps_item-&gt;add_pair(1, &quot;on&quot;);
++  show_fps_item-&gt;add_pair(0, &quot;off&quot;);
++  menu-&gt;add_item(show_fps_item);
++  slots.push_back(show_fps_item-&gt;sig_change().connect(this, &amp;MenuManager::menu_show_fps));
++
++  EnumMenuItem* fullscreen_item = new EnumMenuItem(menu,  &quot;Fullscreen&quot;, config.get_bool(&quot;fullscreen&quot;));
++  fullscreen_item-&gt;add_pair(1, &quot;on&quot;);
++  fullscreen_item-&gt;add_pair(0, &quot;off&quot;);
++  menu-&gt;add_item(fullscreen_item);
++  slots.push_back(fullscreen_item-&gt;sig_change().connect(this, &amp;MenuManager::menu_fullscreen));
++
++  manager-&gt;get_root()-&gt;set_child(menu);
++
++  screen_manager.push_overlay(manager);
++}
++
++void
++MenuManager::display_main_menu()
++{
++  using namespace GUI;
++  GUIManager* manager = new GUIManager();
++
++  // Begin Main Menu
++  MenuComponent* menu = new MenuComponent(Rectf(Vector(400, 250), Sizef(200, 500)), false,
++                                          manager-&gt;get_root());
++
++  menu-&gt;set_font(Fonts::vera20);
++
++  ButtonMenuItem* select_scenario_button = new ButtonMenuItem(menu,  &quot;Select Scenario&quot;);
++  slots.push_back(select_scenario_button-&gt;sig_click().connect(this, &amp;MenuManager::display_scenario_menu));
++  menu-&gt;add_item(select_scenario_button);
++
++  ButtonMenuItem* options_button = new ButtonMenuItem(menu,  &quot;Options&quot;);
++  slots.push_back(options_button-&gt;sig_click().connect(this, &amp;MenuManager::display_option_menu));
++  menu-&gt;add_item(options_button);
++
++  ButtonMenuItem* credits_button = new ButtonMenuItem(menu,  &quot;Credits&quot;);
++  slots.push_back(credits_button-&gt;sig_click().connect(this, &amp;MenuManager::menu_credits));
++  menu-&gt;add_item(credits_button);
++
++  ButtonMenuItem* quit_button = new ButtonMenuItem(menu,  &quot;Quit&quot;);
++  slots.push_back(quit_button-&gt;sig_click().connect(this, &amp;MenuManager::menu_quit));
++  menu-&gt;add_item(quit_button);
++  // End: Option Menu
++
++  manager-&gt;get_root()-&gt;set_child(menu);
++
++  screen_manager.push_overlay(manager);
++}
++
++void
++MenuManager::display_pause_menu()
++{
++  using namespace GUI;
++  GUIManager* manager = new GUIManager();
++
++  // Begin Main Menu
++  MenuComponent* menu = new MenuComponent(Rectf(Vector(400-150, 200), Sizef(300, 500)), true,
++                                          manager-&gt;get_root());
++
++  menu-&gt;set_font(Fonts::vera20);
++
++  ButtonMenuItem* continue_button = new ButtonMenuItem(menu,  &quot;Resume Game&quot;);
++  slots.push_back(continue_button-&gt;sig_click().connect(this, &amp;MenuManager::menu_continue));
++  menu-&gt;add_item(continue_button);
++
++  ButtonMenuItem* select_scenario_button = new ButtonMenuItem(menu,  &quot;Select Scenario&quot;);
++  slots.push_back(select_scenario_button-&gt;sig_click().connect(this, &amp;MenuManager::display_scenario_menu));
++  menu-&gt;add_item(select_scenario_button);
++
++  ButtonMenuItem* options_button = new ButtonMenuItem(menu,  &quot;Options&quot;);
++  slots.push_back(options_button-&gt;sig_click().connect(this, &amp;MenuManager::display_option_menu));
++  menu-&gt;add_item(options_button);
++
++  ButtonMenuItem* debug_button = new ButtonMenuItem(menu,  &quot;Debug&quot;);
++  slots.push_back(debug_button-&gt;sig_click().connect(this, &amp;MenuManager::display_debug_menu));
++  menu-&gt;add_item(debug_button);
++
++  ButtonMenuItem* credits_button = new ButtonMenuItem(menu,  &quot;Credits&quot;);
++  slots.push_back(credits_button-&gt;sig_click().connect(this, &amp;MenuManager::menu_credits));
++  menu-&gt;add_item(credits_button);
++
++  ButtonMenuItem* quit_button = new ButtonMenuItem(menu,  &quot;Return to Title Screen&quot;);
++  slots.push_back(quit_button-&gt;sig_click().connect(this, &amp;MenuManager::menu_exit));
++  menu-&gt;add_item(quit_button);
++  // End: Option Menu
++
++  manager-&gt;get_root()-&gt;set_child(menu);
++
++  screen_manager.push_overlay(manager); 
++}
++
++void
++MenuManager::display_scenario_menu()
++{
++  using namespace GUI;
++  GUIManager* manager = new GUIManager();
++
++  MenuComponent* menu = new MenuComponent(Rectf(Vector(400-200, 200), Sizef(400, 500)), true,
++                                          manager-&gt;get_root());
++
++  menu-&gt;set_font(Fonts::vera20);
++
++  std::vector&lt;std::string&gt; scenarios;
++  scenarios.push_back(&quot;levels/apartment.wst&quot;);
++  scenarios.push_back(&quot;levels/bluestone.wst&quot;);
++  scenarios.push_back(&quot;levels/forest.wst&quot;);
++  scenarios.push_back(&quot;levels/industrial.wst&quot;);
++  scenarios.push_back(&quot;levels/intro.wst&quot;);
++  scenarios.push_back(&quot;levels/newformat2.wst&quot;);
++  scenarios.push_back(&quot;levels/virtualreality.wst&quot;);
++  
++  for(std::vector&lt;std::string&gt;::iterator i = scenarios.begin(); i != scenarios.end(); ++i)
++    {
++      ButtonMenuItem* scenario_button = new ButtonMenuItem(menu,  *i);
++
++      slots.push_back(scenario_button-&gt;sig_click().connect&lt;MenuManager, std::string&gt;
++                      (this, &amp;MenuManager::menu_start_scenario, 
++                       std::string(*i)));
++
++      menu-&gt;add_item(scenario_button);
++    }
++
++  manager-&gt;get_root()-&gt;set_child(menu);
++
++  screen_manager.push_overlay(manager); 
++}
++
++void
++MenuManager::display_debug_menu()
++{
++  using namespace GUI;
++  GUIManager* manager = new GUIManager();
++
++  // Begin Main Menu
++  MenuComponent* menu = new MenuComponent(Rectf(Vector(400-300, 200), Sizef(600, 500)), true,
++                                          manager-&gt;get_root());
++
++  menu-&gt;set_font(Fonts::vera20);
++
++  Color amb = Sector::current()-&gt;get_ambient_light();
++
++  SliderMenuItem* r_ambient_light_item = new SliderMenuItem(menu,  &quot;Ambient Light (Red)&quot;, int(amb.r*100), 0, 100, 10);
++  slots.push_back(r_ambient_light_item-&gt;sig_change().connect(this, &amp;MenuManager::menu_ambient_light, 0));
++  menu-&gt;add_item(r_ambient_light_item);
++
++  SliderMenuItem* g_ambient_light_item = new SliderMenuItem(menu,  &quot;Ambient Light (Green)&quot;, int(amb.g*100), 0, 100, 10);
++  slots.push_back(g_ambient_light_item-&gt;sig_change().connect(this, &amp;MenuManager::menu_ambient_light, 1));
++  menu-&gt;add_item(g_ambient_light_item);
++
++  SliderMenuItem* b_ambient_light_item = new SliderMenuItem(menu,  &quot;Ambient Light (Blue)&quot;, int(amb.b*100), 0, 100, 10);
++  slots.push_back(b_ambient_light_item-&gt;sig_change().connect(this, &amp;MenuManager::menu_ambient_light, 2));
++  menu-&gt;add_item(b_ambient_light_item);
++
++  manager-&gt;get_root()-&gt;set_child(menu);
++
++  screen_manager.push_overlay(manager); 
++}
++
++// Callbacks
++
++void
++MenuManager::menu_start_game()
++{
++  screen_manager.set_screen(new GameSession(&quot;levels/newformat2.wst&quot;));
++  screen_manager.pop_overlay();
++}
++
++void
++MenuManager::menu_credits()
++{
++  console &lt;&lt; &quot;Credits clicked&quot; &lt;&lt; std::endl;
++}
++
++void
++MenuManager::menu_quit()
++{
++  //GameSession::current()-&gt;quit();
++  screen_manager.pop_overlay();
++  screen_manager.quit();
++}
++
++void
++MenuManager::menu_start_scenario(std::string scenario)
++{
++  std::cout &lt;&lt; &quot;Starting: &quot; &lt;&lt; scenario &lt;&lt; std::endl;
++  screen_manager.set_screen(new GameSession(scenario));
++  screen_manager.clear_overlay();
++ }
++
++void
++MenuManager::menu_show_fps(int i)
++{
++  config.set_bool(&quot;show-fps&quot;, i);
++}
++
++void
++MenuManager::menu_fullscreen(int i)
++{
++  config.set_bool(&quot;fullscreen&quot;, i);
++  Display::set_fullscreen(config.get_bool(&quot;fullscreen&quot;));
++}
++
++void
++MenuManager::menu_continue()
++{
++  screen_manager.pop_overlay();
++}
++
++void
++MenuManager::menu_exit()
++{
++  // FIXME: Make this return to the title screen
++  screen_manager.pop_overlay();
++  screen_manager.quit(); 
++}
++
++void
++MenuManager::menu_ambient_light(int i, int component)
++{
++  if (Sector::current())
++    {
++      Color amb = Sector::current()-&gt;get_ambient_light();
++
++      if (component == 0)
++        amb.r = i / 100.0f;
++      else if (component == 1)
++        amb.g = i / 100.0f;
++      else if (component == 2)
++        amb.b = i / 100.0f;
++
++      Sector::current()-&gt;set_ambient_light(amb);
++    }
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/menu_manager.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/menu_manager.hpp
+===================================================================
+--- trunk/windstille/src/menu_manager.hpp	2007-06-11 02:47:15 UTC (rev 1387)
++++ trunk/windstille/src/menu_manager.hpp	2007-06-11 13:49:41 UTC (rev 1388)
+@@ -0,0 +1,67 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_WINDSTILLE_MENU_MANAGER_HPP
++#define HEADER_WINDSTILLE_MENU_MANAGER_HPP
++
++#include &lt;vector&gt;
++#include &quot;signals/slot.hpp&quot;
++
++/** */
++class MenuManager
++{
++private:
++  std::vector&lt;Slot&gt; slots;
++
++public:
++  MenuManager();
++
++  void display_option_menu();
++  void display_debug_menu();
++  void display_main_menu();
++  void display_pause_menu();
++  void display_scenario_menu();
++
++  // Callbacks
++  void menu_start_game();
++  void menu_credits();
++  void menu_quit();
++  void menu_exit();
++  void menu_show_fps(int i);
++  void menu_fullscreen(int i);
++  void menu_continue();
++  void menu_ambient_light(int i, int component);
++  void menu_start_scenario(std::string scenario);
++
++private:
++  MenuManager (const MenuManager&amp;);
++  MenuManager&amp; operator= (const MenuManager&amp;);
++};
++
++extern MenuManager menu_manager;
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/menu_manager.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/windstille/src/title_screen.cpp
+===================================================================
+--- trunk/windstille/src/title_screen.cpp	2007-06-11 02:47:15 UTC (rev 1387)
++++ trunk/windstille/src/title_screen.cpp	2007-06-11 13:49:41 UTC (rev 1388)
+@@ -24,15 +24,7 @@
+ */
+ 
+ #include &lt;iostream&gt;
+-#include &quot;config.hpp&quot;
+-#include &quot;console.hpp&quot;
+-#include &quot;display/display.hpp&quot;
+-#include &quot;font/fonts.hpp&quot;
+-#include &quot;gui/gui_manager.hpp&quot;
+-#include &quot;gui/root_component.hpp&quot;
+-#include &quot;screen_manager.hpp&quot;
+-#include &quot;gui/menu_component.hpp&quot;
+-#include &quot;game_session.hpp&quot;
++#include &quot;menu_manager.hpp&quot;
+ #include &quot;title_screen.hpp&quot;
+ 
+ TitleScreen::TitleScreen()
+@@ -48,35 +40,7 @@
+ void
+ TitleScreen::on_start()
+ {
+-  using namespace GUI;
+-  GUIManager* manager = new GUIManager();
+-
+-  // Begin Main Menu
+-  MenuComponent* menu = new MenuComponent(Rectf(Vector(400, 250), Sizef(200, 500)), false,
+-                                          manager-&gt;get_root());
+-
+-  menu-&gt;set_font(Fonts::vera20);
+-
+-  ButtonMenuItem* select_scenario_button = new ButtonMenuItem(menu,  &quot;Select Scenario&quot;);
+-  slots.push_back(select_scenario_button-&gt;sig_click().connect(this, &amp;TitleScreen::menu_select_scenario));
+-  menu-&gt;add_item(select_scenario_button);
+-
+-  ButtonMenuItem* options_button = new ButtonMenuItem(menu,  &quot;Options&quot;);
+-  slots.push_back(options_button-&gt;sig_click().connect(this, &amp;TitleScreen::menu_options));
+-  menu-&gt;add_item(options_button);
+-
+-  ButtonMenuItem* credits_button = new ButtonMenuItem(menu,  &quot;Credits&quot;);
+-  slots.push_back(credits_button-&gt;sig_click().connect(this, &amp;TitleScreen::menu_credits));
+-  menu-&gt;add_item(credits_button);
+-
+-  ButtonMenuItem* quit_button = new ButtonMenuItem(menu,  &quot;Quit&quot;);
+-  slots.push_back(quit_button-&gt;sig_click().connect(this, &amp;TitleScreen::menu_quit));
+-  menu-&gt;add_item(quit_button);
+-  // End: Option Menu
+-
+-  manager-&gt;get_root()-&gt;set_child(menu);
+-
+-  screen_manager.push_overlay(manager);
++  menu_manager.display_main_menu();
+ }
+ 
+ void
+@@ -97,127 +61,4 @@
+   
+ }
+ 
+-void
+-TitleScreen::menu_start_game()
+-{
+-  screen_manager.set_screen(new GameSession(&quot;levels/newformat2.wst&quot;));
+-  screen_manager.pop_overlay();
+-}
+-
+-void
+-TitleScreen::menu_select_scenario()
+-{
+-  using namespace GUI;
+-  GUIManager* manager = new GUIManager();
+-
+-  MenuComponent* menu = new MenuComponent(Rectf(Vector(500-200, 250), Sizef(400, 500)), true,
+-                                          manager-&gt;get_root());
+-
+-  menu-&gt;set_font(Fonts::vera20);
+-
+-  std::vector&lt;std::string&gt; scenarios;
+-  scenarios.push_back(&quot;levels/apartment.wst&quot;);
+-  scenarios.push_back(&quot;levels/bluestone.wst&quot;);
+-  scenarios.push_back(&quot;levels/forest.wst&quot;);
+-  scenarios.push_back(&quot;levels/industrial.wst&quot;);
+-  scenarios.push_back(&quot;levels/intro.wst&quot;);
+-  scenarios.push_back(&quot;levels/virtualreality.wst&quot;);
+-  
+-  for(std::vector&lt;std::string&gt;::iterator i = scenarios.begin(); i != scenarios.end(); ++i)
+-    {
+-      ButtonMenuItem* scenario_button = new ButtonMenuItem(menu,  *i);
+-
+-      slots.push_back(scenario_button-&gt;sig_click().connect&lt;TitleScreen, std::string&gt;
+-                      (this, &amp;TitleScreen::menu_start_scenario, 
+-                       std::string(*i)));
+-
+-      menu-&gt;add_item(scenario_button);
+-    }
+-
+-  manager-&gt;get_root()-&gt;set_child(menu);
+-
+-  screen_manager.push_overlay(manager);
+-}
+-
+-void
+-TitleScreen::menu_options()
+-{
+-  using namespace GUI;
+-  GUIManager* manager = new GUIManager();
+-
+-  // Begin Main Menu
+-  MenuComponent* menu = new MenuComponent(Rectf(Vector(500-200, 250), Sizef(400, 500)), true,
+-                                          manager-&gt;get_root());
+-
+-  menu-&gt;set_font(Fonts::vera20);
+-
+-  SliderMenuItem* music_volume_item = new SliderMenuItem(menu,  &quot;Music Volume&quot;, 100, 0, 100, 10);
+-  menu-&gt;add_item(music_volume_item);
+-
+-  SliderMenuItem* sfx_volume_item   = new SliderMenuItem(menu,  &quot;SFX Volume&quot;,   100, 0, 100, 10);
+-  menu-&gt;add_item(sfx_volume_item);
+-
+-  SliderMenuItem* voice_volume_item = new SliderMenuItem(menu,  &quot;Voice Volume&quot;, 100, 0, 100, 10);
+-  menu-&gt;add_item(voice_volume_item);
+-
+-  EnumMenuItem* aspect_item = new EnumMenuItem(menu,  &quot;Aspect Ratio&quot;, 0);
+-  aspect_item-&gt;add_pair(0, &quot;4:3&quot;);
+-  aspect_item-&gt;add_pair(1, &quot;5:4&quot;);
+-  aspect_item-&gt;add_pair(2, &quot;16:9&quot;);
+-  aspect_item-&gt;add_pair(3, &quot;16:10&quot;);
+-  aspect_item-&gt;add_pair(4, &quot;letterbox&quot;);
+-  menu-&gt;add_item(aspect_item);
+-  
+-  EnumMenuItem* show_fps_item = new EnumMenuItem(menu,  &quot;Show FPS&quot;, config.get_bool(&quot;show-fps&quot;));
+-  show_fps_item-&gt;add_pair(1, &quot;on&quot;);
+-  show_fps_item-&gt;add_pair(0, &quot;off&quot;);
+-  menu-&gt;add_item(show_fps_item);
+-  slots.push_back(show_fps_item-&gt;sig_change().connect(this, &amp;TitleScreen::menu_show_fps));
+-
+-  EnumMenuItem* fullscreen_item = new EnumMenuItem(menu,  &quot;Fullscreen&quot;, config.get_bool(&quot;fullscreen&quot;));
+-  fullscreen_item-&gt;add_pair(1, &quot;on&quot;);
+-  fullscreen_item-&gt;add_pair(0, &quot;off&quot;);
+-  menu-&gt;add_item(fullscreen_item);
+-  slots.push_back(fullscreen_item-&gt;sig_change().connect(this, &amp;TitleScreen::menu_fullscreen));
+-
+-  manager-&gt;get_root()-&gt;set_child(menu);
+-
+-  screen_manager.push_overlay(manager);
+-}
+-
+-void
+-TitleScreen::menu_credits()
+-{
+-  console &lt;&lt; &quot;Credits clicked&quot; &lt;&lt; std::endl;
+-}
+-
+-void
+-TitleScreen::menu_quit()
+-{
+-  //GameSession::current()-&gt;quit();
+-  screen_manager.pop_overlay();
+-  screen_manager.quit();
+-}
+-
+-void
+-TitleScreen::menu_start_scenario(std::string scenario)
+-{
+-  std::cout &lt;&lt; &quot;Starting: &quot; &lt;&lt; scenario &lt;&lt; std::endl;
+-  screen_manager.set_screen(new GameSession(scenario));
+-  screen_manager.clear_overlay();
+- }
+-
+-void
+-TitleScreen::menu_show_fps(int i)
+-{
+-  config.set_bool(&quot;show-fps&quot;, i);
+-}
+-
+-void
+-TitleScreen::menu_fullscreen(int i)
+-{
+-  config.set_bool(&quot;fullscreen&quot;, i);
+-  Display::set_fullscreen(config.get_bool(&quot;fullscreen&quot;));
+-}
+-
+ /* EOF */
+
+Modified: trunk/windstille/src/title_screen.hpp
+===================================================================
+--- trunk/windstille/src/title_screen.hpp	2007-06-11 02:47:15 UTC (rev 1387)
++++ trunk/windstille/src/title_screen.hpp	2007-06-11 13:49:41 UTC (rev 1388)
+@@ -29,15 +29,10 @@
+ #include &quot;sprite2d/sprite.hpp&quot;
+ #include &quot;screen.hpp&quot;
+ 
+-#include &lt;vector&gt;
+-#include &quot;signals/slot.hpp&quot;
+-
+ /** */
+ class TitleScreen : public Screen
+ {
+ private:
+-  std::vector&lt;Slot&gt; slots;
+-
+   Sprite background;
+ 
+ public:
+@@ -51,16 +46,6 @@
+ 
+   void handle_event(const SDL_Event&amp; );
+ 
+-  // Callbacks
+-  void menu_start_game();
+-  void menu_select_scenario();
+-  void menu_options();
+-  void menu_credits();
+-  void menu_quit();
+-  void menu_show_fps(int i);
+-  void menu_fullscreen(int i);
+-
+-  void menu_start_scenario(std::string scenario);
+ private:
+   TitleScreen (const TitleScreen&amp;);
+   TitleScreen&amp; operator= (const TitleScreen&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001040.html">[Windstille-commit] r1387 - trunk/windstille/src
+</A></li>
+	<LI>Next message: <A HREF="001042.html">[Windstille-commit] r1389 - in trunk/windstille/src: . gui
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1041">[ date ]</a>
+              <a href="thread.html#1041">[ thread ]</a>
+              <a href="subject.html#1041">[ subject ]</a>
+              <a href="author.html#1041">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,219 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r808 - trunk/src/collision
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r808%20-%20trunk/src/collision&In-Reply-To=%3C200507271549.j6RFn8bQ006194%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000460.html">
+   <LINK REL="Next"  HREF="000462.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r808 - trunk/src/collision</H1>
+    <B>David Kamphausen at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r808%20-%20trunk/src/collision&In-Reply-To=%3C200507271549.j6RFn8bQ006194%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r808 - trunk/src/collision">davidkamphausen at berlios.de
+       </A><BR>
+    <I>Wed Jul 27 17:49:08 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000460.html">[Windstille-commit] r807 - in trunk: data/levels src/particles
+</A></li>
+        <LI>Next message: <A HREF="000462.html">[Windstille-commit] r809 - trunk/src/badguy
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#461">[ date ]</a>
+              <a href="thread.html#461">[ thread ]</a>
+              <a href="subject.html#461">[ subject ]</a>
+              <a href="author.html#461">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: davidkamphausen
+Date: 2005-07-27 17:49:00 +0200 (Wed, 27 Jul 2005)
+New Revision: 808
+
+Modified:
+   trunk/src/collision/collision_engine.cpp
+   trunk/src/collision/collision_engine.hpp
+Log:
+* added unstucking for TileMap/Primitive
+
+
+Modified: trunk/src/collision/collision_engine.cpp
+===================================================================
+--- trunk/src/collision/collision_engine.cpp	2005-07-27 14:20:26 UTC (rev 807)
++++ trunk/src/collision/collision_engine.cpp	2005-07-27 15:49:00 UTC (rev 808)
+@@ -24,6 +24,8 @@
+ #include &quot;globals.hpp&quot;
+ #include &quot;tile_map.hpp&quot;
+ 
++std::vector&lt;Rectf&gt; tilemap_collision_list(TileMap *tilemap, const Rectf &amp;r);
++
+ /***********************************************************************
+  * Collision
+  ***********************************************************************/
+@@ -60,11 +62,27 @@
+ void
+ CollisionEngine::unstuck(CollisionObject&amp; a, CollisionObject&amp; b, float delta)
+ {
++  if (a.object_type == CollisionObject::RECTANGLE &amp;&amp; b.object_type == CollisionObject::RECTANGLE)
++    {
++      unstuck_rect_rect (a, b, delta);
++    }
++  else
++    {
++      if (a.object_type == CollisionObject::RECTANGLE)
++	unstuck_tilemap (b, a, delta);
++      else
++	unstuck_tilemap (a, b, delta);
++
++    }
++}
++
++Vector unstuck_direction(const Rectf &amp;a, const Rectf &amp;b, float delta, float unstuck_velocity)
++{
+   // The distance A needs to unstuck from B in the given direction
+-  float left   = fabsf(a.get_pos().x + a.primitive.get_width() - b.get_pos().x);
+-  float right  = fabsf(b.get_pos().x + b.primitive.get_width() - a.get_pos().x);
+-  float top    = fabsf(a.get_pos().y + a.primitive.get_height() - b.get_pos().y);
+-  float bottom = fabsf(b.get_pos().y + b.primitive.get_height() - a.get_pos().y);
++  float left   = fabsf(a.right - b.left);
++  float right  = fabsf(b.right - a.left);
++  float top    = fabsf(a.bottom - b.top);
++  float bottom = fabsf(b.bottom - a.top);
+ 
+   float grace =  0.05f;
+ 
+@@ -92,7 +110,55 @@
+     {
+       dir = Vector( 0, -std::min(bottom/2 + grace, add));
+     }
++  return dir;
++}
+ 
++void
++CollisionEngine::unstuck_tilemap(CollisionObject&amp; a, CollisionObject&amp; b, float delta)
++{
++  Rectf rb = b.primitive;
++
++  rb.left   += b.get_pos().x;
++  rb.right  += b.get_pos().x;
++  rb.top    += b.get_pos().y;
++  rb.bottom += b.get_pos().y;
++
++  // assume, that only one tile is penetrated
++  std::vector&lt;Rectf&gt; rect_list= tilemap_collision_list (a.tilemap, rb);
++  
++  assert (b.object_type == CollisionObject::RECTANGLE);
++  assert (a.object_type == CollisionObject::TILEMAP);
++	
++  if (rect_list.size() == 0)
++    return;
++  assert (rect_list.size()&gt;=1);
++
++  Vector dir = unstuck_direction (rect_list[0], rb, delta, unstuck_velocity);
++  
++  assert (b.unstuck_movable());
++  b.pos += dir;
++
++}
++
++void
++CollisionEngine::unstuck_rect_rect(CollisionObject&amp; a, CollisionObject&amp; b, float delta)
++{
++  Rectf ra = a.primitive;
++
++  ra.left   += a.get_pos().x;
++  ra.right  += a.get_pos().x;
++  ra.top    += a.get_pos().y;
++  ra.bottom += a.get_pos().y;
++
++  Rectf rb = b.primitive;
++
++  rb.left   += b.get_pos().x;
++  rb.right  += b.get_pos().x;
++  rb.top    += b.get_pos().y;
++  rb.bottom += b.get_pos().y;
++
++  Vector dir = unstuck_direction (ra, rb, delta, unstuck_velocity);
++
+   if (a.unstuck_movable())
+     a.pos -= dir;
+       
+@@ -311,6 +377,29 @@
+   return false;
+ }
+ 
++std::vector&lt;Rectf&gt; tilemap_collision_list(TileMap *tilemap, const Rectf &amp;r)
++{
++  std::vector&lt;Rectf&gt; rect_list;
++  int minx, maxx;
++  int miny, maxy;
++  int x, y;
++
++  minx = (int)r.left   / TILE_SIZE;
++  maxx = (int)r.right  / TILE_SIZE;
++  miny = (int)r.top    / TILE_SIZE;
++  maxy = (int)r.bottom / TILE_SIZE;
++
++  for (y = miny; y &lt;= maxy; ++y)
++    for (x = minx; x &lt;= maxx; ++x)
++      {
++	if(tilemap-&gt;is_ground (x * TILE_SIZE, y * TILE_SIZE ))
++	  {
++	    rect_list.push_back (Rectf (x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE));
++	  }
++      }
++  return rect_list;
++}
++
+ #define c_sign(x) ((x)&lt;0?-1:((x)&gt;0?1:0))
+ 
+ CollisionData
+
+Modified: trunk/src/collision/collision_engine.hpp
+===================================================================
+--- trunk/src/collision/collision_engine.hpp	2005-07-27 14:20:26 UTC (rev 807)
++++ trunk/src/collision/collision_engine.hpp	2005-07-27 15:49:00 UTC (rev 808)
+@@ -50,6 +50,9 @@
+                         const Vector&amp; b1_v, const Vector&amp; b2_v,
+                         float delta);
+   CollisionData collide_tilemap(CollisionObject&amp; a, CollisionObject&amp; b, float delta);
++
++  void unstuck_tilemap(CollisionObject&amp; a, CollisionObject&amp; b, float delta);
++  void unstuck_rect_rect(CollisionObject&amp; a, CollisionObject&amp; b, float delta);
+ };
+ 
+ #endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000460.html">[Windstille-commit] r807 - in trunk: data/levels src/particles
+</A></li>
+	<LI>Next message: <A HREF="000462.html">[Windstille-commit] r809 - trunk/src/badguy
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#461">[ date ]</a>
+              <a href="thread.html#461">[ thread ]</a>
+              <a href="subject.html#461">[ subject ]</a>
+              <a href="author.html#461">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

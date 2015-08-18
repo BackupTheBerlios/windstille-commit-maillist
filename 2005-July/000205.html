@@ -1,0 +1,614 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r551 - in trunk: contrib data/3dsprites docs src src/sprite3d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r551%20-%20in%20trunk%3A%20contrib%20data/3dsprites%20docs%20src%20src/sprite3d&In-Reply-To=%3C200507052355.j65Ntm10021009%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000204.html">
+   <LINK REL="Next"  HREF="000206.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r551 - in trunk: contrib data/3dsprites docs src src/sprite3d</H1>
+    <B>Matthias Braun at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r551%20-%20in%20trunk%3A%20contrib%20data/3dsprites%20docs%20src%20src/sprite3d&In-Reply-To=%3C200507052355.j65Ntm10021009%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r551 - in trunk: contrib data/3dsprites docs src src/sprite3d">matzebraun at berlios.de
+       </A><BR>
+    <I>Wed Jul  6 01:55:48 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000204.html">[Windstille-commit] r550 - in trunk: contrib docs src src/sprite3d
+</A></li>
+        <LI>Next message: <A HREF="000206.html">[Windstille-commit] r552 - trunk/src/sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#205">[ date ]</a>
+              <a href="thread.html#205">[ thread ]</a>
+              <a href="subject.html#205">[ subject ]</a>
+              <a href="author.html#205">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: matzebraun
+Date: 2005-07-06 01:55:34 +0200 (Wed, 06 Jul 2005)
+New Revision: 551
+
+Modified:
+   trunk/contrib/windstille_export.py
+   trunk/data/3dsprites/heroken.wsprite
+   trunk/docs/wsprite_fileformat.txt
+   trunk/src/player.cpp
+   trunk/src/sprite3d/sprite3d.cpp
+   trunk/src/sprite3d/sprite3d.hpp
+   trunk/src/sprite3d/sprite3d_data.cpp
+   trunk/src/sprite3d/sprite3d_data.hpp
+   trunk/src/test_object.cpp
+Log:
+- New API functionality to allow smooth transitions of animations and making use
+of markers
+- wsprite file has now a version
+
+
+
+Modified: trunk/contrib/windstille_export.py
+===================================================================
+--- trunk/contrib/windstille_export.py	2005-07-05 20:21:37 UTC (rev 550)
++++ trunk/contrib/windstille_export.py	2005-07-05 23:55:34 UTC (rev 551)
+@@ -41,6 +41,9 @@
+ DEFAULT_SAMPLERATE = 5
+ # ZOOM, is multiplied with all vertex coordinates
+ ZOOM = 32.0
++DEFAULT_SPEED = 5.0
++# DO NOT change this
++FORMAT_VERSION = 1
+ 
+ # config entry (first_frame, last_frame, speed, samplerate, markers[])
+ #  a marker is (name, frame)
+@@ -84,7 +87,7 @@
+       speed = expect_float()
+     else:
+       lex.push_token(token)
+-      speed = 1.0
++      speed = DEFAULT_SPEED
+ 
+     token = lex.get_token()
+     if token == &quot;samplerate&quot;:
+@@ -164,7 +167,7 @@
+     actions.append(action[1])
+ 
+   file = open(filename, &quot;wb&quot;)
+-  file.write(struct.pack(&quot;=4sHH&quot;, &quot;W3DS&quot;, len(meshes), len(actions)))
++  file.write(struct.pack(&quot;=4sHHH&quot;, &quot;W3DS&quot;, FORMAT_VERSION, len(meshes), len(actions)))
+   objvertmaps = {}
+ 
+   # Mesh Headers + Data
+@@ -249,7 +252,7 @@
+             time = p.getPoints() [0]
+             if time &gt; last_frame:
+               last_frame = int(time)
+-      action_speed = 1.0
++      action_speed = DEFAULT_SPEED
+       samplerate = DEFAULT_SAMPLERATE
+       markers = []
+ 
+
+Modified: trunk/data/3dsprites/heroken.wsprite
+===================================================================
+(Binary files differ)
+
+Modified: trunk/docs/wsprite_fileformat.txt
+===================================================================
+--- trunk/docs/wsprite_fileformat.txt	2005-07-05 20:21:37 UTC (rev 550)
++++ trunk/docs/wsprite_fileformat.txt	2005-07-05 23:55:34 UTC (rev 551)
+@@ -1,5 +1,6 @@
+ Header
+ char magic[4] (= W3DS)
++uint16_t format_version      (= 1 at the moment)
+ uint16_t mesh_count
+ uint16_t action_count
+ 
+
+Modified: trunk/src/player.cpp
+===================================================================
+--- trunk/src/player.cpp	2005-07-05 20:21:37 UTC (rev 550)
++++ trunk/src/player.cpp	2005-07-05 23:55:34 UTC (rev 551)
+@@ -62,7 +62,7 @@
+ {
+   gc.light().draw(light, pos.x, pos.y, 0);
+   
+-  sprite-&gt;set_vflip(direction == EAST);
++  sprite-&gt;set_rot(direction == EAST);
+ 
+ #if 0
+   if (hit_count &gt; 0)
+@@ -193,6 +193,8 @@
+             }
+         }
+     }
++
++  sprite-&gt;update(delta);
+ }
+ 
+ void 
+
+Modified: trunk/src/sprite3d/sprite3d.cpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d.cpp	2005-07-05 20:21:37 UTC (rev 550)
++++ trunk/src/sprite3d/sprite3d.cpp	2005-07-05 23:55:34 UTC (rev 551)
+@@ -34,11 +34,13 @@
+ #include &quot;timer.hpp&quot;
+ 
+ Sprite3D::Sprite3D(const Sprite3DData* data)
+-  : data(data), vflip(false)
++  : data(data), rot(false), next_action(0), next_rot(0), actions_switched(false)
+ {
+   current_action = &amp;data-&gt;actions[0];
+-  time_delta = 0;
++  last_frame = current_action-&gt;frame_count - 1;
++  animation_time = 0;
+   speed = 1.0;
++  update(0);
+ }
+ 
+ Sprite3D::~Sprite3D()
+@@ -48,21 +50,9 @@
+ void
+ Sprite3D::set_action(const std::string&amp; actionname)
+ {
+-  // TODO: make this a little smarter so that the action change is delayed until
+-  // the next frame and then the current action blends with the next action
+-  Action* action = 0;
+-  for(uint16_t a = 0; a &lt; data-&gt;action_count; ++a) {
+-    if(data-&gt;actions[a].name == actionname)
+-      action = &amp;data-&gt;actions[a];
+-  }
+-  if(action == 0) {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;No action with name '&quot; &lt;&lt; action &lt;&lt; &quot;' found&quot;;
+-    throw std::runtime_error(msg.str());
+-  }
+-
+-  current_action = action;
+-  time_delta = game_time;
++  current_action = &amp; data-&gt;get_action(actionname);
++  animation_time = 0;
++  last_frame = current_action-&gt;frame_count - 1;
+ }
+ 
+ const std::string&amp;
+@@ -72,6 +62,42 @@
+ }
+ 
+ void
++Sprite3D::set_next_action(const std::string&amp; name, bool next_rot)
++{
++  next_action = &amp; data-&gt;get_action(name);
++  this-&gt;next_rot = next_rot;
++  actions_switched = false;
++}
++
++void
++Sprite3D::abort_at_marker(const std::string&amp; name)
++{
++  const Marker&amp; marker = data-&gt;get_marker(current_action, name);
++  last_frame = marker.frame;
++}
++
++bool
++Sprite3D::after_marker(const std::string&amp; name) const
++{
++  const Marker&amp; marker = data-&gt;get_marker(current_action, name);
++  
++  int frame = static_cast&lt;int&gt;(animation_time) % current_action-&gt;frame_count;
++  
++  return frame &gt;= marker.frame;
++}
++
++bool
++Sprite3D::switched_actions()
++{
++  if(actions_switched) {
++    actions_switched = false;
++    return true;
++  }
++
++  return false;
++}
++
++void
+ Sprite3D::set_speed(float speed)
+ {
+   this-&gt;speed = speed;
+@@ -84,55 +110,76 @@
+ }
+ 
+ void
+-Sprite3D::set_vflip(bool vflip)
++Sprite3D::set_rot(bool rot)
+ {
+-  this-&gt;vflip = vflip;
++  this-&gt;rot = rot;
+ }
+ 
+ class Sprite3DDrawingRequest : public DrawingRequest
+ {
+ private:
+   Sprite3D* sprite;
+-  const ActionFrame* frame1;
+-  const ActionFrame* frame2;
+-  float time;
+ 
+ public:
+-  Sprite3DDrawingRequest(Sprite3D* sprite, const ActionFrame* frame1,
+-                         const ActionFrame* frame2, float time,
+-                         const Vector&amp; pos, const Matrix&amp; modelview)
+-      : DrawingRequest(pos, modelview), sprite(sprite), frame1(frame1),
+-        frame2(frame2), time(time)
++  Sprite3DDrawingRequest(Sprite3D* sprite, const Vector&amp; pos,
++                         const Matrix&amp; modelview)
++      : DrawingRequest(pos, modelview), sprite(sprite)
+   {
+   }
+ 
+   void draw(CL_GraphicContext* gc)
+   {
+-    sprite-&gt;blend_frames(gc, frame1, frame2, time, pos, modelview);
++    sprite-&gt;draw(gc, pos, modelview);
+   }
+ };
+ 
+ void
+-Sprite3D::draw(SceneContext&amp; sc, const Vector&amp; pos)
++Sprite3D::update(float elapsed_time)
+ {
+-  float gtime = (game_time - time_delta) * speed * current_action-&gt;speed;
+-  int frame = static_cast&lt;int&gt;(gtime) % current_action-&gt;frame_count;
+-  int nextframe = (frame+1) % current_action-&gt;frame_count;  
+-  float time = fmodf(gtime, 1.0);
++  float animation_time_delta = elapsed_time * current_action-&gt;speed * speed;
++ 
++  int frame = static_cast&lt;int&gt;(animation_time) % current_action-&gt;frame_count;
++  blend_time = fmodf(animation_time, 1.0);
++   
++  frame1 = &amp;current_action-&gt;frames[frame];
++  
++  // on last frame?
++  if(frame &gt;= last_frame) {
++    if(next_action != 0) {
++      frame2 = &amp;next_action-&gt;frames[0];
+ 
+-  const ActionFrame* frame1 = &amp;current_action-&gt;frames[frame];
+-  const ActionFrame* frame2 = &amp;current_action-&gt;frames[nextframe];
+-  sc.color().draw(new Sprite3DDrawingRequest(this, frame1, frame2, time, pos,
+-                                             sc.color().get_modelview()));
++      // time to switch actions?
++      if(blend_time + animation_time_delta &gt;= 1.0) {
++        current_action = next_action;
++        last_frame = current_action-&gt;frame_count-1;
++        animation_time = blend_time + animation_time_delta - 1.0;
++        next_action = 0;
++        actions_switched = true;
++        // this will rotate 1 frame too early...
++        rot = next_rot;
++      }
++    } else {
++      frame2 = &amp;current_action-&gt;frames[0];
++    }
++  } else {
++    frame2 = &amp;current_action-&gt;frames[frame+1];
++  }
++
++  animation_time += animation_time_delta;
+ }
+ 
++
+ void
+-Sprite3D::blend_frames(CL_GraphicContext* gc, const ActionFrame* frame1,
+-                       const ActionFrame* frame2, float time,
+-                       const Vector&amp; pos, const Matrix&amp; modelview)
++Sprite3D::draw(SceneContext&amp; sc, const Vector&amp; pos)
+ {
+-  assert_gl(&quot;before render_frame&quot;);
+- 
++  sc.color().draw(
++    new Sprite3DDrawingRequest(this, pos, sc.color().get_modelview()));
++}
++
++void
++Sprite3D::draw(CL_GraphicContext* gc, const Vector&amp; pos,
++               const Matrix&amp; modelview)
++{
+   CL_OpenGLState state(gc);
+   state.set_active();
+   state.setup_2d();
+@@ -140,8 +187,9 @@
+   glPushMatrix();
+   glMultMatrixd(modelview);
+   glTranslatef(pos.x, pos.y, pos.z);
+-  if(vflip)
+-    glScalef(-1.0, 1.0, 1.0);  
++  if(rot) {
++    glRotatef(180, 0, 1.0, 0);
++  }                           
+ 
+   glClear(GL_DEPTH_BUFFER_BIT);
+   glEnable(GL_DEPTH_TEST);
+@@ -152,27 +200,29 @@
+ 
+   assert_gl(&quot;gl init before sprite&quot;);
+   
+-  float t_1 = 1.0 - time;
++  float t_1 = 1.0 - blend_time;
+   for(uint16_t m = 0; m &lt; data-&gt;mesh_count; ++m) {
+     const Mesh&amp; mesh = data-&gt;meshs[m];
+     const MeshVertices&amp; vertices1 = frame1-&gt;meshs[m];
+     const MeshVertices&amp; vertices2 = frame2-&gt;meshs[m];
+     
++    // blend between frame1 + frame2
+     float* verts = new float[mesh.vertex_count * 3];
+-
+     for(uint16_t v = 0; v &lt; mesh.vertex_count*3; ++v) {
+-      verts[v] = vertices1.vertices[v] * t_1 + vertices2.vertices[v] * time;
++      verts[v] 
++        = vertices1.vertices[v] * t_1 + vertices2.vertices[v] * blend_time;
+     }
+-    
++   
++    // draw mesh
+     CL_OpenGLSurface&amp; texture = const_cast&lt;CL_OpenGLSurface&amp;&gt; (mesh.texture);
+     texture.bind();
+ 
+     glVertexPointer(3, GL_FLOAT, 0, verts);
+     glNormalPointer(GL_FLOAT, 0, mesh.normals);
+     glTexCoordPointer(2, GL_FLOAT, 0, mesh.tex_coords);
+-
+     glDrawElements(GL_TRIANGLES, mesh.triangle_count * 3, GL_UNSIGNED_SHORT,
+         mesh.vertex_indices);
++    
+     delete[] verts;
+   }
+ 
+
+Modified: trunk/src/sprite3d/sprite3d.hpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d.hpp	2005-07-05 20:21:37 UTC (rev 550)
++++ trunk/src/sprite3d/sprite3d.hpp	2005-07-05 23:55:34 UTC (rev 551)
+@@ -39,15 +39,55 @@
+ public:
+   ~Sprite3D();
+ 
++  /**
++   * You should call this every frame
++   */
++  void update(float elapsed_time);
+   void draw(SceneContext&amp; sc, const Vector&amp; pos);
+   
+-  void set_action(const std::string&amp; name);  
++  /**
++   * Instantly changes the action to the specified one
++   */
++  void set_action(const std::string&amp; name);
++  
++  /**
++   * Return the name of the currently active action
++   */
+   const std::string&amp; get_action() const;
+ 
++  /**
++   * Set the next action and vflip value to be played after the current action
++   * has finished (or reached the point to be defined by abort_at_marker)
++   */
++  void set_next_action(const std::string&amp; name, bool rot);
++
++  /**
++   * Abort current action after a certain marker has been reached.
++   * (This only works if set_next_action has been used before)
++   */
++  void abort_at_marker(const std::string&amp; marker);
++
++  /**
++   * returns true if the current frame of the action is after a certain marker
++   */
++  bool after_marker(const std::string&amp; marker) const;
++
++  /**
++   * returns true exactly once after actions have been switched after a
++   * set_next_action call (another call to set_next_action resets this flag)
++   */
++  bool switched_actions();
++
++  /**
++   * The speed of the action is multiplied with this factor
++   */
+   void set_speed(float speed);
+   float get_speed() const;
+ 
+-  void set_vflip(bool flip_vertically = true);
++  /**
++   * Rotate (or not rotate) the model 180 degree
++   */
++  void set_rot(bool flip_vertically = true);
+ 
+ private:
+   friend class Sprite3DDrawingRequest;
+@@ -57,20 +97,22 @@
+   Sprite3D (const Sprite3D&amp;);
+   Sprite3D&amp; operator= (const Sprite3D&amp;);
+ 
+-  /**
+-   * blends 2 frames and renders,
+-   * blending formula: time*frame1 + (1.0-time)*frame2
+-   */
+-  void blend_frames(CL_GraphicContext* gc, const ActionFrame* frame1,
+-                    const ActionFrame* frame2, float time,
+-                    const Vector&amp; pos, const Matrix&amp; modelview);
++  void draw(CL_GraphicContext* gc, const Vector&amp; pos, const Matrix&amp; modelview);
+ 
+   const Sprite3DData* data;
+   const Action* current_action;
+-  float time_delta;
++  float animation_time;
+   float speed; 
++  bool rot;
++
++  const ActionFrame* frame1;
++  const ActionFrame* frame2;
++  float blend_time;
++  
+   const Action* next_action;
+-  bool vflip;
++  bool next_rot;
++  int last_frame;
++  bool actions_switched;
+ };
+ 
+ #endif
+
+Modified: trunk/src/sprite3d/sprite3d_data.cpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d_data.cpp	2005-07-05 20:21:37 UTC (rev 550)
++++ trunk/src/sprite3d/sprite3d_data.cpp	2005-07-05 23:55:34 UTC (rev 551)
+@@ -7,6 +7,8 @@
+ #include &quot;util.hpp&quot;
+ #include &quot;globals.hpp&quot;
+ 
++static const int FORMAT_VERSION = 1;
++
+ static inline float read_float(PHYSFS_file* file)
+ {
+     uint32_t int_result;
+@@ -56,11 +58,14 @@
+   }
+ 
+   try {
+-    char magic[4];
+-    if(PHYSFS_read(file, magic, sizeof(magic), 1) != 1)
+-      throw std::runtime_error(&quot;Couldn't read file magic&quot;);
+-    if(strncmp(magic, &quot;W3DS&quot;, 4) != 0)
++    std::string magic = read_string(file, 4);
++    if(magic != &quot;W3DS&quot;)
+       throw std::runtime_error(&quot;Not a windstille 3d sprite file&quot;);
++    uint16_t format_version = read_uint16_t(file);
++    if(format_version &gt; FORMAT_VERSION)
++      throw std::runtime_error(&quot;sprite file format too new&quot;);
++    if(format_version &lt; FORMAT_VERSION)
++      throw std::runtime_error(&quot;sprite file format too old&quot;);
+ 
+     mesh_count = read_uint16_t(file);
+     if(mesh_count == 0)
+@@ -191,3 +196,28 @@
+   action_count = 0;
+ }
+ 
++const Action&amp;
++Sprite3DData::get_action(const std::string&amp; name) const
++{
++  for(uint16_t a = 0; a &lt; action_count; ++a) {
++    if(actions[a].name == name)
++      return actions[a];
++  }
++  std::ostringstream msg;
++  msg &lt;&lt; &quot;No action with name '&quot; &lt;&lt; name &lt;&lt; &quot;' defined&quot;;
++  throw std::runtime_error(msg.str());
++}
++
++const Marker&amp;
++Sprite3DData::get_marker(const Action* action, const std::string&amp; name) const
++{
++  for(uint16_t m = 0; m &lt; action-&gt;marker_count; ++m) {
++    if(action-&gt;markers[m].name == name)
++      return action-&gt;markers[m];
++  }
++  std::ostringstream msg;
++  msg &lt;&lt; &quot;No marker with name '&quot; &lt;&lt; name &lt;&lt; &quot;' defined in action '&quot;
++      &lt;&lt; action-&gt;name &lt;&lt; &quot;'&quot;;
++  throw std::runtime_error(msg.str());
++}
++
+
+Modified: trunk/src/sprite3d/sprite3d_data.hpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d_data.hpp	2005-07-05 20:21:37 UTC (rev 550)
++++ trunk/src/sprite3d/sprite3d_data.hpp	2005-07-05 23:55:34 UTC (rev 551)
+@@ -1,7 +1,6 @@
+ //  $Id$
+ // 
+-//  Pingus - A free Lemmings clone
+-//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//  Copyright (C) 2005 Matthias Braun &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">matze at braunis.de</A>&gt;
+ //
+ //  This program is free software; you can redistribute it and/or
+ //  modify it under the terms of the GNU General Public License
+@@ -26,6 +25,7 @@
+ struct MeshVertices;
+ struct ActionFrame;
+ struct Action;
++struct Marker;
+ 
+ /**
+  * This class holds the data of a .wsprite file.
+@@ -36,6 +36,9 @@
+   Sprite3DData(const std::string&amp; filename);
+   ~Sprite3DData();
+ 
++  const Action&amp; get_action(const std::string&amp; name) const;
++  const Marker&amp; get_marker(const Action* action, const std::string&amp; name) const;
++
+   uint16_t mesh_count;
+   Mesh* meshs;            
+   uint16_t action_count;
+
+Modified: trunk/src/test_object.cpp
+===================================================================
+--- trunk/src/test_object.cpp	2005-07-05 20:21:37 UTC (rev 550)
++++ trunk/src/test_object.cpp	2005-07-05 23:55:34 UTC (rev 551)
+@@ -20,8 +20,9 @@
+ }
+ 
+ void
+-TestObject::update(float )
++TestObject::update(float elapsed_time)
+ {
++  sprite-&gt;update(elapsed_time);
+ }
+ 
+ void
+@@ -57,6 +58,6 @@
+ void
+ TestObject::set_vflip(bool vflip)
+ {
+-  sprite-&gt;set_vflip(vflip);
++  sprite-&gt;set_rot(vflip);
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000204.html">[Windstille-commit] r550 - in trunk: contrib docs src src/sprite3d
+</A></li>
+	<LI>Next message: <A HREF="000206.html">[Windstille-commit] r552 - trunk/src/sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#205">[ date ]</a>
+              <a href="thread.html#205">[ thread ]</a>
+              <a href="subject.html#205">[ subject ]</a>
+              <a href="author.html#205">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,1686 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r445 - in trunk: . src src/sound
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r445%20-%20in%20trunk%3A%20.%20src%20src/sound&In-Reply-To=%3C200506270004.j5R04JKi026194%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000101.html">
+   <LINK REL="Next"  HREF="000103.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r445 - in trunk: . src src/sound</H1>
+    <B>Matthias Braun at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r445%20-%20in%20trunk%3A%20.%20src%20src/sound&In-Reply-To=%3C200506270004.j5R04JKi026194%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r445 - in trunk: . src src/sound">matzebraun at sheep.berlios.de
+       </A><BR>
+    <I>Mon Jun 27 02:04:19 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000101.html">[Windstille-commit] r444 - in trunk: data/controller src src/input
+</A></li>
+        <LI>Next message: <A HREF="000103.html">[Windstille-commit] r446 - in trunk: . mk/jam src src/lisp src/sound src/tinygettext
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#102">[ date ]</a>
+              <a href="thread.html#102">[ thread ]</a>
+              <a href="subject.html#102">[ subject ]</a>
+              <a href="author.html#102">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: matzebraun
+Date: 2005-06-27 02:03:58 +0200 (Mon, 27 Jun 2005)
+New Revision: 445
+
+Added:
+   trunk/src/sound/
+   trunk/src/sound/semantic.cache
+   trunk/src/sound/sound_file.cpp
+   trunk/src/sound/sound_file.hpp
+   trunk/src/sound/sound_manager.cpp
+   trunk/src/sound/sound_manager.hpp
+   trunk/src/sound/sound_source.cpp
+   trunk/src/sound/sound_source.hpp
+   trunk/src/sound/stream_sound_source.cpp
+   trunk/src/sound/stream_sound_source.hpp
+Removed:
+   trunk/src/music_manager.cxx
+   trunk/src/music_manager.hxx
+Modified:
+   trunk/configure.ac
+   trunk/src/Jamfile
+   trunk/src/game_session.cxx
+   trunk/src/screen.cxx
+   trunk/src/windstille_bonus.cxx
+   trunk/src/windstille_main.cxx
+   trunk/src/windstille_main.hxx
+   trunk/src/windstille_menu.cxx
+   trunk/src/windstille_menu.hxx
+Log:
+use OpenAL sound renderer
+
+Modified: trunk/configure.ac
+===================================================================
+--- trunk/configure.ac	2005-06-26 22:49:00 UTC (rev 444)
++++ trunk/configure.ac	2005-06-27 00:03:58 UTC (rev 445)
+@@ -92,6 +92,14 @@
+ 
+ PKG_CHECK_MODULES([CLANLIB], [clanApp-0.7 clanVorbis-0.7 clanCore-0.7 clanDisplay-0.7 clanGL-0.7 clanSignals-0.7 clanGUI-0.7 clanSound-0.7])
+ 
++NP_FINDLIB([OPENAL], [OpenAL], [OpenAL],
++         NP_LANG_PROGRAM([#include &lt;AL/al.h&gt;],
++           [alcOpenDevice(0);]),
++         [], [-lopenal],
++         [],
++         [AC_MSG_ERROR([Please intall OpenAL])],
++         [], [])
++
+ NP_FINDLIB([PHYSFS], [physfs], [physfs &gt;= 1.0.0],
+         NP_LANG_PROGRAM([#include &lt;physfs.h&gt;
+ #if PHYSFS_VER_MAJOR &lt; 1
+
+Modified: trunk/src/Jamfile
+===================================================================
+--- trunk/src/Jamfile	2005-06-26 22:49:00 UTC (rev 444)
++++ trunk/src/Jamfile	2005-06-27 00:03:58 UTC (rev 445)
+@@ -53,6 +53,15 @@
+         physfs/physfs_stream.cpp
+         physfs/physfs_stream.h
+ 
++        sound/sound_file.cpp
++        sound/sound_file.hpp
++        sound/sound_manager.cpp
++        sound/sound_manager.hpp
++        sound/sound_source.cpp
++        sound/sound_source.hpp
++        sound/stream_sound_source.cpp
++        sound/stream_sound_source.hpp
++
+         tinygettext/tinygettext.cpp
+         tinygettext/tinygettext.h          
+ 
+@@ -101,8 +110,6 @@
+         laser_shoot.cxx
+         laser_shoot.hxx
+         math.hxx
+-        music_manager.cxx
+-        music_manager.hxx
+         particle_system.cxx
+         particle_system.hxx
+         player.cxx
+@@ -138,4 +145,4 @@
+         windstille_menu.cxx
+         windstille_menu.hxx
+ ;
+-ExternalLibs windstille : CLANLIB PHYSFS ;
++ExternalLibs windstille : CLANLIB PHYSFS OPENAL ;
+
+Modified: trunk/src/game_session.cxx
+===================================================================
+--- trunk/src/game_session.cxx	2005-06-26 22:49:00 UTC (rev 444)
++++ trunk/src/game_session.cxx	2005-06-27 00:03:58 UTC (rev 445)
+@@ -28,7 +28,6 @@
+ #include &quot;player.hxx&quot;
+ #include &quot;animation_obj.hxx&quot;
+ #include &quot;tile_map.hxx&quot;
+-#include &quot;music_manager.hxx&quot;
+ #include &quot;display.hxx&quot;
+ #include &quot;view.hxx&quot;
+ #include &quot;door.hxx&quot;
+@@ -39,6 +38,7 @@
+ #include &quot;display/scene_context.hxx&quot;
+ #include &quot;input/input_manager.hxx&quot;
+ #include &quot;particle_system.hxx&quot;
++#include &quot;sound/sound_manager.hpp&quot;
+ 
+ #include &quot;game_session.hxx&quot;
+ 
+@@ -220,7 +220,7 @@
+   slots.push_back(CL_Mouse::sig_key_down().connect(this, &amp;GameSession::on_mouse_down));
+   //CL_Display::get_current_window()-&gt;hide_cursor();
+ 
+-  MusicManager::current()-&gt;play(datadir + &quot;music/techdemo.ogg&quot;, true);
++  sound_manager-&gt;play_music(&quot;music/techdemo.ogg&quot;);
+   blink = 0.0f;
+ 
+   GameObject::set_world (world);
+@@ -301,8 +301,6 @@
+ void
+ GameSession::on_shutdown ()
+ {
+-  MusicManager::current()-&gt;stop();
+-
+   delete energiebar;
+   delete view;
+   delete dialog_manager;
+@@ -314,8 +312,8 @@
+   if (state != FADEOUT)
+     {
+       fadeout_value = 0;
++      sound_manager-&gt;stop_music();
+       state = FADEOUT;
+-      MusicManager::current()-&gt;stop();
+     }
+ }
+ 
+
+Deleted: trunk/src/music_manager.cxx
+===================================================================
+--- trunk/src/music_manager.cxx	2005-06-26 22:49:00 UTC (rev 444)
++++ trunk/src/music_manager.cxx	2005-06-27 00:03:58 UTC (rev 445)
+@@ -1,114 +0,0 @@
+-//  $Id: music_manager.cxx,v 1.3 2003/11/07 13:00:39 grumbel Exp $
+-//
+-//  Pingus - A free Lemmings clone
+-//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+-//
+-//  This program is free software; you can redistribute it and/or
+-//  modify it under the terms of the GNU General Public License
+-//  as published by the Free Software Foundation; either version 2
+-//  of the License, or (at your option) any later version.
+-//
+-//  This program is distributed in the hope that it will be useful,
+-//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-//  GNU General Public License for more details.
+-//
+-//  You should have received a copy of the GNU General Public License
+-//  along with this program; if not, write to the Free Software
+-//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+-
+-#include &lt;iostream&gt;
+-#include &lt;ClanLib/Core/System/system.h&gt;
+-#include &quot;globals.hxx&quot;
+-#include &quot;music_manager.hxx&quot;
+-
+-MusicManager* MusicManager::current_ = 0; 
+-
+-void
+-MusicManager::init()
+-{
+-  current_ = new MusicManager();
+-}
+-
+-void
+-MusicManager::deinit()
+-{
+-  delete current_;
+-}
+-
+-MusicManager::MusicManager()
+-{
+-  if (sound_disabled)
+-    return;
+-
+-  last_time = CL_System::get_time();
+-  state = STOPPED;
+-  waiting = false;
+-}
+-
+-void
+-MusicManager::play(const std::string&amp; filename, bool loop)
+-{
+-  if (sound_disabled)
+-    return;
+-
+-  if (state == STOPPED)
+-    {
+-      state = PLAYING;
+-      background_music = CL_SoundBuffer(filename);
+-      background_music_session = background_music.prepare();
+-      background_music_session.play();
+-      background_music_session.set_looping(loop);
+-      background_music_session.set_volume(1.0f);
+-      volume = 1.0f;
+-    }
+-  else
+-    {
+-      waiting = true;
+-      next_filename = filename;
+-      next_loop = loop;
+-      state = FADEOUT;
+-    }
+-}
+-
+-void
+-MusicManager::stop()
+-{
+-  if (sound_disabled)
+-    return;
+-
+-  if (state == PLAYING)
+-    state = FADEOUT;
+-}
+-
+-void
+-MusicManager::keep_alive()
+-{
+-  if (sound_disabled)
+-    return;
+-
+-  unsigned int cur_time = CL_System::get_time();
+-  float delta = (cur_time - last_time)/1000.0f;
+-  last_time = cur_time;
+-
+-  if (state == FADEOUT)
+-    {
+-      volume -= delta;
+-      if (volume &lt; 0)
+-        {
+-          background_music_session.stop();
+-          state = STOPPED;
+-          if (waiting)
+-            {
+-              waiting = false;
+-              play(next_filename, next_loop);
+-            }
+-        }
+-      else
+-        {
+-          background_music_session.set_volume(volume);
+-        }
+-    }
+-}
+-
+-/* EOF */
+
+Deleted: trunk/src/music_manager.hxx
+===================================================================
+--- trunk/src/music_manager.hxx	2005-06-26 22:49:00 UTC (rev 444)
++++ trunk/src/music_manager.hxx	2005-06-27 00:03:58 UTC (rev 445)
+@@ -1,60 +0,0 @@
+-//  $Id: music_manager.hxx,v 1.1 2003/11/06 09:24:17 grumbel Exp $
+-// 
+-//  Pingus - A free Lemmings clone
+-//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+-//
+-//  This program is free software; you can redistribute it and/or
+-//  modify it under the terms of the GNU General Public License
+-//  as published by the Free Software Foundation; either version 2
+-//  of the License, or (at your option) any later version.
+-//
+-//  This program is distributed in the hope that it will be useful,
+-//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-//  GNU General Public License for more details.
+-// 
+-//  You should have received a copy of the GNU General Public License
+-//  along with this program; if not, write to the Free Software
+-//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+-
+-#ifndef HEADER_MUSIC_MANAGER_HXX
+-#define HEADER_MUSIC_MANAGER_HXX
+-
+-#include &lt;ClanLib/Core/System/keep_alive.h&gt;
+-#include &lt;ClanLib/Sound/soundbuffer.h&gt;
+-#include &lt;ClanLib/Sound/soundbuffer_session.h&gt;
+-
+-/** */
+-class MusicManager
+-  : public CL_KeepAlive
+-{
+-private:
+-  unsigned int last_time;
+-
+-  CL_SoundBuffer background_music;
+-  CL_SoundBuffer_Session background_music_session;
+-
+-  enum State { FADEOUT, PLAYING, STOPPED } state;
+-  float volume;
+-
+-  bool waiting;
+-  std::string next_filename;
+-  bool next_loop;
+-
+-  static MusicManager* current_; 
+-public:
+-  static MusicManager* current() { return current_; }
+-  static void init();
+-  static void deinit();
+-
+-  MusicManager();
+-
+-  void play(const std::string&amp; filename, bool loop);
+-  void stop();
+-
+-  void keep_alive();
+-};
+-
+-#endif
+-
+-/* EOF */
+
+Modified: trunk/src/screen.cxx
+===================================================================
+--- trunk/src/screen.cxx	2005-06-26 22:49:00 UTC (rev 444)
++++ trunk/src/screen.cxx	2005-06-27 00:03:58 UTC (rev 445)
+@@ -23,6 +23,7 @@
+ #include &quot;delta_manager.hxx&quot;
+ #include &quot;screen.hxx&quot;
+ #include &quot;fonts.hxx&quot;
++#include &quot;sound/sound_manager.hpp&quot;
+ 
+ namespace Windstille {
+ 
+@@ -63,6 +64,7 @@
+       
+       // update(0.020f);
+ 
++      sound_manager-&gt;update();
+       CL_System::keep_alive ();
+       CL_System::sleep (1);
+     }
+@@ -90,7 +92,7 @@
+   char output[20];
+   sprintf(output, &quot;FPS: %d&quot;, fps_save);
+   
+-   Fonts::copyright.set_alpha(1.0f);
++  Fonts::copyright.set_alpha(1.0f);
+   Fonts::copyright.set_alignment(origin_bottom_left);
+   Fonts::copyright.draw(CL_Display::get_width() - 100, 30, output);
+ }
+
+Added: trunk/src/sound/semantic.cache
+===================================================================
+--- trunk/src/sound/semantic.cache	2005-06-26 22:49:00 UTC (rev 444)
++++ trunk/src/sound/semantic.cache	2005-06-27 00:03:58 UTC (rev 445)
+@@ -0,0 +1,34 @@
++;; Object semantic.cache
++;; SEMANTICDB Tags save file
++(semanticdb-project-database &quot;semantic.cache&quot;
++  :file &quot;semantic.cache&quot;
++  :tables (list 
++   (semanticdb-table &quot;sound_manager.hpp&quot;
++    :file &quot;sound_manager.hpp&quot;
++    :pointmax 1813
++    :major-mode 'c++-mode
++    :tokens '((&quot;__SOUND_MANAGER_H__&quot; variable nil nil ((const . t)) nil nil [29 59]) (&quot;string&quot; include t nil nil [58 75]) (&quot;vector&quot; include t nil nil [76 93]) (&quot;map&quot; include t nil nil [94 108]) (&quot;AL/alc.h&quot; include t nil nil [110 129]) (&quot;AL/al.h&quot; include t nil nil [130 148]) (&quot;ClanLib/Core/Math/cl_vector.h&quot; include t nil nil [150 190]) (&quot;SoundHandle&quot; type &quot;typedef&quot; nil (&quot;void&quot;) ((pointer . 1) (typedef &quot;void&quot;)) nil nil [192 218]) (&quot;SoundFile&quot; type &quot;class&quot; nil nil nil nil nil [220 236]) (&quot;SoundSource&quot; type &quot;class&quot; nil nil nil nil nil [237 255]) (&quot;StreamSoundSource&quot; type &quot;class&quot; nil nil nil nil nil [256 280]) (&quot;SoundManager&quot; type &quot;class&quot; ((&quot;public&quot; label ((reparse-symbol . classsubparts)) [303 310]) (&quot;SoundManager&quot; function (&quot;SoundManager&quot; type &quot;class&quot;) nil ((constructor . t) (prototype . t)) nil ((reparse-symbol . classsubparts)) [313 328]) (&quot;SoundManager&quot; function &quot;void&quot; nil ((typemodifiers &quot;virtual&quot;) (destructor . t) (prototype . t)) nil ((reparse-symbol . classsubparts)) [3!
+ 31 355]) (&quot;enable_sound&quot; function (&quot;void&quot;) ((&quot;sound_enabled&quot; variable (&quot;bool&quot; type &quot;class&quot;) nil nil nil nil [377 396])) ((prototype . t)) nil ((reparse-symbol . classsubparts)) [359 397]) (&quot;create_sound_source&quot; function (&quot;SoundSource&quot; type &quot;class&quot;) ((&quot;filename&quot; variable (&quot;std::string&quot; type &quot;class&quot;) nil ((const . t)) nil nil [709 737])) ((pointer . 1) (prototype . t)) nil ((reparse-symbol . classsubparts)) [676 738]) (&quot;play&quot; function (&quot;void&quot;) ((&quot;name&quot; variable (&quot;std::string&quot; type &quot;class&quot;) nil ((const . t)) nil nil [833 857]) (&quot;pos&quot; variable (&quot;CL_Vector&quot; type &quot;class&quot;) &quot;CL_Vector(-1, -1, -1)&quot; ((const . t)) nil nil [858 902])) ((prototype . t)) nil ((reparse-symbol . classsubparts)) [823 904]) (&quot;set_listener_position&quot; function (&quot;void&quot;) ((&quot;position&quot; variable (&quot;CL_Vector&quot; type &quot;class&quot;) nil nil nil nil [935 954])) ((prototype . t)) nil ((reparse-symbol . classsubparts)) [908 955]) (&quot;set_listener_velocity&quot; function (&quot;void&quot;) ((&quot;velocity&quot; variable (&quot;CL_Vector&quot; type &quot;class&quot;) nil nil n!
+ il nil [985 1004])) ((prototype . t)) nil ((reparse-symbol . c!
+ lasssubp
+arts)) [958 1005]) (&quot;enable_music&quot; function (&quot;void&quot;) ((&quot;music_enabled&quot; variable (&quot;bool&quot; type &quot;class&quot;) nil nil nil nil [1027 1046])) ((prototype . t)) nil ((reparse-symbol . classsubparts)) [1009 1047]) (&quot;play_music&quot; function (&quot;void&quot;) ((&quot;filename&quot; variable (&quot;std::string&quot; type &quot;class&quot;) nil ((const . t)) nil nil [1066 1094]) (&quot;fade&quot; variable (&quot;bool&quot; type &quot;class&quot;) &quot;true)&quot; nil nil nil [1095 1112])) ((prototype . t)) nil ((reparse-symbol . classsubparts)) [1050 1113]) (&quot;update&quot; function (&quot;void&quot;) nil ((prototype . t)) nil ((reparse-symbol . classsubparts)) [1117 1131]) (&quot;private&quot; label ((reparse-symbol . classsubparts)) [1133 1141]) (&quot;SoundSource&quot; type &quot;class&quot; nil nil nil nil ((reparse-symbol . classsubparts)) [1151 1169]) (&quot;StreamSoundSource&quot; type &quot;class&quot; nil nil nil nil ((reparse-symbol . classsubparts)) [1179 1203]) (&quot;load_file_into_buffer&quot; function (&quot;ALuint&quot; type &quot;class&quot;) ((&quot;filename&quot; variable (&quot;std::string&quot; type &quot;class&quot;) nil ((const . t)) nil nil [1243 1271])) ((typemodifiers !
+ &quot;static&quot;) (prototype . t)) nil ((reparse-symbol . classsubparts)) [1207 1272]) (&quot;get_sample_format&quot; function (&quot;ALenum&quot; type &quot;class&quot;) ((&quot;file&quot; variable (&quot;SoundFile&quot; type &quot;class&quot;) nil ((pointer . 1)) nil nil [1307 1323])) ((typemodifiers &quot;static&quot;) (prototype . t)) nil ((reparse-symbol . classsubparts)) [1275 1324]) (&quot;print_openal_version&quot; function (&quot;void&quot;) nil ((prototype . t)) nil ((reparse-symbol . classsubparts)) [1328 1356]) (&quot;check_alc_error&quot; function (&quot;void&quot;) ((&quot;message&quot; variable &quot;char&quot; nil ((const . t) (pointer . 1)) nil nil [1380 1400])) ((prototype . t)) nil ((reparse-symbol . classsubparts)) [1359 1401]) (&quot;check_al_error&quot; function (&quot;void&quot;) ((&quot;message&quot; variable &quot;char&quot; nil ((const . t) (pointer . 1)) nil nil [1431 1451])) ((typemodifiers &quot;static&quot;) (prototype . t)) nil ((reparse-symbol . classsubparts)) [1404 1452]) (&quot;device&quot; variable (&quot;ALCdevice&quot; type &quot;class&quot;) nil ((pointer . 1)) nil nil [1456 1474]) (&quot;context&quot; variable (&quot;ALCcontext&quot; type &quot;class&quot;) nil ((pointer . 1)) !
+ nil nil [1477 1497]) (&quot;sound_enabled&quot; variable (&quot;bool&quot; type &quot;c!
+ lass&quot;) n
+il nil nil nil [1500 1519]) (&quot;SoundBuffers&quot; type &quot;typedef&quot; nil (&quot;std::map&quot;) ((typedef &quot;std::map&quot; type &quot;class&quot;)) nil nil [1523 1574]) (&quot;buffers&quot; variable (&quot;SoundBuffers&quot; type &quot;class&quot;) nil nil nil nil [1577 1598]) (&quot;SoundSources&quot; type &quot;typedef&quot; nil (&quot;std::vector&quot;) ((typedef &quot;std::vector&quot; type &quot;class&quot;)) nil nil [1601 1648]) (&quot;sources&quot; variable (&quot;SoundSources&quot; type &quot;class&quot;) nil nil nil nil [1651 1672]) (&quot;music_source&quot; variable (&quot;StreamSoundSource&quot; type &quot;class&quot;) nil ((pointer . 1)) nil nil [1676 1708]) (&quot;next_music_source&quot; variable (&quot;StreamSoundSource&quot; type &quot;class&quot;) nil ((pointer . 1)) nil nil [1711 1748]) (&quot;music_enabled&quot; variable (&quot;bool&quot; type &quot;class&quot;) nil nil nil nil [1752 1771]) (&quot;current_music&quot; variable (&quot;std::string&quot; type &quot;class&quot;) nil nil nil nil [1774 1800])) nil nil nil nil [282 1803]))
++    :unmatched-syntax '((FRIEND 1172 . 1178) (FRIEND 1144 . 1150))
++    )
++   (semanticdb-table &quot;sound_source.hpp&quot;
++    :file &quot;sound_source.hpp&quot;
++    :pointmax 551
++    :major-mode 'c++-mode
++    :tokens '((&quot;__SOUND_SOURCE_H__&quot; variable nil nil ((const . t)) nil nil [28 57]) (&quot;AL/al.h&quot; include t nil nil [56 74]) (&quot;ClanLib/Core/Math/cl_vector.h&quot; include t nil nil [75 115]) (&quot;SoundSource&quot; type &quot;class&quot; ((&quot;public&quot; label ((reparse-symbol . classsubparts)) [137 144]) (&quot;SoundSource&quot; function (&quot;SoundSource&quot; type &quot;class&quot;) nil ((constructor . t) (prototype . t)) nil ((reparse-symbol . classsubparts)) [147 161]) (&quot;SoundSource&quot; function &quot;void&quot; nil ((typemodifiers &quot;virtual&quot;) (destructor . t) (prototype . t)) nil ((reparse-symbol . classsubparts)) [164 187]) (&quot;play&quot; function (&quot;void&quot;) nil ((prototype . t)) nil ((reparse-symbol . classsubparts)) [191 203]) (&quot;stop&quot; function (&quot;void&quot;) nil ((prototype . t)) nil ((reparse-symbol . classsubparts)) [206 218]) (&quot;playing&quot; function (&quot;bool&quot; type &quot;class&quot;) nil ((prototype . t)) nil ((reparse-symbol . classsubparts)) [221 236]) (&quot;set_looping&quot; function (&quot;void&quot;) ((&quot;looping&quot; variable (&quot;bool&quot; type &quot;class&quot;) nil nil nil nil [257 270])) ((prototype!
+  . t)) nil ((reparse-symbol . classsubparts)) [240 271]) (&quot;set_gain&quot; function (&quot;void&quot;) ((&quot;gain&quot; variable &quot;float&quot; nil nil nil nil [336 347])) ((prototype . t)) nil ((reparse-symbol . classsubparts)) [322 348]) (&quot;set_position&quot; function (&quot;void&quot;) ((&quot;position&quot; variable (&quot;CL_Vector&quot; type &quot;class&quot;) nil nil nil nil [369 388])) ((prototype . t)) nil ((reparse-symbol . classsubparts)) [351 389]) (&quot;set_velocity&quot; function (&quot;void&quot;) ((&quot;position&quot; variable (&quot;CL_Vector&quot; type &quot;class&quot;) nil nil nil nil [410 429])) ((prototype . t)) nil ((reparse-symbol . classsubparts)) [392 430]) (&quot;set_reference_distance&quot; function (&quot;void&quot;) ((&quot;distance&quot; variable &quot;float&quot; nil nil nil nil [461 476])) ((prototype . t)) nil ((reparse-symbol . classsubparts)) [433 477]) (&quot;protected&quot; label ((reparse-symbol . classsubparts)) [479 489]) (&quot;SoundManager&quot; type &quot;class&quot; nil nil nil nil ((reparse-symbol . classsubparts)) [499 518]) (&quot;source&quot; variable (&quot;ALuint&quot; type &quot;class&quot;) nil nil nil nil [524 538])) nil nil nil nil [117 541!
+ ]))
++    :unmatched-syntax '((FRIEND 492 . 498))
++    )
++   (semanticdb-table &quot;stream_sound_source.hpp&quot;
++    :file &quot;stream_sound_source.hpp&quot;
++    :pointmax 778
++    :major-mode 'c++-mode
++    :tokens '((&quot;__STREAM_SOUND_SOURCE_H__&quot; variable nil nil ((const . t)) nil nil [35 71]) (&quot;stdio.h&quot; include t nil nil [70 88]) (&quot;sound_source.hpp&quot; include nil nil nil [89 116]) (&quot;SoundFile&quot; type &quot;class&quot; nil nil nil nil nil [118 134]) (&quot;StreamSoundSource&quot; type &quot;class&quot; ((&quot;public&quot; label ((reparse-symbol . classsubparts)) [183 190]) (&quot;StreamSoundSource&quot; function (&quot;StreamSoundSource&quot; type &quot;class&quot;) ((&quot;file&quot; variable (&quot;SoundFile&quot; type &quot;class&quot;) nil ((pointer . 1)) nil nil [211 227])) ((constructor . t) (prototype . t)) nil ((reparse-symbol . classsubparts)) [193 228]) (&quot;StreamSoundSource&quot; function &quot;void&quot; nil ((typemodifiers &quot;virtual&quot;) (destructor . t) (prototype . t)) nil ((reparse-symbol . classsubparts)) [231 260]) (&quot;FadeState&quot; type &quot;enum&quot; ((&quot;NoFading&quot; variable &quot;int&quot; nil ((const . t)) nil ((reparse-symbol . enumsubparts)) [281 290]) (&quot;FadingOn&quot; variable &quot;int&quot; nil ((const . t)) nil ((reparse-symbol . enumsubparts)) [291 300]) (&quot;FadingOff&quot; variable &quot;int&quot; nil ((const . t)) nil ((r!
+ eparse-symbol . enumsubparts)) [301 312])) nil nil nil ((reparse-symbol . classsubparts)) [264 313]) (&quot;setFading&quot; function (&quot;void&quot;) ((&quot;state&quot; variable (&quot;FadeState&quot; type &quot;class&quot;) nil nil nil nil [332 348]) (&quot;fadetime&quot; variable &quot;float&quot; nil nil nil nil [349 364])) ((prototype . t)) nil ((reparse-symbol . classsubparts)) [317 365]) (&quot;update&quot; function (&quot;void&quot;) nil ((prototype . t)) nil ((reparse-symbol . classsubparts)) [368 382]) (&quot;private&quot; label ((reparse-symbol . classsubparts)) [386 394]) (&quot;STREAMFRAGMENTS&quot; variable (&quot;size_t&quot; type &quot;class&quot;) &quot;5&quot; ((const . t) (typemodifiers &quot;static&quot;)) nil nil [450 490]) (&quot;STREAMFRAGMENTS&quot; variable &quot;int&quot; nil nil nil nil [558 574]) (&quot;fillBufferAndQueue&quot; function (&quot;void&quot;) ((&quot;buffer&quot; variable (&quot;ALuint&quot; type &quot;class&quot;) nil nil nil nil [602 616])) ((prototype . t)) nil ((reparse-symbol . classsubparts)) [578 617]) (&quot;file&quot; variable (&quot;SoundFile&quot; type &quot;class&quot;) nil ((pointer . 1)) nil nil [620 636]) (&quot;buffers&quot; variable (&quot;ALuint&quot; type &quot;class&quot;) nil ((derefer!
+ ence . 1)) nil nil [639 671]) (&quot;format&quot; variable (&quot;ALenum&quot; typ!
+ e &quot;class
+&quot;) nil nil nil nil [674 688]) (&quot;fade_state&quot; variable (&quot;FadeState&quot; type &quot;class&quot;) nil nil nil nil [692 713]) (&quot;fade_start_ticks&quot; variable &quot;unsigned int&quot; nil nil nil nil [716 746]) (&quot;fade_time&quot; variable &quot;float&quot; nil nil nil nil [749 765])) ((&quot;SoundSource&quot;)) nil nil nil [136 768]))
++    :unmatched-syntax '((punctuation 556 . 557) (symbol 539 . 555) (punctuation 537 . 538) (symbol 513 . 531) (symbol 506 . 512) (CONST 500 . 505) (STATIC 493 . 499) (punctuation 446 . 447) (number 443 . 446) (punctuation 441 . 442) (number 436 . 440) (punctuation 434 . 435) (symbol 417 . 433) (symbol 410 . 416) (CONST 404 . 409) (STATIC 397 . 403))
++    )
++   (semanticdb-table &quot;stream_sound_source.cpp&quot;
++    :file &quot;stream_sound_source.cpp&quot;
++    :pointmax 2751
++    :major-mode 'c++-mode
++    :tokens '((&quot;config.h&quot; include t nil nil [1 20]) (&quot;SDL.h&quot; include t nil nil [22 22]) (&quot;stream_sound_source.hpp&quot; include nil nil nil [22 56]) (&quot;sound_manager.hpp&quot; include nil nil nil [57 85]) (&quot;sound_file.hpp&quot; include nil nil nil [86 111]) (&quot;StreamSoundSource&quot; function (&quot;StreamSoundSource&quot; type &quot;class&quot;) ((&quot;file&quot; variable (&quot;SoundFile&quot; type &quot;class&quot;) nil ((pointer . 1)) nil nil [190 206])) ((parent . &quot;StreamSoundSource&quot;) (constructor . t)) nil nil [153 562]) (&quot;StreamSoundSource&quot; function &quot;void&quot; nil ((parent . &quot;StreamSoundSource&quot;) (destructor . t)) nil nil [564 719]) (&quot;update&quot; function (&quot;void&quot;) nil ((parent . &quot;StreamSoundSource&quot;)) nil nil [721 1924]) (&quot;setFading&quot; function (&quot;void&quot;) ((&quot;state&quot; variable (&quot;FadeState&quot; type &quot;class&quot;) nil nil nil nil [1960 1976]) (&quot;fade_time&quot; variable &quot;float&quot; nil nil nil nil [1977 1993])) ((parent . &quot;StreamSoundSource&quot;)) nil nil [1926 2106]) (&quot;fillBufferAndQueue&quot; function (&quot;void&quot;) ((&quot;buffer&quot; variable (&quot;ALuint&quot; type &quot;class&quot;) nil nil nil nil [2151 2165]!
+ )) ((parent . &quot;StreamSoundSource&quot;)) nil nil [2108 2750]))
++    )
++   )
++  )
+
+Added: trunk/src/sound/sound_file.cpp
+===================================================================
+--- trunk/src/sound/sound_file.cpp	2005-06-26 22:49:00 UTC (rev 444)
++++ trunk/src/sound/sound_file.cpp	2005-06-27 00:03:58 UTC (rev 445)
+@@ -0,0 +1,310 @@
++/** Used SDL_mixer and glest source as reference */
++#include &lt;config.h&gt;
++
++#include &quot;sound_file.hpp&quot;
++
++#include &lt;stdio.h&gt;
++#include &lt;stdint.h&gt;
++#include &lt;algorithm&gt;
++#include &lt;stdexcept&gt;
++#include &lt;sstream&gt;
++#include &lt;assert.h&gt;
++#include &lt;physfs.h&gt;
++#include &lt;vorbis/codec.h&gt;
++#include &lt;vorbis/vorbisfile.h&gt;
++
++class WavSoundFile : public SoundFile
++{
++public:
++  WavSoundFile(PHYSFS_file* file);
++  ~WavSoundFile();
++
++  size_t read(void* buffer, size_t buffer_size);
++  void reset();
++
++private:
++  PHYSFS_file* file;
++  
++  PHYSFS_sint64 datastart;
++};
++
++static inline uint32_t read32LE(PHYSFS_file* file)
++{
++  uint32_t result;
++  if(PHYSFS_readULE32(file, &amp;result) == 0)
++    throw std::runtime_error(&quot;file too short&quot;);
++
++  return result;
++}
++
++static inline uint16_t read16LE(PHYSFS_file* file)
++{
++  uint16_t result;
++  if(PHYSFS_readULE16(file, &amp;result) == 0)
++    throw std::runtime_error(&quot;file too short&quot;);
++
++  return result;
++}
++
++WavSoundFile::WavSoundFile(PHYSFS_file* file)
++{
++  this-&gt;file = file;
++
++  char magic[4];
++  if(PHYSFS_read(file, magic, sizeof(magic), 1) != 1)
++    throw std::runtime_error(&quot;Couldn't read file magic (not a wave file)&quot;);
++  if(strncmp(magic, &quot;RIFF&quot;, 4) != 0) {
++    printf(&quot;MAGIC: %4s.\n&quot;, magic);
++    throw std::runtime_error(&quot;file is not a RIFF wav file&quot;);
++  }
++
++  uint32_t wavelen = read32LE(file);
++  (void) wavelen;
++  
++  if(PHYSFS_read(file, magic, sizeof(magic), 1) != 1)
++    throw std::runtime_error(&quot;Couldn't read chunk header (not a wav file?)&quot;);
++  if(strncmp(magic, &quot;WAVE&quot;, 4) != 0)
++    throw std::runtime_error(&quot;file is not a valid RIFF/WAVE file&quot;);
++
++  char chunkmagic[4];
++  uint32_t chunklen;
++
++  // search audio data format chunk
++  do {
++    if(PHYSFS_read(file, chunkmagic, sizeof(chunkmagic), 1) != 1)
++      throw std::runtime_error(&quot;EOF while searching format chunk&quot;);    
++    chunklen = read32LE(file);
++    
++    if(strncmp(chunkmagic, &quot;fmt &quot;, 4) == 0)
++      break;
++
++    if(strncmp(chunkmagic, &quot;fact&quot;, 4) == 0
++        || strncmp(chunkmagic, &quot;LIST&quot;, 4) == 0) {
++      // skip chunk
++      if(PHYSFS_seek(file, PHYSFS_tell(file) + chunklen) == 0)
++        throw std::runtime_error(&quot;EOF while searching fmt chunk&quot;);
++    } else {
++      throw std::runtime_error(&quot;complex WAVE files not supported&quot;);
++    }
++  } while(true); 
++
++  if(chunklen &lt; 16)
++    throw std::runtime_error(&quot;Format chunk too short&quot;);
++ 
++  // parse format
++  uint16_t encoding = read16LE(file);
++  if(encoding != 1)
++    throw std::runtime_error(&quot;only PCM encoding supported&quot;);
++  channels = read16LE(file);
++  rate = read32LE(file);
++  uint32_t byterate = read32LE(file);
++  (void) byterate;
++  uint16_t blockalign = read16LE(file);
++  (void) blockalign;
++  bits_per_sample = read16LE(file);
++
++  if(chunklen &gt; 16) {
++    if(PHYSFS_seek(file, PHYSFS_tell(file) + (chunklen-16)) == 0)
++      throw std::runtime_error(&quot;EOF while reading reast of format chunk&quot;);
++  }
++
++  // set file offset to DATA chunk data
++  do {
++    if(PHYSFS_read(file, chunkmagic, sizeof(chunkmagic), 1) != 1)
++      throw std::runtime_error(&quot;EOF while searching data chunk&quot;);    
++    chunklen = read32LE(file);
++
++    if(strncmp(chunkmagic, &quot;data&quot;, 4) == 0)
++      break;
++
++    // skip chunk
++    if(PHYSFS_seek(file, PHYSFS_tell(file) + chunklen) == 0)
++      throw std::runtime_error(&quot;EOF while searching fmt chunk&quot;);
++  } while(true);
++
++  datastart = PHYSFS_tell(file);
++  size = static_cast&lt;size_t&gt; (chunklen);
++}
++
++WavSoundFile::~WavSoundFile()
++{
++  PHYSFS_close(file);
++}
++
++void
++WavSoundFile::reset()
++{
++  if(PHYSFS_seek(file, datastart) == 0)
++    throw std::runtime_error(&quot;Couldn't seek to data start&quot;);
++}
++
++size_t
++WavSoundFile::read(void* buffer, size_t buffer_size)
++{
++  PHYSFS_sint64 end = datastart + size;
++  PHYSFS_sint64 cur = PHYSFS_tell(file);
++  if(cur &gt;= end)
++    return 0;
++  
++  size_t readsize = std::min(static_cast&lt;size_t&gt; (end - cur), buffer_size);
++  if(PHYSFS_read(file, buffer, readsize, 1) != 1)
++    throw std::runtime_error(&quot;read error while reading samples&quot;);
++
++  return readsize;
++}
++
++//---------------------------------------------------------------------------
++
++class OggSoundFile : public SoundFile
++{
++public:
++  OggSoundFile(PHYSFS_file* file);
++  ~OggSoundFile();
++
++  size_t read(void* buffer, size_t buffer_size);
++  void reset();
++
++private:
++  static size_t cb_read(void* ptr, size_t size, size_t nmemb, void* source);
++  static int cb_seek(void* source, ogg_int64_t offset, int whence);
++  static int cb_close(void* source);
++  static long cb_tell(void* source);
++  
++  PHYSFS_file* file;
++  OggVorbis_File vorbis_file;
++};
++
++OggSoundFile::OggSoundFile(PHYSFS_file* file)
++{
++  this-&gt;file = file;
++
++  ov_callbacks callbacks = { cb_read, cb_seek, cb_close, cb_tell };
++  ov_open_callbacks(file, &amp;vorbis_file, 0, 0, callbacks);
++
++  vorbis_info* vi = ov_info(&amp;vorbis_file, -1);
++  channels = vi-&gt;channels;
++  rate = vi-&gt;rate;
++  bits_per_sample = 16;
++  size = static_cast&lt;size_t&gt; (ov_pcm_total(&amp;vorbis_file, -1) * 2);
++}
++
++OggSoundFile::~OggSoundFile()
++{
++  ov_clear(&amp;vorbis_file);
++}
++
++size_t
++OggSoundFile::read(void* _buffer, size_t buffer_size)
++{
++  char* buffer = reinterpret_cast&lt;char*&gt; (_buffer);
++  int section = 0;
++  size_t totalBytesRead= 0;
++
++  while(buffer_size&gt;0){
++    long bytesRead 
++      = ov_read(&amp;vorbis_file, buffer, static_cast&lt;int&gt; (buffer_size), 0, 2, 1,
++          &amp;section);
++    if(bytesRead==0){
++      break;
++    }
++    buffer_size -= bytesRead;
++    buffer += bytesRead;
++    totalBytesRead += bytesRead;
++  }
++  
++  return totalBytesRead;
++}
++
++void
++OggSoundFile::reset()
++{
++  ov_raw_seek(&amp;vorbis_file, 0);
++}
++
++size_t
++OggSoundFile::cb_read(void* ptr, size_t size, size_t nmemb, void* source)
++{
++  PHYSFS_file* file = reinterpret_cast&lt;PHYSFS_file*&gt; (source);
++  
++  PHYSFS_sint64 res 
++    = PHYSFS_read(file, ptr, static_cast&lt;PHYSFS_uint32&gt; (size),
++        static_cast&lt;PHYSFS_uint32&gt; (nmemb));
++  if(res &lt;= 0)
++    return 0;
++
++  return static_cast&lt;size_t&gt; (res);
++}
++
++int
++OggSoundFile::cb_seek(void* source, ogg_int64_t offset, int whence)
++{
++  PHYSFS_file* file = reinterpret_cast&lt;PHYSFS_file*&gt; (source);
++
++  switch(whence) {
++    case SEEK_SET:
++      if(PHYSFS_seek(file, static_cast&lt;PHYSFS_uint64&gt; (offset)) == 0)
++        return -1;
++      break;
++    case SEEK_CUR:
++      if(PHYSFS_seek(file, PHYSFS_tell(file) + offset) == 0)
++        return -1;
++      break;
++    case SEEK_END:
++      if(PHYSFS_seek(file, PHYSFS_fileLength(file) + offset) == 0)
++        return -1;
++      break;
++    default:
++#ifdef DEBUG
++      assert(false);
++#else
++      return -1;
++#endif
++  }
++  return 0;
++}
++  
++int
++OggSoundFile::cb_close(void* source)
++{
++  PHYSFS_file* file = reinterpret_cast&lt;PHYSFS_file*&gt; (source);
++  PHYSFS_close(file);
++  return 0;
++}
++
++long
++OggSoundFile::cb_tell(void* source)
++{
++  PHYSFS_file* file = reinterpret_cast&lt;PHYSFS_file*&gt; (source);
++  return static_cast&lt;long&gt; (PHYSFS_tell(file));
++}
++
++//---------------------------------------------------------------------------
++
++#include &lt;fstream&gt;
++SoundFile* load_sound_file(const std::string&amp; filename)
++{
++  PHYSFS_file* file = PHYSFS_openRead(filename.c_str());
++  if(!file) {
++    std::stringstream msg;
++    msg &lt;&lt; &quot;Couldn't open '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot; &lt;&lt; PHYSFS_getLastError();
++    throw std::runtime_error(msg.str());
++  }
++    
++  try {
++    char magic[4];
++    if(PHYSFS_read(file, magic, sizeof(magic), 1) != 1)
++      throw std::runtime_error(&quot;Couldn't read magic, file too short&quot;);
++    PHYSFS_seek(file, 0);
++    if(strncmp(magic, &quot;RIFF&quot;, 4) == 0)
++      return new WavSoundFile(file);
++    else if(strncmp(magic, &quot;OggS&quot;, 4) == 0)
++      return new OggSoundFile(file);
++    else
++      throw std::runtime_error(&quot;Unknown file format&quot;);
++  } catch(std::exception&amp; e) {
++    std::stringstream msg;
++    msg &lt;&lt; &quot;Couldn't read '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot; &lt;&lt; e.what();
++    throw std::runtime_error(msg.str());
++  }
++}
++
+
+Added: trunk/src/sound/sound_file.hpp
+===================================================================
+--- trunk/src/sound/sound_file.hpp	2005-06-26 22:49:00 UTC (rev 444)
++++ trunk/src/sound/sound_file.hpp	2005-06-27 00:03:58 UTC (rev 445)
+@@ -0,0 +1,26 @@
++#ifndef __SOUND_FILE_H__
++#define __SOUND_FILE_H__
++
++#include &lt;stdio.h&gt;
++#include &lt;iostream&gt;
++
++class SoundFile
++{
++public:
++  virtual ~SoundFile()
++  { }
++
++  virtual size_t read(void* buffer, size_t buffer_size) = 0;
++  virtual void reset() = 0;
++
++  int channels;
++  int rate;
++  int bits_per_sample;
++  /// size in bytes
++  size_t size;
++};
++
++SoundFile* load_sound_file(const std::string&amp; filename);
++
++#endif
++
+
+Added: trunk/src/sound/sound_manager.cpp
+===================================================================
+--- trunk/src/sound/sound_manager.cpp	2005-06-26 22:49:00 UTC (rev 444)
++++ trunk/src/sound/sound_manager.cpp	2005-06-27 00:03:58 UTC (rev 445)
+@@ -0,0 +1,297 @@
++#include &quot;sound_manager.hpp&quot;
++
++#include &lt;stdexcept&gt;
++#include &lt;iostream&gt;
++#include &lt;sstream&gt;
++#include &lt;memory&gt;
++
++#include &quot;sound_file.hpp&quot;
++#include &quot;sound_source.hpp&quot;
++#include &quot;stream_sound_source.hpp&quot;
++
++SoundManager* sound_manager = 0;
++
++SoundManager::SoundManager()
++  : device(0), context(0), sound_enabled(false), music_source(0),
++    next_music_source(0), music_enabled(true)
++{
++  try {
++    device = alcOpenDevice(0);
++    if(device == 0) {
++      print_openal_version();
++      throw std::runtime_error(&quot;Couldn't open audio device.&quot;);
++    }
++
++    int attributes[] = { 0 };
++    context = alcCreateContext(device, attributes);
++    check_alc_error(&quot;Couldn't create audio context: &quot;);
++    alcMakeContextCurrent(context);
++    check_alc_error(&quot;Couldn't select audio context: &quot;);
++
++    check_al_error(&quot;Audio error after init: &quot;);
++    sound_enabled = true;
++  } catch(std::exception&amp; e) {
++    device = 0;
++    context = 0;
++    std::cerr &lt;&lt; &quot;Couldn't initialize audio device:&quot; &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
++    print_openal_version();
++  }
++}
++
++SoundManager::~SoundManager()
++{
++  delete music_source;
++  delete next_music_source;
++
++  for(SoundSources::iterator i = sources.begin(); i != sources.end(); ++i) {
++    delete *i;
++  }
++
++  for(SoundBuffers::iterator i = buffers.begin(); i != buffers.end(); ++i) {
++    ALuint buffer = i-&gt;second;
++    alDeleteBuffers(1, &amp;buffer);
++  }
++
++  if(context != 0) {
++    alcDestroyContext(context);
++  }
++  if(device != 0) {
++    alcCloseDevice(device);
++  }
++}
++
++ALuint
++SoundManager::load_file_into_buffer(const std::string&amp; filename)
++{
++  // open sound file
++  std::auto_ptr&lt;SoundFile&gt; file (load_sound_file(filename));
++  
++  ALenum format = get_sample_format(file.get());
++  ALuint buffer;
++  alGenBuffers(1, &amp;buffer);
++  check_al_error(&quot;Couldn't create audio buffer: &quot;);
++  char* samples = new char[file-&gt;size];
++  try {
++    file-&gt;read(samples, file-&gt;size);
++    alBufferData(buffer, format, samples,
++        static_cast&lt;ALsizei&gt; (file-&gt;size),
++        static_cast&lt;ALsizei&gt; (file-&gt;rate));
++    check_al_error(&quot;Couldn't fill audio buffer: &quot;);
++  } catch(...) {
++    delete[] samples;
++    throw;
++  }
++  delete[] samples;
++
++  return buffer;
++}
++
++SoundSource*
++SoundManager::create_sound_source(const std::string&amp; filename)
++{
++  if(!sound_enabled)
++    return 0;
++
++  ALuint buffer;
++  
++  // reuse an existing static sound buffer            
++  SoundBuffers::iterator i = buffers.find(filename);
++  if(i != buffers.end()) {
++    buffer = i-&gt;second;
++  } else {
++    buffer = load_file_into_buffer(filename);
++    buffers.insert(std::make_pair(filename, buffer));
++  }
++  
++  SoundSource* source = new SoundSource();
++  alSourcei(source-&gt;source, AL_BUFFER, buffer);
++  return source;  
++}
++
++void
++SoundManager::play(const std::string&amp; filename, const CL_Vector&amp; pos)
++{
++  try {
++    SoundSource* source = create_sound_source(filename);
++    if(source == 0)
++      return;
++    if(pos == CL_Vector(-1, -1)) {
++      alSourcef(source-&gt;source, AL_ROLLOFF_FACTOR, 0);
++    } else {
++      source-&gt;set_position(pos);
++    }
++    source-&gt;play();
++    sources.push_back(source);
++  } catch(std::exception&amp; e) {
++    std::cout &lt;&lt; &quot;Couldn't play sound &quot; &lt;&lt; filename &lt;&lt; &quot;: &quot; &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
++  }
++}
++
++void
++SoundManager::enable_sound(bool enable)
++{
++  if(device == 0)
++    return;
++  sound_enabled = enable;
++}
++
++void
++SoundManager::enable_music(bool enable)
++{
++  if(device == 0)
++    return;
++  music_enabled = enable;
++  if(music_enabled) {
++    play_music(current_music);
++  } else {
++    if(music_source) {
++      delete music_source;
++      music_source = 0;
++    }
++  }
++}
++
++void
++SoundManager::stop_music(bool fade)
++{
++  if(fade) {
++    if(music_source
++        &amp;&amp; music_source-&gt;getFadeState() != StreamSoundSource::FadingOff)
++      music_source-&gt;setFading(StreamSoundSource::FadingOff, 1);
++  } else {
++    delete music_source;
++    music_source = 0;
++  }
++}
++
++void
++SoundManager::play_music(const std::string&amp; filename, bool fade)
++{
++  if(filename == current_music)
++    return;
++  current_music = filename;
++  if(!music_enabled)
++    return;
++
++  try {
++    StreamSoundSource* newmusic 
++      = new StreamSoundSource(load_sound_file(filename));
++
++    alSourcef(newmusic-&gt;source, AL_ROLLOFF_FACTOR, 0);
++ 
++    if(fade) {
++      if(music_source 
++          &amp;&amp; music_source-&gt;getFadeState() != StreamSoundSource::FadingOff)
++        music_source-&gt;setFading(StreamSoundSource::FadingOff, .5f);
++      delete next_music_source;
++      next_music_source = newmusic;
++    } else {
++      delete music_source;
++      music_source = newmusic;
++      music_source-&gt;play();
++      delete next_music_source;
++      next_music_source = 0;
++    }
++  } catch(std::exception&amp; e) {
++    std::cerr &lt;&lt; &quot;Couldn't play music file '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot;
++      &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
++  }
++}
++
++void
++SoundManager::set_listener_position(CL_Vector pos)
++{
++  alListener3f(AL_POSITION, pos.x, pos.y, 0);
++}
++
++void
++SoundManager::set_listener_velocity(CL_Vector vel)
++{
++  alListener3f(AL_VELOCITY, vel.x, vel.y, 0);
++}
++
++void
++SoundManager::update()
++{
++  // check for finished sound sources
++  for(SoundSources::iterator i = sources.begin(); i != sources.end(); ) {
++    SoundSource* source = *i;
++    if(!source-&gt;playing()) {
++      delete source;
++      i = sources.erase(i);
++    } else {
++      ++i;
++    }
++  }
++  // check streaming sounds
++  if(music_source) {
++    music_source-&gt;update();
++  }
++  
++  if(next_music_source &amp;&amp; (!music_source || !music_source-&gt;playing())) {
++    delete music_source;
++    music_source = next_music_source;
++    //music_source-&gt;setFading(StreamSoundSource::FadingOn, 1.0f);
++    music_source-&gt;play();
++    next_music_source = 0;
++  }
++  
++  alcProcessContext(context);
++  check_alc_error(&quot;Error while processing audio context: &quot;);
++}
++
++ALenum
++SoundManager::get_sample_format(SoundFile* file)
++{
++  if(file-&gt;channels == 2) {
++    if(file-&gt;bits_per_sample == 16) {
++      return AL_FORMAT_STEREO16;
++    } else if(file-&gt;bits_per_sample == 8) {
++      return AL_FORMAT_STEREO8;
++    } else {
++      throw std::runtime_error(&quot;Only 16 and 8 bit samples supported&quot;);
++    }
++  } else if(file-&gt;channels == 1) {
++    if(file-&gt;bits_per_sample == 16) {
++      return AL_FORMAT_MONO16;
++    } else if(file-&gt;bits_per_sample == 8) {
++      return AL_FORMAT_MONO8;
++    } else {
++      throw std::runtime_error(&quot;Only 16 and 8 bit samples supported&quot;);
++    }
++  }
++  
++  throw std::runtime_error(&quot;Only 1 and 2 channel samples supported&quot;);
++}
++
++void
++SoundManager::print_openal_version()
++{
++  std::cout &lt;&lt; &quot;OpenAL Vendor: &quot; &lt;&lt; alGetString(AL_VENDOR) &lt;&lt; &quot;\n&quot;
++            &lt;&lt; &quot;OpenAL Version: &quot; &lt;&lt; alGetString(AL_VERSION) &lt;&lt; &quot;\n&quot; 
++            &lt;&lt; &quot;OpenAL Renderer: &quot; &lt;&lt; alGetString(AL_RENDERER) &lt;&lt; &quot;\n&quot;
++            &lt;&lt; &quot;OpenAl Extensions: &quot; &lt;&lt; alGetString(AL_RENDERER) &lt;&lt; &quot;\n&quot;;
++}
++
++void
++SoundManager::check_alc_error(const char* message)
++{
++  int err = alcGetError(device);
++  if(err != ALC_NO_ERROR) {
++    std::stringstream msg;
++    msg &lt;&lt; message &lt;&lt; alcGetString(device, err);
++    throw std::runtime_error(msg.str());
++  }                
++}
++
++void
++SoundManager::check_al_error(const char* message)
++{
++  int err = alGetError();
++  if(err != AL_NO_ERROR) {
++    std::stringstream msg;
++    msg &lt;&lt; message &lt;&lt; alGetString(err);
++    throw std::runtime_error(msg.str());
++  }  
++}
++
+
+Added: trunk/src/sound/sound_manager.hpp
+===================================================================
+--- trunk/src/sound/sound_manager.hpp	2005-06-26 22:49:00 UTC (rev 444)
++++ trunk/src/sound/sound_manager.hpp	2005-06-27 00:03:58 UTC (rev 445)
+@@ -0,0 +1,78 @@
++#ifndef __SOUND_MANAGER_H__
++#define __SOUND_MANAGER_H__
++
++#include &lt;string&gt;
++#include &lt;vector&gt;
++#include &lt;map&gt;
++
++#include &lt;AL/alc.h&gt;
++#include &lt;AL/al.h&gt;
++
++#include &lt;ClanLib/Core/Math/cl_vector.h&gt;
++
++typedef void* SoundHandle;
++
++class SoundFile;
++class SoundSource;
++class StreamSoundSource;
++
++class SoundManager
++{
++public:
++  SoundManager();
++  virtual ~SoundManager();
++
++  void enable_sound(bool sound_enabled);
++  /**
++   * Creates a new sound source object which plays the specified soundfile.
++   * You are responsible for deleting the sound source later (this will stop the
++   * sound).
++   * This function might throw exceptions. It returns 0 if no audio device is
++   * available.
++   */
++  SoundSource* create_sound_source(const std::string&amp; filename);
++  /**
++   * Convenience function to simply play a sound at a given position.
++   */
++  void play(const std::string&amp; name, const CL_Vector&amp; pos = CL_Vector(-1, -1, -1));
++
++  void set_listener_position(CL_Vector position);
++  void set_listener_velocity(CL_Vector velocity);
++
++  void enable_music(bool music_enabled);
++  void play_music(const std::string&amp; filename, bool fade = true);
++  void stop_music(bool fade = true);
++
++  void update();
++
++private:
++  friend class SoundSource;
++  friend class StreamSoundSource;
++
++  static ALuint load_file_into_buffer(const std::string&amp; filename);
++  static ALenum get_sample_format(SoundFile* file);
++
++  void print_openal_version();
++  void check_alc_error(const char* message);
++  static void check_al_error(const char* message);
++
++  ALCdevice* device;
++  ALCcontext* context;
++  bool sound_enabled;
++
++  typedef std::map&lt;std::string, ALuint&gt; SoundBuffers;
++  SoundBuffers buffers;
++  typedef std::vector&lt;SoundSource*&gt; SoundSources;
++  SoundSources sources;
++
++  StreamSoundSource* music_source;
++  StreamSoundSource* next_music_source;
++
++  bool music_enabled;
++  std::string current_music;
++};
++
++extern SoundManager* sound_manager;
++
++#endif
++
+
+Added: trunk/src/sound/sound_source.cpp
+===================================================================
+--- trunk/src/sound/sound_source.cpp	2005-06-26 22:49:00 UTC (rev 444)
++++ trunk/src/sound/sound_source.cpp	2005-06-27 00:03:58 UTC (rev 445)
+@@ -0,0 +1,70 @@
++#include &lt;config.h&gt;
++
++#include &quot;sound_source.hpp&quot;
++#include &quot;sound_manager.hpp&quot;
++
++SoundSource::SoundSource()
++{
++  alGenSources(1, &amp;source);
++  SoundManager::check_al_error(&quot;Couldn't create audio source: &quot;);
++  set_reference_distance(128);
++}
++
++SoundSource::~SoundSource()
++{
++  stop();
++  alDeleteSources(1, &amp;source);
++}
++
++void
++SoundSource::stop()
++{
++  alSourceStop(source);
++  alSourcei(source, AL_BUFFER, AL_NONE);
++  SoundManager::check_al_error(&quot;Problem stopping audio source: &quot;);
++}
++
++void
++SoundSource::play()
++{
++  alSourcePlay(source);
++  SoundManager::check_al_error(&quot;Couldn't start audio source: &quot;);
++}
++
++bool
++SoundSource::playing()
++{
++  ALint state = AL_PLAYING;
++  alGetSourcei(source, AL_SOURCE_STATE, &amp;state);
++  return state != AL_STOPPED;
++}
++
++void
++SoundSource::set_looping(bool looping)
++{
++  alSourcei(source, AL_LOOPING, looping ? AL_TRUE : AL_FALSE);
++}
++
++void
++SoundSource::set_position(CL_Vector position)
++{
++  alSource3f(source, AL_POSITION, position.x, position.y, 0);
++}
++
++void
++SoundSource::set_velocity(CL_Vector velocity)
++{
++  alSource3f(source, AL_VELOCITY, velocity.x, velocity.y, 0);
++}
++
++void
++SoundSource::set_gain(float gain)
++{
++  alSourcef(source, AL_GAIN, gain);
++}
++
++void
++SoundSource::set_reference_distance(float distance)
++{
++  alSourcef(source, AL_REFERENCE_DISTANCE, distance);
++}
+
+Added: trunk/src/sound/sound_source.hpp
+===================================================================
+--- trunk/src/sound/sound_source.hpp	2005-06-26 22:49:00 UTC (rev 444)
++++ trunk/src/sound/sound_source.hpp	2005-06-27 00:03:58 UTC (rev 445)
+@@ -0,0 +1,31 @@
++#ifndef __SOUND_SOURCE_H__
++#define __SOUND_SOURCE_H__
++
++#include &lt;AL/al.h&gt;
++#include &lt;ClanLib/Core/Math/cl_vector.h&gt;
++
++class SoundSource
++{
++public:
++  SoundSource();
++  virtual ~SoundSource();
++
++  void play();
++  void stop();
++  bool playing();
++
++  void set_looping(bool looping);
++  /// Set volume (0.0 is silent, 1.0 is normal)
++  void set_gain(float gain);
++  void set_position(CL_Vector position);
++  void set_velocity(CL_Vector position);
++  void set_reference_distance(float distance);
++
++protected:
++  friend class SoundManager;
++  
++  ALuint source;
++};
++
++#endif
++
+
+Added: trunk/src/sound/stream_sound_source.cpp
+===================================================================
+--- trunk/src/sound/stream_sound_source.cpp	2005-06-26 22:49:00 UTC (rev 444)
++++ trunk/src/sound/stream_sound_source.cpp	2005-06-27 00:03:58 UTC (rev 445)
+@@ -0,0 +1,103 @@
++#include &lt;config.h&gt;
++
++#include &quot;stream_sound_source.hpp&quot;
++#include &quot;sound_manager.hpp&quot;
++#include &quot;sound_file.hpp&quot;
++#include &lt;ClanLib/Core/System/system.h&gt;
++
++StreamSoundSource::StreamSoundSource(SoundFile* file)
++{
++  this-&gt;file = file;
++  alGenBuffers(STREAMFRAGMENTS, buffers);
++  SoundManager::check_al_error(&quot;Couldn't allocate audio buffers: &quot;);
++  format = SoundManager::get_sample_format(file);
++  try {
++    for(size_t i = 0; i &lt; STREAMFRAGMENTS; ++i) {
++      fillBufferAndQueue(buffers[i]);
++    }
++  } catch(...) {
++    alDeleteBuffers(STREAMFRAGMENTS, buffers);
++  }
++}
++
++StreamSoundSource::~StreamSoundSource()
++{
++  alDeleteBuffers(STREAMFRAGMENTS, buffers);
++  SoundManager::check_al_error(&quot;Couldn't delete audio buffers: &quot;);
++}
++
++void
++StreamSoundSource::update()
++{
++  if(!playing())
++    return;
++
++  ALint processed = 0;
++  alGetSourcei(source, AL_BUFFERS_PROCESSED, &amp;processed);
++  while(processed &gt; 0) {
++    processed--;
++
++    ALuint buffer;
++    alSourceUnqueueBuffers(source, 1, &amp;buffer);
++    SoundManager::check_al_error(&quot;Couldn't unqueu audio buffer: &quot;);
++
++    fillBufferAndQueue(buffer);
++  }
++  
++  // we might have to restart the source if we had a buffer underrun
++  if(!playing()) {
++    std::cerr &lt;&lt; &quot;Restarting audio source because of buffer underrun.\n&quot;;
++    alSourcePlay(source);
++    SoundManager::check_al_error(&quot;Couldn't restart audio source: &quot;);
++  }
++
++  if(fade_state == FadingOn) {
++    unsigned int ticks = CL_System::get_time();
++    float time = (ticks - fade_start_ticks) / 1000.0;
++    if(time &gt;= fade_time) {
++      set_gain(1.0);
++      fade_state = NoFading;
++    } else {
++      set_gain(time / fade_time);
++    }
++  } else if(fade_state == FadingOff) {
++    unsigned int ticks = CL_System::get_time();
++    float time = (ticks - fade_start_ticks) / 1000.0;
++    if(time &gt;= fade_time) {                              
++      stop();
++      fade_state = NoFading;
++    } else {
++      set_gain( (fade_time-time) / fade_time);
++    }
++  }
++}
++
++void
++StreamSoundSource::setFading(FadeState state, float fade_time)
++{
++  this-&gt;fade_state = state;
++  this-&gt;fade_time = fade_time;
++  this-&gt;fade_start_ticks = CL_System::get_time();
++}
++
++void
++StreamSoundSource::fillBufferAndQueue(ALuint buffer)
++{
++  // fill buffer
++  char* bufferdata = new char[STREAMFRAGMENTSIZE];
++  size_t bytesread = 0;
++  do {
++    bytesread += file-&gt;read(bufferdata + bytesread,
++        STREAMFRAGMENTSIZE - bytesread);
++    if(bytesread &lt; STREAMFRAGMENTSIZE) {
++      file-&gt;reset();
++    }
++  } while(bytesread &lt; STREAMFRAGMENTSIZE);
++  
++  alBufferData(buffer, format, bufferdata, STREAMFRAGMENTSIZE, file-&gt;rate);
++  delete[] bufferdata;
++  SoundManager::check_al_error(&quot;Couldn't refill audio buffer: &quot;);
++
++  alSourceQueueBuffers(source, 1, &amp;buffer);
++  SoundManager::check_al_error(&quot;Couldn't queue audio buffer: &quot;);
++}
+
+Added: trunk/src/sound/stream_sound_source.hpp
+===================================================================
+--- trunk/src/sound/stream_sound_source.hpp	2005-06-26 22:49:00 UTC (rev 444)
++++ trunk/src/sound/stream_sound_source.hpp	2005-06-27 00:03:58 UTC (rev 445)
+@@ -0,0 +1,41 @@
++#ifndef __STREAM_SOUND_SOURCE_H__
++#define __STREAM_SOUND_SOURCE_H__
++
++#include &lt;stdio.h&gt;
++#include &quot;sound_source.hpp&quot;
++
++class SoundFile;
++
++class StreamSoundSource : public SoundSource
++{
++public:
++  StreamSoundSource(SoundFile* file);
++  virtual ~StreamSoundSource();
++
++  enum FadeState { NoFading, FadingOn, FadingOff };
++
++  void setFading(FadeState state, float fadetime);
++  FadeState getFadeState() const
++  {
++    return fade_state;
++  }
++  void update();
++  
++private:
++  static const size_t STREAMBUFFERSIZE = 1024 * 500;
++  static const size_t STREAMFRAGMENTS = 5;
++  static const size_t STREAMFRAGMENTSIZE 
++    = STREAMBUFFERSIZE / STREAMFRAGMENTS;
++
++  void fillBufferAndQueue(ALuint buffer);
++  SoundFile* file;
++  ALuint buffers[STREAMFRAGMENTS];
++  ALenum format;
++
++  FadeState fade_state;
++  unsigned int fade_start_ticks;
++  float fade_time;
++};
++
++#endif
++
+
+Modified: trunk/src/windstille_bonus.cxx
+===================================================================
+--- trunk/src/windstille_bonus.cxx	2005-06-26 22:49:00 UTC (rev 444)
++++ trunk/src/windstille_bonus.cxx	2005-06-27 00:03:58 UTC (rev 445)
+@@ -27,8 +27,8 @@
+ #include &lt;list&gt;
+ #include &quot;fonts.hxx&quot;
+ #include &quot;globals.hxx&quot;
+-#include &quot;music_manager.hxx&quot;
+ #include &quot;windstille_bonus.hxx&quot;
++#include &quot;sound/sound_manager.hpp&quot;
+ 
+ WindstilleBonus::WindstilleBonus()
+ {
+@@ -101,7 +101,7 @@
+       if (fadeout_value &gt; 1.0f)
+         {
+           state = RUNNING;
+-          MusicManager::current()-&gt;play(datadir + &quot;music/Windstille_Ralph_Weinert.ogg&quot;, true);
++          sound_manager-&gt;play_music(&quot;music/Windstille_Ralph_Weinert.ogg&quot;);
+         }
+       fadeout_value += delta;
+       break;
+@@ -156,6 +156,7 @@
+ void
+ WindstilleBonus::quit()
+ {
++  sound_manager-&gt;stop_music();
+   state = FADEOUT;
+   fadeout_value = 0;
+ }
+@@ -164,13 +165,11 @@
+ WindstilleBonus::on_startup()
+ {
+   CL_Display::get_current_window()-&gt;hide_cursor();
+-  MusicManager::current()-&gt;stop();
+ }
+ 
+ void
+ WindstilleBonus::on_shutdown()
+ {
+-  MusicManager::current()-&gt;stop();
+ }
+ 
+ /* EOF */
+
+Modified: trunk/src/windstille_main.cxx
+===================================================================
+--- trunk/src/windstille_main.cxx	2005-06-26 22:49:00 UTC (rev 444)
++++ trunk/src/windstille_main.cxx	2005-06-27 00:03:58 UTC (rev 445)
+@@ -32,7 +32,7 @@
+ #include &quot;fonts.hxx&quot;
+ #include &quot;sector.hxx&quot;
+ #include &quot;input/input_manager.hxx&quot;
+-#include &quot;music_manager.hxx&quot;
++#include &quot;sound/sound_manager.hpp&quot;
+ #include &quot;tile_factory.hxx&quot;
+ 
+ //extern &quot;C&quot; void Init_windstille(void);
+@@ -265,45 +265,28 @@
+ 
+   CL_SetupDisplay::init();
+ 
+-  if (!sound_disabled)
+-    {
+-      CL_SetupSound::init();
+-      CL_SetupVorbis::init();
+-    }
+-
+   window = new CL_DisplayWindow(&quot;Windstille&quot;,
+                                 screen_width, screen_height, fullscreen, allow_resize);
+   CL_Display::clear();
+   CL_Display::flip();
+ 
+-  if (!sound_disabled)
+-    sound = new CL_SoundOutput(44100);
+-
+   resources =  new CL_ResourceManager();
+   resources-&gt;add_resources(CL_ResourceManager(datadir + &quot;windstille.xml&quot;, false));
+   resources-&gt;add_resources(CL_ResourceManager(datadir + &quot;tiles.xml&quot;, false));
+ 
+   Fonts::init(); 
+-  MusicManager::init();
++  sound_manager = new SoundManager();
+ }
+ 
+ void
+ WindstilleMain::deinit_modules()
+ {
+-  MusicManager::deinit();
++  delete sound_manager;
++  sound_manager = 0;
+   Fonts::deinit();
+ 
+-  if (!sound_disabled)
+-    delete sound;
+-  
+   delete window;
+ 
+-  if (!sound_disabled)
+-    {
+-      CL_SetupVorbis::init();
+-      CL_SetupSound::init();
+-    }
+-
+   CL_SetupDisplay::init();
+ 
+   CL_SetupGL::init();
+
+Modified: trunk/src/windstille_main.hxx
+===================================================================
+--- trunk/src/windstille_main.hxx	2005-06-26 22:49:00 UTC (rev 444)
++++ trunk/src/windstille_main.hxx	2005-06-27 00:03:58 UTC (rev 445)
+@@ -22,7 +22,6 @@
+ 
+ #include &lt;ClanLib/gl.h&gt;
+ #include &lt;ClanLib/application.h&gt;
+-#include &lt;ClanLib/sound.h&gt;
+ 
+ class WindstilleMain : public CL_ClanApplication
+ {
+@@ -39,7 +38,6 @@
+   std::string playback_file;
+   std::string screenshot_dir;
+   
+-  CL_SoundOutput*   sound;
+   CL_DisplayWindow* window;
+ public:
+   WindstilleMain();
+
+Modified: trunk/src/windstille_menu.cxx
+===================================================================
+--- trunk/src/windstille_menu.cxx	2005-06-26 22:49:00 UTC (rev 444)
++++ trunk/src/windstille_menu.cxx	2005-06-27 00:03:58 UTC (rev 445)
+@@ -28,7 +28,7 @@
+ #include &quot;input/controller.hxx&quot;
+ #include &quot;windstille_menu.hxx&quot;
+ #include &quot;game_session.hxx&quot;
+-#include &quot;music_manager.hxx&quot;
++#include &quot;sound/sound_manager.hpp&quot;
+ #include &quot;windstille_bonus.hxx&quot;
+ #include &quot;input/input_manager.hxx&quot;
+ 
+@@ -71,13 +71,14 @@
+               if ((current_choice == 1 &amp;&amp; !bonus_active)
+                   || (current_choice == 2 &amp;&amp; bonus_active))// QUIT
+                 {
++                  sound_manager-&gt;stop_music();
+                   fadeout();
+                   quit();
+                   break;
+                 }
+               else if (current_choice == 1 &amp;&amp; bonus_active)
+                 {
+-                  MusicManager::current()-&gt;stop();
++                  sound_manager-&gt;stop_music();
+                   fadeout();
+                   WindstilleBonus bonus;
+                   bonus.display();
+@@ -86,8 +87,8 @@
+                 }
+               else if (current_choice == 0) // start game
+                 {
+-                  MusicManager::current()-&gt;stop();
+                   InputManager::clear();
++                  sound_manager-&gt;stop_music();
+                   fadeout();
+                   GameSession game(&quot;levels/newformat2.wst&quot;);
+                   game.display ();
+@@ -97,7 +98,6 @@
+               else if (current_choice == 1) // start editor
+                 {
+                   /*
+-                  MusicManager::current()-&gt;stop();
+                   InputManager::clear();
+                   fadeout();
+                   Editor editor;
+@@ -221,6 +221,7 @@
+                                     CL_Display::get_width(), CL_Display::get_height()),
+                             CL_Color(0,0,0, std::min(alpha, 255)));
+       CL_Display::flip();
++      sound_manager-&gt;update();
+       CL_System::keep_alive();
+       CL_System::sleep(50);
+       alpha += 15;
+@@ -231,13 +232,12 @@
+ WindstilleMenu::on_startup()
+ {
+   CL_Display::get_current_window()-&gt;hide_cursor();
+-  MusicManager::current()-&gt;play(datadir + &quot;music/jingle.ogg&quot;, false);
++  sound_manager-&gt;play_music(&quot;music/jingle.ogg&quot;);
+ }
+ 
+ void
+ WindstilleMenu::on_shutdown()
+ {
+-  MusicManager::current()-&gt;stop();
+ }
+ 
+ /* EOF */
+
+Modified: trunk/src/windstille_menu.hxx
+===================================================================
+--- trunk/src/windstille_menu.hxx	2005-06-26 22:49:00 UTC (rev 444)
++++ trunk/src/windstille_menu.hxx	2005-06-27 00:03:58 UTC (rev 445)
+@@ -21,7 +21,6 @@
+ #define HEADER_WINDESTILLE_MENU_HXX
+ 
+ #include &lt;ClanLib/Display/sprite.h&gt;
+-#include &lt;ClanLib/Sound/soundbuffer.h&gt;
+ #include &quot;screen.hxx&quot;
+ 
+ /** */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000101.html">[Windstille-commit] r444 - in trunk: data/controller src src/input
+</A></li>
+	<LI>Next message: <A HREF="000103.html">[Windstille-commit] r446 - in trunk: . mk/jam src src/lisp src/sound src/tinygettext
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#102">[ date ]</a>
+              <a href="thread.html#102">[ thread ]</a>
+              <a href="subject.html#102">[ subject ]</a>
+              <a href="author.html#102">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

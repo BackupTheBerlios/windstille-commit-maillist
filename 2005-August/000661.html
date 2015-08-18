@@ -1,0 +1,592 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1008 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1008%20-%20trunk/src&In-Reply-To=%3C200508221257.j7MCvpMb010596%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000660.html">
+   <LINK REL="Next"  HREF="000662.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1008 - trunk/src</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1008%20-%20trunk/src&In-Reply-To=%3C200508221257.j7MCvpMb010596%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1008 - trunk/src">grumbel at berlios.de
+       </A><BR>
+    <I>Mon Aug 22 14:57:51 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000660.html">[Windstille-commit] r1007 - trunk/src/gui
+</A></li>
+        <LI>Next message: <A HREF="000662.html">[Windstille-commit] r1009 - trunk/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#661">[ date ]</a>
+              <a href="thread.html#661">[ thread ]</a>
+              <a href="subject.html#661">[ subject ]</a>
+              <a href="author.html#661">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-08-22 14:57:49 +0200 (Mon, 22 Aug 2005)
+New Revision: 1008
+
+Added:
+   trunk/src/border_font_effect.cpp
+   trunk/src/border_font_effect.hpp
+   trunk/src/font_effect.hpp
+Modified:
+   trunk/src/Jamfile
+   trunk/src/blitter.cpp
+   trunk/src/blitter.hpp
+   trunk/src/fonts.cpp
+   trunk/src/ttf_font.cpp
+   trunk/src/ttf_font.hpp
+Log:
+- added font effects API, could need a little bit more
+
+Modified: trunk/src/Jamfile
+===================================================================
+--- trunk/src/Jamfile	2005-08-22 11:13:45 UTC (rev 1007)
++++ trunk/src/Jamfile	2005-08-22 12:57:49 UTC (rev 1008)
+@@ -27,6 +27,8 @@
+         bomb.hpp
+ 	box.cpp
+  	box.hpp
++        border_font_effect.hpp
++        border_font_effect.cpp
+         camera.cpp
+         camera.hpp
+         character.cpp
+@@ -51,6 +53,7 @@
+         entity.hpp
+         elevator.hpp
+         elevator.cpp
++        font_effect.hpp
+         inventory.cpp
+         inventory.hpp
+         ttf_font.cpp
+
+Modified: trunk/src/blitter.cpp
+===================================================================
+--- trunk/src/blitter.cpp	2005-08-22 11:13:45 UTC (rev 1007)
++++ trunk/src/blitter.cpp	2005-08-22 12:57:49 UTC (rev 1008)
+@@ -53,4 +53,34 @@
+   SDL_UnlockSurface(surface);
+ }
+ 
++void 
++blit_ftbitmap(SDL_Surface* target, const FT_Bitmap&amp; brush, int x_pos, int y_pos)
++{
++  SDL_LockSurface(target);
++  
++  int start_x = std::max(0, -x_pos);
++  int start_y = std::max(0, -y_pos);
++  
++  int end_x = std::min(brush.width, target-&gt;w  - x_pos);
++  int end_y = std::min(brush.rows,  target-&gt;h - y_pos);
++
++  unsigned char* target_buf = static_cast&lt;unsigned char*&gt;(target-&gt;pixels);
++
++  int target_pitch = target-&gt;pitch;
++
++  for (int y = start_y; y &lt; end_y; ++y)
++    for (int x = start_x; x &lt; end_x; ++x)
++      {
++        int target_pos = (y + y_pos) * target_pitch + 4*(x + x_pos);
++        int brush_pos  = y * brush.pitch + x;
++            
++        target_buf[target_pos + 0] = 255;
++        target_buf[target_pos + 1] = 255;
++        target_buf[target_pos + 2] = 255;
++        target_buf[target_pos + 3] = brush.buffer[brush_pos];
++      }
++    
++  SDL_UnlockSurface(target);
++}
++
+ /* EOF */
+
+Modified: trunk/src/blitter.hpp
+===================================================================
+--- trunk/src/blitter.hpp	2005-08-22 11:13:45 UTC (rev 1007)
++++ trunk/src/blitter.hpp	2005-08-22 12:57:49 UTC (rev 1008)
+@@ -22,6 +22,10 @@
+ 
+ #include &lt;SDL.h&gt;
+ 
++#include &lt;ft2build.h&gt;
++#include FT_FREETYPE_H
++#include FT_GLYPH_H
++
+ /** Duplicate all the edge pixel of the given rectangle to the outside
+     of the rectangle, thus creating a border around the given
+     rectangle, this is needed for OpenGL textures to avoid filtering
+@@ -33,6 +37,7 @@
+     X X X X X    4 4 5 6 6
+ */
+ void generate_border(SDL_Surface* surface, int x_pos, int y_pos, int width, int height);
++void blit_ftbitmap(SDL_Surface* target, const FT_Bitmap&amp; brush, int x_pos, int y_pos);
+ 
+ #endif
+ 
+
+Added: trunk/src/border_font_effect.cpp
+===================================================================
+--- trunk/src/border_font_effect.cpp	2005-08-22 11:13:45 UTC (rev 1007)
++++ trunk/src/border_font_effect.cpp	2005-08-22 12:57:49 UTC (rev 1008)
+@@ -0,0 +1,87 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &lt;algorithm&gt;
++#include &quot;border_font_effect.hpp&quot;
++
++BorderFontEffect::BorderFontEffect(int size_)
++  : size(size_)
++{
++}
++
++BorderFontEffect::~BorderFontEffect()
++{
++}
++  
++int
++BorderFontEffect::get_height(int orig_font_size) const
++{
++  return orig_font_size + 2*size ;
++}
++  
++int
++BorderFontEffect::get_glyph_width(int orig_glyph_width) const
++{
++  return orig_glyph_width + 2*size ;
++}
++
++int
++BorderFontEffect::get_glyph_height(int orig_glyph_height) const
++{
++  return orig_glyph_height + 2*size ;
++}
++  
++void
++BorderFontEffect::blit(SDL_Surface* target, const FT_Bitmap&amp; brush, int x_pos, int y_pos) const
++{
++  SDL_LockSurface(target);
++  
++  int start_x = std::max(0, -x_pos);
++  int start_y = std::max(0, -y_pos);
++  
++  int end_x = std::min(brush.width, target-&gt;w  - x_pos);
++  int end_y = std::min(brush.rows,  target-&gt;h - y_pos);
++
++  unsigned char* target_buf = static_cast&lt;unsigned char*&gt;(target-&gt;pixels);
++
++  int target_pitch = target-&gt;pitch;
++
++  for (int y = start_y; y &lt; end_y; ++y)
++    for (int x = start_x; x &lt; end_x; ++x)
++      {
++        int target_pos = (y + y_pos) * target_pitch + 4*(x + x_pos);
++        int brush_pos  = y * brush.pitch + x;
++            
++        target_buf[target_pos + 0] = int(float(y)/brush.width * 255);
++        target_buf[target_pos + 1] = int(float(y)/brush.width * 255);
++        target_buf[target_pos + 2] = 255;
++        target_buf[target_pos + 3] = brush.buffer[brush_pos];
++      }
++    
++  SDL_UnlockSurface(target);
++
++}
++
++/* EOF */
+
+Added: trunk/src/border_font_effect.hpp
+===================================================================
+--- trunk/src/border_font_effect.hpp	2005-08-22 11:13:45 UTC (rev 1007)
++++ trunk/src/border_font_effect.hpp	2005-08-22 12:57:49 UTC (rev 1008)
+@@ -0,0 +1,54 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_WINDSTILLE_BORDER_FONT_EFFECT_HPP
++#define HEADER_WINDSTILLE_BORDER_FONT_EFFECT_HPP
++
++#include &quot;font_effect.hpp&quot;
++
++/** */
++class BorderFontEffect : public FontEffect
++{
++private:
++  int size;
++public:
++  BorderFontEffect(int size);
++  ~BorderFontEffect();
++  
++  int get_height(int orig_font_size) const;
++  
++  int get_glyph_width(int orig_glyph_width) const;
++  int get_glyph_height(int orig_glyph_height) const;
++  
++  void blit(SDL_Surface* target, const FT_Bitmap&amp; brush, int x_pos, int y_pos) const;
++
++private:
++  BorderFontEffect (const BorderFontEffect&amp;);
++  BorderFontEffect&amp; operator= (const BorderFontEffect&amp;);
++};
++
++#endif
++
++/* EOF */
+
+Added: trunk/src/font_effect.hpp
+===================================================================
+--- trunk/src/font_effect.hpp	2005-08-22 11:13:45 UTC (rev 1007)
++++ trunk/src/font_effect.hpp	2005-08-22 12:57:49 UTC (rev 1008)
+@@ -0,0 +1,57 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_FONT_EFFECT_HPP
++#define HEADER_FONT_EFFECT_HPP
++
++#include &lt;SDL.h&gt;
++#include &lt;ft2build.h&gt;
++#include FT_FREETYPE_H
++#include FT_GLYPH_H
++
++/** */
++class FontEffect
++{
++private:
++public:
++  FontEffect() {}
++  virtual ~FontEffect() {}
++  
++  /** Returns the new height of the font after its transformation */
++  virtual int get_height(int orig_font_size) const =0;
++
++  virtual int get_glyph_width(int orig_glyph_width) const =0;
++  virtual int get_glyph_height(int orig_glyph_height) const =0;
++
++  virtual void blit(SDL_Surface* target, const FT_Bitmap&amp; brush, int x_pos, int y_pos) const =0;
++
++private:
++  FontEffect (const FontEffect&amp;);
++  FontEffect&amp; operator= (const FontEffect&amp;);
++};
++
++#endif
++
++/* EOF */
+
+Modified: trunk/src/fonts.cpp
+===================================================================
+--- trunk/src/fonts.cpp	2005-08-22 11:13:45 UTC (rev 1007)
++++ trunk/src/fonts.cpp	2005-08-22 12:57:49 UTC (rev 1008)
+@@ -18,6 +18,7 @@
+ //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ 
+ #include &quot;globals.hpp&quot;
++#include &quot;border_font_effect.hpp&quot;
+ #include &quot;fonts.hpp&quot;
+ 
+ TTFFont* Fonts::ttffont = 0;
+@@ -27,8 +28,12 @@
+ void
+ Fonts::init()
+ {
+-  ttffont = new TTFFont(&quot;fonts/VeraMono.ttf&quot;, 12);
+-  ttfdialog  = new TTFFont(&quot;fonts/Vera.ttf&quot;, 20);
++  BorderFontEffect* border_effect = new BorderFontEffect(1);
++
++  ttffont   = new TTFFont(&quot;fonts/VeraMono.ttf&quot;, 12);
++  ttfdialog = new TTFFont(&quot;fonts/Vera.ttf&quot;, 20, border_effect);
++
++  delete border_effect;
+ }
+ 
+ void
+
+Modified: trunk/src/ttf_font.cpp
+===================================================================
+--- trunk/src/ttf_font.cpp	2005-08-22 11:13:45 UTC (rev 1007)
++++ trunk/src/ttf_font.cpp	2005-08-22 12:57:49 UTC (rev 1008)
+@@ -36,6 +36,7 @@
+ #include &quot;glutil/texture_manager.hpp&quot;
+ #include &quot;blitter.hpp&quot;
+ #include &quot;ttf_font.hpp&quot;
++#include &quot;font_effect.hpp&quot;
+ #include &quot;util.hpp&quot;
+ 
+ TTFCharacter::TTFCharacter(const Rect&amp; pos_,
+@@ -57,50 +58,25 @@
+       256 characters, no full unicode */
+   std::vector&lt;TTFCharacter&gt; characters;
+ 
++  /** The original size of the font in pixels */
+   int size;
+ 
++  /** The amount of pixels to advance in y direction after a finished
++      line, this can be transformed by FontEffect */
++  int height;
++
+   /** OpenGL Texture which holds all the characters */
+   Texture texture;
+ };
+ 
+ FT_Library TTFFontImpl::library;
+ 
+-void 
+-blit_ftbitmap(SDL_Surface* target, const FT_Bitmap&amp; brush, int x_pos, int y_pos)
+-{
+-  SDL_LockSurface(target);
+-  
+-  int start_x = std::max(0, -x_pos);
+-  int start_y = std::max(0, -y_pos);
+-  
+-  int end_x = std::min(brush.width, target-&gt;w  - x_pos);
+-  int end_y = std::min(brush.rows,  target-&gt;h - y_pos);
+-
+-  unsigned char* target_buf = static_cast&lt;unsigned char*&gt;(target-&gt;pixels);
+-
+-  int target_pitch = target-&gt;pitch;
+-
+-  for (int y = start_y; y &lt; end_y; ++y)
+-    for (int x = start_x; x &lt; end_x; ++x)
+-      {
+-        int target_pos = (y + y_pos) * target_pitch + 4*(x + x_pos);
+-        int brush_pos  = y * brush.pitch + x;
+-            
+-        target_buf[target_pos + 0] = 255;
+-        target_buf[target_pos + 1] = 255;
+-        target_buf[target_pos + 2] = 255;
+-        target_buf[target_pos + 3] = brush.buffer[brush_pos];
+-      }
+-    
+-  SDL_UnlockSurface(target);
+-}
+-
+-TTFFont::TTFFont(const std::string&amp; filename, int size)
++TTFFont::TTFFont(const std::string&amp; filename, int size_, FontEffect* effect)
+   : impl(new TTFFontImpl())
+ {
+-  assert(size &gt; 0);
++  assert(size_ &gt; 0);
+ 
+-  impl-&gt;size = size;
++  impl-&gt;size = size_;
+ 
+   IFileStream fin(filename);
+   std::istreambuf_iterator&lt;char&gt; first(fin), last;
+@@ -114,7 +90,7 @@
+       throw std::runtime_error(&quot;Couldn't load font: '&quot; + filename + &quot;'&quot;);
+     }
+   
+-  FT_Set_Pixel_Sizes( face, size, size);
++  FT_Set_Pixel_Sizes(face, impl-&gt;size, impl-&gt;size);
+ 
+   FT_Select_Charmap(face,  FT_ENCODING_UNICODE);
+ 
+@@ -133,6 +109,8 @@
+   int x_pos = 1;
+   int y_pos = 1;
+ 
++  impl-&gt;height = effect ? effect-&gt;get_height(impl-&gt;size) : impl-&gt;size;
++
+   // We limit ourself to 256 characters for the momemnt
+   for(int glyph_index = 0; glyph_index &lt; 256; glyph_index += 1)
+     {
+@@ -142,30 +120,36 @@
+           throw std::runtime_error(&quot;couldn't load char&quot;);
+         }
+       
+-      blit_ftbitmap(pixelbuffer, face-&gt;glyph-&gt;bitmap, x_pos, y_pos);
+-      generate_border(pixelbuffer, x_pos, y_pos, 
+-                      face-&gt;glyph-&gt;bitmap.width, face-&gt;glyph-&gt;bitmap.rows);
++      if (!effect)
++        blit_ftbitmap(pixelbuffer, face-&gt;glyph-&gt;bitmap, x_pos, y_pos);
++      else
++        effect-&gt;blit(pixelbuffer, face-&gt;glyph-&gt;bitmap, x_pos, y_pos);
+ 
++      int glyph_width  = effect ? effect-&gt;get_glyph_width(face-&gt;glyph-&gt;bitmap.width) : face-&gt;glyph-&gt;bitmap.width;
++      int glyph_height = effect ? effect-&gt;get_glyph_height(face-&gt;glyph-&gt;bitmap.rows) : face-&gt;glyph-&gt;bitmap.rows;
++
++      generate_border(pixelbuffer, x_pos, y_pos, glyph_width, glyph_height);
++
+       Rect pos(Point(face-&gt;glyph-&gt;bitmap_left,  -face-&gt;glyph-&gt;bitmap_top), 
+-               Size (face-&gt;glyph-&gt;bitmap.width, face-&gt;glyph-&gt;bitmap.rows));
++               Size(glyph_width, glyph_height));
+ 
+       Rectf uv(x_pos/float(pixelbuffer-&gt;w),
+                y_pos/float(pixelbuffer-&gt;h),
+-               (x_pos + face-&gt;glyph-&gt;bitmap.width)/float(pixelbuffer-&gt;w),
+-               (y_pos + face-&gt;glyph-&gt;bitmap.rows)/float(pixelbuffer-&gt;h));
++               (x_pos + glyph_width)/float(pixelbuffer-&gt;w),
++               (y_pos + glyph_height)/float(pixelbuffer-&gt;h));
+       
+       impl-&gt;characters.push_back(TTFCharacter(pos, uv,
+                                               face-&gt;glyph-&gt;advance.x &gt;&gt; 6));
+ 
+       // we leave a one pixel border around the letters which we fill with generate_border
+-      x_pos += face-&gt;glyph-&gt;bitmap.width + 2;
+-      if (x_pos + size + 2 &gt; pixelbuffer-&gt;w)
++      x_pos += glyph_width + 2;
++      if (x_pos + impl-&gt;height + 2 &gt; pixelbuffer-&gt;w)
+         {
+-          y_pos += size + 2;
++          y_pos += impl-&gt;height + 2;
+           x_pos = 1;
+         }
+ 
+-      if (y_pos + size + 2 &gt; pixelbuffer-&gt;h)
++      if (y_pos + impl-&gt;height + 2 &gt; pixelbuffer-&gt;h)
+         throw std::runtime_error(&quot;Font Texture to small&quot;);
+     }
+   FT_Done_Face(face);
+
+Modified: trunk/src/ttf_font.hpp
+===================================================================
+--- trunk/src/ttf_font.hpp	2005-08-22 11:13:45 UTC (rev 1007)
++++ trunk/src/ttf_font.hpp	2005-08-22 12:57:49 UTC (rev 1008)
+@@ -32,6 +32,8 @@
+ #include &quot;math/rect.hpp&quot;
+ #include &quot;glutil/texture.hpp&quot;
+ 
++class FontEffect;
++
+ class TTFCharacter
+ {
+ public:
+@@ -43,6 +45,8 @@
+       uv-coordinates */
+   Rectf uv;
+ 
++  /** Amount of pixels that the cursor will advance after having
++      printed this character */
+   int advance;
+ 
+   TTFCharacter(const Rect&amp; pos, const Rectf&amp; uv, int advance);
+@@ -57,15 +61,21 @@
+   static void init();
+   static void deinit();
+ 
+-  TTFFont(const std::string&amp; file, int size);
++  TTFFont(const std::string&amp; file, int size, FontEffect* effect = 0);
+   ~TTFFont();
+ 
++  /** */
+   int get_height() const;
+ 
+   /** Returns the width of a given piece of text, doesn't take
+       newlines into account */
+   int get_width(const std::string&amp; text) const;
+ 
++  /** Returns the height as given in the constructor, this does *not*
++      take into account any possible resize effects done by
++      FontEffoct */
++  int get_size() const;
++
+   Texture get_texture() const;
+ 
+   const TTFCharacter&amp; get_character(int c) const;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000660.html">[Windstille-commit] r1007 - trunk/src/gui
+</A></li>
+	<LI>Next message: <A HREF="000662.html">[Windstille-commit] r1009 - trunk/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#661">[ date ]</a>
+              <a href="thread.html#661">[ thread ]</a>
+              <a href="subject.html#661">[ subject ]</a>
+              <a href="author.html#661">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

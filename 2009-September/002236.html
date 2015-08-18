@@ -1,0 +1,224 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3239 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3239%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909131422.n8DEM4X8023399%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002235.html">
+   <LINK REL="Next"  HREF="002237.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3239 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3239%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909131422.n8DEM4X8023399%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3239 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Sep 13 16:22:04 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002235.html">[Windstille-commit] r3238 - in trunk/windstille/src: editor	scenegraph
+</A></li>
+        <LI>Next message: <A HREF="002237.html">[Windstille-commit] r3240 - in trunk/windstille/src: display editor	engine
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2236">[ date ]</a>
+              <a href="thread.html#2236">[ thread ]</a>
+              <a href="subject.html#2236">[ subject ]</a>
+              <a href="author.html#2236">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-13 16:22:03 +0200 (Sun, 13 Sep 2009)
+New Revision: 3239
+
+Modified:
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+Log:
+Fixed some issues with object ordering
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-09-12 21:06:43 UTC (rev 3238)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-09-13 14:22:03 UTC (rev 3239)
+@@ -20,6 +20,7 @@
+ #include &lt;limits&gt;
+ #include &lt;assert.h&gt;
+ #include &lt;iostream&gt;
++#include &lt;algorithm&gt;
+ #include &lt;gdkmm/pixbuf.h&gt;
+ 
+ #include &quot;display/scene_context.hpp&quot;
+@@ -166,27 +167,23 @@
+   }
+ }
+ 
+-struct GetLayersFunctor
++SectorModel::Layers
++SectorModel::get_layers() const
+ {
+-  SectorModel::Layers&amp; objects;
+-
+-  GetLayersFunctor(SectorModel::Layers&amp; objects_) 
+-    : objects(objects_)
+-  {}
+-
+-  bool get_layers(const Gtk::TreeModel::iterator&amp; it)
++  Layers lst;
++ 
++  // LayerTree holds the layers in reverse order, so we reverse them here
++  Gtk::TreeModel::Children childs = layer_tree-&gt;children(); 
++  for(Gtk::TreeModel::Children::const_iterator it = childs.begin();
++      it != childs.end(); ++it)
+   {
+-    objects.push_back((*it)[LayerManagerColumns::instance().layer]);
+-    return false;
++    lst.push_back((*it)[LayerManagerColumns::instance().layer]);
+   }
+-};
+ 
+-SectorModel::Layers
+-SectorModel::get_layers() const
+-{
+-  Layers lst;
+-  GetLayersFunctor func(lst);
+-  layer_tree-&gt;foreach_iter(sigc::mem_fun(func, &amp;GetLayersFunctor::get_layers));
++  // FIXME: for some reason reverse iterators don't work with
++  // Gtk::TreeModel::Children, so we do it manually
++  std::reverse(lst.begin(), lst.end());
++
+   return lst;
+ }
+ 
+@@ -381,7 +378,15 @@
+         std::string id_str;
+         if (j-&gt;get(&quot;edge&quot;, id_str))
+         {
+-          layer-&gt;add(id_table[id_str]);
++          std::map&lt;std::string, ObjectModelHandle&gt;::iterator it = id_table.find(id_str);
++          if (it == id_table.end())
++          {
++            std::cout &lt;&lt; &quot;SectorModel::load_layer: couldn't resource navgraph-edge-ref: &quot; &lt;&lt; id_str &lt;&lt; std::endl;
++          }
++          else
++          {
++            layer-&gt;add(it-&gt;second);
++          }
+         }
+       }
+       else
+@@ -451,7 +456,8 @@
+       reader.get(&quot;layers&quot;, layers_section);
+ 
+       const std::vector&lt;FileReader&gt;&amp; sections = layers_section.get_sections();
+-      for(std::vector&lt;FileReader&gt;::const_iterator i = sections.begin(); i != sections.end(); ++i)
++      // Load layer in reversed order, as ListStore is in reverse
++      for(std::vector&lt;FileReader&gt;::const_reverse_iterator i = sections.rbegin(); i != sections.rend(); ++i)
+       {
+         if (i-&gt;get_name() == &quot;layer&quot;)
+         {
+@@ -496,17 +502,16 @@
+   writer.end_section();
+ 
+   writer.start_section(&quot;layers&quot;);
+-  for(Gtk::ListStore::Children::iterator i = layer_tree-&gt;children().begin(); i != layer_tree-&gt;children().end(); ++i)
++  const Layers&amp; layers = get_layers();
++  for(Layers::const_iterator i = layers.begin(); i != layers.end(); ++i)
+   {
+-    const Gtk::TreeRow&amp; row = *i;
+-
+     writer.start_section(&quot;layer&quot;);
+-    writer.write(&quot;name&quot;,    (Glib::ustring)(row[LayerManagerColumns::instance().name]));
+-    writer.write(&quot;visible&quot;, (bool)row[LayerManagerColumns::instance().visible]);
+-    writer.write(&quot;locked&quot;,  (bool)row[LayerManagerColumns::instance().locked]);
++    writer.write(&quot;name&quot;,    (*i)-&gt;get_name());
++    writer.write(&quot;visible&quot;, (*i)-&gt;is_visible());
++    writer.write(&quot;locked&quot;,  (*i)-&gt;is_locked());
+ 
+     writer.start_section(&quot;objects&quot;);
+-    ((LayerHandle)row[LayerManagerColumns::instance().layer])-&gt;write(writer);
++    (*i)-&gt;write(writer);
+     writer.end_section();
+ 
+     writer.end_section();
+@@ -561,7 +566,7 @@
+   sg.clear();
+   
+   const Layers&amp; layers = get_layers();
+-  for(Layers::const_reverse_iterator layer = layers.rbegin(); layer != layers.rend(); ++layer)
++  for(Layers::const_iterator layer = layers.begin(); layer != layers.end(); ++layer)
+   {
+     if (*layer)
+     {
+@@ -585,7 +590,7 @@
+ void
+ SectorModel::on_row_changed(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter)
+ {
+-  std::cout &lt;&lt; &quot;LayerManager:on_row_changed&quot; &lt;&lt; std::endl;
++  //std::cout &lt;&lt; &quot;LayerManager:on_row_changed&quot; &lt;&lt; std::endl;
+ 
+   if (iter)
+   {
+@@ -613,13 +618,13 @@
+ void
+ SectorModel::on_row_inserted(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter)
+ {
+-  std::cout &lt;&lt; &quot;LayerManager:on_row_inserted&quot; &lt;&lt; std::endl;
++  //std::cout &lt;&lt; &quot;LayerManager:on_row_inserted&quot; &lt;&lt; std::endl;
+ }
+ 
+ void
+ SectorModel::on_rows_reordered(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter, int* new_order)
+ {
+-  std::cout &lt;&lt; &quot;LayerManager:on_row_reordered&quot; &lt;&lt; std::endl;
++  //std::cout &lt;&lt; &quot;LayerManager:on_row_reordered&quot; &lt;&lt; std::endl;
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-09-12 21:06:43 UTC (rev 3238)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-09-13 14:22:03 UTC (rev 3239)
+@@ -41,7 +41,7 @@
+ {
+ private:
+   boost::scoped_ptr&lt;NavigationGraphModel&gt; nav_graph;
+-  Glib::RefPtr&lt;Gtk::ListStore&gt;       layer_tree;
++  Glib::RefPtr&lt;Gtk::ListStore&gt; layer_tree;
+   Color ambient_color;
+   
+ public:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002235.html">[Windstille-commit] r3238 - in trunk/windstille/src: editor	scenegraph
+</A></li>
+	<LI>Next message: <A HREF="002237.html">[Windstille-commit] r3240 - in trunk/windstille/src: display editor	engine
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2236">[ date ]</a>
+              <a href="thread.html#2236">[ thread ]</a>
+              <a href="subject.html#2236">[ subject ]</a>
+              <a href="author.html#2236">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

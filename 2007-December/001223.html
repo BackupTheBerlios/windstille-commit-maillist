@@ -1,0 +1,345 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1572 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-December/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1572%20-%20trunk/griv&In-Reply-To=%3C200712022032.lB2KW0pm008826%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001222.html">
+   <LINK REL="Next"  HREF="001224.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1572 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1572%20-%20trunk/griv&In-Reply-To=%3C200712022032.lB2KW0pm008826%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1572 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Dec  2 21:32:00 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001222.html">[Windstille-commit] r1571 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001224.html">[Windstille-commit] r1573 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1223">[ date ]</a>
+              <a href="thread.html#1223">[ thread ]</a>
+              <a href="subject.html#1223">[ subject ]</a>
+              <a href="author.html#1223">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-12-02 21:32:00 +0100 (Sun, 02 Dec 2007)
+New Revision: 1572
+
+Modified:
+   trunk/griv/image.cpp
+   trunk/griv/image.hpp
+   trunk/griv/large_surface.hpp
+   trunk/griv/loader.cpp
+   trunk/griv/software_surface.hpp
+   trunk/griv/surface.cpp
+   trunk/griv/surface.hpp
+   trunk/griv/thumbnail_store.cpp
+   trunk/griv/thumbnail_store.hpp
+Log:
+- replaced SDL_Surface with SoftwareSurface
+
+Modified: trunk/griv/image.cpp
+===================================================================
+--- trunk/griv/image.cpp	2007-12-02 16:05:52 UTC (rev 1571)
++++ trunk/griv/image.cpp	2007-12-02 20:32:00 UTC (rev 1572)
+@@ -78,14 +78,17 @@
+ }
+ 
+ void
+-Image::receive(SDL_Surface* new_surface, int r)
++Image::receive(SoftwareSurface* new_surface, int r)
+ {
+   SDL_LockMutex(mutex);
+   
+   if (new_surface)
+     {
+       if (received_surface)
+-        SDL_FreeSurface(received_surface);
++        {
++          delete received_surface;
++          received_surface = 0;
++        }
+ 
+       received_surface     = new_surface;
+       received_surface_res = r;
+@@ -135,12 +138,12 @@
+           if (!surface_16x16)
+             { // Use surface as the smallest possible surface
+               // FIXME: When somebody is fast this could mean a non 16x16 surface
+-              surface_16x16 = new Surface(boost::shared_ptr&lt;SoftwareSurface&gt;(new SoftwareSurface(received_surface)));
++              surface_16x16 = new Surface(SWSurfaceHandle(received_surface));
+             }
+           else
+             { // Replace the current surface
+               delete surface;
+-              surface = new LargeSurface(boost::shared_ptr&lt;SoftwareSurface&gt;(new SoftwareSurface(received_surface)));
++              surface = new LargeSurface(SWSurfaceHandle(received_surface));
+               surface_resolution = received_surface_res;
+             }
+ 
+
+Modified: trunk/griv/image.hpp
+===================================================================
+--- trunk/griv/image.hpp	2007-12-02 16:05:52 UTC (rev 1571)
++++ trunk/griv/image.hpp	2007-12-02 20:32:00 UTC (rev 1572)
+@@ -32,6 +32,7 @@
+ #include &quot;griv.hpp&quot;
+ 
+ class Surface;
++class SoftwareSurface;
+ class LargeSurface;
+ 
+ class Image
+@@ -45,8 +46,8 @@
+   int  requested_res;
+ 
+   /** Newly received surface */
+-  SDL_Surface* received_surface;
+-  int          received_surface_res;
++  SoftwareSurface* received_surface;
++  int              received_surface_res;
+   
+   int          surface_resolution;
+   LargeSurface*     surface;
+@@ -70,7 +71,7 @@
+   Image(const std::string&amp; url);
+   ~Image();
+ 
+-  void receive(SDL_Surface* new_surface, int r);
++  void receive(SoftwareSurface* new_surface, int r);
+   void draw(float x_offset, float y_offset, float res);
+   void update(float delta);
+ 
+
+Modified: trunk/griv/large_surface.hpp
+===================================================================
+--- trunk/griv/large_surface.hpp	2007-12-02 16:05:52 UTC (rev 1571)
++++ trunk/griv/large_surface.hpp	2007-12-02 20:32:00 UTC (rev 1572)
+@@ -37,7 +37,7 @@
+   Grid&lt;Surface*&gt; grid;
+ 
+ public:
+-  LargeSurface(boost::shared_ptr&lt;SoftwareSurface&gt; surface);
++  LargeSurface(SWSurfaceHandle surface);
+   ~LargeSurface();
+ 
+   void draw(float x, float y, float w, float h);  
+
+Modified: trunk/griv/loader.cpp
+===================================================================
+--- trunk/griv/loader.cpp	2007-12-02 16:05:52 UTC (rev 1571)
++++ trunk/griv/loader.cpp	2007-12-02 20:32:00 UTC (rev 1572)
+@@ -108,7 +108,7 @@
+       if (!job.image-&gt;surface ||
+           job.image-&gt;surface_resolution != job.image-&gt;requested_res)
+         {
+-          SDL_Surface* img = store-&gt;get_by_url(job.image-&gt;url, job.image-&gt;requested_res);
++          SoftwareSurface* img = store-&gt;get_by_url(job.image-&gt;url, job.image-&gt;requested_res);
+           if (img)
+             {
+               job.image-&gt;receive(img, job.image-&gt;requested_res);
+@@ -117,13 +117,16 @@
+             {
+               // No thumbnail, assuming we need the original
+               std::cout &lt;&lt; &quot;Loading original: &quot; &lt;&lt; job.image-&gt;url &lt;&lt; std::endl;
+-                { 
+-                  img = IMG_Load(job.image-&gt;url.substr(7).c_str()); // cut <A HREF="file://">file://</A> part
+-                  std::cout &lt;&lt; &quot;Loading: &quot; &lt;&lt; job.image-&gt;requested_res &lt;&lt; &quot; &quot; &lt;&lt; img &lt;&lt; &quot; &quot; 
+-                            &lt;&lt; img-&gt;w &lt;&lt; &quot;x&quot; &lt;&lt; img-&gt;h &lt;&lt; &quot; &quot;
+-                            &lt;&lt; job.image-&gt;url.substr(7) &lt;&lt; std::endl;
+-                  job.image-&gt;receive(img, job.image-&gt;requested_res);
+-                }
++              try { 
++                img = new SoftwareSurface(job.image-&gt;url.substr(7)); // cut <A HREF="file://">file://</A> part
++                std::cout &lt;&lt; &quot;Loading: &quot; &lt;&lt; job.image-&gt;requested_res &lt;&lt; &quot; &quot; &lt;&lt; img &lt;&lt; &quot; &quot; 
++                          &lt;&lt; img-&gt;get_width() &lt;&lt; &quot;x&quot; &lt;&lt; img-&gt;get_height() &lt;&lt; &quot; &quot;
++                          &lt;&lt; job.image-&gt;url.substr(7) &lt;&lt; std::endl;
++              } catch(std::exception&amp; err) {
++                std::cout &lt;&lt; &quot;Loader: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
++                img = 0;
++              }
++              job.image-&gt;receive(img, job.image-&gt;requested_res);
+             }
+         }
+     }
+
+Modified: trunk/griv/software_surface.hpp
+===================================================================
+--- trunk/griv/software_surface.hpp	2007-12-02 16:05:52 UTC (rev 1571)
++++ trunk/griv/software_surface.hpp	2007-12-02 20:32:00 UTC (rev 1572)
+@@ -28,6 +28,7 @@
+ 
+ #include &quot;SDL.h&quot;
+ #include &lt;string&gt;
++#include &lt;boost/shared_ptr.hpp&gt;
+ 
+ /** */
+ class SoftwareSurface
+@@ -49,6 +50,8 @@
+   SoftwareSurface&amp; operator= (const SoftwareSurface&amp;);
+ };
+ 
++typedef boost::shared_ptr&lt;SoftwareSurface&gt; SWSurfaceHandle;
++
+ #endif
+ 
+ /* EOF */
+
+Modified: trunk/griv/surface.cpp
+===================================================================
+--- trunk/griv/surface.cpp	2007-12-02 16:05:52 UTC (rev 1571)
++++ trunk/griv/surface.cpp	2007-12-02 20:32:00 UTC (rev 1572)
+@@ -30,7 +30,7 @@
+ #include &quot;software_surface.hpp&quot;
+ #include &quot;surface.hpp&quot;
+ 
+-Surface::Surface(boost::shared_ptr&lt;SoftwareSurface&gt; surface)
++Surface::Surface(SWSurfaceHandle surface)
+   : surface(surface),
+     texture(0)
+ {
+
+Modified: trunk/griv/surface.hpp
+===================================================================
+--- trunk/griv/surface.hpp	2007-12-02 16:05:52 UTC (rev 1571)
++++ trunk/griv/surface.hpp	2007-12-02 20:32:00 UTC (rev 1572)
+@@ -29,15 +29,14 @@
+ #include &quot;SDL.h&quot;
+ #include &lt;boost/smart_ptr.hpp&gt;
+ #include &quot;texture.hpp&quot;
++#include &quot;software_surface.hpp&quot;
+ 
+-class SoftwareSurface;
+-
+ /** */
+ class Surface
+ {
+ private:
+   /** Software backstore for the image */
+-  boost::shared_ptr&lt;SoftwareSurface&gt; surface;
++  SWSurfaceHandle surface;
+   
+   Texture* texture;
+   int tex_w;
+@@ -49,7 +48,7 @@
+   float aspect;
+ 
+ public:
+-  Surface(boost::shared_ptr&lt;SoftwareSurface&gt;);
++  Surface(SWSurfaceHandle surface);
+   ~Surface();
+ 
+   void draw(float x, float y, float w, float h);
+
+Modified: trunk/griv/thumbnail_store.cpp
+===================================================================
+--- trunk/griv/thumbnail_store.cpp	2007-12-02 16:05:52 UTC (rev 1571)
++++ trunk/griv/thumbnail_store.cpp	2007-12-02 20:32:00 UTC (rev 1572)
+@@ -30,6 +30,7 @@
+ #include &quot;SDL_image.h&quot;
+ #include &quot;filesystem.hpp&quot;
+ #include &quot;md5.hpp&quot;
++#include &quot;software_surface.hpp&quot;
+ #include &quot;thumbnail_store.hpp&quot;
+ 
+ ThumbnailStore::ThumbnailStore()
+@@ -41,7 +42,7 @@
+ {
+ }
+ 
+-SDL_Surface* 
++SoftwareSurface* 
+ ThumbnailStore::get_by_url(const std::string&amp; url, int thumb_size) // URL is <A HREF="file://...">file://...</A> *not* just a pathname
+ {
+   std::string md5 = MD5::md5_string(url);
+@@ -51,10 +52,13 @@
+       &lt;&lt; thumb_size &lt;&lt; &quot;/&quot; &lt;&lt; md5.substr(0,2) &lt;&lt; &quot;/&quot; &lt;&lt; md5.substr(2) &lt;&lt; &quot;.jpg&quot;;
+   
+   std::string thumb_filename = out.str();
+-  SDL_Surface* img = IMG_Load(thumb_filename.c_str());
+-
+-  if (!img)
++  
++  try 
+     {
++      return new SoftwareSurface(thumb_filename);
++    }
++  catch(std::exception&amp; err) 
++    {
+       // Try to generate the thumbnail
+       try {
+         generate(url.substr(7), thumb_filename, thumb_size); // cut <A HREF="file://">file://</A> part
+@@ -63,10 +67,8 @@
+         return 0;
+       }
+ 
+-      img = IMG_Load(thumb_filename.c_str());
++      return new SoftwareSurface(thumb_filename.c_str());
+     }
+-
+-  return img;
+ }
+ 
+ void
+
+Modified: trunk/griv/thumbnail_store.hpp
+===================================================================
+--- trunk/griv/thumbnail_store.hpp	2007-12-02 16:05:52 UTC (rev 1571)
++++ trunk/griv/thumbnail_store.hpp	2007-12-02 20:32:00 UTC (rev 1572)
+@@ -29,6 +29,8 @@
+ #include &quot;SDL.h&quot;
+ #include &lt;string&gt;
+ 
++class SoftwareSurface;
++
+ /** */
+ class ThumbnailStore
+ {
+@@ -38,7 +40,7 @@
+   ThumbnailStore();
+   ~ThumbnailStore();
+ 
+-  SDL_Surface* get_by_url(const std::string&amp; url, int thumb_size);
++  SoftwareSurface* get_by_url(const std::string&amp; url, int thumb_size);
+   
+   void generate(const std::string&amp; filename, const std::string&amp; thumb_location, int thumb_size);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001222.html">[Windstille-commit] r1571 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001224.html">[Windstille-commit] r1573 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1223">[ date ]</a>
+              <a href="thread.html#1223">[ thread ]</a>
+              <a href="subject.html#1223">[ subject ]</a>
+              <a href="author.html#1223">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

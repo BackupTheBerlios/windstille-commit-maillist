@@ -1,0 +1,320 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3083 - in trunk/windstille/src: display editor	engine objects
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3083%20-%20in%20trunk/windstille/src%3A%20display%20editor%0A%09engine%20objects&In-Reply-To=%3C200908262012.n7QKC1Oo027816%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002079.html">
+   <LINK REL="Next"  HREF="002081.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3083 - in trunk/windstille/src: display editor	engine objects</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3083%20-%20in%20trunk/windstille/src%3A%20display%20editor%0A%09engine%20objects&In-Reply-To=%3C200908262012.n7QKC1Oo027816%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3083 - in trunk/windstille/src: display editor	engine objects">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Aug 26 22:12:01 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002079.html">[Windstille-commit] r3082 - in trunk/windstille/src: engine hud
+</A></li>
+        <LI>Next message: <A HREF="002081.html">[Windstille-commit] r3084 -	trunk/windstille/data/sectors/trainstation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2080">[ date ]</a>
+              <a href="thread.html#2080">[ thread ]</a>
+              <a href="subject.html#2080">[ subject ]</a>
+              <a href="author.html#2080">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-08-26 22:12:01 +0200 (Wed, 26 Aug 2009)
+New Revision: 3083
+
+Modified:
+   trunk/windstille/src/display/surface_drawing_request.hpp
+   trunk/windstille/src/display/surface_quad_drawing_request.hpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/engine/sector.cpp
+   trunk/windstille/src/objects/decal.cpp
+   trunk/windstille/src/objects/decal.hpp
+Log:
+Implemented loading of decal
+
+Modified: trunk/windstille/src/display/surface_drawing_request.hpp
+===================================================================
+--- trunk/windstille/src/display/surface_drawing_request.hpp	2009-08-26 19:28:19 UTC (rev 3082)
++++ trunk/windstille/src/display/surface_drawing_request.hpp	2009-08-26 20:12:01 UTC (rev 3083)
+@@ -19,6 +19,9 @@
+ #ifndef HEADER_WINDSTILLE_DISPLAY_SURFACE_DRAWING_REQUEST_HPP
+ #define HEADER_WINDSTILLE_DISPLAY_SURFACE_DRAWING_REQUEST_HPP
+ 
++#include &quot;display/surface_drawing_request.hpp&quot;
++#include &quot;display/surface_drawing_parameters.hpp&quot;
++
+ class SurfaceDrawingRequest : public DrawingRequest
+ {
+ private:
+
+Modified: trunk/windstille/src/display/surface_quad_drawing_request.hpp
+===================================================================
+--- trunk/windstille/src/display/surface_quad_drawing_request.hpp	2009-08-26 19:28:19 UTC (rev 3082)
++++ trunk/windstille/src/display/surface_quad_drawing_request.hpp	2009-08-26 20:12:01 UTC (rev 3083)
+@@ -19,6 +19,10 @@
+ #ifndef HEADER_WINDSTILLE_DISPLAY_SURFACE_QUAD_DRAWING_REQUEST_HPP
+ #define HEADER_WINDSTILLE_DISPLAY_SURFACE_QUAD_DRAWING_REQUEST_HPP
+ 
++#include &quot;math/vector2f.hpp&quot;
++#include &quot;math/quad.hpp&quot;
++#include &quot;display/drawing_request.hpp&quot;
++
+ class SurfaceQuadDrawingRequest : public DrawingRequest
+ {
+ private:
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-08-26 19:28:19 UTC (rev 3082)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-08-26 20:12:01 UTC (rev 3083)
+@@ -441,7 +441,7 @@
+   writer.write_raw(&quot;;; -*- scheme -*-\n&quot;);
+   writer.start_section(&quot;windstille-sector&quot;);
+ 
+-  writer.write(&quot;version&quot;, 2);
++  writer.write(&quot;version&quot;, 3);
+   writer.write(&quot;name&quot;, &quot;&quot;);
+   writer.write(&quot;ambient-color&quot;, ambient_color);
+   writer.write(&quot;init-script&quot;, &quot;init.nut&quot;);
+
+Modified: trunk/windstille/src/engine/sector.cpp
+===================================================================
+--- trunk/windstille/src/engine/sector.cpp	2009-08-26 19:28:19 UTC (rev 3082)
++++ trunk/windstille/src/engine/sector.cpp	2009-08-26 20:12:01 UTC (rev 3083)
+@@ -18,29 +18,30 @@
+ 
+ #include &quot;engine/sector.hpp&quot;
+ 
++#include &quot;collision/collision_engine.hpp&quot;
++#include &quot;engine/squirrel_thread.hpp&quot;
++#include &quot;navigation/navigation_graph.hpp&quot;
+ #include &quot;objects/background_gradient.hpp&quot;
+-#include &quot;tile/tile_map.hpp&quot;
+-#include &quot;objects/player.hpp&quot;
+-#include &quot;objects/trigger.hpp&quot;
+-#include &quot;objects/test_object.hpp&quot;
+-#include &quot;objects/vrdummy.hpp&quot;
+-#include &quot;sound/sound_manager.hpp&quot;
+-#include &quot;collision/collision_engine.hpp&quot;
++#include &quot;objects/box.hpp&quot;
++#include &quot;objects/character.hpp&quot;
++#include &quot;objects/decal.hpp&quot;
+ #include &quot;objects/elevator.hpp&quot;
+-#include &quot;objects/nightvision.hpp&quot;
+-#include &quot;objects/character.hpp&quot;
++#include &quot;objects/hedgehog.hpp&quot;
+ #include &quot;objects/laser_pointer.hpp&quot;
+-#include &quot;objects/swarm.hpp&quot;
+ #include &quot;objects/liquid.hpp&quot;
++#include &quot;objects/nightvision.hpp&quot;
++#include &quot;objects/player.hpp&quot;
++#include &quot;objects/scriptable_object.hpp&quot;
+ #include &quot;objects/shockwave.hpp&quot;
+-#include &quot;objects/hedgehog.hpp&quot;
+ #include &quot;objects/spider_mine.hpp&quot;
+-#include &quot;objects/box.hpp&quot;
+-#include &quot;objects/scriptable_object.hpp&quot;
+-#include &quot;navigation/navigation_graph.hpp&quot;
++#include &quot;objects/swarm.hpp&quot;
++#include &quot;objects/test_object.hpp&quot;
++#include &quot;objects/trigger.hpp&quot;
++#include &quot;objects/vrdummy.hpp&quot;
+ #include &quot;scenegraph/scene_graph.hpp&quot;
+ #include &quot;scenegraph/scene_graph_drawing_request.hpp&quot;
+-#include &quot;engine/squirrel_thread.hpp&quot;
++#include &quot;sound/sound_manager.hpp&quot;
++#include &quot;tile/tile_map.hpp&quot;
+ 
+ Sector::Sector(const Pathname&amp; arg_filename)
+   : collision_engine(new CollisionEngine()),
+@@ -87,34 +88,38 @@
+   if (debug) std::cout &lt;&lt; &quot;Sector:parse_file '&quot; &lt;&lt; filename_ &lt;&lt; &quot;'&quot; &lt;&lt; std::endl;
+   
+   FileReader reader = FileReader::parse(filename_);
+-  if(reader.get_name() != &quot;windstille-sector&quot;) {
++  if(reader.get_name() != &quot;windstille-sector&quot;) 
++  {
+     std::ostringstream msg;
+     msg &lt;&lt; &quot;'&quot; &lt;&lt; filename_ &lt;&lt; &quot;' is not a windstille-sector file&quot;;
+     throw std::runtime_error(msg.str());
+-  }
+-  
+-  int version = 1;
+-  if(!reader.get(&quot;version&quot;, version))
+-    std::cerr &lt;&lt; &quot;Warning no version specified in levelformat.\n&quot;;
+-  if(version &gt; 1)
+-    std::cerr &lt;&lt; &quot;Warning: format version is newer than game.\n&quot;;
++  } 
++  else
++  {
++    int version = 1;
++    if (!reader.get(&quot;version&quot;, version))
++      std::cerr &lt;&lt; &quot;Warning no version specified in levelformat.\n&quot;;
+ 
+-  reader.get(&quot;name&quot;,          name);
+-  reader.get(&quot;music&quot;,         music);
+-  reader.get(&quot;init-script&quot;,   init_script);
+-  reader.get(&quot;ambient-color&quot;, ambient_light);
++    if (version &gt; 3)
++      std::cerr &lt;&lt; &quot;Warning: format version is newer than game.\n&quot;;
++
++    reader.get(&quot;name&quot;,          name);
++    reader.get(&quot;music&quot;,         music);
++    reader.get(&quot;init-script&quot;,   init_script);
++    reader.get(&quot;ambient-color&quot;, ambient_light);
+   
+-  FileReader objects_reader;
+-  if(reader.get(&quot;objects&quot;, objects_reader) == false)
+-    throw std::runtime_error(&quot;No objects specified&quot;);
++    FileReader objects_reader;
++    if(reader.get(&quot;objects&quot;, objects_reader) == false)
++      throw std::runtime_error(&quot;No objects specified&quot;);
+ 
+-  std::vector&lt;FileReader&gt; objects_readers = objects_reader.get_sections();
+-  for(std::vector&lt;FileReader&gt;::iterator i = objects_readers.begin(); i != objects_readers.end(); ++i)
++    std::vector&lt;FileReader&gt; objects_readers = objects_reader.get_sections();
++    for(std::vector&lt;FileReader&gt;::iterator i = objects_readers.begin(); i != objects_readers.end(); ++i)
+     {
+       add_object(*i);
+     }
+ 
+-  if (debug) std::cout &lt;&lt; &quot;Finished parsing&quot; &lt;&lt; std::endl;
++    if (debug) std::cout &lt;&lt; &quot;Finished parsing&quot; &lt;&lt; std::endl;
++  }
+ }
+ 
+ void
+@@ -155,6 +160,8 @@
+     // FIXME: disabled due to work on the editor: add(new ParticleSystem(reader));
+   } else if(reader.get_name() == &quot;scriptable-object&quot;) {    
+     add(new ScriptableObject(reader));
++  } else if(reader.get_name() == &quot;decal&quot;) {    
++    add(new Decal(reader));
+   } else if (reader.get_name() == &quot;vrdummy&quot;) {
+     add(new VRDummy(reader));
+   } else if (reader.get_name() == &quot;swarm&quot;) {
+
+Modified: trunk/windstille/src/objects/decal.cpp
+===================================================================
+--- trunk/windstille/src/objects/decal.cpp	2009-08-26 19:28:19 UTC (rev 3082)
++++ trunk/windstille/src/objects/decal.cpp	2009-08-26 20:12:01 UTC (rev 3083)
+@@ -16,17 +16,44 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
+-#include &quot;decal.hpp&quot;
++#include &quot;objects/decal.hpp&quot;
+ 
+-Decal::Decal()
+-  : m_surface(),
+-    m_scale(),
+-    m_angle(),
+-    m_hflip(),
+-    m_vflip()
++#include &quot;engine/sector.hpp&quot;
++#include &quot;scenegraph/scene_graph.hpp&quot;
++#include &quot;display/surface_drawing_request.hpp&quot;
++#include &quot;display/surface_drawing_parameters.hpp&quot;
++
++Decal::Decal(const FileReader&amp; reader)
+ {
+-  //m_drawable.reset(new Sprite3DDrawingRequest(&amp;sprite, Vector2f(200, 600), 100.0f, Matrix::identity()));
+-  //Sector::current()-&gt;get_scene_graph().add_drawable(m_drawable);
++  std::string path;
++  Vector2f pos;
++  Vector2f scale(1.0f, 1.0f);
++  float    angle = 0.0f;
++
++  bool hflip = false;
++  bool vflip = false;
++
++  reader.get(&quot;pos&quot;,   pos);
++  reader.get(&quot;path&quot;,  path);
++  reader.get(&quot;scale&quot;, scale);
++  reader.get(&quot;angle&quot;, angle);
++  reader.get(&quot;vflip&quot;, vflip);
++  reader.get(&quot;hflip&quot;, hflip);
++
++  Surface surface = Surface(Pathname(path));
++
++  SurfaceDrawingParameters params;
++  boost::shared_ptr&lt;SurfaceDrawingRequest&gt; drawable(new SurfaceDrawingRequest(surface,
++                                                                              params
++                                                                              .set_pos(pos)
++                                                                              .set_angle(angle)
++                                                                              .set_hflip(hflip)
++                                                                              .set_vflip(vflip)
++                                                                              .set_scale(scale),
++                                                                              0, 
++                                                                              Matrix::identity()));
++
++  Sector::current()-&gt;get_scene_graph().add_drawable(drawable);
+ }
+ 
+ Decal::~Decal()
+
+Modified: trunk/windstille/src/objects/decal.hpp
+===================================================================
+--- trunk/windstille/src/objects/decal.hpp	2009-08-26 19:28:19 UTC (rev 3082)
++++ trunk/windstille/src/objects/decal.hpp	2009-08-26 20:12:01 UTC (rev 3083)
+@@ -25,17 +25,9 @@
+ class Decal : public GameObject
+ {
+ private:
+-  Surface m_surface;
+ 
+-  /** scale of the object, independed in x and y axis */
+-  Vector2f m_scale;
+-  float    m_angle;
+-
+-  bool m_hflip;
+-  bool m_vflip;
+-
+ public:
+-  Decal();
++  Decal(const FileReader&amp; reader);
+   ~Decal();
+   
+   void draw (SceneContext&amp; context);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002079.html">[Windstille-commit] r3082 - in trunk/windstille/src: engine hud
+</A></li>
+	<LI>Next message: <A HREF="002081.html">[Windstille-commit] r3084 -	trunk/windstille/data/sectors/trainstation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2080">[ date ]</a>
+              <a href="thread.html#2080">[ thread ]</a>
+              <a href="subject.html#2080">[ subject ]</a>
+              <a href="author.html#2080">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

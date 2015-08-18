@@ -1,0 +1,181 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2924 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2924%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200904142024.n3EKOnQo012224%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001920.html">
+   <LINK REL="Next"  HREF="001922.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2924 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2924%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200904142024.n3EKOnQo012224%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2924 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Apr 14 22:24:49 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001920.html">[Windstille-commit] r2923 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="001922.html">[Windstille-commit] r2925 - trunk/windstille
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1921">[ date ]</a>
+              <a href="thread.html#1921">[ thread ]</a>
+              <a href="subject.html#1921">[ subject ]</a>
+              <a href="author.html#1921">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-04-14 22:24:49 +0200 (Tue, 14 Apr 2009)
+New Revision: 2924
+
+Modified:
+   trunk/windstille/src/editor/select_tool.cpp
+   trunk/windstille/src/editor/select_tool.hpp
+Log:
+Added threshold before objects are moved to make it easier to select them without accidently moving them
+
+Modified: trunk/windstille/src/editor/select_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/select_tool.cpp	2009-04-14 20:03:17 UTC (rev 2923)
++++ trunk/windstille/src/editor/select_tool.cpp	2009-04-14 20:24:49 UTC (rev 2924)
+@@ -24,6 +24,9 @@
+ #include &quot;editor_window.hpp&quot;
+ #include &quot;select_tool.hpp&quot;
+ 
++static const uint32_t MOVE_TIMEOUT = 100;
++static const int MOVE_THRESHOLD = 16.0f;
++
+ SelectTool::SelectTool()
+   : mode(NO_MODE)
+     
+@@ -33,6 +36,7 @@
+ void
+ SelectTool::mouse_down(GdkEventButton* event, WindstilleWidget&amp; wst)
+ {
++  start_time = event-&gt;time;
+   click_pos = wst.get_state().screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
+ 
+   ctrl_point = wst.get_control_point(click_pos);
+@@ -130,14 +134,20 @@
+     }
+   else if (mode == OBJECT_DRAG_MODE)
+     {
+-      selection-&gt;on_move_update(pos - click_pos);
++      Vector2f offset = pos - click_pos;
++          
++      if ((event-&gt;time - start_time) &gt; MOVE_TIMEOUT ||
++          offset.length() &gt; MOVE_THRESHOLD)
++        {
++          selection-&gt;on_move_update(offset);
+       
+-      if (event-&gt;state &amp; GDK_CONTROL_MASK)
+-        {
+-          selection-&gt;on_move_update(pos - click_pos + process_snap(wst));
++          if (event-&gt;state &amp; GDK_CONTROL_MASK)
++            {
++              selection-&gt;on_move_update(pos - click_pos + process_snap(wst));
++            }
++
++          wst.queue_draw();
+         }
+-
+-      wst.queue_draw();
+     }
+   else if (mode == SELECT_MODE)
+     {
+@@ -164,17 +174,26 @@
+     }
+   else if (mode == OBJECT_DRAG_MODE)
+     {
+-      selection-&gt;on_move_update(pos - click_pos);
++      if ((event-&gt;time - start_time) &gt; MOVE_TIMEOUT)
++        {
++          Vector2f offset = pos - click_pos;
++
++          if (event-&gt;time - start_time &gt; MOVE_TIMEOUT ||
++              offset.length() &gt; MOVE_THRESHOLD)
++            {
++              selection-&gt;on_move_update(pos - click_pos);
+       
+-      if (event-&gt;state &amp; GDK_CONTROL_MASK)
+-        {
+-          selection-&gt;on_move_end(pos - click_pos + process_snap(wst));
++              if (event-&gt;state &amp; GDK_CONTROL_MASK)
++                {
++                  selection-&gt;on_move_end(pos - click_pos + process_snap(wst));
++                }
++              else
++                {
++                  selection-&gt;on_move_end(pos - click_pos);
++                }
++              wst.queue_draw();
++            }
+         }
+-      else
+-        {
+-          selection-&gt;on_move_end(pos - click_pos);
+-        }
+-      wst.queue_draw();
+     }
+   else if (mode == SELECT_MODE)
+     {
+
+Modified: trunk/windstille/src/editor/select_tool.hpp
+===================================================================
+--- trunk/windstille/src/editor/select_tool.hpp	2009-04-14 20:03:17 UTC (rev 2923)
++++ trunk/windstille/src/editor/select_tool.hpp	2009-04-14 20:24:49 UTC (rev 2924)
+@@ -19,6 +19,8 @@
+ #ifndef HEADER_WINDSTILLE_EDITOR_SELECT_TOOL_HPP
+ #define HEADER_WINDSTILLE_EDITOR_SELECT_TOOL_HPP
+ 
++#include &lt;stdint.h&gt;
++
+ #include &quot;math/rect.hpp&quot;
+ #include &quot;object_model.hpp&quot;
+ #include &quot;tool.hpp&quot;
+@@ -30,7 +32,8 @@
+   Rectf    rect;
+   SelectionHandle selection;
+   ControlPointHandle ctrl_point;
+-
++  uint32_t start_time;
++  
+   enum { 
+     SELECT_MODE,
+     OBJECT_DRAG_MODE,
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001920.html">[Windstille-commit] r2923 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="001922.html">[Windstille-commit] r2925 - trunk/windstille
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1921">[ date ]</a>
+              <a href="thread.html#1921">[ thread ]</a>
+              <a href="subject.html#1921">[ subject ]</a>
+              <a href="author.html#1921">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

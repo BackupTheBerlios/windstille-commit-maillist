@@ -1,0 +1,287 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2625 - in trunk/windstille/src: engine	scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2625%20-%20in%20trunk/windstille/src%3A%20engine%0A%09scripting&In-Reply-To=%3C200903101545.n2AFjTOb005125%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001621.html">
+   <LINK REL="Next"  HREF="001623.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2625 - in trunk/windstille/src: engine	scripting</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2625%20-%20in%20trunk/windstille/src%3A%20engine%0A%09scripting&In-Reply-To=%3C200903101545.n2AFjTOb005125%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2625 - in trunk/windstille/src: engine	scripting">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Mar 10 16:45:29 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001621.html">[Windstille-commit] r2624 - trunk/windstille/src/screen
+</A></li>
+        <LI>Next message: <A HREF="001623.html">[Windstille-commit] r2626 - trunk/windstille/data/scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1622">[ date ]</a>
+              <a href="thread.html#1622">[ thread ]</a>
+              <a href="subject.html#1622">[ subject ]</a>
+              <a href="author.html#1622">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-10 16:45:26 +0100 (Tue, 10 Mar 2009)
+New Revision: 2625
+
+Modified:
+   trunk/windstille/src/engine/script_manager.cpp
+   trunk/windstille/src/engine/script_manager.hpp
+   trunk/windstille/src/engine/squirrel_vm.cpp
+   trunk/windstille/src/engine/squirrel_vm.hpp
+   trunk/windstille/src/scripting/interface.cpp
+Log:
+Moved set_wakeup_event() completly into SquirrelVM
+
+Modified: trunk/windstille/src/engine/script_manager.cpp
+===================================================================
+--- trunk/windstille/src/engine/script_manager.cpp	2009-03-10 13:47:31 UTC (rev 2624)
++++ trunk/windstille/src/engine/script_manager.cpp	2009-03-10 15:45:26 UTC (rev 2625)
+@@ -200,26 +200,16 @@
+     }
+ }
+ 
+-void
+-ScriptManager::set_wakeup_event(HSQUIRRELVM vm, WakeupData event, float timeout)
++boost::shared_ptr&lt;SquirrelVM&gt;
++ScriptManager::get_vm(HSQUIRRELVM v) const
+ {
+-  assert(event.type &gt;= 0 &amp;&amp; event.type &lt; MAX_WAKEUP_EVENT_COUNT);
+-
+-  // find the VM in the list and update it
+-  for(SquirrelVMs::iterator i = squirrel_vms.begin(); i != squirrel_vms.end(); ++i) 
++  for(SquirrelVMs::const_iterator i = squirrel_vms.begin(); i != squirrel_vms.end(); ++i) 
+     {
+-      if((*i)-&gt;get_vm() == vm) 
+-        {
+-          (*i)-&gt;set_wakeup_event(event, timeout);
+-          return;
+-        }
++      if ((*i)-&gt;get_vm() == v)
++        return *i;
+     }
+-}
+ 
+-void
+-ScriptManager::set_wakeup_event(HSQUIRRELVM vm, WakeupEvent event, float timeout)
+-{
+-  set_wakeup_event(vm, WakeupData(event), timeout);
++  return boost::shared_ptr&lt;SquirrelVM&gt;();
+ }
+ 
+ void
+@@ -247,11 +237,11 @@
+   sq_pushroottable(v);
+   sq_pushstring(v, OBJECTS_TABLE, -1);
+   if(SQ_FAILED(sq_get(v, -2)))
+-  {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't get objects table '&quot; &lt;&lt; OBJECTS_TABLE &lt;&lt; &quot;'&quot;;
+-    throw SquirrelError(v, msg.str());
+-  }
++    {
++      std::ostringstream msg;
++      msg &lt;&lt; &quot;Couldn't get objects table '&quot; &lt;&lt; OBJECTS_TABLE &lt;&lt; &quot;'&quot;;
++      throw SquirrelError(v, msg.str());
++    }
+ 
+   // remove object from table
+   sq_pushstring(v, object-&gt;get_name().c_str(), object-&gt;get_name().size());
+@@ -300,21 +290,21 @@
+   sq_pushroottable(v);
+   sq_pushstring(v, OBJECTS_TABLE, -1);
+   if(SQ_FAILED(sq_get(v, -2)))
+-  {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't get objects table '&quot; &lt;&lt; OBJECTS_TABLE &lt;&lt; &quot;'&quot;;
+-    throw SquirrelError(v, msg.str());
+-  }
++    {
++      std::ostringstream msg;
++      msg &lt;&lt; &quot;Couldn't get objects table '&quot; &lt;&lt; OBJECTS_TABLE &lt;&lt; &quot;'&quot;;
++      throw SquirrelError(v, msg.str());
++    }
+   
+   // create squirrel instance and register in table
+   sq_pushstring(v, object-&gt;get_name().c_str(), object-&gt;get_name().size());
+   create_squirrel_instance(v, object);
+   if(SQ_FAILED(sq_createslot(v, -3)))
+-  {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't register object in objects tab&#246;e&quot;;
+-    throw SquirrelError(v, msg.str());
+-  }
++    {
++      std::ostringstream msg;
++      msg &lt;&lt; &quot;Couldn't register object in objects tab&#246;e&quot;;
++      throw SquirrelError(v, msg.str());
++    }
+ 
+   // pop roottable and objects table
+   sq_pop(v, 2);
+
+Modified: trunk/windstille/src/engine/script_manager.hpp
+===================================================================
+--- trunk/windstille/src/engine/script_manager.hpp	2009-03-10 13:47:31 UTC (rev 2624)
++++ trunk/windstille/src/engine/script_manager.hpp	2009-03-10 15:45:26 UTC (rev 2625)
+@@ -87,8 +87,7 @@
+ 
+   HSQUIRRELVM get_vm() const { return vm; }
+ 
+-  void set_wakeup_event(HSQUIRRELVM vm, WakeupEvent event, float timeout = -1);
+-  void set_wakeup_event(HSQUIRRELVM vm, WakeupData  event, float timeout = -1);
++  boost::shared_ptr&lt;SquirrelVM&gt; get_vm(HSQUIRRELVM v) const;
+ 
+   void fire_wakeup_event(WakeupEvent event);
+   void fire_wakeup_event(WakeupData  event);
+
+Modified: trunk/windstille/src/engine/squirrel_vm.cpp
+===================================================================
+--- trunk/windstille/src/engine/squirrel_vm.cpp	2009-03-10 13:47:31 UTC (rev 2624)
++++ trunk/windstille/src/engine/squirrel_vm.cpp	2009-03-10 15:45:26 UTC (rev 2625)
+@@ -100,6 +100,12 @@
+ }
+ 
+ void
++SquirrelVM::set_wakeup_event(const ScriptManager::WakeupEvent&amp; event, float timeout)
++{
++  set_wakeup_event(ScriptManager::WakeupData(event), timeout);
++}
++
++void
+ SquirrelVM::set_wakeup_event(const ScriptManager::WakeupData&amp; event, float timeout)
+ {
+   waiting_for_events = event;
+
+Modified: trunk/windstille/src/engine/squirrel_vm.hpp
+===================================================================
+--- trunk/windstille/src/engine/squirrel_vm.hpp	2009-03-10 13:47:31 UTC (rev 2624)
++++ trunk/windstille/src/engine/squirrel_vm.hpp	2009-03-10 15:45:26 UTC (rev 2625)
+@@ -39,7 +39,9 @@
+   SquirrelVM(std::istream&amp; in, const std::string&amp; arg_name, HSQUIRRELVM parent_vm);
+   ~SquirrelVM();
+ 
+-  void set_wakeup_event(const ScriptManager::WakeupData&amp; event, float timeout);
++  void set_wakeup_event(const ScriptManager::WakeupData&amp;  event, float timeout = -1);
++  void set_wakeup_event(const ScriptManager::WakeupEvent&amp; event, float timeout = -1);
++
+   void fire_wakeup_event(const ScriptManager::WakeupData&amp; event);
+ 
+   /** Resumes the evaluation of the VM if a wakeup has happened.
+
+Modified: trunk/windstille/src/scripting/interface.cpp
+===================================================================
+--- trunk/windstille/src/scripting/interface.cpp	2009-03-10 13:47:31 UTC (rev 2624)
++++ trunk/windstille/src/scripting/interface.cpp	2009-03-10 15:45:26 UTC (rev 2625)
+@@ -33,6 +33,7 @@
+ #include &quot;hud/pda.hpp&quot;
+ #include &quot;util/sexpr_file_reader.hpp&quot;
+ #include &quot;display/display.hpp&quot;
++#include &quot;engine/squirrel_vm.hpp&quot;
+ #include &quot;hud/controller_help_window.hpp&quot;
+ 
+ namespace Scripting
+@@ -125,22 +126,42 @@
+ 
+ void wait(HSQUIRRELVM vm, float time)
+ {
+-  ScriptManager::current()-&gt;set_wakeup_event(vm, ScriptManager::TIME, time);
++  boost::shared_ptr&lt;SquirrelVM&gt; ptr = ScriptManager::current()-&gt;get_vm(vm);
++
++  if (ptr.get())
++    {
++      ptr-&gt;set_wakeup_event(ScriptManager::TIME, time);
++    }
+ }
+ 
+ void wait_for_dialog(HSQUIRRELVM vm)
+ {
+-  ScriptManager::current()-&gt;set_wakeup_event(vm, ScriptManager::DIALOG_CLOSED);
++  boost::shared_ptr&lt;SquirrelVM&gt; ptr = ScriptManager::current()-&gt;get_vm(vm);
++
++  if (ptr.get())
++    {
++      ptr-&gt;set_wakeup_event(ScriptManager::DIALOG_CLOSED);
++    }
+ }
+ 
+ void wait_for_camera(HSQUIRRELVM vm)
+ {
+-  ScriptManager::current()-&gt;set_wakeup_event(vm, ScriptManager::CAMERA_DONE);
++  boost::shared_ptr&lt;SquirrelVM&gt; ptr = ScriptManager::current()-&gt;get_vm(vm);
++
++  if (ptr.get())
++    {
++      ptr-&gt;set_wakeup_event(ScriptManager::CAMERA_DONE);
++    }
+ }
+ 
+ void wait_for_fade(HSQUIRRELVM vm)
+ {
+-  ScriptManager::current()-&gt;set_wakeup_event(vm, ScriptManager::FADE_DONE);
++  boost::shared_ptr&lt;SquirrelVM&gt; ptr = ScriptManager::current()-&gt;get_vm(vm);
++
++  if (ptr.get())
++    {
++      ptr-&gt;set_wakeup_event(ScriptManager::FADE_DONE);
++    }
+ }
+ 
+ void speech_show(const std::string&amp; text, float x, float y)
+@@ -231,9 +252,14 @@
+   return Conversation::current()-&gt;get_selection();
+ }
+ 
+-void wait_for_conversation(HSQUIRRELVM v)
++void wait_for_conversation(HSQUIRRELVM vm)
+ {
+-  ScriptManager::current()-&gt;set_wakeup_event(v, ScriptManager::CONVERSATION_CLOSED);
++  boost::shared_ptr&lt;SquirrelVM&gt; ptr = ScriptManager::current()-&gt;get_vm(vm);
++
++  if (ptr.get())
++    {
++      ptr-&gt;set_wakeup_event(ScriptManager::CONVERSATION_CLOSED);
++    }
+ }
+ 
+ SQInteger display(HSQUIRRELVM v) __custom
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001621.html">[Windstille-commit] r2624 - trunk/windstille/src/screen
+</A></li>
+	<LI>Next message: <A HREF="001623.html">[Windstille-commit] r2626 - trunk/windstille/data/scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1622">[ date ]</a>
+              <a href="thread.html#1622">[ thread ]</a>
+              <a href="subject.html#1622">[ subject ]</a>
+              <a href="author.html#1622">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

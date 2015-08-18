@@ -1,0 +1,694 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2354 - in trunk/griv: . src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2354%20-%20in%20trunk/griv%3A%20.%20src&In-Reply-To=%3C200808260053.m7Q0rgRp005838%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001350.html">
+   <LINK REL="Next"  HREF="001352.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2354 - in trunk/griv: . src</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2354%20-%20in%20trunk/griv%3A%20.%20src&In-Reply-To=%3C200808260053.m7Q0rgRp005838%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2354 - in trunk/griv: . src">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Aug 26 02:53:42 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001350.html">[Windstille-commit] r2353 - in trunk/griv: . src
+</A></li>
+        <LI>Next message: <A HREF="001352.html">[Windstille-commit] r2355 - in trunk/griv: . src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1351">[ date ]</a>
+              <a href="thread.html#1351">[ thread ]</a>
+              <a href="subject.html#1351">[ subject ]</a>
+              <a href="author.html#1351">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-26 02:53:40 +0200 (Tue, 26 Aug 2008)
+New Revision: 2354
+
+Removed:
+   trunk/griv/src/url.cpp
+   trunk/griv/src/url.hpp
+Modified:
+   trunk/griv/SConstruct
+   trunk/griv/src/
+   trunk/griv/src/database_thread.cpp
+   trunk/griv/src/database_thread.hpp
+   trunk/griv/src/griv.cpp
+   trunk/griv/src/image.cpp
+   trunk/griv/src/software_surface.cpp
+   trunk/griv/src/software_surface.hpp
+   trunk/griv/src/tile_entry.hpp
+   trunk/griv/src/tile_generator_thread.cpp
+   trunk/griv/src/tile_generator_thread.hpp
+Log:
+Got rid of URL class, implemented load on demand, still quite buggy
+
+Modified: trunk/griv/SConstruct
+===================================================================
+--- trunk/griv/SConstruct	2008-08-25 14:16:45 UTC (rev 2353)
++++ trunk/griv/SConstruct	2008-08-26 00:53:40 UTC (rev 2354)
+@@ -39,7 +39,6 @@
+         'src/tile_generator_thread.cpp',
+         'src/database_thread.cpp',
+         'src/viewer_thread.cpp',
+-        'src/url.cpp',
+         'src/viewer.cpp',
+         'src/workspace.cpp',
+         ])
+
+
+Property changes on: trunk/griv/src
+___________________________________________________________________
+Name: svn:ignore
+   + old
+
+
+Modified: trunk/griv/src/database_thread.cpp
+===================================================================
+--- trunk/griv/src/database_thread.cpp	2008-08-25 14:16:45 UTC (rev 2353)
++++ trunk/griv/src/database_thread.cpp	2008-08-26 00:53:40 UTC (rev 2354)
+@@ -24,6 +24,7 @@
+ */
+ 
+ #include &lt;iostream&gt;
++#include &lt;boost/bind.hpp&gt;
+ #include &lt;assert.h&gt;
+ #include &quot;file_database.hpp&quot;
+ #include &quot;tile_database.hpp&quot;
+@@ -57,17 +58,17 @@
+ public:
+   JobHandle job_handle;
+ 
+-  int fileid;
++  FileEntry file_entry;
+   int tilescale;
+   Vector2i pos;
+   boost::function&lt;void (TileEntry)&gt; callback;
+ 
+   TileDatabaseMessage(const JobHandle&amp; job_handle,
+-                      int fileid, int tilescale, const Vector2i&amp; pos,
++                      const FileEntry&amp; file_entry, int tilescale, const Vector2i&amp; pos,
+                       const boost::function&lt;void (TileEntry)&gt;&amp; callback)
+     : DatabaseMessage(DATABASE_TILE_MESSAGE),
+       job_handle(job_handle),
+-      fileid(fileid),
++      file_entry(file_entry),
+       tilescale(tilescale),
+       pos(pos),
+       callback(callback)
+@@ -138,10 +139,10 @@
+ }
+ 
+ JobHandle
+-DatabaseThread::request_tile(int fileid, int tilescale, const Vector2i&amp; pos, const boost::function&lt;void (TileEntry)&gt;&amp; callback)
++DatabaseThread::request_tile(const FileEntry&amp; file_entry, int tilescale, const Vector2i&amp; pos, const boost::function&lt;void (TileEntry)&gt;&amp; callback)
+ {
+   JobHandle job_handle;
+-  queue.push(new TileDatabaseMessage(job_handle, fileid, tilescale, pos, callback));
++  queue.push(new TileDatabaseMessage(job_handle, file_entry, tilescale, pos, callback));
+   return job_handle;
+ }
+ 
+@@ -175,34 +176,6 @@
+   quit = true;
+ }
+ 
+-void
+-DatabaseThread::process_tile_generation(int fileid, const Vector2i&amp; pos, int scale,
+-                                        const boost::function&lt;void (TileEntry)&gt;&amp; callback)
+-{
+-#if 0
+-  for(Threads::iterator i = threads.begin(); i != threads.end(); ++i)
+-    {
+-      Thread&amp; thread = *i;
+-
+-      // Find a thread that is processing the tiles we need and add ourself to the callback list of that thread
+-      if (thread.get_fileid() == fileid)
+-        {
+-          if (scale &gt;= thread.get_min_scale() ||
+-              scale &lt;= thread.get_max_scale())
+-            {
+-              thread.add_callback(pos, scale, callback);
+-              return;
+-            }
+-        }
+-    }
+-
+-  // No fitting thread found, so launch a new one, don't launch more then max_thread threads
+-
+-  Thread thread(fileid, scale);
+-  thread.add_callback(pos, scale, callback);
+-#endif
+-}
+-
+ int
+ DatabaseThread::run()
+ {
+@@ -219,27 +192,36 @@
+     {
+       //std::cout &lt;&lt; &quot;DatabaseThread: looping&quot; &lt;&lt; std::endl;
+       
+-      // do things
++      // FIXME: Ugly hack to reverse the order of the queue
+       while(!queue.empty() &amp;&amp; !quit)
+         {
+-          messages.push_back(queue.front());
++          DatabaseMessage* msg = queue.front();
+           queue.pop();
+-        }
+ 
+-      if (!messages.empty())
+-        {
+-          DatabaseMessage* msg = messages.back();
+-          messages.pop_back();
+-
+           switch(msg-&gt;type)
+             {
+               case DATABASE_STORE_TILE_MESSAGE:
+                 {
+                   StoreTileDatabaseMessage* tile_msg = static_cast&lt;StoreTileDatabaseMessage*&gt;(msg);
+                   
+-                  // FIXME: Check all threads for callbacks that might
+-                  // want the tile, then call those callbacks
++                  for(std::list&lt;TileDatabaseMessage*&gt;::iterator i = tile_queue.begin(); i != tile_queue.end();)
++                    {
++                      if (tile_msg-&gt;tile.fileid == (*i)-&gt;file_entry.fileid &amp;&amp;
++                          tile_msg-&gt;tile.scale  == (*i)-&gt;tilescale &amp;&amp;
++                          tile_msg-&gt;tile.pos    == (*i)-&gt;pos)
++                        {
++                          (*i)-&gt;callback(tile_msg-&gt;tile);
+ 
++                          delete *i;
++
++                          i = tile_queue.erase(i);
++                        }
++                      else
++                        {
++                          ++i;
++                        }
++                    }
++
+                   tile_db.store_tile(tile_msg-&gt;tile);
+                 }
+                 break;
+@@ -292,7 +274,7 @@
+                   if (!tile_msg-&gt;job_handle.is_aborted())
+                     {
+                       TileEntry tile;
+-                      if (tile_db.get_tile(tile_msg-&gt;fileid, tile_msg-&gt;tilescale, tile_msg-&gt;pos, tile))
++                      if (tile_db.get_tile(tile_msg-&gt;file_entry.fileid, tile_msg-&gt;tilescale, tile_msg-&gt;pos, tile))
+                         {
+                           tile_msg-&gt;callback(tile);
+                           tile_msg-&gt;job_handle.finish();
+@@ -301,14 +283,16 @@
+                         {
+                           if (0)
+                             std::cout &lt;&lt; &quot;Error: Couldn't get tile: &quot; 
+-                                      &lt;&lt; tile_msg-&gt;fileid &lt;&lt; &quot; &quot;
++                                      &lt;&lt; tile_msg-&gt;file_entry.fileid &lt;&lt; &quot; &quot;
+                                       &lt;&lt; tile_msg-&gt;pos.x &lt;&lt; &quot; &quot;
+                                       &lt;&lt; tile_msg-&gt;pos.y &lt;&lt; &quot; &quot;
+                                       &lt;&lt; tile_msg-&gt;tilescale
+                                       &lt;&lt; std::endl;
+                           
+-                          process_tile_generation(tile_msg-&gt;fileid, tile_msg-&gt;pos, tile_msg-&gt;tilescale, 
+-                                                  tile_msg-&gt;callback);
++                          tile_queue.push_back(tile_msg);
++
++                          //std::cout &lt;&lt; tile_queue.size() &lt;&lt; std::endl;
++                          msg = 0; // FIXME: HACK so that msg doesn't get deleted
+                         }
+                     }
+                 }
+@@ -320,9 +304,18 @@
+ 
+           delete msg;
+         }
+-      else
++      
++      queue.wait();
++
++      std::cout &lt;&lt; tile_queue.size() &lt;&lt; &quot; vs &quot; &lt;&lt; queue.size() &lt;&lt; std::endl;
++
++      if (queue.empty() &amp;&amp; // FIXME UGLY: to make load on demand somewhat usable
++          TileGeneratorThread::current() &amp;&amp; !TileGeneratorThread::current()-&gt;is_working() &amp;&amp; !tile_queue.empty())
+         {
+-          queue.wait();
++          TileGeneratorThread::current()-&gt;request_tiles(tile_queue.back()-&gt;file_entry,
++                                                        tile_queue.back()-&gt;tilescale,
++                                                        tile_queue.back()-&gt;tilescale,
++                                                        boost::bind(&amp;DatabaseThread::receive_tile, this, _1));
+         }
+     }
+ 
+
+Modified: trunk/griv/src/database_thread.hpp
+===================================================================
+--- trunk/griv/src/database_thread.hpp	2008-08-25 14:16:45 UTC (rev 2353)
++++ trunk/griv/src/database_thread.hpp	2008-08-26 00:53:40 UTC (rev 2354)
+@@ -27,6 +27,7 @@
+ #define HEADER_DATABASE_THREAD_HPP
+ 
+ #include &lt;boost/function.hpp&gt;
++#include &lt;list&gt;
+ #include &lt;string&gt;
+ #include &quot;thread_message_queue.hpp&quot;
+ #include &quot;file_entry.hpp&quot;
+@@ -35,6 +36,7 @@
+ #include &quot;thread.hpp&quot;
+ 
+ class DatabaseMessage;
++class TileDatabaseMessage;
+ 
+ /** */
+ class DatabaseThread : public Thread
+@@ -49,10 +51,8 @@
+   bool quit;
+   
+   ThreadMessageQueue&lt;DatabaseMessage*&gt; queue;
++  std::list&lt;TileDatabaseMessage*&gt;    tile_queue;
+ 
+-  void process_tile_generation(int fileid, const Vector2i&amp; pos, int scale,
+-                               const boost::function&lt;void (TileEntry)&gt;&amp; callback);
+-
+ protected: 
+   int run();
+ 
+@@ -64,7 +64,7 @@
+   
+   /* @{ */ // syncronized functions to be used by other threads
+   /** Request the tile for file \a tileid */
+-  JobHandle request_tile(int fileid, int tilescale, const Vector2i&amp; pos, const boost::function&lt;void (TileEntry)&gt;&amp; callback);
++  JobHandle request_tile(const FileEntry&amp;, int tilescale, const Vector2i&amp; pos, const boost::function&lt;void (TileEntry)&gt;&amp; callback);
+ 
+   /** Request the FileEntry for \a filename */
+   void      request_file(const std::string&amp; filename, const boost::function&lt;void (FileEntry)&gt;&amp; callback);
+
+Modified: trunk/griv/src/griv.cpp
+===================================================================
+--- trunk/griv/src/griv.cpp	2008-08-25 14:16:45 UTC (rev 2353)
++++ trunk/griv/src/griv.cpp	2008-08-26 00:53:40 UTC (rev 2354)
+@@ -38,7 +38,6 @@
+ #include &quot;math/size.hpp&quot;
+ #include &quot;math/rect.hpp&quot;
+ #include &quot;math/vector2i.hpp&quot;
+-#include &quot;url.hpp&quot;
+ #include &quot;sqlite.hpp&quot;
+ #include &quot;software_surface.hpp&quot;
+ #include &quot;jpeg_decoder_thread.hpp&quot;
+
+Modified: trunk/griv/src/image.cpp
+===================================================================
+--- trunk/griv/src/image.cpp	2008-08-25 14:16:45 UTC (rev 2353)
++++ trunk/griv/src/image.cpp	2008-08-26 00:53:40 UTC (rev 2354)
+@@ -142,7 +142,7 @@
+ 
+   if (i == impl-&gt;cache.end())
+     {
+-      impl-&gt;jobs.push_back(DatabaseThread::current()-&gt;request_tile(impl-&gt;file_entry.fileid, tile_scale, Vector2i(x, y), 
++      impl-&gt;jobs.push_back(DatabaseThread::current()-&gt;request_tile(impl-&gt;file_entry, tile_scale, Vector2i(x, y), 
+                                                                    boost::bind(&amp;Image::receive_tile, this, _1)));
+ 
+       // FIXME: Something to try: Request the next smaller tile too,
+@@ -152,6 +152,8 @@
+       // DatabaseThread, we should request the whole group of lower
+       // res tiles at once, instead of one by one, since that eats up
+       // the possible speed up
++      //impl-&gt;jobs.push_back(DatabaseThread::current()-&gt;request_tile(impl-&gt;file_entry, tile_scale+1, Vector2i(x, y), 
++      //                                                             boost::bind(&amp;Image::receive_tile, this, _1)));
+ 
+       SurfaceStruct s;
+       
+
+Modified: trunk/griv/src/software_surface.cpp
+===================================================================
+--- trunk/griv/src/software_surface.cpp	2008-08-25 14:16:45 UTC (rev 2353)
++++ trunk/griv/src/software_surface.cpp	2008-08-26 00:53:40 UTC (rev 2354)
+@@ -33,7 +33,6 @@
+ #include &quot;math/rect.hpp&quot;
+ #include &quot;math/size.hpp&quot;
+ 
+-#include &quot;url.hpp&quot;
+ #include &quot;software_surface.hpp&quot;
+ 
+ class SoftwareSurfaceImpl
+
+Modified: trunk/griv/src/software_surface.hpp
+===================================================================
+--- trunk/griv/src/software_surface.hpp	2008-08-25 14:16:45 UTC (rev 2353)
++++ trunk/griv/src/software_surface.hpp	2008-08-26 00:53:40 UTC (rev 2354)
+@@ -29,7 +29,6 @@
+ #include &lt;boost/shared_ptr.hpp&gt;
+ #include &quot;blob.hpp&quot;
+ 
+-class URL;
+ class Rect;
+ class Size;
+ class SoftwareSurfaceImpl;
+
+Modified: trunk/griv/src/tile_entry.hpp
+===================================================================
+--- trunk/griv/src/tile_entry.hpp	2008-08-25 14:16:45 UTC (rev 2353)
++++ trunk/griv/src/tile_entry.hpp	2008-08-26 00:53:40 UTC (rev 2354)
+@@ -39,6 +39,13 @@
+ 
+   TileEntry()
+   {}
++
++  TileEntry(int fileid_, int scale_, const Vector2i&amp; pos_, const SoftwareSurface&amp; surface_)
++    : fileid(fileid_),
++      scale(scale_),
++      pos(pos_),
++      surface(surface_)
++  {}
+ };
+ 
+ #endif
+
+Modified: trunk/griv/src/tile_generator_thread.cpp
+===================================================================
+--- trunk/griv/src/tile_generator_thread.cpp	2008-08-25 14:16:45 UTC (rev 2353)
++++ trunk/griv/src/tile_generator_thread.cpp	2008-08-26 00:53:40 UTC (rev 2354)
+@@ -25,7 +25,10 @@
+ 
+ #include &lt;iostream&gt;
+ #include &lt;boost/bind.hpp&gt;
++#include &quot;math/rect.hpp&quot;
+ #include &quot;tile_generator.hpp&quot;
++#include &quot;math.hpp&quot;
++#include &quot;jpeg.hpp&quot;
+ #include &quot;database_thread.hpp&quot;
+ #include &quot;tile_generator_thread.hpp&quot;
+  
+@@ -35,6 +38,7 @@
+   : quit(false)
+ {
+   current_ = this;
++  working  = false;
+ }
+ 
+ TileGeneratorThread::~TileGeneratorThread()
+@@ -45,7 +49,18 @@
+ TileGeneratorThread::request_tiles(const FileEntry&amp; file_entry, int min_scale, int max_scale,
+                                    const boost::function&lt;void (TileEntry)&gt;&amp; callback)
+ {
+-  
++  assert(working == false);
++  working = true;
++
++  TileGeneratorThreadJob job;
++
++  job.entry     = file_entry;
++  job.min_scale = min_scale;
++  job.max_scale = max_scale;
++  job.callback  = callback;
++
++  assert(msg_queue.empty());
++  msg_queue.push(job);
+ }
+ 
+ void
+@@ -54,6 +69,58 @@
+   quit = true;
+ }
+ 
++void
++TileGeneratorThread::process_message(const TileGeneratorThreadJob&amp; job)
++{
++  std::cout &lt;&lt; &quot;Processing: scale: &quot; &lt;&lt; job.min_scale &lt;&lt; &quot;-&quot; &lt;&lt; job.max_scale &lt;&lt; &quot; &quot; &lt;&lt; job.entry.filename &lt;&lt; &quot;...&quot; &lt;&lt; std::flush;
++
++  // Find scale at which the image fits on one tile
++  int width  = job.entry.size.width;
++  int height = job.entry.size.height;
++  int scale  = job.min_scale;
++
++  int jpeg_scale = Math::pow2(scale);
++  SoftwareSurface surface;
++
++  if (jpeg_scale &gt; 8)
++    {
++      // The JPEG class can only scale down by factor 2,4,8, so we have to
++      // limit things (FIXME: is that true? if so, why?)
++      surface = JPEG::load_from_file(job.entry.filename, 8);
++      
++      surface = surface.scale(Size(width  / Math::pow2(scale),
++                                   height / Math::pow2(scale)));
++    }
++  else
++    {
++      surface = JPEG::load_from_file(job.entry.filename, jpeg_scale);
++    }
++
++  do
++    {
++      if (scale != job.min_scale)
++        {
++          surface = surface.halve();
++        }
++
++      for(int y = 0; 256*y &lt; surface.get_height(); ++y)
++        for(int x = 0; 256*x &lt; surface.get_width(); ++x)
++          {
++            SoftwareSurface croped_surface = surface.crop(Rect(Vector2i(x * 256, y * 256),
++                                                               Size(256, 256)));
++
++            job.callback(TileEntry(job.entry.fileid, scale, Vector2i(x, y), croped_surface));
++          }
++
++      scale += 1;
++
++    } while (scale &lt;= job.max_scale);
++
++  working = false;
++
++  std::cout &lt;&lt; &quot;done&quot; &lt;&lt; std::endl;
++}
++
+ int
+ TileGeneratorThread::run()
+ {
+@@ -63,20 +130,24 @@
+ 
+   while(!quit)
+     {
+-#if 0
+       while(!msg_queue.empty())
+         {
+-          TileGeneratorMessage msg = msg_queue.front();
++          TileGeneratorThreadJob msg = msg_queue.front();
+           msg_queue.pop();
+          
+-          // process message         
++          process_message(msg);
+         }
+             
+       msg_queue.wait();
+-#endif
+     }
+   
+   return 0;
+ }
++
++bool
++TileGeneratorThread::is_working() const
++{
++  return working;
++}
+ 
+ /* EOF */
+
+Modified: trunk/griv/src/tile_generator_thread.hpp
+===================================================================
+--- trunk/griv/src/tile_generator_thread.hpp	2008-08-25 14:16:45 UTC (rev 2353)
++++ trunk/griv/src/tile_generator_thread.hpp	2008-08-26 00:53:40 UTC (rev 2354)
+@@ -39,25 +39,11 @@
+ struct TileGeneratorThreadJob
+ {
+   FileEntry entry;
+-  Vector2i pos;
+-  int      scale;
++  int       min_scale;
++  int       max_scale;
++  
+   boost::function&lt;void (TileEntry)&gt; callback;
+ };
+-
+-/** Tasks will be grouped into groups, so that one image will be
+-    handled in one go, instead of accessing multiple files over and
+-    over again. Groups will be processed in one go. */
+-struct TileGeneratorMessageGroup { 
+-  struct TileDescription 
+-  { 
+-    boost::function&lt;void (TileEntry)&gt; callback;
+-  };
+-
+-  FileEntry entry;
+-  
+-  /** [(scale, (x,y,callback)), ...] */
+-  std::map&lt;int, std::vector&lt;TileDescription&gt; &gt; jobs;
+-};
+ 
+ class TileGeneratorThread : public Thread
+ {
+@@ -68,7 +54,9 @@
+ 
+ private:
+   bool quit;
+-  
++  bool working;
++  ThreadMessageQueue&lt;TileGeneratorThreadJob&gt; msg_queue;
++
+ protected:
+   int run();
+   
+@@ -78,11 +66,15 @@
+ 
+   void stop();
+ 
++  bool is_working() const;
++
+   /** Generate tiles for \a file_entry from min_scale to max_scale */
+   void request_tiles(const FileEntry&amp; file_entry, int min_scale, int max_scale,
+                      const boost::function&lt;void (TileEntry)&gt;&amp; callback);
+   
+ private:
++  void process_message(const TileGeneratorThreadJob&amp; job);
++
+   TileGeneratorThread (const TileGeneratorThread&amp;);
+   TileGeneratorThread&amp; operator= (const TileGeneratorThread&amp;);
+ };
+
+Deleted: trunk/griv/src/url.cpp
+===================================================================
+--- trunk/griv/src/url.cpp	2008-08-25 14:16:45 UTC (rev 2353)
++++ trunk/griv/src/url.cpp	2008-08-26 00:53:40 UTC (rev 2354)
+@@ -1,39 +0,0 @@
+-/*  $Id$
+-**   __      __ __             ___        __   __ __   __
+-**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
+-**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
+-**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
+-**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
+-**         \/          \/      \/    \/                         \/
+-**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+-**
+-**  This program is free software; you can redistribute it and/or
+-**  modify it under the terms of the GNU General Public License
+-**  as published by the Free Software Foundation; either version 2
+-**  of the License, or (at your option) any later version.
+-**
+-**  This program is distributed in the hope that it will be useful,
+-**  but WITHOUT ANY WARRANTY; without even the implied warranty of
+-**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-**  GNU General Public License for more details.
+-** 
+-**  You should have received a copy of the GNU General Public License
+-**  along with this program; if not, write to the Free Software
+-**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
+-**  02111-1307, USA.
+-*/
+-
+-#include &quot;url.hpp&quot;
+-
+-URL::URL(const std::string&amp; url_)
+-  : url(url_)
+-{
+-}
+-
+-std::string
+-URL::get_filename() const
+-{
+-  return url;
+-}
+-
+-/* EOF */
+
+Deleted: trunk/griv/src/url.hpp
+===================================================================
+--- trunk/griv/src/url.hpp	2008-08-25 14:16:45 UTC (rev 2353)
++++ trunk/griv/src/url.hpp	2008-08-26 00:53:40 UTC (rev 2354)
+@@ -1,45 +0,0 @@
+-/*  $Id$
+-**   __      __ __             ___        __   __ __   __
+-**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
+-**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
+-**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
+-**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
+-**         \/          \/      \/    \/                         \/
+-**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+-**
+-**  This program is free software; you can redistribute it and/or
+-**  modify it under the terms of the GNU General Public License
+-**  as published by the Free Software Foundation; either version 2
+-**  of the License, or (at your option) any later version.
+-**
+-**  This program is distributed in the hope that it will be useful,
+-**  but WITHOUT ANY WARRANTY; without even the implied warranty of
+-**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-**  GNU General Public License for more details.
+-** 
+-**  You should have received a copy of the GNU General Public License
+-**  along with this program; if not, write to the Free Software
+-**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
+-**  02111-1307, USA.
+-*/
+-
+-#ifndef HEADER_URL_HPP
+-#define HEADER_URL_HPP
+-
+-#include &lt;string&gt;
+-
+-/** */
+-class URL
+-{
+-private:
+-  std::string url;
+-
+-public:
+-  URL(const std::string&amp; url);
+-
+-  std::string get_filename() const;
+-};
+-
+-#endif
+-
+-/* EOF */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001350.html">[Windstille-commit] r2353 - in trunk/griv: . src
+</A></li>
+	<LI>Next message: <A HREF="001352.html">[Windstille-commit] r2355 - in trunk/griv: . src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1351">[ date ]</a>
+              <a href="thread.html#1351">[ thread ]</a>
+              <a href="subject.html#1351">[ subject ]</a>
+              <a href="author.html#1351">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

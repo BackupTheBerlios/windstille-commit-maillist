@@ -1,0 +1,898 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r948 - in trunk/src: . input
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r948%20-%20in%20trunk/src%3A%20.%20input&In-Reply-To=%3C200508091215.j79CFKI4006842%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000600.html">
+   <LINK REL="Next"  HREF="000602.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r948 - in trunk/src: . input</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r948%20-%20in%20trunk/src%3A%20.%20input&In-Reply-To=%3C200508091215.j79CFKI4006842%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r948 - in trunk/src: . input">grumbel at berlios.de
+       </A><BR>
+    <I>Tue Aug  9 14:15:20 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000600.html">[Windstille-commit] r947 - in trunk/src: . input
+</A></li>
+        <LI>Next message: <A HREF="000602.html">[Windstille-commit] r949 - in trunk/src: . input scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#601">[ date ]</a>
+              <a href="thread.html#601">[ thread ]</a>
+              <a href="subject.html#601">[ subject ]</a>
+              <a href="author.html#601">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-08-09 14:15:17 +0200 (Tue, 09 Aug 2005)
+New Revision: 948
+
+Removed:
+   trunk/src/input/input_manager_custom.cpp
+   trunk/src/input/input_manager_custom.hpp
+Modified:
+   trunk/src/console.cpp
+   trunk/src/controller_def.cpp
+   trunk/src/controller_def.hpp
+   trunk/src/input/controller.cpp
+   trunk/src/input/controller.hpp
+   trunk/src/input/input_configurator.cpp
+   trunk/src/input/input_manager.cpp
+   trunk/src/input/input_manager.hpp
+   trunk/src/input/input_manager_impl.cpp
+   trunk/src/input/input_manager_impl.hpp
+   trunk/src/input/input_manager_player.cpp
+   trunk/src/input/input_manager_player.hpp
+   trunk/src/input/input_manager_sdl.cpp
+Log:
+- little bit of restructuring in the input code
+
+Modified: trunk/src/console.cpp
+===================================================================
+--- trunk/src/console.cpp	2005-08-08 21:16:53 UTC (rev 947)
++++ trunk/src/console.cpp	2005-08-09 12:15:17 UTC (rev 948)
+@@ -211,7 +211,6 @@
+             {
+               if ((*i).keyboard.key_type == KeyboardEvent::LETTER)
+                 {
+-                  //std::cout &lt;&lt; &quot;Key: '&quot; &lt;&lt; (char)((*i).keyboard.code) &lt;&lt; &quot;' &quot; &lt;&lt; (*i).keyboard.code &lt;&lt; std::endl;
+                   if (cursor_pos == int(command_line.size()))
+                     {
+                       command_line += (char)(*i).keyboard.code;
+
+Modified: trunk/src/controller_def.cpp
+===================================================================
+--- trunk/src/controller_def.cpp	2005-08-08 21:16:53 UTC (rev 947)
++++ trunk/src/controller_def.cpp	2005-08-09 12:15:17 UTC (rev 948)
+@@ -42,72 +42,46 @@
+ void
+ ControllerDef::add_button(const std::string&amp; name, int id)
+ {
+-  buttons[name] = id;
++  InputEventDefinition event;
++
++  event.type = BUTTON_EVENT;
++  event.name = name;
++  event.id   = id;
++
++  str_to_event[event.name] = event;
++  id_to_event[event.id]    = event;
+ }
+ 
+ void
+ ControllerDef::add_axis  (const std::string&amp; name, int id)
+ {
+-  axes[name] = id;
+-}
++  InputEventDefinition event;
+ 
+-int
+-ControllerDef::get_button_count() const
+-{
+-  return buttons.size();
+-}
++  event.type = AXIS_EVENT;
++  event.name = name;
++  event.id   = id;
+ 
+-int
+-ControllerDef::get_axis_count() const
+-{
+-  return axes.size();
++  str_to_event[event.name] = event;
++  id_to_event[event.id]    = event;
+ }
+ 
+-int
+-ControllerDef::get_keyboard_count() const
++const InputEventDefinition&amp;
++ControllerDef::get_definition(int id) const
+ {
+-  return 1;
+-}
++  std::map&lt;int, InputEventDefinition&gt;::const_iterator i = id_to_event.find(id);
++  if (i == id_to_event.end())
++    throw std::runtime_error(&quot;Unknown event id&quot;);
+ 
+-std::string
+-ControllerDef::button_id2name(int id) const
+-{
+-  for(std::map&lt;std::string, int&gt;::const_iterator i = buttons.begin(); i != buttons.end(); ++i)
+-    {
+-      if (i-&gt;second == id)
+-        return i-&gt;first;
+-    }
+-  throw std::runtime_error(&quot;Unknown button id&quot;);
+-}
+-
+-int
+-ControllerDef::button_name2id(const std::string&amp; name) const
+-{
+-  std::map&lt;std::string, int&gt;::const_iterator i = buttons.find(name);
+-  if (i == buttons.end())
+-    throw std::runtime_error(&quot;Unknown button name: &quot; + name);
+-
+   return i-&gt;second;
+ }
+ 
+-std::string
+-ControllerDef::axis_id2name(int id) const
++const InputEventDefinition&amp;
++ControllerDef::get_definition(const std::string&amp; name) const
+ {
+-  for(std::map&lt;std::string, int&gt;::const_iterator i = axes.begin(); i != axes.end(); ++i)
+-    {
+-      if (i-&gt;second == id)
+-        return i-&gt;first;
+-    }
+-  throw std::runtime_error(&quot;Unknown axis id&quot;);
+-}
++  std::map&lt;std::string, InputEventDefinition&gt;::const_iterator i = str_to_event.find(name);
++  if (i == str_to_event.end())
++    throw std::runtime_error(&quot;Unknown event str&quot;);
+ 
+-int 
+-ControllerDef::axis_name2id(const std::string&amp; name) const
+-{
+-  std::map&lt;std::string, int&gt;::const_iterator i = axes.find(name);
+-  if (i == axes.end())
+-    throw std::runtime_error(&quot;Unknown axis name: &quot; + name);
+-
+   return i-&gt;second;
+ }
+ 
+
+Modified: trunk/src/controller_def.hpp
+===================================================================
+--- trunk/src/controller_def.hpp	2005-08-08 21:16:53 UTC (rev 947)
++++ trunk/src/controller_def.hpp	2005-08-09 12:15:17 UTC (rev 948)
+@@ -22,15 +22,13 @@
+ 
+ #include &lt;map&gt;
+ #include &lt;string&gt;
++#include &quot;input/input_event.hpp&quot;
+ 
+-enum AxisName
++enum InputEventName
+   { 
+     X_AXIS, // used to run left/right
+-    Y_AXIS  // used to aim up/down
+-  };
++    Y_AXIS,  // used to aim up/down
+ 
+-enum ButtonName
+-  { 
+     PRIMARY_BUTTON,   // used to ok a dialog or for running
+     SECONDARY_BUTTON, // used to cancel a dialog or for jumping
+     TERTIARY_BUTTON,  // used to cancel a dialog or for jumping
+@@ -38,37 +36,43 @@
+     
+     PAUSE_BUTTON,     // used to pause the game
+     AIM_BUTTON,       // used to draw the gun and aim
++
++    LAST_EVENT
+   };
+ 
+-#define JUMP_BUTTON PRIMARY_BUTTON
+-#define RUN_BUTTON  SECONDARY_BUTTON
+-#define USE_BUTTON  TERTIARY_BUTTON
+-#define OK_BUTTON   PRIMARY_BUTTON
++#define JUMP_BUTTON   PRIMARY_BUTTON
++#define RUN_BUTTON    SECONDARY_BUTTON
++#define USE_BUTTON    TERTIARY_BUTTON
++#define OK_BUTTON     PRIMARY_BUTTON
+ #define CANCEL_BUTTON SECONDARY_BUTTON
+ 
++struct InputEventDefinition 
++{
++  InputEventType type;
++  int            id;
++  std::string    name;
++};
++
+ /** */
+ class ControllerDef
+ {
+ private:
+-  std::map&lt;std::string, int&gt; buttons;
+-  std::map&lt;std::string, int&gt; axes;
++  std::map&lt;std::string, InputEventDefinition&gt; str_to_event;
++  std::map&lt;int,         InputEventDefinition&gt; id_to_event;
+ 
+ public:
+   ControllerDef();
+   ~ControllerDef();
+ 
+   void add_button(const std::string&amp; name, int id);
+-  void add_axis  (const std::string&amp; name, int id);
++  void add_axis  (const std::string&amp; name, int id); 
+ 
+-  int         get_button_count()   const;
+-  int         get_axis_count()     const;
+-  int         get_keyboard_count() const;
++  int get_button_count() const;
++  int get_axis_count() const;
++  int get_keyboard_count() const;
+ 
+-  std::string button_id2name(int id) const;
+-  int         button_name2id(const std::string&amp; name) const;
+-
+-  std::string axis_id2name(int id) const;
+-  int         axis_name2id(const std::string&amp; name) const;
++  const InputEventDefinition&amp; get_definition(int id) const;
++  const InputEventDefinition&amp; get_definition(const std::string&amp; name) const;
+ };
+ 
+ #endif
+
+Modified: trunk/src/input/controller.cpp
+===================================================================
+--- trunk/src/input/controller.cpp	2005-08-08 21:16:53 UTC (rev 947)
++++ trunk/src/input/controller.cpp	2005-08-09 12:15:17 UTC (rev 948)
+@@ -25,46 +25,47 @@
+ {
+   ControllerDef def;
+ 
+-  buttons.resize(def.get_button_count());
+-  axes.resize(def.get_axis_count());
++  states.resize(LAST_EVENT);
+ }
+ 
+ float
+-Controller::get_axis_state(int name) const
++Controller::get_axis_state(int id) const
+ {
+-  assert(name &lt; int(axes.size()));
+-  return axes[name];
++  assert(id &lt; int(states.size()));
++  return states[id].axis;
+ }
+         
+ 
+ bool
+-Controller::get_button_state(int name) const
++Controller::get_button_state(int id) const
+ {
+-  assert(name &lt; int(buttons.size()));
+-  return buttons[name];
++  assert(id &lt; int(states.size()));
++  return states[id].button;
+ }
+ 
+ void
+-Controller::set_axis_state(int name, float pos)
++Controller::set_axis_state(int id, float pos)
+ {
+-  assert(name &lt; static_cast&lt;int&gt; (axes.size()));
+-  axes[name] = pos;
++  assert(id &lt; static_cast&lt;int&gt;(states.size()));
++  states[id].axis = pos;
+ }
+ 
+ void
+ Controller::set_button_state(int name, bool down)
+ {
+-  assert(name &lt; static_cast&lt;int&gt;(buttons.size()));
+-  buttons[name] = down;
++  assert(name &lt; static_cast&lt;int&gt;(states.size()));
++  states[name].button = down;
+ }
+ 
+ void
+ Controller::add_axis_event(int name, float pos)
+ {
+   InputEvent event;
++
+   event.type = AXIS_EVENT;
+   event.axis.name = name;
+   event.axis.pos  = pos;
++
+   events.push_back(event);
+ }
+ 
+@@ -72,13 +73,15 @@
+ Controller::add_button_event(int name, bool down)
+ {
+   InputEvent event;
++
+   event.type = BUTTON_EVENT;
+   event.button.name = name;
+   event.button.down = down;
++
+   events.push_back(event);
+ }
+ 
+-InputEventLst
++const InputEventLst&amp;
+ Controller::get_events() const
+ {
+   return events;
+@@ -129,4 +132,16 @@
+   return false;
+ }
+ 
++void
++Controller::clear()
++{
++  events.clear();
++}
++
++void
++Controller::add_event(const InputEvent&amp; event)
++{
++  events.push_back(event);
++}
++
+ /* EOF */
+
+Modified: trunk/src/input/controller.hpp
+===================================================================
+--- trunk/src/input/controller.hpp	2005-08-08 21:16:53 UTC (rev 947)
++++ trunk/src/input/controller.hpp	2005-08-09 12:15:17 UTC (rev 948)
+@@ -30,12 +30,12 @@
+ class Controller
+ {
+ private:
+-  /** State of all buttons, indexed by ButtonName */
+-  std::vector&lt;bool&gt; buttons;
+-  
+-  /** State of all axis, indexed by AxisName */
+-  std::vector&lt;float&gt; axes;
++  union State {
++    bool  button;
++    float axis;
++  };
+ 
++  std::vector&lt;State&gt; states;
+   InputEventLst events;
+ 
+ public:
+@@ -50,7 +50,7 @@
+   void add_axis_event  (int name, float pos);
+   void add_button_event(int name, bool down);
+ 
+-  InputEventLst get_events() const;
++  const InputEventLst&amp; get_events() const;
+   void set_events(const InputEventLst&amp; lst);
+ 
+   /** Convenience function that searches for a button down event for
+@@ -64,6 +64,10 @@
+   /** Convenience function that searches for a AxisMove event that
+       pushed the axis down */
+   bool axis_was_pressed_down(int name) const;
++
++  void clear();
++
++  void add_event(const InputEvent&amp; event);
+ };
+ 
+ #endif
+
+Modified: trunk/src/input/input_configurator.cpp
+===================================================================
+--- trunk/src/input/input_configurator.cpp	2005-08-08 21:16:53 UTC (rev 947)
++++ trunk/src/input/input_configurator.cpp	2005-08-09 12:15:17 UTC (rev 948)
+@@ -32,7 +32,8 @@
+ #include &quot;input_configurator.hpp&quot;
+ 
+ InputConfigurator::InputConfigurator()
+-  : area(Rectf(120, 100,
++  : wait_for_plus(false),
++    area(Rectf(120, 100,
+                Display::get_width()  - 120, 
+                Display::get_height() - 100), 
+          false)
+@@ -105,11 +106,11 @@
+       
+       if (item.mode == ConfigureItem::CONFIGURE_AXIS)
+         {
+-          out &lt;&lt; &quot;Configuring &quot; &lt;&lt; def.axis_id2name(item.event_id) &lt;&lt; &quot;: &quot; &lt;&lt; std::endl;
++          out &lt;&lt; &quot;Configuring &quot; &lt;&lt; def.get_definition(item.event_id).name &lt;&lt; &quot;: &quot; &lt;&lt; std::endl;
+         }
+       else if (item.mode == ConfigureItem::CONFIGURE_BUTTON)
+         {
+-          out &lt;&lt; &quot;Configuring &quot; &lt;&lt; def.button_id2name(item.event_id) &lt;&lt; &quot;: &quot; &lt;&lt; std::endl;
++          out &lt;&lt; &quot;Configuring &quot; &lt;&lt; def.get_definition(item.event_id).name &lt;&lt; &quot;: &quot; &lt;&lt; std::endl;
+         }
+     }
+ 
+
+Modified: trunk/src/input/input_manager.cpp
+===================================================================
+--- trunk/src/input/input_manager.cpp	2005-08-08 21:16:53 UTC (rev 947)
++++ trunk/src/input/input_manager.cpp	2005-08-09 12:15:17 UTC (rev 948)
+@@ -81,7 +81,7 @@
+     recorder-&gt;record(get_controller());
+ }
+ 
+-Controller
++const Controller&amp;
+ InputManager::get_controller()
+ {
+   assert(impl);
+
+Modified: trunk/src/input/input_manager.hpp
+===================================================================
+--- trunk/src/input/input_manager.hpp	2005-08-08 21:16:53 UTC (rev 947)
++++ trunk/src/input/input_manager.hpp	2005-08-09 12:15:17 UTC (rev 948)
+@@ -46,7 +46,7 @@
+   static void setup_recorder(const std::string&amp; filename);
+ 
+   static void update(float delta);
+-  static Controller get_controller();
++  static const Controller&amp; get_controller();
+   static void clear();
+ private:
+   InputManager(const InputManager&amp;);
+
+Deleted: trunk/src/input/input_manager_custom.cpp
+===================================================================
+--- trunk/src/input/input_manager_custom.cpp	2005-08-08 21:16:53 UTC (rev 947)
++++ trunk/src/input/input_manager_custom.cpp	2005-08-09 12:15:17 UTC (rev 948)
+@@ -1,167 +0,0 @@
+-//  $Id$
+-//
+-//  Pingus - A free Lemmings clone
+-//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+-//
+-//  This program is free software; you can redistribute it and/or
+-//  modify it under the terms of the GNU General Public License
+-//  as published by the Free Software Foundation; either version 2
+-//  of the License, or (at your option) any later version.
+-//
+-//  This program is distributed in the hope that it will be useful,
+-//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-//  GNU General Public License for more details.
+-//
+-//  You should have received a copy of the GNU General Public License
+-//  along with this program; if not, write to the Free Software
+-//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+-
+-#include &lt;iostream&gt;
+-#include &lt;ClanLib/Display/keyboard.h&gt;
+-#include &lt;ClanLib/Display/joystick.h&gt;
+-#include &lt;ClanLib/Display/display_iostream.h&gt;
+-#include &lt;ClanLib/Display/keys.h&gt;
+-
+-#include &quot;lisp/lisp.hpp&quot;
+-#include &quot;lisp/properties.hpp&quot;
+-#include &quot;controller_def.hpp&quot;
+-#include &quot;input_button_input_device.hpp&quot;
+-#include &quot;input_axis_input_device.hpp&quot;
+-#include &quot;input_keyboard_input_device.hpp&quot;
+-#include &quot;button_factory.hpp&quot;
+-#include &quot;axis_factory.hpp&quot;
+-
+-#include &quot;input_manager_custom.hpp&quot;
+-
+-InputManagerCustom::InputManagerCustom(const lisp::Lisp* lisp)
+-{
+-  if (0) // FIXME: input disabled, change this to SDL
+-    {
+-      init(lisp);
+-
+-      for (int i = 0; i &lt; (int)buttons.size(); ++i)
+-        {
+-          if (buttons[i])
+-            {
+-              slots.push_back(buttons[i]-&gt;on_key_down().connect(this, &amp;InputManagerCustom::on_button_down, i));
+-              slots.push_back(buttons[i]-&gt;on_key_up().connect  (this, &amp;InputManagerCustom::on_button_up,   i));
+-            }
+-          else
+-            {
+-              std::cout &lt;&lt; &quot;# Warrning: Button '&quot; &lt;&lt; ControllerDef::button_id2name(i)
+-                        &lt;&lt; &quot;' not configured and will not be usable&quot; &lt;&lt; std::endl;
+-            }
+-        }
+-
+-      for (int i = 0; i &lt; (int)axes.size(); ++i)
+-        {
+-          if (axes[i])
+-            {
+-              slots.push_back(axes[i]-&gt;on_move().connect(this, &amp;InputManagerCustom::on_axis_move, i));
+-            }
+-          else
+-            {
+-              std::cout &lt;&lt; &quot;# Warrning: Axis '&quot; &lt;&lt; ControllerDef::axis_id2name(i)
+-                        &lt;&lt; &quot;' not configured and will not be usable&quot; &lt;&lt; std::endl;
+-            }
+-        }
+-
+-      for (int i = 0; i &lt; (int)keyboards.size(); ++i)
+-        {
+-          if (keyboards[i])
+-            {
+-              slots.push_back(keyboards[i]-&gt;on_key().connect(this, &amp;InputManagerCustom::on_key));
+-            }
+-          else
+-            {
+-              std::cout &lt;&lt; &quot;# Warrning: Keyboard not configured&quot; &lt;&lt; std::endl;
+-            }
+-        }
+-    }
+-}
+-
+-void 
+-InputManagerCustom::init(const lisp::Lisp* lisp)
+-{
+-  buttons.resize(ControllerDef::get_button_count());
+-  axes.resize(ControllerDef::get_axis_count());
+-  keyboards.resize(ControllerDef::get_keyboard_count());
+-
+-  lisp::Properties props(lisp);
+-  lisp::PropertyIterator&lt;const lisp::Lisp*&gt; iter = props.get_iter();
+-  while(iter.next()) {
+-    std::string name = iter.item();
+-    const lisp::Lisp* lisp = (*iter)-&gt;get_list_elem(1);
+-
+-    int id = ControllerDef::button_name2id(name);
+-    if (id != -1)
+-      {
+-        buttons[id] = ButtonFactory::create(lisp);
+-      }
+-    else if (name == &quot;keyboard&quot;)
+-      {
+-        keyboards[0] = new InputKeyboardInputDevice(CL_Keyboard::get_device());
+-      }
+-    else
+-      {
+-        id = ControllerDef::axis_name2id(name);
+-        if (id != -1)
+-          {
+-            axes[id] = AxisFactory::create(lisp);
+-          }
+-        else
+-          {
+-            std::cout &lt;&lt; &quot;# Warning: InputManagerCustom::init: Error unknown tag: &quot; &lt;&lt; std::endl;
+-          }
+-      }
+-  }
+-}  
+-
+-void
+-InputManagerCustom::on_axis_move(float pos, int name)
+-{
+-  add_axis_event(name, pos);
+-}
+-
+-void
+-InputManagerCustom::on_button_up(int name)
+-{
+-  add_button_event(name, false);
+-}
+-
+-void
+-InputManagerCustom::on_button_down(int name)
+-{
+-  add_button_event(name, true);
+-}
+-
+-void
+-InputManagerCustom::on_key(KeyboardEvent::KeyType key_type, int code)
+-{
+-  add_keyboard_event(0, key_type, code);
+-}
+-
+-void
+-InputManagerCustom::update(float delta)
+-{
+-  for (int i = 0; i &lt; (int)buttons.size(); ++i)
+-    {
+-      if (buttons[i])
+-        buttons[i]-&gt;update(delta);
+-    }
+-
+-  for (int i = 0; i &lt; (int)axes.size(); ++i)
+-    {
+-      if (axes[i])
+-        axes[i]-&gt;update(delta);
+-    }
+-
+-  for (int i = 0; i &lt; (int)keyboards.size(); ++i)
+-    {
+-      if (keyboards[i])
+-        keyboards[i]-&gt;update(delta);
+-    }
+-}
+-
+-/* EOF */
+
+Deleted: trunk/src/input/input_manager_custom.hpp
+===================================================================
+--- trunk/src/input/input_manager_custom.hpp	2005-08-08 21:16:53 UTC (rev 947)
++++ trunk/src/input/input_manager_custom.hpp	2005-08-09 12:15:17 UTC (rev 948)
+@@ -1,65 +0,0 @@
+-//  $Id$
+-// 
+-//  Pingus - A free Lemmings clone
+-//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+-//
+-//  This program is free software; you can redistribute it and/or
+-//  modify it under the terms of the GNU General Public License
+-//  as published by the Free Software Foundation; either version 2
+-//  of the License, or (at your option) any later version.
+-//
+-//  This program is distributed in the hope that it will be useful,
+-//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-//  GNU General Public License for more details.
+-// 
+-//  You should have received a copy of the GNU General Public License
+-//  along with this program; if not, write to the Free Software
+-//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+-
+-#ifndef HEADER_INPUT_MANAGER_CUSTOM_HXX
+-#define HEADER_INPUT_MANAGER_CUSTOM_HXX
+-
+-#include &lt;ClanLib/Display/input_device.h&gt;
+-#include &lt;ClanLib/Display/input_event.h&gt;
+-#include &quot;input_event.hpp&quot;
+-#include &quot;input_button.hpp&quot;
+-#include &quot;input_axis.hpp&quot;
+-#include &quot;input_keyboard.hpp&quot;
+-#include &quot;input_manager_impl.hpp&quot;
+-#include &quot;lisp/lisp.hpp&quot;
+-
+-/** */
+-class InputManagerCustom : public InputManagerImpl
+-{
+-private:
+-  std::vector&lt;CL_Slot&gt; slots;
+-
+-  typedef std::vector&lt;InputAxis*&gt;     Axes;
+-  typedef std::vector&lt;InputButton*&gt;   Buttons;
+-  typedef std::vector&lt;InputKeyboard*&gt; Keyboards;
+-
+-  Axes      axes;
+-  Buttons   buttons;
+-  Keyboards keyboards;
+-
+-public:
+-  InputManagerCustom(const lisp::Lisp* lisp);
+-  
+-  void update(float delta);
+-
+-  void on_button_up(int name);
+-  void on_button_down(int name);
+-  void on_axis_move(float pos, int name);
+-  void on_key(KeyboardEvent::KeyType key_type, int code);
+-
+-private:
+-  void init(const lisp::Lisp* lisp);
+-
+-  InputManagerCustom (const InputManagerCustom&amp;);
+-  InputManagerCustom&amp; operator= (const InputManagerCustom&amp;);
+-};
+-
+-#endif
+-
+-/* EOF */
+
+Modified: trunk/src/input/input_manager_impl.cpp
+===================================================================
+--- trunk/src/input/input_manager_impl.cpp	2005-08-08 21:16:53 UTC (rev 947)
++++ trunk/src/input/input_manager_impl.cpp	2005-08-09 12:15:17 UTC (rev 948)
+@@ -19,19 +19,6 @@
+ 
+ #include &quot;input_manager_impl.hpp&quot;
+ 
+-InputEventLst
+-InputManagerImpl::get_events()
+-{
+-  return events;
+-}
+-
+-Controller
+-InputManagerImpl::get_controller()
+-{
+-  controller.set_events(events);
+-  return controller;
+-}
+-
+ void
+ InputManagerImpl::add_axis_event(int name, float pos)
+ {
+@@ -39,8 +26,8 @@
+   event.type = AXIS_EVENT;
+   event.axis.name = name;
+   event.axis.pos  = pos;
+-  events.push_back(event);
+ 
++  controller.add_event(event);
+   controller.set_axis_state(name, pos);
+ }
+ 
+@@ -48,11 +35,12 @@
+ InputManagerImpl::add_button_event(int name, bool down)
+ {
+   InputEvent event;
++
+   event.type = BUTTON_EVENT;
+   event.button.name = name;
+   event.button.down = down;
+-  events.push_back(event);
+ 
++  controller.add_event(event);
+   controller.set_button_state(name, down);
+ }
+ 
+@@ -63,13 +51,20 @@
+   event.type = KEYBOARD_EVENT;
+   event.keyboard.key_type = key_type;
+   event.keyboard.code     = code;
+-  events.push_back(event);  
++
++  controller.add_event(event);
+ }
+ 
+ void
+ InputManagerImpl::clear()
+ {
+-  events.clear();
++  controller.clear();
+ }
+ 
++const Controller&amp;
++InputManagerImpl::get_controller() const
++{
++  return controller;
++}
++
+ /* EOF */
+
+Modified: trunk/src/input/input_manager_impl.hpp
+===================================================================
+--- trunk/src/input/input_manager_impl.hpp	2005-08-08 21:16:53 UTC (rev 947)
++++ trunk/src/input/input_manager_impl.hpp	2005-08-09 12:15:17 UTC (rev 948)
+@@ -28,7 +28,6 @@
+ {
+ protected:
+   Controller controller;
+-  InputEventLst events;
+ 
+ public:
+   InputManagerImpl() {}
+@@ -36,9 +35,7 @@
+ 
+   virtual void update(float delta) =0;
+   
+-  InputEventLst get_events();
+-
+-  Controller get_controller();
++  const Controller&amp; get_controller() const;
+   void clear();
+ 
+   void add_axis_event  (int name, float pos);
+
+Modified: trunk/src/input/input_manager_player.cpp
+===================================================================
+--- trunk/src/input/input_manager_player.cpp	2005-08-08 21:16:53 UTC (rev 947)
++++ trunk/src/input/input_manager_player.cpp	2005-08-09 12:15:17 UTC (rev 948)
+@@ -80,9 +80,10 @@
+   (void) delta;
+   if (entries.front().entry_num == entry_counter)
+     {
+-      events = entries.front().events;
++      controller.set_events(entries.front().events);
+       
+-      for (InputEventLst::iterator i = events.begin(); i != events.end(); ++i)
++      for (InputEventLst::const_iterator i = controller.get_events().begin(); 
++           i != controller.get_events().end(); ++i)
+         {
+           if (i-&gt;type == AXIS_EVENT)
+             controller.set_axis_state(i-&gt;axis.name, i-&gt;axis.pos);
+
+Modified: trunk/src/input/input_manager_player.hpp
+===================================================================
+--- trunk/src/input/input_manager_player.hpp	2005-08-08 21:16:53 UTC (rev 947)
++++ trunk/src/input/input_manager_player.hpp	2005-08-09 12:15:17 UTC (rev 948)
+@@ -29,7 +29,8 @@
+ class InputManagerPlayer : public InputManagerImpl
+ {
+ private:
+-  struct Entry {
++  struct Entry 
++  {
+     Entry(int num, const InputEventLst&amp; lst) 
+       : entry_num(num), events(lst)
+     {}
+
+Modified: trunk/src/input/input_manager_sdl.cpp
+===================================================================
+--- trunk/src/input/input_manager_sdl.cpp	2005-08-08 21:16:53 UTC (rev 947)
++++ trunk/src/input/input_manager_sdl.cpp	2005-08-09 12:15:17 UTC (rev 948)
+@@ -113,7 +113,7 @@
+                   props.get(&quot;device&quot;, device);
+                   props.get(&quot;button&quot;, button);
+ 
+-                  bind_joystick_button(controller_def.button_name2id(iter.item()),
++                  bind_joystick_button(controller_def.get_definition(iter.item()).id,
+                                        device, button);
+                 }
+               else if (dev_iter.item() == &quot;keyboard-button&quot;)
+@@ -123,7 +123,7 @@
+                   lisp::Properties props(*dev_iter);
+                   props.get(&quot;key&quot;, key);
+ 
+-                  bind_keyboard_button(controller_def.button_name2id(iter.item()), 
++                  bind_keyboard_button(controller_def.get_definition(iter.item()).id,
+                                        string_to_keyid(key));
+                 }
+               else
+@@ -147,7 +147,8 @@
+                   props.get(&quot;device&quot;, device);
+                   props.get(&quot;axis&quot;,   axis);
+ 
+-                  bind_joystick_axis(controller_def.axis_name2id(iter.item()), device, axis);
++                  bind_joystick_axis(controller_def.get_definition(iter.item()).id,
++                                     device, axis);
+                 }
+               else if (dev_iter.item() == &quot;keyboard-axis&quot;)
+                 {
+@@ -158,7 +159,7 @@
+                   props.get(&quot;minus&quot;, minus);
+                   props.get(&quot;plus&quot;,  plus);
+ 
+-                  bind_keyboard_axis(controller_def.axis_name2id(iter.item()), 
++                  bind_keyboard_axis(controller_def.get_definition(iter.item()).id, 
+                                      string_to_keyid(minus), string_to_keyid(plus));
+                 }
+               else
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000600.html">[Windstille-commit] r947 - in trunk/src: . input
+</A></li>
+	<LI>Next message: <A HREF="000602.html">[Windstille-commit] r949 - in trunk/src: . input scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#601">[ date ]</a>
+              <a href="thread.html#601">[ thread ]</a>
+              <a href="subject.html#601">[ subject ]</a>
+              <a href="author.html#601">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

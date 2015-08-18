@@ -1,0 +1,392 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2374 - trunk/griv/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2374%20-%20trunk/griv/src&In-Reply-To=%3C200808302143.m7ULhqdn012853%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001370.html">
+   <LINK REL="Next"  HREF="001372.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2374 - trunk/griv/src</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2374%20-%20trunk/griv/src&In-Reply-To=%3C200808302143.m7ULhqdn012853%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2374 - trunk/griv/src">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Aug 30 23:43:52 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001370.html">[Windstille-commit] r2373 - in trunk/griv/src: . math
+</A></li>
+        <LI>Next message: <A HREF="001372.html">[Windstille-commit] r2375 - trunk/griv/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1371">[ date ]</a>
+              <a href="thread.html#1371">[ thread ]</a>
+              <a href="subject.html#1371">[ subject ]</a>
+              <a href="author.html#1371">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-30 23:43:51 +0200 (Sat, 30 Aug 2008)
+New Revision: 2374
+
+Modified:
+   trunk/griv/src/database_thread.cpp
+   trunk/griv/src/file_database.cpp
+   trunk/griv/src/file_entry.hpp
+   trunk/griv/src/math.hpp
+   trunk/griv/src/sqlite.cpp
+   trunk/griv/src/sqlite.hpp
+   trunk/griv/src/tile_database.cpp
+   trunk/griv/src/tile_database.hpp
+   trunk/griv/src/tile_entry.hpp
+   trunk/griv/src/tile_generator_thread.hpp
+Log:
+Some more code, maybe some more bugs
+
+Modified: trunk/griv/src/database_thread.cpp
+===================================================================
+--- trunk/griv/src/database_thread.cpp	2008-08-30 19:44:21 UTC (rev 2373)
++++ trunk/griv/src/database_thread.cpp	2008-08-30 21:43:51 UTC (rev 2374)
+@@ -26,6 +26,7 @@
+ #include &lt;iostream&gt;
+ #include &lt;boost/bind.hpp&gt;
+ #include &lt;assert.h&gt;
++#include &quot;math.hpp&quot;
+ #include &quot;file_database.hpp&quot;
+ #include &quot;tile_database.hpp&quot;
+ #include &quot;tile_generator_thread.hpp&quot;
+@@ -213,8 +214,9 @@
+                         {
+                           (*i)-&gt;callback(tile_msg-&gt;tile);
+ 
++                          // FIXME: Correct!?
++
+                           delete *i;
+-
+                           i = tile_queue.erase(i);
+                         }
+                       else
+@@ -226,10 +228,11 @@
+                   // FIXME: Make some better error checking in case of loading failure
+                   if (tile_msg-&gt;tile.surface)
+                     {
+-                      //if (tile_msg-&gt;tile.scale == file_entry.max_scale)
+-                      //  file_db.store_tile(tile_msg-&gt;tile);
++                      // FIXME: Need file_entry object for this:
++                      //if (tile_msg-&gt;tile.scale == file_entry.thumbnail_scale)
++                        //  file_db.store_tile(tile_msg-&gt;tile);
+                       //else
+-                      tile_db.store_tile(tile_msg-&gt;tile);
++                        tile_db.store_tile(tile_msg-&gt;tile);
+                     }
+                   else
+                     {
+@@ -339,10 +342,41 @@
+           TileGeneratorThread::current() &amp;&amp; !TileGeneratorThread::current()-&gt;is_working())
+         {
+           if (!tile_queue.empty())
+-            TileGeneratorThread::current()-&gt;request_tiles(tile_queue.back()-&gt;file_entry,
+-                                                          tile_queue.back()-&gt;tilescale,
+-                                                          tile_queue.back()-&gt;tilescale,
+-                                                          boost::bind(&amp;DatabaseThread::receive_tile, this, _1));
++            {
++              // FIXME: Either buggy or not syncronized
++              TileDatabaseMessage&amp; msg = *tile_queue.back();
++
++              int max_scale = msg.tilescale;
++
++              bool tiles_missing;
++              do
++                {
++                  tiles_missing = false;
++
++                  int width  = Math::ceil_div(msg.file_entry.size.width  / Math::pow2(max_scale), 256);
++                  int height = Math::ceil_div(msg.file_entry.size.height / Math::pow2(max_scale), 256);
++
++                  for(int y = 0; y &lt; height; ++y)
++                    for(int x = 0; x &lt; width; ++x)
++                      {
++                        if (!tile_db.has_tile(msg.file_entry.fileid, Vector2i(x,y), max_scale+1))
++                          {
++                            tiles_missing = true;
++                            max_scale += 1;
++                            goto here;
++                          }
++                      }
++
++                here:
++                  ;
++                }
++              while(tiles_missing &amp;&amp; max_scale &lt; msg.file_entry.thumbnail_scale);
++              
++              TileGeneratorThread::current()-&gt;request_tiles(msg.file_entry,
++                                                            msg.tilescale,
++                                                            max_scale,
++                                                            boost::bind(&amp;DatabaseThread::receive_tile, this, _1));
++            }
+         }
+     }
+ 
+
+Modified: trunk/griv/src/file_database.cpp
+===================================================================
+--- trunk/griv/src/file_database.cpp	2008-08-30 19:44:21 UTC (rev 2373)
++++ trunk/griv/src/file_database.cpp	2008-08-30 21:43:51 UTC (rev 2374)
+@@ -28,6 +28,7 @@
+ #include &lt;stdexcept&gt;
+ 
+ #include &lt;assert.h&gt;
++#include &quot;math.hpp&quot;
+ #include &quot;jpeg.hpp&quot;
+ #include &quot;filesystem.hpp&quot;
+ #include &quot;software_surface.hpp&quot;
+@@ -73,8 +74,6 @@
+ int
+ FileDatabase::store_file_entry(FileEntry&amp; entry)
+ {
+-  assert(entry.fileid == -1);
+-
+   store_stmt.bind_text(1, entry.filename);
+   if (entry.md5.empty())
+     store_stmt.bind_null(2);
+@@ -86,8 +85,7 @@
+   // FIXME: Should we handle them here or depend on store_tile()?
+   // store_stmt.bind_int (6, entry.color); 
+   // store_stmt.bind_int (7, entry.surface.get_raw_data()); 
+-  
+-  store_stmt.bind_int (8, entry.thumbnail_scale);
++  // store_stmt.bind_int (8, entry.thumbnail_scale);
+ 
+   store_stmt.execute();
+   
+@@ -106,6 +104,20 @@
+   store_tile_stmt.execute();
+ }
+ 
++int get_thumbnail_scale(const Size&amp; size)
++{
++  int s = Math::max(size.width, size.height);
++  int i = 0;
++  
++  while(s &gt; 8)
++    {
++      s /= 2;
++      i += 1;
++    }
++
++  return i;
++}
++
+ bool
+ FileDatabase::get_file_entry(const std::string&amp; filename, FileEntry* entry)
+ {
+@@ -128,7 +140,7 @@
+       entry-&gt;size.height = reader.get_int (5);
+       entry-&gt;color       = reader.is_null(6) ? RGB(155,0,155) : RGB(reader.get_int(6));
+       entry-&gt;thumbnail   = reader.is_null(7) ? SoftwareSurface() : SoftwareSurface::from_raw_data(reader.get_blob(7));
+-      entry-&gt;thumbnail_scale = reader.get_int(8);
++      entry-&gt;thumbnail_scale = reader.is_null(8) ? get_thumbnail_scale(entry-&gt;size) : reader.get_int(8);
+ 
+       return true;
+     }
+@@ -147,6 +159,7 @@
+       if (JPEG::get_size(entry-&gt;filename, entry-&gt;size))
+         {
+           store_file_entry(*entry);
++          entry-&gt;thumbnail_scale = get_thumbnail_scale(entry-&gt;size);
+           return true;
+         }
+       else
+@@ -173,6 +186,7 @@
+       entry.mtime       = reader.get_int (6);
+       entry.color       = reader.is_null(6) ? RGB(155,0,155) : RGB(reader.get_int(6));
+       entry.thumbnail   = reader.is_null(7) ? SoftwareSurface() : SoftwareSurface::from_raw_data(reader.get_blob(7));
++      entry.thumbnail_scale = reader.is_null(8) ? get_thumbnail_scale(entry.size) : reader.get_int(8);
+ 
+       entries.push_back(entry);
+     }
+
+Modified: trunk/griv/src/file_entry.hpp
+===================================================================
+--- trunk/griv/src/file_entry.hpp	2008-08-30 19:44:21 UTC (rev 2373)
++++ trunk/griv/src/file_entry.hpp	2008-08-30 21:43:51 UTC (rev 2374)
+@@ -37,7 +37,7 @@
+ public:
+   /** Unique id by which one can refer to this FileEntry, used in the
+       'tile' table in the database */
+-  int fileid;
++  uint32_t fileid;
+ 
+   /** The absolute filename of the image file */
+   std::string filename; 
+
+Modified: trunk/griv/src/math.hpp
+===================================================================
+--- trunk/griv/src/math.hpp	2008-08-30 19:44:21 UTC (rev 2373)
++++ trunk/griv/src/math.hpp	2008-08-30 21:43:51 UTC (rev 2374)
+@@ -124,6 +124,12 @@
+   return (n &gt; 0) &amp;&amp; ((n &amp; (n - 1)) == 0);
+ }
+ 
++/** Does a/b and rounds the result up */
++inline int ceil_div(int a, int b)
++{
++  return (a + b - 1) / b;
++}
++
+ } // namespace Math
+ 
+ #endif
+
+Modified: trunk/griv/src/sqlite.cpp
+===================================================================
+--- trunk/griv/src/sqlite.cpp	2008-08-30 19:44:21 UTC (rev 2373)
++++ trunk/griv/src/sqlite.cpp	2008-08-30 21:43:51 UTC (rev 2374)
+@@ -126,6 +126,8 @@
+ void
+ SQLiteStatement::prepare(const std::string&amp; sqlstmt)
+ {
++  stmt_str = sqlstmt;
++
+   if (sqlite3_prepare_v2(db-&gt;get_db(), sqlstmt.c_str(), -1, &amp;stmt,  0)
+       != SQLITE_OK)
+     {
+@@ -142,6 +144,7 @@
+     {
+       std::ostringstream str;
+       str &lt;&lt; &quot;SQLiteStatement::bind_int: &quot; &lt;&lt; sqlite3_errmsg(db-&gt;get_db());
++      str &lt;&lt; &quot;\n&quot; &lt;&lt; stmt_str;
+       throw SQLiteError(str.str());
+     }
+ }
+
+Modified: trunk/griv/src/sqlite.hpp
+===================================================================
+--- trunk/griv/src/sqlite.hpp	2008-08-30 19:44:21 UTC (rev 2373)
++++ trunk/griv/src/sqlite.hpp	2008-08-30 21:43:51 UTC (rev 2374)
+@@ -88,6 +88,7 @@
+ private:
+   SQLiteConnection* db;
+   sqlite3_stmt*   stmt;
++  std::string     stmt_str;
+ 
+   void reset();
+   
+@@ -106,6 +107,8 @@
+   void execute();
+   SQLiteReader execute_query();
+ 
++  std::string str() const { return stmt_str; }
++
+ private:
+   SQLiteStatement(const SQLiteStatement&amp;);
+   SQLiteStatement();
+
+Modified: trunk/griv/src/tile_database.cpp
+===================================================================
+--- trunk/griv/src/tile_database.cpp	2008-08-30 19:44:21 UTC (rev 2373)
++++ trunk/griv/src/tile_database.cpp	2008-08-30 21:43:51 UTC (rev 2374)
+@@ -56,7 +56,7 @@
+ }
+ 
+ bool
+-TileDatabase::has_tile(uint32_t fileid, Vector2i&amp; pos, int scale)
++TileDatabase::has_tile(uint32_t fileid, const Vector2i&amp; pos, int scale)
+ {
+   has_stmt.bind_int(1, fileid);
+   has_stmt.bind_int(2, scale);
+@@ -132,7 +132,7 @@
+   while(reader.next())
+     {
+       /*
+-        int fileid = reader.get_int(0);
++        uint32_t fileid = reader.get_int(0);
+         int scale  = reader.get_int(1);
+         int x      = reader.get_int(2);
+         int y      = reader.get_int(3);
+
+Modified: trunk/griv/src/tile_database.hpp
+===================================================================
+--- trunk/griv/src/tile_database.hpp	2008-08-30 19:44:21 UTC (rev 2373)
++++ trunk/griv/src/tile_database.hpp	2008-08-30 21:43:51 UTC (rev 2374)
+@@ -46,7 +46,7 @@
+ public:
+   TileDatabase(SQLiteConnection* db);
+   
+-  bool has_tile(uint32_t file_id, Vector2i&amp; pos, int scale);
++  bool has_tile(uint32_t file_id, const Vector2i&amp; pos, int scale);
+   bool get_tile(uint32_t file_id, int scale, const Vector2i&amp; pos, TileEntry&amp; tile);
+   void store_tile(const TileEntry&amp; tile);
+   void check();
+
+Modified: trunk/griv/src/tile_entry.hpp
+===================================================================
+--- trunk/griv/src/tile_entry.hpp	2008-08-30 19:44:21 UTC (rev 2373)
++++ trunk/griv/src/tile_entry.hpp	2008-08-30 21:43:51 UTC (rev 2374)
+@@ -32,7 +32,7 @@
+ class TileEntry
+ {
+ public:
+-  int      fileid; // FIXME: Can we replace this with a FileEntry object?!
++  uint32_t fileid; // FIXME: Can we replace this with a FileEntry object?!
+   int      scale;
+   Vector2i pos;
+   SoftwareSurface surface;
+@@ -40,7 +40,7 @@
+   TileEntry()
+   {}
+ 
+-  TileEntry(int fileid_, int scale_, const Vector2i&amp; pos_, const SoftwareSurface&amp; surface_)
++  TileEntry(uint32_t fileid_, int scale_, const Vector2i&amp; pos_, const SoftwareSurface&amp; surface_)
+     : fileid(fileid_),
+       scale(scale_),
+       pos(pos_),
+
+Modified: trunk/griv/src/tile_generator_thread.hpp
+===================================================================
+--- trunk/griv/src/tile_generator_thread.hpp	2008-08-30 19:44:21 UTC (rev 2373)
++++ trunk/griv/src/tile_generator_thread.hpp	2008-08-30 21:43:51 UTC (rev 2374)
+@@ -59,7 +59,7 @@
+ 
+   int min_scale;
+   int max_scale;
+-  int fileid;
++  uint32_t fileid;
+ 
+ protected:
+   int run();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001370.html">[Windstille-commit] r2373 - in trunk/griv/src: . math
+</A></li>
+	<LI>Next message: <A HREF="001372.html">[Windstille-commit] r2375 - trunk/griv/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1371">[ date ]</a>
+              <a href="thread.html#1371">[ thread ]</a>
+              <a href="subject.html#1371">[ subject ]</a>
+              <a href="author.html#1371">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,422 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r723 - in trunk/src: . collision
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r723%20-%20in%20trunk/src%3A%20.%20collision&In-Reply-To=%3C200507231520.j6NFK1Tv012554%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000375.html">
+   <LINK REL="Next"  HREF="000377.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r723 - in trunk/src: . collision</H1>
+    <B>David Kamphausen at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r723%20-%20in%20trunk/src%3A%20.%20collision&In-Reply-To=%3C200507231520.j6NFK1Tv012554%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r723 - in trunk/src: . collision">davidkamphausen at berlios.de
+       </A><BR>
+    <I>Sat Jul 23 17:20:01 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000375.html">[Windstille-commit] r722 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000377.html">[Windstille-commit] r724 - in trunk/src: . collision
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#376">[ date ]</a>
+              <a href="thread.html#376">[ thread ]</a>
+              <a href="subject.html#376">[ subject ]</a>
+              <a href="author.html#376">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: davidkamphausen
+Date: 2005-07-23 17:19:58 +0200 (Sat, 23 Jul 2005)
+New Revision: 723
+
+Modified:
+   trunk/src/collision/collision_engine.cpp
+   trunk/src/collision/collision_engine.hpp
+   trunk/src/collision/collision_object.cpp
+   trunk/src/collision/collision_object.hpp
+   trunk/src/sector.cpp
+Log:
+* extended CollisionObject to manage TileMap
+* sweep-like collision detection for rect vs. tilemap
+
+
+Modified: trunk/src/collision/collision_engine.cpp
+===================================================================
+--- trunk/src/collision/collision_engine.cpp	2005-07-23 14:08:14 UTC (rev 722)
++++ trunk/src/collision/collision_engine.cpp	2005-07-23 15:19:58 UTC (rev 723)
+@@ -21,6 +21,8 @@
+ 
+ #include &quot;collision_test.hpp&quot;
+ #include &quot;collision_engine.hpp&quot;
++#include &quot;globals.hpp&quot;
++#include &quot;tile_map.hpp&quot;
+ 
+ /***********************************************************************
+  * Collision
+@@ -47,6 +49,8 @@
+ void
+ CollisionEngine::collision(CollisionObject&amp; a, CollisionObject&amp; b, const CollisionData &amp;result, float delta)
+ {
++  (void)delta;
++
+   CollisionData inv=result.invert();
+ 
+   a.collision(result, b);
+@@ -239,23 +243,207 @@
+ CollisionData
+ CollisionEngine::collide(CollisionObject&amp; a, CollisionObject&amp; b, float delta)
+ {
+-  CL_Rectf ra = a.primitive;
+-  CL_Rectf rb = b.primitive;
++  if (a.object_type == CollisionObject::RECTANGLE &amp;&amp; b.object_type == CollisionObject::RECTANGLE)
++    {
++      CL_Rectf ra = a.primitive;
++      CL_Rectf rb = b.primitive;
++      
++      ra.left   += a.get_pos().x;
++      ra.right  += a.get_pos().x;
++      ra.top    += a.get_pos().y;
++      ra.bottom += a.get_pos().y;
++      
++      rb.left   += b.get_pos().x;
++      rb.right  += b.get_pos().x;
++      rb.top    += b.get_pos().y;
++      rb.bottom += b.get_pos().y;
++      
++      return collide(ra, rb,
++		     a.get_velocity(), b.get_velocity(),
++		     delta);
++    }
++  else
++    {
++      if (a.object_type == CollisionObject::RECTANGLE)
++	return collide_tilemap (b, a, delta).invert();
++      else
++	return collide_tilemap (a, b, delta);
++    }
++}
+ 
+-  ra.left   += a.get_pos().x;
+-  ra.right  += a.get_pos().x;
+-  ra.top    += a.get_pos().y;
+-  ra.bottom += a.get_pos().y;
++int get_next_integer(float f, float direction)
++{
++  int result;
+ 
+-  rb.left   += b.get_pos().x;
+-  rb.right  += b.get_pos().x;
+-  rb.top    += b.get_pos().y;
+-  rb.bottom += b.get_pos().y;
++  if(direction &lt; 0)
++    {
++      result = int (f);
++      if (result == f)
++	--result;
++    }
++  else
++    {
++      result = int (f);
++      if (result &lt;= f)
++	++result;
++    }
++  return result;
++}
+ 
+-  return collide(ra, rb,
+-                 a.get_velocity(), b.get_velocity(),
+-                 delta);
++bool tilemap_collision(TileMap *tilemap, const CL_Rectf &amp;r)
++{
++  int minx, maxx;
++  int miny, maxy;
++  int x, y;
++
++  minx = (int)r.left   / TILE_SIZE;
++  maxx = (int)r.right  / TILE_SIZE;
++  miny = (int)r.top    / TILE_SIZE;
++  maxy = (int)r.bottom / TILE_SIZE;
++
++  for (y = miny; y &lt;= maxy; ++y)
++    for (x = minx; x &lt;= maxx; ++x)
++      {
++	if(tilemap-&gt;is_ground (x * TILE_SIZE, y * TILE_SIZE ))
++	  {
++	    return true;
++	  }
++      }
++  return false;
+ }
+ 
++#define c_sign(x) ((x)&lt;0?-1:((x)&gt;0?1:0))
++
++CollisionData
++CollisionEngine::collide_tilemap(CollisionObject&amp; a, CollisionObject&amp; b, float delta)
++{
++  CollisionData result;
++
++  assert(a.object_type == CollisionObject::TILEMAP);
++  assert(b.object_type == CollisionObject::RECTANGLE);
++
++  CL_Vector vel = b.get_velocity() - a.get_velocity();
++
++  if (vel.x == 0.0f &amp;&amp; vel.y == 0.0f)
++    return result;
++
++  // The algorithm functions under following assumption, that
++  // b is in the free at time == 0.
++  // Then for the given frame delta, for each new grid collision is checked,
++  // if a collision takes place.
++
++  CL_Rectf r = b.primitive;
++
++  r.left   += b.get_pos().x;
++  r.right  += b.get_pos().x;
++  r.top    += b.get_pos().y;
++  r.bottom += b.get_pos().y;
++
++  // check, if stuck
++  if (tilemap_collision (a.tilemap, r))
++    {
++      result.state=CollisionData::STUCK;
++      result.col_time = 0;
++      
++      return result;
++    }
++
++
++
++  float time=0.0f;
++  
++  float *x, *y;         // current position
++  int next_x, next_y;   // next grid position
++  float tx, ty;         // next time, when grid is hit
++  float ct=1.0f;        // collision_time
++
++  if (vel.x &lt; 0)
++    x = &amp;r.left;
++  else
++    x = &amp;r.right;
++
++  if (vel.y &lt; 0)
++    y = &amp;r.top;
++  else
++    y = &amp;r.bottom;
++
++  while (time &lt; delta &amp;&amp; ct &gt;= 0.0f)
++    {
++      ct = -1.0f;
++
++      next_x = get_next_integer ((*x / TILE_SIZE), vel.x) * TILE_SIZE;
++      next_y = get_next_integer ((*y / TILE_SIZE), vel.y) * TILE_SIZE;
++
++      if (vel.x != 0.0f)
++	tx = (next_x - *x) / vel.x;
++      else
++	tx = 10000.0f;
++
++      if (vel.y != 0.0f)
++	ty = (next_y - *y) / vel.y;
++      else
++	ty = 10000.0f;
++
++      assert (tx &gt;= 0.0f);
++      assert (ty &gt;= 0.0f);
++
++      if (tx &lt; ty)
++	{
++	  if (time + tx &lt; delta)
++	    ct = tx;
++	}
++      else
++	{
++	  if (time + ty &lt; delta)
++	    ct = ty;
++	}
++      
++      if (ct &gt;= 0.0f)
++	{
++	  // move to next position
++	  float dx, dy;
++
++	  dx = ct * vel.x;
++	  dy = ct * vel.y;
++
++	  r.left   += dx;
++	  r.right  += dx;
++	  r.top    += dy;
++	  r.bottom += dy;
++	  time += ct;
++
++	  // now shift one more pixel and check for collision with tilemap
++	  CL_Rectf tmp(r);
++	  
++	  if (tx &lt; ty)
++	    {
++	      tmp.left  += c_sign(vel.x);
++	      tmp.right += c_sign(vel.x);
++	    }
++	  else
++	    {
++	      tmp.top    += c_sign(vel.y);
++	      tmp.bottom += c_sign(vel.y);
++	    }
++
++	  // check collision with tilemap
++
++	  if (tilemap_collision (a.tilemap, tmp))
++	    {
++	      result.state=CollisionData::COLLISION;
++	      result.col_time = time;
++	      
++	      if (tx &lt; ty)
++		result.direction=CL_Vector(c_sign (vel.x), 0);
++	      else
++		result.direction=CL_Vector(0, c_sign (vel.y));
++	      return result;
++	    }
++	}
++    }
++
++  return result;
++}
++
+ /* EOF */
+ 
+
+Modified: trunk/src/collision/collision_engine.hpp
+===================================================================
+--- trunk/src/collision/collision_engine.hpp	2005-07-23 14:08:14 UTC (rev 722)
++++ trunk/src/collision/collision_engine.hpp	2005-07-23 15:19:58 UTC (rev 723)
+@@ -49,6 +49,7 @@
+   CollisionData collide(const CL_Rectf&amp; b1, const CL_Rectf&amp; b2,
+                         const CL_Vector&amp; b1_v, const CL_Vector&amp; b2_v,
+                         float delta);
++  CollisionData collide_tilemap(CollisionObject&amp; a, CollisionObject&amp; b, float delta);
+ };
+ 
+ #endif
+
+Modified: trunk/src/collision/collision_object.cpp
+===================================================================
+--- trunk/src/collision/collision_object.cpp	2005-07-23 14:08:14 UTC (rev 722)
++++ trunk/src/collision/collision_object.cpp	2005-07-23 15:19:58 UTC (rev 723)
+@@ -32,6 +32,7 @@
+ CollisionObject::CollisionObject(const CL_Rectf&amp; rect_)
+   : primitive(rect_)
+ {
++  object_type        = RECTANGLE;
+   parent             = 0;
+   coll_engine        = 0;
+   is_unstuckable     = true;
+@@ -40,6 +41,18 @@
+   pos                = CL_Vector(0,0,0);
+ }
+ 
++CollisionObject::CollisionObject(TileMap* tilemap_)
++  : tilemap(tilemap_)
++{
++  object_type        = TILEMAP;
++  parent             = 0;
++  coll_engine        = 0;
++  is_unstuckable     = true;
++  is_unstuck_movable = false;
++  velocity           = CL_Vector(0,0,0);
++  pos                = CL_Vector(0,0,0);
++}
++
+ CollisionObject::~CollisionObject()
+ {
+ }
+
+Modified: trunk/src/collision/collision_object.hpp
+===================================================================
+--- trunk/src/collision/collision_object.hpp	2005-07-23 14:08:14 UTC (rev 722)
++++ trunk/src/collision/collision_object.hpp	2005-07-23 15:19:58 UTC (rev 723)
+@@ -26,11 +26,16 @@
+ #include &lt;ClanLib/Core/Math/cl_vector.h&gt;
+ #include &quot;collision_data.hpp&quot;
+ 
++class TileMap;
+ class CollisionEngine;
+ 
+ class CollisionObject
+ {
+ private:
++  enum ObjectType {RECTANGLE, TILEMAP };
++
++  ObjectType object_type;
++
+   /// position of the object
+   CL_Vector pos;
+ 
+@@ -42,6 +47,8 @@
+   CL_Signal_v2&lt;const CollisionData &amp;, CollisionObject &amp;&gt; collision;
+ 
+   CL_Rectf primitive;
++  TileMap* tilemap;
++
+   CollisionEngine* coll_engine;
+   
+   bool is_unstuckable;
+@@ -49,6 +56,8 @@
+ 
+ public:
+   CollisionObject(const CL_Rectf&amp; rect_);
++  CollisionObject(TileMap* tilemap_);
++
+   virtual ~CollisionObject();
+ 
+   /** Sets the velocity of this object */
+
+Modified: trunk/src/sector.cpp
+===================================================================
+--- trunk/src/sector.cpp	2005-07-23 14:08:14 UTC (rev 722)
++++ trunk/src/sector.cpp	2005-07-23 15:19:58 UTC (rev 723)
+@@ -55,6 +55,11 @@
+   parse_file(filename);
+   if (!interactive_tilemap)
+     std::cout &lt;&lt; &quot;Error: Sector: No interactive-tilemap available&quot; &lt;&lt; std::endl;
++  else
++    {
++      // add interactive to collision engine
++      collision_engine-&gt;add (new CollisionObject (interactive_tilemap));
++    }
+ }
+ 
+ Sector::~Sector()
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000375.html">[Windstille-commit] r722 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000377.html">[Windstille-commit] r724 - in trunk/src: . collision
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#376">[ date ]</a>
+              <a href="thread.html#376">[ thread ]</a>
+              <a href="subject.html#376">[ subject ]</a>
+              <a href="author.html#376">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

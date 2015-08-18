@@ -1,0 +1,574 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2292 - in trunk/griv/new: . math
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2292%20-%20in%20trunk/griv/new%3A%20.%20math&In-Reply-To=%3C200808090003.m79037QG016830%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001311.html">
+   <LINK REL="Next"  HREF="001313.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2292 - in trunk/griv/new: . math</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2292%20-%20in%20trunk/griv/new%3A%20.%20math&In-Reply-To=%3C200808090003.m79037QG016830%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2292 - in trunk/griv/new: . math">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Aug  9 02:03:07 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001311.html">[Windstille-commit] r2291 - in trunk/griv/new: . math
+</A></li>
+        <LI>Next message: <A HREF="001313.html">[Windstille-commit] r2293 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1312">[ date ]</a>
+              <a href="thread.html#1312">[ thread ]</a>
+              <a href="subject.html#1312">[ subject ]</a>
+              <a href="author.html#1312">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-09 02:03:06 +0200 (Sat, 09 Aug 2008)
+New Revision: 2292
+
+Modified:
+   trunk/griv/new/griv.cpp
+   trunk/griv/new/image.cpp
+   trunk/griv/new/image.hpp
+   trunk/griv/new/math/size.hpp
+   trunk/griv/new/sqlite.cpp
+   trunk/griv/new/sqlite.hpp
+   trunk/griv/new/surface.cpp
+   trunk/griv/new/surface.hpp
+   trunk/griv/new/texture.cpp
+   trunk/griv/new/tile_database.cpp
+   trunk/griv/new/tile_database.hpp
+   trunk/griv/new/viewer.cpp
+   trunk/griv/new/workspace.cpp
+   trunk/griv/new/workspace.hpp
+Log:
+Displaying pictures at higher zoom levels now somewhat working, lower zoom levels not so much
+
+Modified: trunk/griv/new/griv.cpp
+===================================================================
+--- trunk/griv/new/griv.cpp	2008-08-08 22:39:40 UTC (rev 2291)
++++ trunk/griv/new/griv.cpp	2008-08-09 00:03:06 UTC (rev 2292)
+@@ -136,11 +136,11 @@
+         }
+       else
+         {
+-          workspace.add_image(entry.filename, entry.size);
++          workspace.add_image(entry.fileid, entry.filename, entry.size);
+         }
+     }
+ 
+-  workspace.layout();
++  workspace.layout(4,3);
+ 
+   Viewer viewer;
+ 
+
+Modified: trunk/griv/new/image.cpp
+===================================================================
+--- trunk/griv/new/image.cpp	2008-08-08 22:39:40 UTC (rev 2291)
++++ trunk/griv/new/image.cpp	2008-08-09 00:03:06 UTC (rev 2292)
+@@ -27,14 +27,28 @@
+ #include &quot;framebuffer.hpp&quot;
+ #include &quot;surface.hpp&quot;
+ #include &quot;math.hpp&quot;
++#include &quot;tile_database.hpp&quot;
+ #include &quot;image.hpp&quot;
++
++uint32_t make_cache_id(int x, int y, int tile_scale)
++{
++  return x | (y &lt;&lt; 8) | (tile_scale &lt;&lt; 16);
++}
+ 
+-Image::Image(const std::string&amp; filename, const Size&amp; size)
+-  : filename(filename),
+-    size(size),
+-    tiles((size.width  + 255) / 256, 
+-          (size.height + 255) / 256)
++Image::Image(int fileid, const std::string&amp; filename, const Size&amp; size)
++  : fileid(fileid),
++    filename(filename),
++    size(size)    
+ {
++  int scale = 1;
++  Size tmpsize = size;
++  do {
++    tmpsize.width /= 2;
++    tmpsize.height /= 2;
++    scale += 1;
++  } while (tmpsize.width &gt; 32 ||
++           tmpsize.height &gt; 32);
++  max_scale = scale;
+ }
+ 
+ void
+@@ -67,13 +81,13 @@
+   Rectf image_rect(pos, Sizef(size));
+   Rectf image_region = image_rect.clip_to(cliprect);
+ 
+-  Framebuffer::draw_rect(image_rect);
++  //Framebuffer::draw_rect(image_rect);
+   //Framebuffer::draw_rect(image_region);
+ 
+   if (cliprect.is_overlapped(image_rect))
+     {
+       // scale factor for requesting the tile from the TileDatabase
+-      int tile_scale = Math::clamp(1, static_cast&lt;int&gt;(1 / fscale), 32);
++      int tile_scale = Math::clamp(1, static_cast&lt;int&gt;(1 / fscale), max_scale);
+       int scale_factor = (1 &lt;&lt; (tile_scale-1));
+ 
+       int scaled_width  = size.width  / scale_factor;
+@@ -82,6 +96,28 @@
+       if (scaled_width  &lt; 256 &amp;&amp; scaled_height &lt; 256)
+         { // So small that only one tile is to be drawn
+           Framebuffer::draw_rect(Rectf(pos, size));
++
++          uint32_t cache_id = make_cache_id(0, 0, tile_scale);
++          Cache::iterator i = cache.find(cache_id);
++
++          if (i == cache.end())
++            {
++              Tile tile;
++              if (TileDatabase::current()-&gt;get_tile(fileid, tile_scale, 0, 0, tile))
++                {                   
++                  Surface surface(tile.surface);
++                  cache[cache_id] = surface;
++                  surface.draw(Rectf(pos, size));
++                }
++              else
++                {
++                  cache[cache_id] = Surface();
++                }
++            }
++          else
++            {
++              i-&gt;second.draw(Rectf(pos, size));
++            }
+         }
+       else
+         {
+@@ -96,13 +132,41 @@
+           for(int y = start_y; y &lt; end_y; y += 1)
+             for(int x = start_x; x &lt; end_x; x += 1)
+               {
+-                Framebuffer::draw_rect(Rectf(pos + Vector2f(x*tilesize, y*tilesize),
+-                                             Sizef(tilesize, tilesize))); //).clip_to(image_rect));
++                uint32_t cache_id = make_cache_id(x, y, tile_scale);
++                Cache::iterator i = cache.find(cache_id);
++
++                if (i == cache.end())
++                  {
++                    Tile tile;
++                    if (TileDatabase::current()-&gt;get_tile(fileid, tile_scale, x, y, tile))
++                      {                   
++                        Surface surface(tile.surface);
++                        cache[cache_id] = surface;
++                        surface.draw(Rectf(pos + Vector2f(x*tilesize, y*tilesize), 
++                                           surface.get_size() * tile_scale));
++                      }
++                    else
++                      {
++                        // Framebuffer::draw_rect(Rectf(pos + Vector2f(x*tilesize, y*tilesize),
++                        // Sizef(tilesize, tilesize)));
++                      }
++                  }
++                else
++                  {
++                    i-&gt;second.draw(Rectf(pos + Vector2f(x*tilesize, y*tilesize), 
++                                         i-&gt;second.get_size() * scale_factor));
++                    // Framebuffer::draw_rect(Rectf(pos + Vector2f(x*tilesize, y*tilesize),
++                    //                             Sizef(tilesize, tilesize)));
++                  }
+               }
+ 
+-          // tile_db.get_tile(entry.fileid, 1/*scale*/, x, y, tile)
++          
+         }
+     }
++  else
++    {
++      cache.clear();
++    }
+ }
+ 
+ /* EOF */
+
+Modified: trunk/griv/new/image.hpp
+===================================================================
+--- trunk/griv/new/image.hpp	2008-08-08 22:39:40 UTC (rev 2291)
++++ trunk/griv/new/image.hpp	2008-08-09 00:03:06 UTC (rev 2292)
+@@ -26,10 +26,12 @@
+ #ifndef HEADER_IMAGE_HPP
+ #define HEADER_IMAGE_HPP
+ 
++#include &lt;map&gt;
+ #include &lt;string&gt;
+ #include &quot;math/vector2f.hpp&quot;
+ #include &quot;math/size.hpp&quot;
+ #include &quot;grid.hpp&quot;
++#include &quot;surface.hpp&quot;
+ 
+ class Surface;
+ class Size;
+@@ -39,15 +41,18 @@
+ class Image
+ {
+ private:
++  int fileid;
+   std::string filename;
+   Size size;
++  int max_scale;
+ 
+   Vector2f pos;
+ 
+-  Grid&lt;Surface*&gt; tiles;
++  typedef std::map&lt;uint32_t, Surface&gt; Cache; 
++  Cache cache;
+ 
+ public:
+-  Image(const std::string&amp; filename, const Size&amp; size);
++  Image(int fileid, const std::string&amp; filename, const Size&amp; size);
+ 
+   void set_pos(const Vector2f&amp; pos);
+   void draw(const Rectf&amp; cliprect, float scale);
+
+Modified: trunk/griv/new/math/size.hpp
+===================================================================
+--- trunk/griv/new/math/size.hpp	2008-08-08 22:39:40 UTC (rev 2291)
++++ trunk/griv/new/math/size.hpp	2008-08-09 00:03:06 UTC (rev 2292)
+@@ -161,6 +161,11 @@
+ 	  height(static_cast&lt;int&gt;(s.height))
+ {}
+ 
++inline Sizef operator*(const Sizef&amp; s, float f)
++{
++  return Sizef(s.width * f, s.height * f);
++}
++
+ std::ostream&amp; operator&lt;&lt;(std::ostream&amp; os, const Size&amp; size);
+ 
+ #endif
+
+Modified: trunk/griv/new/sqlite.cpp
+===================================================================
+--- trunk/griv/new/sqlite.cpp	2008-08-08 22:39:40 UTC (rev 2291)
++++ trunk/griv/new/sqlite.cpp	2008-08-09 00:03:06 UTC (rev 2292)
+@@ -74,7 +74,8 @@
+ }
+ 
+ SQLiteStatement::SQLiteStatement(SQLiteConnection* db, const std::string&amp; sqlstmt)
+-  : db(db)
++  : db(db),
++    stmt(0)
+ {
+   prepare(sqlstmt);
+ }
+
+Modified: trunk/griv/new/sqlite.hpp
+===================================================================
+--- trunk/griv/new/sqlite.hpp	2008-08-08 22:39:40 UTC (rev 2291)
++++ trunk/griv/new/sqlite.hpp	2008-08-09 00:03:06 UTC (rev 2292)
+@@ -97,6 +97,10 @@
+ 
+   void execute();
+   SQLiteReader execute_query();
++
++private:
++  SQLiteStatement(const SQLiteStatement&amp;);
++  SQLiteStatement();
+ };
+ 
+ #endif
+
+Modified: trunk/griv/new/surface.cpp
+===================================================================
+--- trunk/griv/new/surface.cpp	2008-08-08 22:39:40 UTC (rev 2291)
++++ trunk/griv/new/surface.cpp	2008-08-09 00:03:06 UTC (rev 2292)
+@@ -92,6 +92,10 @@
+   }
+ };
+ 
++Surface::Surface()
++{
++}
++
+ Surface::Surface(const SoftwareSurface&amp; src)
+   : impl(new SurfaceImpl(src, Rect(Vector2i(0, 0), src.get_size())))
+ {
+@@ -109,25 +113,42 @@
+ void
+ Surface::draw(const Vector2f&amp; pos)
+ {
+-  impl-&gt;draw(pos);
++  if (impl.get())
++    impl-&gt;draw(pos);
+ }
+ 
+ void
+ Surface::draw(const Rectf&amp; rect)
+ {
+-  impl-&gt;draw(rect);
++  if (impl.get())
++    impl-&gt;draw(rect);
+ }
+ 
+ int
+ Surface::get_width() const 
+ {
+-  return impl-&gt;size.width; 
++  if (impl.get())
++    return impl-&gt;size.width; 
++  else
++    return 0;
+ }
+ 
+ int
+ Surface::get_height() const
+ {
+-  return impl-&gt;size.height; 
++  if (impl.get())
++    return impl-&gt;size.height; 
++  else
++    return 0;
+ }
++
++Size
++Surface::get_size() const
++{
++  if (impl.get())
++    return impl-&gt;size;
++  else
++    return Size();
++}
+ 
+ /* EOF */
+
+Modified: trunk/griv/new/surface.hpp
+===================================================================
+--- trunk/griv/new/surface.hpp	2008-08-08 22:39:40 UTC (rev 2291)
++++ trunk/griv/new/surface.hpp	2008-08-09 00:03:06 UTC (rev 2292)
+@@ -29,6 +29,7 @@
+ #include &quot;SDL.h&quot;
+ #include &lt;boost/smart_ptr.hpp&gt;
+ #include &quot;texture.hpp&quot;
++#include &quot;math/size.hpp&quot;
+ #include &quot;software_surface.hpp&quot;
+ 
+ class SurfaceImpl;
+@@ -39,6 +40,7 @@
+ class Surface
+ {
+ public:
++  Surface();
+   Surface(const SoftwareSurface&amp; src, const Rect&amp; srcrect);
+   Surface(const SoftwareSurface&amp; src);
+   ~Surface();
+@@ -48,7 +50,10 @@
+ 
+   int get_width()  const;
+   int get_height() const;
++  Size get_size() const;
+ 
++  operator bool() const { return impl.get(); }
++
+ private:
+   boost::shared_ptr&lt;SurfaceImpl&gt; impl;
+ };
+
+Modified: trunk/griv/new/texture.cpp
+===================================================================
+--- trunk/griv/new/texture.cpp	2008-08-08 22:39:40 UTC (rev 2291)
++++ trunk/griv/new/texture.cpp	2008-08-09 00:03:06 UTC (rev 2292)
+@@ -61,10 +61,14 @@
+ 
+     assert_gl(&quot;packing image texture&quot;);
+ 
+-    //std::cout &lt;&lt; &quot;pitch: &quot; &lt;&lt; src.get_pitch() &lt;&lt; &quot; width: &quot; &lt;&lt; src.get_width() &lt;&lt; std::endl;
+-    assert(src.get_pitch() % 3 == 0);
++    
++    if (0 &amp;&amp; src.get_pitch() % 3 != 0)
++      {
++        std::cout &lt;&lt; &quot;pitch: &quot; &lt;&lt; src.get_pitch() &lt;&lt; &quot; width: &quot; &lt;&lt; src.get_width() &lt;&lt; std::endl;
++        assert(!&quot;Align issue&quot;);
++      }
+ 
+-    glPixelStorei(GL_UNPACK_ALIGNMENT,  1);
++    glPixelStorei(GL_UNPACK_ALIGNMENT,  8);
+     glPixelStorei(GL_UNPACK_ROW_LENGTH, src.get_pitch()/3);
+     
+     // Upload the subimage
+
+Modified: trunk/griv/new/tile_database.cpp
+===================================================================
+--- trunk/griv/new/tile_database.cpp	2008-08-08 22:39:40 UTC (rev 2291)
++++ trunk/griv/new/tile_database.cpp	2008-08-09 00:03:06 UTC (rev 2292)
+@@ -25,11 +25,15 @@
+ 
+ #include &quot;tile_database.hpp&quot;
+ 
++TileDatabase* TileDatabase::current_ = 0;
++
+ TileDatabase::TileDatabase(SQLiteConnection* db)
+   : db(db),
+     store_stmt(db),
+     get_stmt(db)
+ {
++  current_ = this;
++  
+   db-&gt;exec(&quot;CREATE TABLE IF NOT EXISTS tiles (&quot;
+            &quot;fileid  INTEGER, &quot; // link to to files.rowid
+            &quot;scale   INTEGER, &quot; // zoom level
+
+Modified: trunk/griv/new/tile_database.hpp
+===================================================================
+--- trunk/griv/new/tile_database.hpp	2008-08-08 22:39:40 UTC (rev 2291)
++++ trunk/griv/new/tile_database.hpp	2008-08-09 00:03:06 UTC (rev 2292)
+@@ -42,6 +42,12 @@
+ class TileDatabase
+ {
+ private:
++  static TileDatabase* current_;
++
++public:
++  static TileDatabase* current() { return current_; };
++
++private:
+   SQLiteConnection* db;
+   SQLiteStatement store_stmt;
+   SQLiteStatement get_stmt;
+
+Modified: trunk/griv/new/viewer.cpp
+===================================================================
+--- trunk/griv/new/viewer.cpp	2008-08-08 22:39:40 UTC (rev 2291)
++++ trunk/griv/new/viewer.cpp	2008-08-09 00:03:06 UTC (rev 2292)
+@@ -165,7 +165,7 @@
+ void
+ Viewer::draw(Workspace&amp; workspace)
+ {
+-  bool clip_debug = true;
++  bool clip_debug = false;
+ 
+   glPushMatrix();
+ 
+@@ -187,7 +187,7 @@
+   workspace.draw(cliprect,
+                  state.get_scale());
+ 
+-  surface.draw(Vector2f(0, 0));
++  //surface.draw(Vector2f(0, 0));
+ 
+   glPopMatrix();
+ }
+
+Modified: trunk/griv/new/workspace.cpp
+===================================================================
+--- trunk/griv/new/workspace.cpp	2008-08-08 22:39:40 UTC (rev 2291)
++++ trunk/griv/new/workspace.cpp	2008-08-09 00:03:06 UTC (rev 2292)
+@@ -23,6 +23,7 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &quot;math.hpp&quot;
+ #include &quot;workspace.hpp&quot;
+ 
+ Workspace::Workspace()
+@@ -30,21 +31,37 @@
+ }
+ 
+ void
+-Workspace::add_image(const std::string&amp; filename, const Size&amp; size)
++Workspace::add_image(int fileid, const std::string&amp; filename, const Size&amp; size)
+ {
+-  images.push_back(Image(filename, size));
++  images.push_back(Image(fileid, filename, size));
+ }
+ 
+ void
+-Workspace::layout()
++Workspace::layout(float aspect_w, float aspect_h)
+ {
+   if (!images.empty())
+     {
+-      float x_pos = 0;
+-      for(Images::iterator i = images.begin(); i != images.end(); ++i)
++      //       float x_pos = 0;
++      //       for(Images::iterator i = images.begin(); i != images.end(); ++i)
++      //         {
++      //           i-&gt;set_pos(Vector2f(x_pos, 0.0f));
++      //           x_pos += i-&gt;get_width() + 128/*spacing*/;
++      //         }    
++      
++      int w = int(Math::sqrt(aspect_w * images.size() / aspect_h));
++
++      for(int i = 0; i &lt; int(images.size()); ++i)
+         {
+-          i-&gt;set_pos(Vector2f(x_pos, 0.0f));
+-          x_pos += i-&gt;get_width() + 20/*spacing*/;
++          if ((i/w) % 2 == 0)
++            {
++              images[i].set_pos(Vector2f((i % w) * 3500.0f,
++                                         (i / w) * 3500.0f));
++            }
++          else
++            {
++              images[i].set_pos(Vector2f((w - (i % w)-1) * 3500.0f,
++                                         (i / w) * 3500.0f));
++            }
+         }
+     }
+ }
+
+Modified: trunk/griv/new/workspace.hpp
+===================================================================
+--- trunk/griv/new/workspace.hpp	2008-08-08 22:39:40 UTC (rev 2291)
++++ trunk/griv/new/workspace.hpp	2008-08-09 00:03:06 UTC (rev 2292)
+@@ -39,10 +39,10 @@
+ public:
+   Workspace();
+ 
+-  void add_image(const std::string&amp; filename, const Size&amp; size);
++  void add_image(int fileid, const std::string&amp; filename, const Size&amp; size);
+   void draw(const Rectf&amp; cliprect, float scale);
+ 
+-  void layout();
++  void layout(float aspect_w, float aspect_h);
+ 
+ private:
+   Workspace (const Workspace&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001311.html">[Windstille-commit] r2291 - in trunk/griv/new: . math
+</A></li>
+	<LI>Next message: <A HREF="001313.html">[Windstille-commit] r2293 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1312">[ date ]</a>
+              <a href="thread.html#1312">[ thread ]</a>
+              <a href="subject.html#1312">[ subject ]</a>
+              <a href="author.html#1312">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,1375 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1132 - in trunk/src: . display gui lisp tinygettext
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1132%20-%20in%20trunk/src%3A%20.%20display%20gui%20lisp%20tinygettext&In-Reply-To=%3C200511281434.jASEY5k5023994%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000784.html">
+   <LINK REL="Next"  HREF="000786.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1132 - in trunk/src: . display gui lisp tinygettext</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1132%20-%20in%20trunk/src%3A%20.%20display%20gui%20lisp%20tinygettext&In-Reply-To=%3C200511281434.jASEY5k5023994%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1132 - in trunk/src: . display gui lisp tinygettext">grumbel at berlios.de
+       </A><BR>
+    <I>Mon Nov 28 15:34:05 CET 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000784.html">[Windstille-commit] r1131 - in trunk/data/models/vehicles: . minetrain
+</A></li>
+        <LI>Next message: <A HREF="000786.html">[Windstille-commit] r1133 - in trunk/src: . scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#785">[ date ]</a>
+              <a href="thread.html#785">[ thread ]</a>
+              <a href="subject.html#785">[ subject ]</a>
+              <a href="author.html#785">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-11-28 15:33:49 +0100 (Mon, 28 Nov 2005)
+New Revision: 1132
+
+Added:
+   trunk/src/config.cpp
+   trunk/src/config.hpp
+Removed:
+   trunk/src/gameconfig.cpp
+   trunk/src/gameconfig.hpp
+Modified:
+   trunk/src/Jamfile
+   trunk/src/SConscript
+   trunk/src/dialog_manager.cpp
+   trunk/src/display/display.cpp
+   trunk/src/gui/slider.cpp
+   trunk/src/lisp/parser.cpp
+   trunk/src/screen.cpp
+   trunk/src/screen_manager.cpp
+   trunk/src/sector.cpp
+   trunk/src/sprite3dview.cpp
+   trunk/src/tinygettext/gettext.hpp
+   trunk/src/windstille_main.cpp
+   trunk/src/windstille_main.hpp
+Log:
+- some changes to the config handling (unfinished)
+
+Modified: trunk/src/Jamfile
+===================================================================
+--- trunk/src/Jamfile	2005-11-21 23:50:53 UTC (rev 1131)
++++ trunk/src/Jamfile	2005-11-28 14:33:49 UTC (rev 1132)
+@@ -55,8 +55,8 @@
+         elevator.hpp
+         elevator.cpp
+         field.hpp
+-        gameconfig.hpp
+-        gameconfig.cpp
++        config.hpp
++        config.cpp
+         game_object.cpp
+         game_object.hpp
+         game_session.cpp
+
+Modified: trunk/src/SConscript
+===================================================================
+--- trunk/src/SConscript	2005-11-21 23:50:53 UTC (rev 1131)
++++ trunk/src/SConscript	2005-11-28 14:33:49 UTC (rev 1132)
+@@ -27,7 +27,7 @@
+ SConscript(&quot;squirrel/SConstruct&quot;)
+ 
+ env = Environment(CC = 'gcc',
+-                  CCFLAGS = ['-O2'])
++                  CCFLAGS = ['-O2', '-Wall', '-Werror', '-g'])
+ 
+ # env.Copy(LIBS = ['a', 'b'])
+ 
+@@ -53,7 +53,7 @@
+ 'elevator.cpp',
+ 'energy_bar.cpp',
+ 'entity.cpp',
+-'gameconfig.cpp',
++'config.cpp',
+ 'game_object.cpp',
+ 'game_session.cpp',
+ 'globals.cpp',
+
+Copied: trunk/src/config.cpp (from rev 1116, trunk/src/gameconfig.cpp)
+===================================================================
+--- trunk/src/gameconfig.cpp	2005-11-13 03:56:04 UTC (rev 1116)
++++ trunk/src/config.cpp	2005-11-28 14:33:49 UTC (rev 1132)
+@@ -0,0 +1,401 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2000,2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &quot;config.hpp&quot;
++
++#include &lt;config.h&gt;
++#include &lt;memory&gt;
++#include &lt;iostream&gt;
++#include &quot;tinygettext/gettext.hpp&quot;
++#include &quot;lisp/lisp.hpp&quot;
++#include &quot;lisp/parser.hpp&quot;
++#include &quot;lisp/writer.hpp&quot;
++#include &quot;lisp/properties.hpp&quot;
++#include &quot;command_line.hpp&quot;
++#include &quot;globals.hpp&quot;
++
++Config config;
++
++Config::Config()
++{
++  add(new ConfigValue&lt;int&gt; (&quot;anti-aliasing&quot;,  _(&quot;Use NUMx Anti-Aliasing&quot;), true, 0));
++  add(new ConfigValue&lt;bool&gt;(&quot;fullscreen&quot;,     _(&quot;Use fullscreen&quot;),         true, false));
++  add(new ConfigValue&lt;bool&gt;(&quot;show-fps&quot;,       _(&quot;Show frames per second&quot;), true, true));
++
++  add(new ConfigValue&lt;bool&gt;(&quot;music&quot;,          _(&quot;Enable Music&quot;), true, true));
++  add(new ConfigValue&lt;bool&gt;(&quot;sound&quot;,          _(&quot;Enable Sound&quot;), true, true));
++  
++  add(new ConfigValue&lt;int&gt;(&quot;screen-width&quot;,   _(&quot;Screen Width&quot;),   true, 800));
++  add(new ConfigValue&lt;int&gt;(&quot;screen-height&quot;,   _(&quot;Screen Height&quot;), true, 600));
++
++
++  add(new ConfigValue&lt;std::string&gt;(&quot;levelfile&quot;,       _(&quot;Levelfile to be used at startup&quot;), false));
++  add(new ConfigValue&lt;std::string&gt;(&quot;controller-file&quot;, _(&quot;Controller Config file to load&quot;), true));
++
++  add(new ConfigValue&lt;std::string&gt;(&quot;screenshot-dir&quot;,  _(&quot;Directory where Screenshots are saved&quot;), false));
++
++  add(new ConfigValue&lt;std::string&gt;(&quot;recorder-file&quot;,   _(&quot;File to which demos are recorded&quot;), false));
++  add(new ConfigValue&lt;std::string&gt;(&quot;playback-file&quot;,   _(&quot;File from which a demo is played&quot;), false));
++}
++
++Config::~Config()
++{
++  for(ConfigValues::iterator i = config_values.begin(); i != config_values.end(); ++i)
++    {
++      delete i-&gt;second;
++    }
++}
++
++void 
++Config::add(ConfigValueBase* value)
++{
++  config_values[value-&gt;get_name()] = value;
++}
++
++std::string
++Config::get_string(const std::string&amp; name) const 
++{
++  return get&lt;std::string&gt;(name).get();
++}
++
++bool
++Config::get_bool(const std::string&amp; name) const 
++{
++  return get&lt;bool&gt;(name).get();
++}
++
++int
++Config::get_int(const std::string&amp; name) const 
++{
++  return get&lt;int&gt;(name).get();
++}
++
++float
++Config::get_float(const std::string&amp; name) const 
++{
++  return get&lt;float&gt;(name).get();
++}
++
++void
++Config::set_string(const std::string&amp; name, const std::string&amp; value)
++{
++  get&lt;std::string&gt;(name).set(value);
++}
++
++void
++Config::set_bool  (const std::string&amp; name, bool  value)
++{
++  get&lt;bool&gt;(name).set(value);
++}
++
++void
++Config::set_int   (const std::string&amp; name, int   value)
++{
++  get&lt;int&gt;(name).set(value);
++}
++
++void
++Config::set_float (const std::string&amp; name, float value)
++{
++  get&lt;float&gt;(name).set(value);
++}
++
++void
++Config::parse_args(int argc, char** argv)
++{
++  CommandLine argp;
++
++  const int debug_flag        = 256;
++  const int nodebug_flag      = 257;
++  const int sprite3dview_flag = 258;
++    
++  argp.set_help_indent(24);
++  argp.add_usage (&quot;[LEVELFILE]&quot;);
++  argp.add_doc   (&quot;Windstille is a classic Jump'n Run game.&quot;);
++
++  argp.add_group(&quot;Mode Options:&quot;);
++  argp.add_option(sprite3dview_flag, &quot;sprite3dview&quot;, &quot;&quot;, &quot;Launch Sprite3DView instead of the game&quot;);
++
++  argp.add_group(&quot;Display Options:&quot;);
++  argp.add_option('g', &quot;geometry&quot;,   &quot;WxH&quot;, &quot;Change window size to WIDTH and HEIGHT&quot;);
++  argp.add_option('f', &quot;fullscreen&quot;, &quot;&quot;, &quot;Launch the game in fullscreen&quot;);
++  argp.add_option('a', &quot;anti-aliasing&quot;, &quot;NUM&quot;, &quot;Enable NUMx Anti-Aliasing&quot;);
++
++  argp.add_group(&quot;Sound Options:&quot;);
++  argp.add_option('s', &quot;disable-sound&quot;, &quot;&quot;, &quot;Disable sound&quot;);
++  argp.add_option('S', &quot;enable-sound&quot;, &quot;&quot;, &quot;Enable sound&quot;);
++
++  argp.add_group(&quot;Controlls Options:&quot;);
++  argp.add_option('c', &quot;controller&quot;, &quot;FILE&quot;, &quot;Use controller as defined in FILE&quot;);
++
++  argp.add_group(&quot;Misc Options:&quot;);
++  argp.add_option('d', &quot;datadir&quot;,    &quot;DIR&quot;, &quot;Fetch game data from DIR&quot;);
++  argp.add_option(debug_flag, &quot;debug&quot;,      &quot;&quot;, &quot;Turn on debug output&quot;);
++  argp.add_option(nodebug_flag, &quot;nodebug&quot;,      &quot;&quot;, &quot;Turn off debug output&quot;);
++  argp.add_option('x', &quot;version&quot;,       &quot;&quot;, &quot;Print Windstille Version&quot;);
++  argp.add_option('h', &quot;help&quot;,       &quot;&quot;, &quot;Print this help&quot;);
++
++  argp.add_group(&quot;Demo Recording/Playback Options:&quot;);
++  argp.add_option('r', &quot;record&quot;,      &quot;FILE&quot;, &quot;Record input events to FILE&quot;);
++  argp.add_option('v', &quot;record-video&quot;,&quot;DIR&quot;,  &quot;Record a gameplay video to DIR&quot;);
++  argp.add_option('p', &quot;play&quot;,        &quot;FILE&quot;, &quot;Playback input events from FILE&quot;);
++
++  argp.parse_args(argc, argv);
++
++  while (argp.next())
++    {
++      switch (argp.get_key())
++        {
++        case 'a':
++          int anti_aliasing;
++          if (sscanf(argp.get_argument().c_str(), &quot;%d&quot;, &amp;anti_aliasing) != 1)
++            {
++              throw std::runtime_error(&quot;Anti-Aliasing option '-a' requires argument of type {NUM}&quot;);
++            }
++          else
++            {
++              get&lt;int&gt;(&quot;anti-aliasing&quot;) = anti_aliasing;
++            }
++          break;
++
++        case 'r':
++          get&lt;std::string&gt;(&quot;recorder-file&quot;) = argp.get_argument();
++          break;
++
++        case 'x':
++          get&lt;std::string&gt;(&quot;screenshot-dir&quot;) = argp.get_argument();
++          break;
++
++        case 'p':
++          get&lt;std::string&gt;(&quot;playback-file&quot;) = argp.get_argument();
++          break;
++
++        case 'd':
++          datadir = argp.get_argument();
++          break;
++
++        case debug_flag:
++          debug = true;
++          break;
++
++        case nodebug_flag:
++          debug = false;
++          break;
++
++        case sprite3dview_flag:
++          sprite3dview = true;
++          break;
++
++        case 'f':
++          set_bool(&quot;fullscreen&quot;, true);
++          break;
++
++        case 'g':
++          {
++            int screen_width  = 800;
++            int screen_height = 600;
++            if (sscanf(argp.get_argument().c_str(), &quot;%dx%d&quot;,
++                       &amp;screen_width, &amp;screen_height) == 2)
++              {
++                get&lt;int&gt;(&quot;screen-width&quot;)  = screen_width;
++                get&lt;int&gt;(&quot;screen-height&quot;) = screen_height;
++              
++                std::cout &lt;&lt; &quot;Geometry: &quot; &lt;&lt; screen_width
++                          &lt;&lt; &quot;x&quot; &lt;&lt; screen_height &lt;&lt; std::endl;
++              }
++            else
++              {
++                throw std::runtime_error(&quot;Geometry option '-g' requires argument of type {WIDTH}x{HEIGHT}&quot;);
++              }
++          }
++          break;
++        
++        case 's':
++          set_bool(&quot;sound&quot;, false);
++          break;
++
++        case 'S':
++          set_bool(&quot;sound&quot;, true);
++          break;  
++
++        case 'c':
++          get&lt;std::string&gt;(&quot;controller-file&quot;) = argp.get_argument();
++          break;
++
++        case 'v':
++          std::cout &lt;&lt; &quot;Windstille &quot; &lt;&lt; PACKAGE_VERSION &lt;&lt; std::endl;
++          exit(EXIT_SUCCESS);
++          break;
++
++        case 'h':
++          argp.print_help();
++          exit(EXIT_SUCCESS);
++          break;
++
++        case CommandLine::REST_ARG:
++          set_string(&quot;levelfile&quot;, argp.get_argument());
++          break;
++        }
++    }
++}
++
++bool
++Config::has_key(const std::string&amp; name)
++{
++  ConfigValues::iterator i = config_values.find(name);
++  return (i != config_values.end());
++}
++
++bool
++Config::is_set(const std::string&amp; name)
++{
++  ConfigValues::iterator i = config_values.find(name);
++  if (i == config_values.end())
++    {
++      throw std::runtime_error(&quot;Error: unknown Config value: '&quot; + name + &quot;'&quot;);        
++    }    
++  else
++    {
++      return i-&gt;second-&gt;is_set();
++    }
++}
++
++void
++Config::load()
++{
++  using namespace lisp;
++  
++  try {
++    std::auto_ptr&lt;Lisp&gt; root(lisp::Parser::parse(&quot;config&quot;));
++    Properties rootp(root.get());
++    
++    const Lisp* config_lisp = 0;
++    if(rootp.get(&quot;windstille-config&quot;, config_lisp) == false) {
++      std::cerr &lt;&lt; &quot;Warning: Config file is not a windstille-config file.\n&quot;;
++      return;
++    }
++    
++    Properties props(config_lisp);
++    PropertyIterator&lt;const lisp::Lisp*&gt; iter = props.get_iter();
++
++    while(iter.next()) {
++      // FIXME: this is a little hacky PropertyIterator should be a bit rewritten
++      lisp::Lisp* lisp = (*iter)-&gt;get_list_elem(1);
++      switch (lisp-&gt;get_type())
++        {
++        case Lisp::TYPE_BOOL:
++          set_bool(iter.item(), lisp-&gt;get_bool());
++          break;
++
++        case Lisp::TYPE_INT:
++          set_int(iter.item(), lisp-&gt;get_int());
++          break;
++
++        case Lisp::TYPE_FLOAT:
++          set_float(iter.item(), lisp-&gt;get_float());
++          break;
++
++        case Lisp::TYPE_STRING:
++          set_string(iter.item(), lisp-&gt;get_string());
++          break;
++
++        default:
++          std::cout &lt;&lt; &quot;Config: Unhandled type: &quot;;
++          lisp-&gt;print();
++          std::cout &lt;&lt; std::endl;
++        }
++    }
++
++    /*
++      props.get(&quot;fullscreen&quot;,    use_fullscreen);
++      props.get(&quot;show_fps&quot;,      show_fps);
++      props.get(&quot;anti-aliasing&quot;, antialiasing);
++      props.get(&quot;sound_enabled&quot;, sound_enabled);
++      props.get(&quot;music_enabled&quot;, music_enabled);
++    */
++    props.print_unused_warnings(&quot;configfile&quot;);
++
++    // TODO read controller config
++  } catch(std::exception&amp; e) {
++    std::cerr &lt;&lt; &quot;Couldn't open config file: &quot; &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;
++              &lt;&lt; &quot;This is normal on first startup!\n&quot;;
++    return;
++  }
++}
++
++void
++Config::save()
++{
++  try {
++    lisp::Writer writer(&quot;config&quot;);
++
++    writer.start_list(&quot;windstille-config&quot;);
++
++    for(ConfigValues::iterator i = config_values.begin(); i != config_values.end(); ++i)
++      {
++        if (i-&gt;second-&gt;should_be_saved() &amp;&amp; i-&gt;second-&gt;is_set())
++          i-&gt;second-&gt;write(writer);
++      }
++    // TODO write controller config
++    
++    writer.end_list(&quot;windstille-config&quot;);
++  } catch(std::exception&amp; e) {
++    std::cerr &lt;&lt; &quot;Couldn't write config file: &quot; &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
++  }
++}
++
++void
++Config::debug_print()
++{
++  std::cout &lt;&lt; &quot;Config &quot; &lt;&lt; this &lt;&lt; &quot;:&quot; &lt;&lt; std::endl;
++  for(ConfigValues::iterator i = config_values.begin(); i != config_values.end(); ++i)
++    {
++      std::cout &lt;&lt; &quot;  &quot; &lt;&lt; i-&gt;second-&gt;get_name() &lt;&lt; &quot; &quot; &lt;&lt; i-&gt;second-&gt;is_set() &lt;&lt; std::endl;
++    }  
++}
++
++template&lt;&gt;
++void ConfigValue&lt;bool&gt;::write(lisp::Writer&amp; writer) {
++  writer.write_bool(get_name(), data);
++}
++
++template&lt;&gt;
++void ConfigValue&lt;int&gt;::write(lisp::Writer&amp; writer) {
++  writer.write_int(get_name(), data);
++}
++
++template&lt;&gt;
++void ConfigValue&lt;float&gt;::write(lisp::Writer&amp; writer) {
++  writer.write_float(get_name(), data);
++}
++
++template&lt;&gt;
++void ConfigValue&lt;std::string&gt;::write(lisp::Writer&amp; writer) {
++  writer.write_string(get_name(), data);
++}
++
++
++/* EOF */
++
+
+Copied: trunk/src/config.hpp (from rev 1116, trunk/src/gameconfig.hpp)
+===================================================================
+--- trunk/src/gameconfig.hpp	2005-11-13 03:56:04 UTC (rev 1116)
++++ trunk/src/config.hpp	2005-11-28 14:33:49 UTC (rev 1132)
+@@ -0,0 +1,165 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2000,2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_WINDSTILLE_CONFIG_HPP
++#define HEADER_WINDSTILLE_CONFIG_HPP
++
++#include &lt;map&gt;
++#include &lt;string&gt;
++#include &lt;typeinfo&gt;
++#include &lt;stdexcept&gt;
++#include &quot;lisp/writer.hpp&quot;
++
++class ConfigValueBase
++{
++private:
++  std::string name;
++  std::string docstring;
++
++protected:
++  bool has_been_set;
++  bool do_save;
++
++public:
++  ConfigValueBase(const std::string&amp; name_, const std::string&amp; docstring_, bool do_save_)
++    : name(name_), docstring(docstring_),
++      has_been_set(false),
++      do_save(do_save_)
++  {   
++  }
++
++  virtual ~ConfigValueBase() {}
++
++  const std::string&amp; get_name() { return name; }
++  const std::string&amp; get_docstring() { return docstring; }
++
++  bool is_set() {
++    return has_been_set;
++  }
++
++  bool should_be_saved() {
++    return do_save;
++  }
++
++  virtual void write(lisp::Writer&amp; writer) {}
++};
++
++template&lt;class T&gt;
++class ConfigValue : public ConfigValueBase
++{
++private:
++  T    data;
++
++public:
++  ConfigValue(const std::string&amp; name_, const std::string&amp; docstring_, bool do_save_, const T&amp; data_)
++    : ConfigValueBase(name_, docstring_, do_save_),
++      data(data_)
++  {
++    has_been_set = true;
++  }
++
++  ConfigValue(const std::string&amp; name_, const std::string&amp; docstring_, bool do_save_)
++    : ConfigValueBase(name_, docstring_, do_save_)
++  {    
++    has_been_set = false;
++  }
++
++  const T&amp; get() const { 
++    return data; 
++  }
++
++  T&amp; get() { 
++    return data;
++  }
++
++  T&amp; set(const T&amp; data_) {
++    data = data_;
++    has_been_set  = true;
++    return data;
++  }
++  
++  T&amp; operator=(const T&amp; data_) {
++    return set(data_);
++  }
++
++  void write(lisp::Writer&amp; writer);
++};
++
++class Config
++{
++private:
++  typedef std::map&lt;std::string, ConfigValueBase*&gt; ConfigValues;
++  ConfigValues config_values;
++
++  void add(ConfigValueBase*);
++public:
++  Config();
++  ~Config();
++
++  void set_defaults();
++
++  void parse_args(int argc, char** argv);
++
++  void load();
++  void save();
++
++  bool has_key(const std::string&amp; name);
++
++  bool is_set(const std::string&amp; name);
++
++  template&lt;class T&gt;
++  ConfigValue&lt;T&gt;&amp; get(const std::string&amp; name) const {
++    ConfigValues::const_iterator i = config_values.find(name);
++    if (i == config_values.end())
++      {
++        throw std::runtime_error(&quot;Error: unknown Config value: '&quot; + name + &quot;'&quot;);
++      }
++    else
++      {
++        ConfigValue&lt;T&gt;* ptr = dynamic_cast&lt;ConfigValue&lt;T&gt;*&gt;(i-&gt;second);
++        if (ptr)
++          return *ptr;
++        else
++          throw std::runtime_error(&quot;Error: Config value: '&quot; + name + &quot;' as wrong type&quot;);
++      }
++  }
++
++  std::string get_string(const std::string&amp; name) const;
++  bool        get_bool  (const std::string&amp; name) const;
++  int         get_int   (const std::string&amp; name) const;
++  float       get_float (const std::string&amp; name) const;
++
++  void set_string(const std::string&amp; name, const std::string&amp; value);
++  void set_bool  (const std::string&amp; name, bool  value);
++  void set_int   (const std::string&amp; name, int   value);
++  void set_float (const std::string&amp; name, float value);
++
++  void debug_print();
++};
++
++extern Config config;
++
++#endif
++
+
+Modified: trunk/src/dialog_manager.cpp
+===================================================================
+--- trunk/src/dialog_manager.cpp	2005-11-21 23:50:53 UTC (rev 1131)
++++ trunk/src/dialog_manager.cpp	2005-11-28 14:33:49 UTC (rev 1132)
+@@ -26,7 +26,7 @@
+ #include &quot;script_manager.hpp&quot;
+ #include &quot;text_area.hpp&quot;
+ #include &quot;display/display.hpp&quot;
+-#include &quot;gameconfig.hpp&quot;
++#include &quot;config.hpp&quot;
+ 
+ DialogManager* DialogManager::current_ = 0;
+ 
+@@ -76,17 +76,17 @@
+   if(alignment &amp; LEFT) {
+     pos.x = outer_border_x;
+   } else if(alignment &amp; RIGHT) {
+-    pos.x = config-&gt;screen_width - dialog_width - outer_border_x;
++    pos.x = Display::get_width() - dialog_width - outer_border_x;
+   } else {
+-    pos.x = (config-&gt;screen_width - dialog_width) / 2;
++    pos.x = (Display::get_width() - dialog_width) / 2;
+   }
+ 
+   if(alignment &amp; TOP) {
+     pos.y = outer_border_y;
+   } else if(alignment &amp; BOTTOM) {
+-    pos.y = config-&gt;screen_height - dialog_height - outer_border_y;
++    pos.y = Display::get_height() - dialog_height - outer_border_y;
+   } else {
+-    pos.y = (config-&gt;screen_height - dialog_height) / 2;
++    pos.y = (Display::get_height() - dialog_height) / 2;
+   }
+ 
+   if (!caption) {
+@@ -146,9 +146,9 @@
+   if(alignment &amp; LEFT) {
+     pos.x = outer_border_x;
+   } else if(alignment &amp; RIGHT) {
+-    pos.x = config-&gt;screen_width - dialog_width - outer_border_x;
++    pos.x = Display::get_width() - dialog_width - outer_border_x;
+   } else {
+-    pos.x = (config-&gt;screen_width - dialog_width) / 2;
++    pos.x = (Display::get_width() - dialog_width) / 2;
+   }
+       
+   int text_width
+@@ -165,9 +165,9 @@
+   if(alignment &amp; TOP) {
+     pos.y = outer_border_y;
+   } else if(alignment &amp; BOTTOM) {
+-    pos.y = config-&gt;screen_height - dialog_height - outer_border_y;
++    pos.y = Display::get_height() - dialog_height - outer_border_y;
+   } else {
+-    pos.y = (config-&gt;screen_height - dialog_height) / 2;
++    pos.y = (Display::get_height() - dialog_height) / 2;
+   }
+ 
+   text_rect.bottom = text_rect.top + text_rect.get_height();
+
+Modified: trunk/src/display/display.cpp
+===================================================================
+--- trunk/src/display/display.cpp	2005-11-21 23:50:53 UTC (rev 1131)
++++ trunk/src/display/display.cpp	2005-11-28 14:33:49 UTC (rev 1132)
+@@ -26,7 +26,7 @@
+ #include &lt;cmath&gt;
+ #include &lt;stdexcept&gt;
+ #include &lt;SDL.h&gt;
+-#include &quot;gameconfig.hpp&quot;
++#include &quot;config.hpp&quot;
+ #include &quot;glutil/opengl_state.hpp&quot;
+ #include &quot;display.hpp&quot;
+ #include &quot;util.hpp&quot;
+@@ -211,14 +211,14 @@
+   SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 5);
+   SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 5);
+ 
+-  if (config-&gt;antialiasing)
++  if (config.get_int(&quot;anti-aliasing&quot;))
+     {
+       SDL_GL_SetAttribute( SDL_GL_MULTISAMPLEBUFFERS, 1 ); // boolean value, either it's enabled or not
+-      SDL_GL_SetAttribute( SDL_GL_MULTISAMPLESAMPLES, config-&gt;antialiasing ); // 0, 2, or 4 for number of samples
++      SDL_GL_SetAttribute( SDL_GL_MULTISAMPLESAMPLES, config.get_int(&quot;anti-aliasing&quot;) ); // 0, 2, or 4 for number of samples
+     }
+ 
+-  window = SDL_SetVideoMode(config-&gt;screen_width, config-&gt;screen_height,
+-                            0, SDL_OPENGL | (config-&gt;use_fullscreen ? SDL_FULLSCREEN : 0));
++  window = SDL_SetVideoMode(config.get_int(&quot;screen-width&quot;), config.get_int(&quot;screen-height&quot;),
++                            0, SDL_OPENGL | (config.get_bool(&quot;fullscreen&quot;) ? SDL_FULLSCREEN : 0));
+   if (!window)
+     {
+       throw std::runtime_error(&quot;Display:: Couldn't create window&quot;);
+@@ -238,7 +238,7 @@
+   glLoadIdentity();
+   glTranslated(cl_pixelcenter_constant, cl_pixelcenter_constant, 0.0);
+ 
+-  if (config-&gt;antialiasing)
++  if (config.get_int(&quot;anti-aliasing&quot;))
+     glEnable(GL_MULTISAMPLE_ARB); 
+ 
+   assert_gl(&quot;setup projection&quot;);
+@@ -253,7 +253,7 @@
+   if (fullscreen)
+     flags |= SDL_FULLSCREEN;
+ 
+-  window = SDL_SetVideoMode(config-&gt;screen_width, config-&gt;screen_height,
++  window = SDL_SetVideoMode(config.get_int(&quot;screen-width&quot;), config.get_int(&quot;screen-height&quot;),
+                             0, flags);
+   if (!window)
+     {
+
+Deleted: trunk/src/gameconfig.cpp
+===================================================================
+--- trunk/src/gameconfig.cpp	2005-11-21 23:50:53 UTC (rev 1131)
++++ trunk/src/gameconfig.cpp	2005-11-28 14:33:49 UTC (rev 1132)
+@@ -1,85 +0,0 @@
+-#include &quot;gameconfig.hpp&quot;
+-
+-#include &lt;memory&gt;
+-#include &lt;iostream&gt;
+-#include &quot;lisp/lisp.hpp&quot;
+-#include &quot;lisp/parser.hpp&quot;
+-#include &quot;lisp/writer.hpp&quot;
+-#include &quot;lisp/properties.hpp&quot;
+-
+-Config* config = 0;
+-
+-Config::Config()
+-{
+-  // set default values
+-  screen_width = 800;
+-  screen_height = 600; 
+-  use_fullscreen = false;
+-  show_fps = false;
+-  sound_enabled = true;
+-  music_enabled = true;
+-
+-  antialiasing = 0;
+-}
+-
+-Config::~Config()
+-{
+-}
+-
+-void
+-Config::load()
+-{
+-  using namespace lisp;
+-  
+-  try {
+-    std::auto_ptr&lt;Lisp&gt; root(lisp::Parser::parse(&quot;config&quot;));
+-    Properties rootp(root.get());
+-    
+-    const Lisp* config_lisp = 0;
+-    if(rootp.get(&quot;windstille-config&quot;, config_lisp) == false) {
+-      std::cerr &lt;&lt; &quot;Warning: Config file is not a windstille-config file.\n&quot;;
+-      return;
+-    }
+-
+-    Properties props(config_lisp);
+-    props.get(&quot;screen_width&quot;, screen_width);
+-    props.get(&quot;screen_height&quot;, screen_height);
+-    props.get(&quot;fullscreen&quot;, use_fullscreen);
+-    props.get(&quot;show_fps&quot;, show_fps);
+-    props.get(&quot;anti-aliasing&quot;, antialiasing);
+-    props.get(&quot;sound_enabled&quot;, sound_enabled);
+-    props.get(&quot;music_enabled&quot;, music_enabled);
+-    props.print_unused_warnings(&quot;configfile&quot;);
+-
+-    // TODO read controller config
+-  } catch(std::exception&amp; e) {
+-    std::cerr &lt;&lt; &quot;Couldn't open config file: &quot; &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;
+-              &lt;&lt; &quot;This is normal on first startup!\n&quot;;
+-    return;
+-  }
+-}
+-
+-void
+-Config::save()
+-{
+-  try {
+-    lisp::Writer writer(&quot;config&quot;);
+-
+-    writer.start_list(&quot;windstille-config&quot;);
+-
+-    writer.write_int(&quot;screen_width&quot;, screen_width);
+-    writer.write_int(&quot;screen_height&quot;, screen_height);
+-    writer.write_int(&quot;anti-aliasing&quot;, antialiasing);
+-    writer.write_bool(&quot;fullscreen&quot;, use_fullscreen);
+-    writer.write_bool(&quot;show_fps&quot;, show_fps);
+-    writer.write_bool(&quot;sound_enabled&quot;, sound_enabled);
+-    writer.write_bool(&quot;music_enabled&quot;, music_enabled);
+-
+-    // TODO write controller config
+-    
+-    writer.end_list(&quot;windstille-config&quot;);
+-  } catch(std::exception&amp; e) {
+-    std::cerr &lt;&lt; &quot;Couldn't write config file: &quot; &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
+-  }
+-}
+-
+
+Deleted: trunk/src/gameconfig.hpp
+===================================================================
+--- trunk/src/gameconfig.hpp	2005-11-21 23:50:53 UTC (rev 1131)
++++ trunk/src/gameconfig.hpp	2005-11-28 14:33:49 UTC (rev 1132)
+@@ -1,29 +0,0 @@
+-#ifndef __GAMECONFIG_HPP__
+-#define __GAMECONFIG_HPP__
+-
+-#include &lt;string&gt;
+-
+-class Config
+-{
+-public:
+-  Config();
+-  ~Config();
+-
+-  void load();
+-  void save();
+-
+-  int screen_width;
+-  int screen_height;
+-  bool use_fullscreen;
+-  bool show_fps;
+-
+-  bool sound_enabled;
+-  bool music_enabled;
+-
+-  int antialiasing;
+-};
+-
+-extern Config* config;
+-
+-#endif
+-
+
+Modified: trunk/src/gui/slider.cpp
+===================================================================
+--- trunk/src/gui/slider.cpp	2005-11-21 23:50:53 UTC (rev 1131)
++++ trunk/src/gui/slider.cpp	2005-11-28 14:33:49 UTC (rev 1132)
+@@ -47,13 +47,13 @@
+ int
+ Slider::set_minimum(int min_)
+ {
+-  min = min_;
++  return min = min_;
+ }
+ 
+ int
+ Slider::set_maximum(int max_)
+ {
+-  max = max_;
++  return max = max_;
+ }
+ 
+ void
+
+Modified: trunk/src/lisp/parser.cpp
+===================================================================
+--- trunk/src/lisp/parser.cpp	2005-11-21 23:50:53 UTC (rev 1131)
++++ trunk/src/lisp/parser.cpp	2005-11-28 14:33:49 UTC (rev 1132)
+@@ -39,7 +39,7 @@
+   ParseError(const Parser* parser, const std::string&amp; message) throw()
+   {
+     std::ostringstream msg;
+-    msg &lt;&lt; &quot;Parse error in '&quot; &lt;&lt; parser-&gt;filename &lt;&lt; &quot;' line &quot;
++    msg &lt;&lt; &quot;Parse error in file '&quot; &lt;&lt; parser-&gt;filename &lt;&lt; &quot;' line &quot;
+       &lt;&lt; parser-&gt;lexer-&gt;getLineNumber() &lt;&lt; &quot;: &quot; &lt;&lt; message;
+     string = msg.str();
+   }
+
+Modified: trunk/src/screen.cpp
+===================================================================
+--- trunk/src/screen.cpp	2005-11-21 23:50:53 UTC (rev 1131)
++++ trunk/src/screen.cpp	2005-11-28 14:33:49 UTC (rev 1132)
+@@ -25,7 +25,7 @@
+ #include &quot;font/fonts.hpp&quot;
+ #include &quot;globals.hpp&quot;
+ #include &quot;console.hpp&quot;
+-#include &quot;gameconfig.hpp&quot;
++#include &quot;config.hpp&quot;
+ #include &quot;input/input_manager.hpp&quot;
+ #include &quot;input/input_manager_sdl.hpp&quot;
+ #include &quot;sound/sound_manager.hpp&quot;
+
+Modified: trunk/src/screen_manager.cpp
+===================================================================
+--- trunk/src/screen_manager.cpp	2005-11-21 23:50:53 UTC (rev 1131)
++++ trunk/src/screen_manager.cpp	2005-11-28 14:33:49 UTC (rev 1132)
+@@ -30,7 +30,7 @@
+ #include &quot;globals.hpp&quot;
+ #include &quot;screen.hpp&quot;
+ #include &quot;font/fonts.hpp&quot;
+-#include &quot;gameconfig.hpp&quot;
++#include &quot;config.hpp&quot;
+ #include &quot;input/input_manager.hpp&quot;
+ #include &quot;input/input_configurator.hpp&quot;
+ #include &quot;sound/sound_manager.hpp&quot;
+@@ -106,7 +106,7 @@
+ 
+       console.draw();
+ 
+-      if (config-&gt;show_fps)
++      if (config.get_bool(&quot;show-fps&quot;))
+         draw_fps();
+ 
+       SDL_GL_SwapBuffers();
+@@ -174,12 +174,12 @@
+                   break;
+ 
+                 case SDLK_F10:
+-                  config-&gt;show_fps = ! (config-&gt;show_fps);
++                  config.set_bool(&quot;show-fps&quot;, !config.get_bool(&quot;show_fps&quot;));
+                   break;
+               
+                 case SDLK_F11:
+-                  config-&gt;use_fullscreen = ! (config-&gt;use_fullscreen);
+-                  Display::set_fullscreen(config-&gt;use_fullscreen);
++                  config.set_bool(&quot;fullscreen&quot;, !config.get_bool(&quot;fullscreen&quot;));
++                  Display::set_fullscreen(config.get_bool(&quot;fullscreen&quot;));
+                   break;
+               
+                 case SDLK_F12:
+
+Modified: trunk/src/sector.cpp
+===================================================================
+--- trunk/src/sector.cpp	2005-11-21 23:50:53 UTC (rev 1131)
++++ trunk/src/sector.cpp	2005-11-28 14:33:49 UTC (rev 1132)
+@@ -104,7 +104,7 @@
+ void
+ Sector::parse_file(const std::string&amp; filename)
+ {
+-  if (debug) std::cout &lt;&lt; &quot;Parsing &quot; &lt;&lt; filename &lt;&lt; std::endl;
++  if (debug) std::cout &lt;&lt; &quot;Sector:parse_file '&quot; &lt;&lt; filename &lt;&lt; &quot;'&quot; &lt;&lt; std::endl;
+   using namespace lisp;
+   
+   std::auto_ptr&lt;Lisp&gt; root(Parser::parse(filename));
+
+Modified: trunk/src/sprite3dview.cpp
+===================================================================
+--- trunk/src/sprite3dview.cpp	2005-11-21 23:50:53 UTC (rev 1131)
++++ trunk/src/sprite3dview.cpp	2005-11-28 14:33:49 UTC (rev 1132)
+@@ -24,8 +24,8 @@
+ */
+ 
+ #include &lt;iostream&gt;
+-#include &quot;gameconfig.hpp&quot;
+ #include &quot;input/controller.hpp&quot;
++#include &quot;display/display.hpp&quot;
+ #include &quot;console.hpp&quot;
+ #include &quot;font/ttf_font.hpp&quot;
+ #include &quot;font/fonts.hpp&quot;
+@@ -59,14 +59,14 @@
+   sc.color().fill_screen(Color(0.5, 0.0, 0.5));
+ 
+   sc.push_modelview();
+-  sc.translate(config-&gt;screen_width/2, config-&gt;screen_height/2 + 200);
++  sc.translate(Display::get_width()/2, Display::get_height()/2 + 200);
+   sc.scale(3.0f, 3.0f);
+   sc.rotate(rotx, 0.0f, 1.0f, 0.0f);
+   sprite.draw(sc.color(), Vector(0,0), 0); 
+   sc.pop_modelview();
+ 
+   //Matrix matrix = sc.color().get_modelview();
+-  //matrix.translate(-config-&gt;screen_width/2, -config-&gt;screen_height/2, 0);
++  //matrix.translate(-Display::get_width()/2, -Display::get_height()/2, 0);
+   //sprite.draw(sc.color(), matrix, 0.0f);
+ 
+   sc.light().fill_screen(Color(1.0, 1.0, 1.0));
+
+Modified: trunk/src/tinygettext/gettext.hpp
+===================================================================
+--- trunk/src/tinygettext/gettext.hpp	2005-11-21 23:50:53 UTC (rev 1131)
++++ trunk/src/tinygettext/gettext.hpp	2005-11-28 14:33:49 UTC (rev 1132)
+@@ -7,7 +7,10 @@
+ 
+ static inline const char* _(const char* message)
+ {
++  if (dictionaryManager)
+     return dictionaryManager-&gt;get_dictionary().translate(message);
++  else
++    return message;
+ }
+ #define N_(s)      s
+ 
+
+Modified: trunk/src/windstille_main.cpp
+===================================================================
+--- trunk/src/windstille_main.cpp	2005-11-21 23:50:53 UTC (rev 1131)
++++ trunk/src/windstille_main.cpp	2005-11-28 14:33:49 UTC (rev 1132)
+@@ -38,7 +38,7 @@
+ #include &quot;tile_factory.hpp&quot;
+ #include &quot;script_manager.hpp&quot;
+ #include &quot;tinygettext/gettext.hpp&quot;
+-#include &quot;gameconfig.hpp&quot;
++#include &quot;config.hpp&quot;
+ #include &quot;util.hpp&quot;
+ #include &quot;font/ttf_font.hpp&quot;
+ #include &quot;display/display.hpp&quot;
+@@ -46,7 +46,6 @@
+ #include &quot;glutil/texture_manager.hpp&quot;
+ #include &quot;sprite3d/manager.hpp&quot;
+ #include &quot;screen_manager.hpp&quot;
+-#include &quot;command_line.hpp&quot;
+ #include &quot;sprite3dview.hpp&quot;
+ #include &quot;sprite2d/manager.hpp&quot;
+ 
+@@ -58,127 +57,12 @@
+ {
+ }
+ 
+-void
+-WindstilleMain::parse_command_line(int argc, char** argv)
+-{
+-  CommandLine argp;
+-
+-  const int debug_flag = 256;
+-  const int sprite3dview_flag = 257;
+-    
+-  argp.set_help_indent(24);
+-  argp.add_usage (&quot;[LEVELFILE]&quot;);
+-  argp.add_doc   (&quot;Windstille is a classic Jump'n Run game.&quot;);
+-
+-  argp.add_group(&quot;Mode Options:&quot;);
+-  argp.add_option(sprite3dview_flag, &quot;sprite3dview&quot;, &quot;&quot;, &quot;Launch Sprite3DView instead of the game&quot;);
+-
+-  argp.add_group(&quot;Display Options:&quot;);
+-  argp.add_option('g', &quot;geometry&quot;,   &quot;WxH&quot;, &quot;Change window size to WIDTH and HEIGHT&quot;);
+-  argp.add_option('f', &quot;fullscreen&quot;, &quot;&quot;, &quot;Launch the game in fullscreen&quot;);
+-  argp.add_option('a', &quot;anti-aliasing&quot;, &quot;NUM&quot;, &quot;Enable NUMx Anti-Aliasing&quot;);
+-
+-  argp.add_group(&quot;Sound Options:&quot;);
+-  argp.add_option('s', &quot;disable-sound&quot;, &quot;&quot;, &quot;Disable sound&quot;);
+-  argp.add_option('S', &quot;enable-sound&quot;, &quot;&quot;, &quot;Enable sound&quot;);
+-
+-  argp.add_group(&quot;Controlls Options:&quot;);
+-  argp.add_option('c', &quot;controller&quot;, &quot;FILE&quot;, &quot;Use controller as defined in FILE&quot;);
+-
+-  argp.add_group(&quot;Misc Options:&quot;);
+-  argp.add_option('d', &quot;datadir&quot;,    &quot;DIR&quot;, &quot;Fetch game data from DIR&quot;);
+-  argp.add_option(debug_flag, &quot;debug&quot;,      &quot;&quot;, &quot;Turn on debug output&quot;);
+-  argp.add_option('x', &quot;version&quot;,       &quot;&quot;, &quot;Print Windstille Version&quot;);
+-  argp.add_option('h', &quot;help&quot;,       &quot;&quot;, &quot;Print this help&quot;);
+-
+-  argp.add_group(&quot;Demo Recording/Playback Options:&quot;);
+-  argp.add_option('r', &quot;record&quot;,      &quot;FILE&quot;, &quot;Record input events to FILE&quot;);
+-  argp.add_option('v', &quot;record-video&quot;,&quot;DIR&quot;,  &quot;Record a gameplay video to DIR&quot;);
+-  argp.add_option('p', &quot;play&quot;,        &quot;FILE&quot;, &quot;Playback input events from FILE&quot;);
+-
+-  argp.parse_args(argc, argv);
+-
+-  while (argp.next())
+-    {
+-      switch (argp.get_key())
+-        {
+-        case 'a':
+-          if (sscanf(argp.get_argument().c_str(), &quot;%d&quot;, &amp;config-&gt;antialiasing) != 1)
+-            {
+-              throw std::runtime_error(&quot;Anti-Aliasing option '-a' requires argument of type {NUM}&quot;);
+-            }
+-          break;
+-
+-        case 'r':
+-          recorder_file = argp.get_argument();
+-          break;
+-
+-        case 'x':
+-          screenshot_dir = argp.get_argument();
+-          break;
+-
+-        case 'p':
+-          playback_file = argp.get_argument();
+-          break;
+-
+-        case 'd':
+-          datadir = argp.get_argument();
+-          break;
+-
+-        case debug_flag:
+-          debug = 1;
+-          break;
+-
+-        case sprite3dview_flag:
+-          sprite3dview = true;
+-          break;
+-
+-        case 'f':
+-          config-&gt;use_fullscreen = true;
+-          break;
+-
+-        case 'g':
+-          if (sscanf(argp.get_argument().c_str(), &quot;%dx%d&quot;,
+-                     &amp;config-&gt;screen_width, &amp;config-&gt;screen_height) == 2)
+-            std::cout &lt;&lt; &quot;Geometry: &quot; &lt;&lt; config-&gt;screen_width
+-                      &lt;&lt; &quot;x&quot; &lt;&lt; config-&gt;screen_height &lt;&lt; std::endl;
+-          else
+-            throw std::runtime_error(&quot;Geometry option '-g' requires argument of type {WIDTH}x{HEIGHT}&quot;);
+-          break;
+-        
+-        case 's':
+-          config-&gt;sound_enabled = false;
+-          break;
+-
+-        case 'S':
+-          config-&gt;sound_enabled = true;
+-          break;  
+-
+-        case 'c':
+-          controller_file = argp.get_argument();
+-          break;
+-
+-        case 'v':
+-          std::cout &lt;&lt; &quot;Windstille &quot; &lt;&lt; PACKAGE_VERSION &lt;&lt; std::endl;
+-          exit(EXIT_SUCCESS);
+-          break;
+-
+-        case 'h':
+-          argp.print_help();
+-          exit(EXIT_SUCCESS);
+-          break;
+-
+-        case CommandLine::REST_ARG:
+-          levelfile = argp.get_argument();
+-          break;
+-        }
+-    }
+-}
+-
+ int 
+ WindstilleMain::main(int argc, char** argv)
+ {
+   try {
++    config.parse_args(argc, argv);
++
+     init_physfs(argv[0]);
+     init_sdl();
+ 
+@@ -186,21 +70,14 @@
+     dictionaryManager-&gt;set_charset(&quot;iso8859-1&quot;);
+     dictionaryManager-&gt;add_directory(&quot;locale&quot;);
+ 
+-    config = new Config();
+-    config-&gt;load();
+-  } catch(std::exception&amp; e) {
+-    std::cout &lt;&lt; &quot;std::exception: &quot; &lt;&lt; e.what() &lt;&lt; std::endl;
+-    return 1;
+-  }
++    config.load();
+ 
+-  try {
+-    parse_command_line(argc, argv);
+     init_modules();
+ 
+-    if (playback_file.empty())
++    if (!config.get&lt;std::string&gt;(&quot;playback-file&quot;).is_set())
+       {
+-        if (!controller_file.empty())
+-          InputManager::init(controller_file);
++        if (config.get&lt;std::string&gt;(&quot;controller-file&quot;).is_set())
++          InputManager::init(config.get&lt;std::string&gt;(&quot;controller-file&quot;).get());
+         else if (PHYSFS_exists(&quot;controller.cfg&quot;))
+           InputManager::init(&quot;controller.cfg&quot;);
+         else
+@@ -208,11 +85,11 @@
+       }
+     else
+       {
+-        InputManager::init_playback(playback_file);
++        InputManager::init_playback(config.get_string(&quot;playback-file&quot;));
+       }
+ 
+-    if (!recorder_file.empty())
+-      InputManager::setup_recorder(recorder_file);
++    if (config.is_set(&quot;recorder-file&quot;))
++      InputManager::setup_recorder(config.get_string(&quot;recorder-file&quot;));
+     
+     if (debug) std::cout &lt;&lt; &quot;Initialising TileFactory&quot; &lt;&lt; std::endl;
+     TileFactory::init();
+@@ -224,15 +101,17 @@
+       }
+     else
+       {
+-        if (levelfile.empty())
++        if (!config.get&lt;std::string&gt;(&quot;levelfile&quot;).is_set())
+           {
+             screen_manager.set_screen(new GameSession(&quot;levels/newformat2.wst&quot;));
+           }
+         else
+           {
+-            std::string leveldir = dirname(levelfile);
++            if (debug) std::cout &lt;&lt; &quot;Starting level: '&quot; &lt;&lt; config.get_string(&quot;levelfile&quot;) &lt;&lt; &quot;'&quot; 
++                                 &lt;&lt; std::endl;
++            std::string leveldir = dirname(config.get_string(&quot;levelfile&quot;));
+             PHYSFS_addToSearchPath(leveldir.c_str(), true);
+-            screen_manager.set_screen(new GameSession(basename(levelfile)));
++            screen_manager.set_screen(new GameSession(basename(config.get_string(&quot;levelfile&quot;))));
+           }
+       }
+         
+@@ -250,9 +129,7 @@
+     std::cout &lt;&lt; &quot;Error catched something unknown?!&quot; &lt;&lt; std::endl;
+   }
+ 
+-  config-&gt;save();
+-  delete config;
+-  config = 0;
++  config.save();
+ 
+   delete dictionaryManager;
+   dictionaryManager = 0;
+@@ -275,8 +152,8 @@
+   if (debug) std::cout &lt;&lt; &quot;Initialising Fonts&quot; &lt;&lt; std::endl;
+   Fonts::init(); 
+   sound_manager = new SoundManager();
+-  sound_manager-&gt;enable_sound(config-&gt;sound_enabled);
+-  sound_manager-&gt;enable_music(config-&gt;music_enabled);
++  sound_manager-&gt;enable_sound(config.get_bool(&quot;sound&quot;));
++  sound_manager-&gt;enable_music(config.get_bool(&quot;music&quot;));
+ 
+   if (debug) std::cout &lt;&lt; &quot;Initialising ScriptManager&quot; &lt;&lt; std::endl;
+   texture_manager  = new TextureManager();
+@@ -431,8 +308,14 @@
+   PHYSFS_permitSymbolicLinks(1);
+ 
+   //show search Path
+-  for(char** i = PHYSFS_getSearchPath(); *i != NULL; i++)
+-    printf(&quot;[%s] is in the search path.\n&quot;, *i);
++  if (debug)
++    {
++      std::cout &lt;&lt; &quot;SearchPath:&quot; &lt;&lt; std::endl;
++      char** search_path = PHYSFS_getSearchPath();
++      for(char** i = search_path; *i != NULL; i++)
++        std::cout &lt;&lt; &quot;  &quot; &lt;&lt; *i &lt;&lt; std::endl;;
++      PHYSFS_freeList(search_path);
++    }
+ }
+ 
+ int main(int argc, char** argv)
+
+Modified: trunk/src/windstille_main.hpp
+===================================================================
+--- trunk/src/windstille_main.hpp	2005-11-21 23:50:53 UTC (rev 1131)
++++ trunk/src/windstille_main.hpp	2005-11-28 14:33:49 UTC (rev 1132)
+@@ -31,15 +31,8 @@
+ struct SDL_Surface;
+ 
+ class WindstilleMain
+-{
++{  
+ public:
+-  std::string levelfile;
+-  std::string controller_file;
+-  std::string recorder_file;
+-  std::string playback_file;
+-  std::string screenshot_dir;
+-  
+-public:
+   WindstilleMain();
+   ~WindstilleMain();
+ 
+@@ -48,7 +41,6 @@
+ private:
+   void init_sdl();
+   void init_physfs(const char* argv0);
+-  void parse_command_line(int argc, char** argv);
+   void init_modules();
+   void deinit_modules();
+ };
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000784.html">[Windstille-commit] r1131 - in trunk/data/models/vehicles: . minetrain
+</A></li>
+	<LI>Next message: <A HREF="000786.html">[Windstille-commit] r1133 - in trunk/src: . scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#785">[ date ]</a>
+              <a href="thread.html#785">[ thread ]</a>
+              <a href="subject.html#785">[ subject ]</a>
+              <a href="author.html#785">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

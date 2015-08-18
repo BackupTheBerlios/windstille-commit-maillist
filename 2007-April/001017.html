@@ -1,0 +1,184 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1364 - trunk/scripts
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-April/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1364%20-%20trunk/scripts&In-Reply-To=%3C200704010223.l312NF3R002443%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001016.html">
+   <LINK REL="Next"  HREF="001018.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1364 - trunk/scripts</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1364%20-%20trunk/scripts&In-Reply-To=%3C200704010223.l312NF3R002443%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1364 - trunk/scripts">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Apr  1 04:23:15 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001016.html">[Windstille-commit] r1363 - trunk/scripts
+</A></li>
+        <LI>Next message: <A HREF="001018.html">[Windstille-commit] r1365 - trunk/scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1017">[ date ]</a>
+              <a href="thread.html#1017">[ thread ]</a>
+              <a href="subject.html#1017">[ subject ]</a>
+              <a href="author.html#1017">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-04-01 04:23:14 +0200 (Sun, 01 Apr 2007)
+New Revision: 1364
+
+Added:
+   trunk/scripts/blender_thumbnail
+Modified:
+   trunk/scripts/blender_thumbnail.py
+Log:
+- some improvements
+- added script to create four-direcetion preview
+
+Added: trunk/scripts/blender_thumbnail
+===================================================================
+--- trunk/scripts/blender_thumbnail	2007-04-01 00:34:38 UTC (rev 1363)
++++ trunk/scripts/blender_thumbnail	2007-04-01 02:23:14 UTC (rev 1364)
+@@ -0,0 +1,24 @@
++#! /bin/sh
++
++set -e 
++
++export BLEND_THUMB_AXIS=x
++export BLEND_THUMB_OUTPUT=&quot;/tmp/x-axis.png&quot;
++blender &quot;$@&quot; -P /home/ingo/projects/windstille/trunk/scripts/blender_thumbnail.py 
++
++export BLEND_THUMB_AXIS=y
++export BLEND_THUMB_OUTPUT=&quot;/tmp/y-axis.png&quot;
++blender &quot;$@&quot; -P /home/ingo/projects/windstille/trunk/scripts/blender_thumbnail.py 
++
++export BLEND_THUMB_AXIS=z
++export BLEND_THUMB_OUTPUT=&quot;/tmp/z-axis.png&quot;
++blender &quot;$@&quot; -P /home/ingo/projects/windstille/trunk/scripts/blender_thumbnail.py 
++
++export BLEND_THUMB_AXIS=&quot;-z&quot;
++export BLEND_THUMB_OUTPUT=&quot;/tmp/z2-axis.png&quot;
++blender &quot;$@&quot; -P /home/ingo/projects/windstille/trunk/scripts/blender_thumbnail.py 
++
++montage -background &quot;#FF00FF&quot; -geometry +0+0  &quot;/tmp/x-axis.png&quot; &quot;/tmp/y-axis.png&quot; &quot;/tmp/z-axis.png&quot; &quot;/tmp/z2-axis.png&quot; &quot;/tmp/out.png&quot;
++gliv &quot;/tmp/out.png&quot;
++
++# EOF #
+
+
+Property changes on: trunk/scripts/blender_thumbnail
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Modified: trunk/scripts/blender_thumbnail.py
+===================================================================
+--- trunk/scripts/blender_thumbnail.py	2007-04-01 00:34:38 UTC (rev 1363)
++++ trunk/scripts/blender_thumbnail.py	2007-04-01 02:23:14 UTC (rev 1364)
+@@ -2,6 +2,16 @@
+ ## blender longshot.blend -P ~/projects/windstille/trunk/scripts/blender_thumbnail.py
+ ## ! Argument order matters !
+ 
++## Bugs: The .blend file must not be in &quot;Maximized Window Mode&quot; (Ctrl
++## UpArrow) or it will segfault
++
++## ToDo:
++## - do multiple renderings in one go without restarting blender
++## - optimize the bounding rect so that the four-dir view contains
++##   less empty space
++## - set some better rendering parameter
++## - add a 3/4 view
++
+ import Blender
+ from Blender.Mathutils import Vector, Euler
+ from Blender import Camera
+@@ -9,6 +19,7 @@
+ from Blender import Lamp
+ import time
+ import math
++import os
+ 
+ # print &quot;\033c--- Start --- %s&quot; % time.time()
+ 
+@@ -74,7 +85,7 @@
+                 self.z1, self.z2)
+ 
+ # Calculate the bounding box of a scene
+-def bounding_rect():
++def render_thumbnail(axis, outfile):
+     total = BBox()
+ 
+     scn = Blender.Scene.GetCurrent()
+@@ -82,6 +93,7 @@
+     # print scn.objects
+     for obj in scn.objects:
+         if obj.getType() != &quot;Empty&quot; and \
++           obj.getType() != &quot;Light&quot; and \
+            (1 in obj.layers) and obj.boundingBox:
+             # print obj.getType()
+             # print obj.boundingBox
+@@ -93,7 +105,7 @@
+     else:
+         # print total
+         # Position of camera and support objects
+-        axis = &quot;z&quot;
++
+         if axis == &quot;x&quot;: # ok
+             (x, y, z) = (total.x1 - 5,
+                          (total.y2 + total.y1)/2,
+@@ -160,7 +172,8 @@
+         render.render()
+ 
+         render.setRenderPath(&quot;&quot;)
+-        render.saveRenderedImage(&quot;/tmp/out.png&quot;)
++        render.saveRenderedImage(outfile)
++        print &quot;blender_thumbnail: Wrote output to '%s'&quot; % outfile
+ 
+         #scn.objects.unlink(cam_obj)
+         scn.objects.unlink(light_obj)
+@@ -168,6 +181,7 @@
+         # print &quot;total: %s&quot; % total
+         Blender.Quit()
+     
+-bounding_rect()
++render_thumbnail(os.getenv(&quot;BLEND_THUMB_AXIS&quot;) or &quot;x&quot;,
++                 os.getenv(&quot;BLEND_THUMB_OUTPUT&quot;) or &quot;/tmp/out.png&quot;)
+ 
+ # EOF #
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001016.html">[Windstille-commit] r1363 - trunk/scripts
+</A></li>
+	<LI>Next message: <A HREF="001018.html">[Windstille-commit] r1365 - trunk/scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1017">[ date ]</a>
+              <a href="thread.html#1017">[ thread ]</a>
+              <a href="subject.html#1017">[ subject ]</a>
+              <a href="author.html#1017">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

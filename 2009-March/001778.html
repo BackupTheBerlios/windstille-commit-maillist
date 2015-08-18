@@ -1,0 +1,716 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2781 - in trunk/windstille/src: . editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2781%20-%20in%20trunk/windstille/src%3A%20.%20editor&In-Reply-To=%3C200903271550.n2RFo5ZI027727%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001777.html">
+   <LINK REL="Next"  HREF="001779.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2781 - in trunk/windstille/src: . editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2781%20-%20in%20trunk/windstille/src%3A%20.%20editor&In-Reply-To=%3C200903271550.n2RFo5ZI027727%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2781 - in trunk/windstille/src: . editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Mar 27 16:50:05 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001777.html">[Windstille-commit] r2780 - trunk/windstille
+</A></li>
+        <LI>Next message: <A HREF="001779.html">[Windstille-commit] r2782 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1778">[ date ]</a>
+              <a href="thread.html#1778">[ thread ]</a>
+              <a href="subject.html#1778">[ subject ]</a>
+              <a href="author.html#1778">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-27 16:50:05 +0100 (Fri, 27 Mar 2009)
+New Revision: 2781
+
+Added:
+   trunk/windstille/src/editor/hard_layer.cpp
+   trunk/windstille/src/editor/hard_layer.hpp
+Modified:
+   trunk/windstille/src/SConscript
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+   trunk/windstille/src/editor/select_tool.cpp
+Log:
+Implemented another layer system, this time a little more classical
+
+Modified: trunk/windstille/src/SConscript
+===================================================================
+--- trunk/windstille/src/SConscript	2009-03-27 04:31:37 UTC (rev 2780)
++++ trunk/windstille/src/SConscript	2009-03-27 15:50:05 UTC (rev 2781)
+@@ -239,6 +239,7 @@
+         'editor/decal_object_model.cpp',
+         'editor/editor_window.cpp',
+         'editor/layer_widget.cpp',
++        'editor/hard_layer.cpp',
+         'editor/main.cpp',
+         'editor/minimap_widget.cpp',
+         'editor/object_model.cpp',      
+
+Added: trunk/windstille/src/editor/hard_layer.cpp
+===================================================================
+--- trunk/windstille/src/editor/hard_layer.cpp	2009-03-27 04:31:37 UTC (rev 2780)
++++ trunk/windstille/src/editor/hard_layer.cpp	2009-03-27 15:50:05 UTC (rev 2781)
+@@ -0,0 +1,210 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &quot;hard_layer.hpp&quot;
++
++HardLayer::HardLayer(const std::string&amp; name_)
++  : name(name_),
++    visible(true)
++{
++}
++
++HardLayer::~HardLayer()
++{
++}
++
++void
++HardLayer::add(const ObjectModelHandle&amp; object)
++{
++  objects.push_back(object);
++}
++
++void
++HardLayer::remove(const ObjectModelHandle&amp; object)
++{
++  objects.remove(object);
++}
++
++void
++HardLayer::draw(SceneContext&amp; sc, const Layers&amp; layers)
++{
++  for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
++    {
++      if (layers.match((*i)-&gt;get_layers()))
++        (*i)-&gt;draw(sc);
++    }
++
++}
++
++void
++HardLayer::update(float delta)
++{
++  for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
++    {
++      (*i)-&gt;update(delta);
++    }
++}
++
++ObjectModelHandle
++HardLayer::get_object_at(const Vector2f&amp; pos, const Layers&amp; layers) const
++{
++  for(Objects::const_reverse_iterator i = objects.rbegin(); i != objects.rend(); ++i)
++    {
++      if (layers.match((*i)-&gt;get_layers()) &amp;&amp;
++          (*i)-&gt;get_bounding_box().is_inside(pos))
++        {
++          return *i;
++        }
++    }
++  return ObjectModelHandle();
++}
++
++SelectionHandle
++HardLayer::get_selection(const Rectf&amp; rect, const Layers&amp; layers) const
++{
++ SelectionHandle selection = Selection::create();
++
++  for(Objects::const_reverse_iterator i = objects.rbegin(); i != objects.rend(); ++i)
++    {
++      if (layers.match((*i)-&gt;get_layers()) &amp;&amp;
++          (*i)-&gt;get_bounding_box().is_overlapped(rect))
++        {
++          selection-&gt;add(*i);
++        }
++    }
++
++  return selection;
++}
++
++void
++HardLayer::raise_to_top(ObjectModelHandle object)
++{
++  objects.remove(object);
++  objects.push_back(object); 
++}
++
++void
++HardLayer::lower_to_bottom(ObjectModelHandle object)
++{
++  objects.remove(object);
++  objects.push_front(object); 
++}
++
++struct OverlapsWith
++{
++  Rectf rect;
++
++  OverlapsWith(const Rectf&amp; rect_)
++    : rect(rect_)
++  {}
++
++  bool operator()(const ObjectModelHandle&amp; object) {
++    return rect.is_overlapped(object-&gt;get_bounding_box());
++  }
++};
++
++void
++HardLayer::raise(ObjectModelHandle object)
++{
++  Objects::iterator i = std::find(objects.begin(), objects.end(), object);
++  assert(i != objects.end());
++  Objects::iterator j = i;
++  ++j;
++  j = std::find_if(j, objects.end(), OverlapsWith(object-&gt;get_bounding_box()));
++
++  if (j == objects.end())
++    {
++      // object overlaps with no other object, no point in raising it
++    }
++  else
++    {
++      objects.erase(i);
++      objects.insert(++j, object);
++    }
++}
++
++void
++HardLayer::lower(ObjectModelHandle object)
++{
++  // Mostly the same as raise, just with reverse iterators
++  Objects::reverse_iterator i = std::find(objects.rbegin(), objects.rend(), object);
++
++  Objects::reverse_iterator j = i;
++  ++j;
++  j = std::find_if(j, objects.rend(), OverlapsWith(object-&gt;get_bounding_box()));
++
++  if (j == objects.rend())
++    {
++      // object overlaps with no other object, no point in lowering it
++    }
++  else
++    {
++      // the base() of base in one further then where the reverse
++      // iterator was, so we have to move back to get the same
++      // position
++      objects.erase(--(i.base()));
++      objects.insert(--(j.base()), object);
++    }
++}
++
++SnapData
++HardLayer::snap_object(const Rectf&amp; rect, const std::set&lt;ObjectModelHandle&gt;&amp; ignore_objects) const
++{
++  //float min_x_offset = std::numeric_limits&lt;float&gt;::max();
++  //float min_y_offset = std::numeric_limits&lt;float&gt;::max();
++  SnapData best_snap;
++
++  // Find the smallest snap offset
++  for(Objects::const_reverse_iterator i = objects.rbegin(); i != objects.rend(); ++i)
++    {
++      // object is not in the list of objects to ignore
++      if ((*i)-&gt;is_snappable() &amp;&amp;
++          ignore_objects.find(*i) == ignore_objects.end())
++        {
++          SnapData snap = (*i)-&gt;snap_object(rect);
++          best_snap.merge(snap);
++        }
++    }
++
++  return best_snap;
++}
++
++void
++HardLayer::write(FileWriter&amp; writer) const
++{
++  writer.start_section(&quot;layer&quot;);
++  writer.write(&quot;name&quot;,    name);
++  writer.write(&quot;visible&quot;, visible);
++
++  writer.start_section(&quot;objects&quot;);
++  for(Objects::const_iterator i = objects.begin(); i != objects.end(); ++i)
++    {
++      (*i)-&gt;write(writer);
++    }
++  writer.end_section();
++
++  writer.end_section();
++}
++
++HardLayerHandle
++HardLayer::clone() const
++{
++  return HardLayerHandle();
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/hard_layer.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/editor/hard_layer.hpp
+===================================================================
+--- trunk/windstille/src/editor/hard_layer.hpp	2009-03-27 04:31:37 UTC (rev 2780)
++++ trunk/windstille/src/editor/hard_layer.hpp	2009-03-27 15:50:05 UTC (rev 2781)
+@@ -0,0 +1,75 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_EDITOR_HARD_LAYER_HPP
++#define HEADER_WINDSTILLE_EDITOR_HARD_LAYER_HPP
++
++#include &lt;boost/shared_ptr.hpp&gt;
++#include &lt;list&gt;
++#include &lt;set&gt;
++#include &lt;string&gt;
++
++#include &quot;selection.hpp&quot;
++#include &quot;object_model.hpp&quot;
++
++class HardLayer;
++typedef boost::shared_ptr&lt;HardLayer&gt; HardLayerHandle;
++
++class HardLayer
++{
++private:
++  typedef std::list&lt;ObjectModelHandle&gt; Objects;
++  typedef std::list&lt;HardLayerHandle&gt; HardLayers;
++
++  std::string name;
++  bool visible;
++  Objects objects;
++  //HardLayers child_layers;
++
++public:
++  HardLayer(const std::string&amp; name);
++  ~HardLayer();
++
++  void add(const ObjectModelHandle&amp; object);
++  void remove(const ObjectModelHandle&amp; object);
++
++  void draw(SceneContext&amp; sc, const Layers&amp; layers);
++  void update(float delta);
++
++  ObjectModelHandle get_object_at(const Vector2f&amp; pos, const Layers&amp; layers) const;
++  SelectionHandle   get_selection(const Rectf&amp; rect, const Layers&amp; layers) const;
++
++  void raise_to_top(ObjectModelHandle object);
++  void lower_to_bottom(ObjectModelHandle object);
++  void raise(ObjectModelHandle object);
++  void lower(ObjectModelHandle object);
++
++  SnapData snap_object(const Rectf&amp; rect, const std::set&lt;ObjectModelHandle&gt;&amp; ignore_objects) const;
++
++  void write(FileWriter&amp; writer) const;
++
++  HardLayerHandle clone() const;
++  
++private:
++  HardLayer(const HardLayer&amp;);
++  HardLayer&amp; operator=(const HardLayer&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/hard_layer.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-03-27 04:31:37 UTC (rev 2780)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-03-27 15:50:05 UTC (rev 2781)
+@@ -32,6 +32,8 @@
+ 
+ SectorModel::SectorModel()
+ {  
++  root_layer = HardLayerHandle(new HardLayer(&quot;HardLayer&quot;));
++
+   objects_tree = Gtk::TreeStore::create(ObjectTreeColumns::instance());
+ 
+   root_it = objects_tree-&gt;append();
+@@ -49,7 +51,7 @@
+ void
+ SectorModel::add(const ObjectModelHandle&amp; object)  
+ {
+-  objects.push_back(object);
++  root_layer-&gt;add(object);
+ 
+   Gtk::TreeStore::iterator it = objects_tree-&gt;append(root_it-&gt;children());
+   (*it)[ObjectTreeColumns::instance().type_icon] = Gdk::Pixbuf::create_from_file(&quot;data/editor/type.png&quot;);
+@@ -60,150 +62,61 @@
+ void
+ SectorModel::remove(const ObjectModelHandle&amp; object)
+ {
+-  objects.remove(object);
++  root_layer-&gt;remove(object);
+ }
+ 
+ void
+ SectorModel::draw(SceneContext&amp; sc, const Layers&amp; layers)
+ {
+-  for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
+-    {
+-      if (layers.match((*i)-&gt;get_layers()))
+-        (*i)-&gt;draw(sc);
+-    }
++  root_layer-&gt;draw(sc, layers);
+ }
+ 
+ void
+ SectorModel::update(float delta)
+ {
+-  for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
+-    {
+-      (*i)-&gt;update(delta);
+-    }
++  root_layer-&gt;update(delta);
+ }
+ 
+ ObjectModelHandle
+ SectorModel::get_object_at(const Vector2f&amp; pos, const Layers&amp; layers) const
+ {
+-  for(Objects::const_reverse_iterator i = objects.rbegin(); i != objects.rend(); ++i)
+-    {
+-      if (layers.match((*i)-&gt;get_layers()) &amp;&amp;
+-          (*i)-&gt;get_bounding_box().is_inside(pos))
+-        {
+-          return *i;
+-        }
+-    }
+-  return ObjectModelHandle();
++  return root_layer-&gt;get_object_at(pos, layers);
+ }
+ 
+ SelectionHandle
+ SectorModel::get_selection(const Rectf&amp; rect, const Layers&amp; layers) const
+ {
+-  SelectionHandle selection = Selection::create();
+-
+-  for(Objects::const_reverse_iterator i = objects.rbegin(); i != objects.rend(); ++i)
+-    {
+-      if (layers.match((*i)-&gt;get_layers()) &amp;&amp;
+-          (*i)-&gt;get_bounding_box().is_overlapped(rect))
+-        {
+-          selection-&gt;add(*i);
+-        }
+-    }
+-
+-  return selection;
++  return root_layer-&gt;get_selection(rect, layers);
+ }
+ 
+-struct OverlapsWith
+-{
+-  Rectf rect;
+-
+-  OverlapsWith(const Rectf&amp; rect_)
+-    : rect(rect_)
+-  {}
+-
+-  bool operator()(const ObjectModelHandle&amp; object) {
+-    return rect.is_overlapped(object-&gt;get_bounding_box());
+-  }
+-};
+-
+ void
+ SectorModel::raise(ObjectModelHandle object)
+ {
+-  Objects::iterator i = std::find(objects.begin(), objects.end(), object);
+-  assert(i != objects.end());
+-  Objects::iterator j = i;
+-  ++j;
+-  j = std::find_if(j, objects.end(), OverlapsWith(object-&gt;get_bounding_box()));
+-
+-  if (j == objects.end())
+-    {
+-      // object overlaps with no other object, no point in raising it
+-    }
+-  else
+-    {
+-      objects.erase(i);
+-      objects.insert(++j, object);
+-    }
++  root_layer-&gt;raise(object);
+ }
+ 
+ void
+ SectorModel::lower(ObjectModelHandle object)
+ {
+-  // Mostly the same as raise, just with reverse iterators
+-  Objects::reverse_iterator i = std::find(objects.rbegin(), objects.rend(), object);
+-
+-  Objects::reverse_iterator j = i;
+-  ++j;
+-  j = std::find_if(j, objects.rend(), OverlapsWith(object-&gt;get_bounding_box()));
+-
+-  if (j == objects.rend())
+-    {
+-      // object overlaps with no other object, no point in lowering it
+-    }
+-  else
+-    {
+-      // the base() of base in one further then where the reverse
+-      // iterator was, so we have to move back to get the same
+-      // position
+-      objects.erase(--(i.base()));
+-      objects.insert(--(j.base()), object);
+-    }
++  root_layer-&gt;lower(object);
+ }
+ 
+ void
+ SectorModel::raise_to_top(ObjectModelHandle object)
+ {
+-  objects.remove(object);
+-  objects.push_back(object); 
++  root_layer-&gt;raise_to_top(object);
+ }
+ 
+ void
+ SectorModel::lower_to_bottom(ObjectModelHandle object)
+ {
+-  objects.remove(object);
+-  objects.push_front(object); 
++  root_layer-&gt;lower_to_bottom(object);
+ }
+ 
+ SnapData
+ SectorModel::snap_object(const Rectf&amp; rect, const std::set&lt;ObjectModelHandle&gt;&amp; ignore_objects) const
+ {
+-  //float min_x_offset = std::numeric_limits&lt;float&gt;::max();
+-  //float min_y_offset = std::numeric_limits&lt;float&gt;::max();
+-  SnapData best_snap;
+-
+-  // Find the smallest snap offset
+-  for(Objects::const_reverse_iterator i = objects.rbegin(); i != objects.rend(); ++i)
+-    {
+-      // object is not in the list of objects to ignore
+-      if ((*i)-&gt;is_snappable() &amp;&amp;
+-          ignore_objects.find(*i) == ignore_objects.end())
+-        {
+-          SnapData snap = (*i)-&gt;snap_object(rect);
+-          best_snap.merge(snap);
+-        }
+-    }
+-
+-  return best_snap;
++  return root_layer-&gt;snap_object(rect, ignore_objects);
+ }
+ 
+ void
+@@ -216,23 +129,31 @@
+     }
+   else
+     {
+-  FileReader reader = FileReader::parse(stream, filename);
+-  if (reader.get_name() == &quot;windstille-sector&quot;)
+-    {
+-      std::vector&lt;FileReader&gt; sections = reader.get_sections();
+-      for(std::vector&lt;FileReader&gt;::iterator i = sections.begin(); i != sections.end(); ++i)
++      FileReader reader = FileReader::parse(stream, filename);
++      if (reader.get_name() == &quot;windstille-sector&quot;)
+         {
+-          if (i-&gt;get_name() == &quot;objects&quot;)
++          std::vector&lt;FileReader&gt; sections = reader.get_sections();
++          for(std::vector&lt;FileReader&gt;::iterator i = sections.begin(); i != sections.end(); ++i)
+             {
+-              std::vector&lt;FileReader&gt; objects_sections = i-&gt;get_sections();
+-              for(std::vector&lt;FileReader&gt;::iterator j = objects_sections.begin(); j != objects_sections.end(); ++j)
++              if (i-&gt;get_name() == &quot;layer&quot;)
+                 {
+-                  add(ObjectModelFactory::create(*j));
++                  FileReader objects_reader;
++                  std::string name;
++                  bool visible;
++
++                  i-&gt;read(&quot;name&quot;, name);
++                  i-&gt;read(&quot;visible&quot;, visible);
++                  i-&gt;read(&quot;objects&quot;, objects_reader);
++                  
++                  std::vector&lt;FileReader&gt; objects_sections = objects_reader.get_sections();
++                  for(std::vector&lt;FileReader&gt;::iterator j = objects_sections.begin(); j != objects_sections.end(); ++j)
++                    {
++                      add(ObjectModelFactory::create(*j));
++                    }
+                 }
+             }
+         }
+     }
+-    }
+ }
+ 
+ void
+@@ -246,12 +167,7 @@
+   writer.write(&quot;ambient-color&quot;, Color());
+   writer.write(&quot;init-script&quot;, &quot;init.nut&quot;);
+ 
+-  writer.start_section(&quot;objects&quot;);
+-  for(Objects::const_iterator i = objects.begin(); i != objects.end(); ++i)
+-    {
+-      (*i)-&gt;write(writer);
+-    }
+-  writer.end_section();
++  root_layer-&gt;write(writer);
+  
+   writer.end_section();
+   writer.write_raw(&quot;\n;; EOF ;;\n&quot;);
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-03-27 04:31:37 UTC (rev 2780)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-03-27 15:50:05 UTC (rev 2781)
+@@ -24,6 +24,7 @@
+ #include &lt;gtkmm/treestore.h&gt;
+ #include &lt;vector&gt;
+ 
++#include &quot;hard_layer.hpp&quot;
+ #include &quot;selection.hpp&quot;
+ #include &quot;object_model.hpp&quot;
+ #include &quot;math/vector2f.hpp&quot;
+@@ -59,22 +60,21 @@
+ class SectorModel
+ {
+ private:
+-  typedef std::list&lt;ObjectModelHandle&gt; Objects;
+-
+   Gtk::TreeStore::iterator root_it;
+   Glib::RefPtr&lt;Gtk::TreeStore&gt; objects_tree;
+-  Objects objects;
++  HardLayerHandle root_layer;
+   
+ public:
+-  typedef Objects::iterator iterator;
++  //typedef Objects::iterator iterator;
+ 
+   SectorModel();
+ 
+-  void add(const ObjectModelHandle&amp; object);
+-  void remove(const ObjectModelHandle&amp; object);
+   void draw(SceneContext&amp; sc, const Layers&amp; layers);
+   void update(float delta);
+ 
++  void add(const ObjectModelHandle&amp; object);
++  void remove(const ObjectModelHandle&amp; object);
++
+   // void select_objects(const Rectf&amp; rect, bool replace_old_selection = true) const;
+ 
+   Glib::RefPtr&lt;Gtk::TreeStore&gt; get_objects_tree() { return objects_tree; }
+@@ -98,8 +98,8 @@
+   void load(const std::string&amp; filename);
+   void write(FileWriter&amp; writer) const;
+ 
+-  iterator begin() { return objects.begin(); }
+-  iterator end() { return objects.end(); }
++  //iterator begin() { return objects.begin(); }
++  //iterator end() { return objects.end(); }
+ 
+ private:
+   SectorModel(const SectorModel&amp;);
+
+Modified: trunk/windstille/src/editor/select_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/select_tool.cpp	2009-03-27 04:31:37 UTC (rev 2780)
++++ trunk/windstille/src/editor/select_tool.cpp	2009-03-27 15:50:05 UTC (rev 2781)
+@@ -87,12 +87,14 @@
+   if (!wst.get_draw_only_active_layer())
+     {
+       // ignore all objects not on the current active layer
+-      for(SectorModel::iterator i = wst.get_sector_model()-&gt;begin();
+-          i != wst.get_sector_model()-&gt;end(); ++i)
++#if 0
++      // FIXME: Code broke due to hard layer
++      for(SectorModel::iterator i = wst.get_sector_model()-&gt;begin(); i != wst.get_sector_model()-&gt;end(); ++i)
+         {
+           if (!wst.get_layer_mask().match((*i)-&gt;get_layers()))
+             ignore_objects.insert(*i);
+         }
++#endif
+     }
+ 
+   SnapData best_snap;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001777.html">[Windstille-commit] r2780 - trunk/windstille
+</A></li>
+	<LI>Next message: <A HREF="001779.html">[Windstille-commit] r2782 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1778">[ date ]</a>
+              <a href="thread.html#1778">[ thread ]</a>
+              <a href="subject.html#1778">[ subject ]</a>
+              <a href="author.html#1778">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

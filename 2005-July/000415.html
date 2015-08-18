@@ -1,0 +1,197 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r762 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r762%20-%20trunk/src&In-Reply-To=%3C200507252144.j6PLisTB017184%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000414.html">
+   <LINK REL="Next"  HREF="000416.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r762 - trunk/src</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r762%20-%20trunk/src&In-Reply-To=%3C200507252144.j6PLisTB017184%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r762 - trunk/src">grumbel at berlios.de
+       </A><BR>
+    <I>Mon Jul 25 23:44:54 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000414.html">[Windstille-commit] r761 - in trunk: data/levels src
+</A></li>
+        <LI>Next message: <A HREF="000416.html">[Windstille-commit] r763 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#415">[ date ]</a>
+              <a href="thread.html#415">[ thread ]</a>
+              <a href="subject.html#415">[ subject ]</a>
+              <a href="author.html#415">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-07-25 23:44:50 +0200 (Mon, 25 Jul 2005)
+New Revision: 762
+
+Modified:
+   trunk/src/text_area.cpp
+Log:
+- added some more vertical space in the dialog
+- better handling of spaces
+
+Modified: trunk/src/text_area.cpp
+===================================================================
+--- trunk/src/text_area.cpp	2005-07-25 19:43:44 UTC (rev 761)
++++ trunk/src/text_area.cpp	2005-07-25 21:44:50 UTC (rev 762)
+@@ -46,14 +46,17 @@
+ public:
+   TTFFont* font;
+   CL_Rectf rect;
+-  
++
++  int v_space;
+   std::vector&lt;TextAreaCommand&gt; commands;
+ };
+ 
+ TextArea::TextArea(const CL_Rect&amp; rect)
+   : impl(new TextAreaImpl)
+ {
+-  impl-&gt;rect = rect;
++  impl-&gt;rect    = rect;
++  // FIXME: freetype might provide info for vspacing, not sure
++  impl-&gt;v_space = 2;
+ }
+ 
+ TextArea::~TextArea()
+@@ -117,8 +120,6 @@
+ void
+ TextArea::draw()
+ {
+-  Color color(1.0f, 1.0f, 1.0f);
+-
+   CL_OpenGLState state(CL_Display::get_current_window()-&gt;get_gc());
+   state.set_active();
+   state.setup_2d();
+@@ -136,23 +137,23 @@
+   float mx = -0.375;
+   float my = -0.375; 
+   glBegin(GL_QUADS);
+-  glColor4f(color.r, color.g, color.b, color.a);
+ 
+   int x_pos = 0;
+   int y_pos = 0;
+ 
++  Color color = Color(1.0f, 1.0f, 1.0f);
+   for(std::vector&lt;TextAreaCommand&gt;::const_iterator i = impl-&gt;commands.begin(); i != impl-&gt;commands.end(); ++i)
+     {
+       switch (i-&gt;type)
+         {
+         case TextAreaCommand::START:
+           if (i-&gt;content == &quot;b&quot;)
+-            glColor3f(1.0f, 0, 0);
++            color = Color(1.0f, 0, 0);
+           break;
+ 
+         case TextAreaCommand::END:
+           if (i-&gt;content == &quot;b&quot;)
+-            glColor3f(1.0f, 1.0f, 1.0f);
++            color = Color(1.0f, 1.0f, 1.0f);
+           break;
+           
+         case TextAreaCommand::WORD:
+@@ -161,37 +162,46 @@
+           if (i-&gt;content == &quot;\n&quot;)
+             {
+               x_pos = 0;
+-              y_pos += impl-&gt;font-&gt;get_height();
++              y_pos += impl-&gt;font-&gt;get_height() + impl-&gt;v_space;
+             }
+           else if (x_pos + word_width &gt; impl-&gt;rect.get_width() &amp;&amp; word_width &lt;= impl-&gt;rect.get_width())
+             {
+               x_pos = 0;
+-              y_pos += impl-&gt;font-&gt;get_height();
++              y_pos += impl-&gt;font-&gt;get_height() + impl-&gt;v_space;
+               goto retry;
+             }
+           else
+             {
+-              for(std::string::const_iterator j = i-&gt;content.begin(); j != i-&gt;content.end(); ++j)
++              if (x_pos == 0 &amp;&amp; i-&gt;content == &quot; &quot;)
+                 {
+-                  const TTFCharacter&amp; character = impl-&gt;font-&gt;get_character(*j);
+-      
+-                  glTexCoord2f(character.uv.left, character.uv.top);
+-                  glVertex2f(x_pos + character.pos.left + mx,
+-                             y_pos + character.pos.top  + my);
++                  // ignore space at the beginning of a line
++                }
++              else
++                {
++                  for(std::string::const_iterator j = i-&gt;content.begin(); j != i-&gt;content.end(); ++j)
++                    {
++                      const TTFCharacter&amp; character = impl-&gt;font-&gt;get_character(*j);
++                      
++                      glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
++                      glTexCoord2f(character.uv.left, character.uv.top);
++                      glVertex2f(x_pos + character.pos.left + mx,
++                                 y_pos + character.pos.top  + my);
+ 
+-                  glTexCoord2f(character.uv.right, character.uv.top);
+-                  glVertex2f(x_pos + character.pos.right + mx, 
+-                             y_pos + character.pos.top   + my);
++                      glTexCoord2f(character.uv.right, character.uv.top);
++                      glVertex2f(x_pos + character.pos.right + mx, 
++                                 y_pos + character.pos.top   + my);
+ 
+-                  glTexCoord2f(character.uv.right, character.uv.bottom);
+-                  glVertex2f(x_pos + character.pos.right  + mx, 
+-                             y_pos + character.pos.bottom + my);
++                      glColor4f(color.r, color.g, color.b, color.a);
++                      glTexCoord2f(character.uv.right, character.uv.bottom);
++                      glVertex2f(x_pos + character.pos.right  + mx, 
++                                 y_pos + character.pos.bottom + my);
+ 
+-                  glTexCoord2f(character.uv.left, character.uv.bottom);
+-                  glVertex2f(x_pos + character.pos.left   + mx, 
+-                             y_pos + character.pos.bottom + my);
++                      glTexCoord2f(character.uv.left, character.uv.bottom);
++                      glVertex2f(x_pos + character.pos.left   + mx, 
++                                 y_pos + character.pos.bottom + my);
+ 
+-                  x_pos += character.advance;
++                      x_pos += character.advance;
++                    }
+                 }
+             }
+           break;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000414.html">[Windstille-commit] r761 - in trunk: data/levels src
+</A></li>
+	<LI>Next message: <A HREF="000416.html">[Windstille-commit] r763 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#415">[ date ]</a>
+              <a href="thread.html#415">[ thread ]</a>
+              <a href="subject.html#415">[ subject ]</a>
+              <a href="author.html#415">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

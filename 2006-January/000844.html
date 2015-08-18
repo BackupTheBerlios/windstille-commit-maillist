@@ -1,0 +1,1240 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1191 - in trunk/src: . input math scripting sprite3d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1191%20-%20in%20trunk/src%3A%20.%20input%20math%20scripting%20sprite3d&In-Reply-To=%3C200601061925.k06JPYWM010239%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000843.html">
+   <LINK REL="Next"  HREF="000845.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1191 - in trunk/src: . input math scripting sprite3d</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1191%20-%20in%20trunk/src%3A%20.%20input%20math%20scripting%20sprite3d&In-Reply-To=%3C200601061925.k06JPYWM010239%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1191 - in trunk/src: . input math scripting sprite3d">grumbel at berlios.de
+       </A><BR>
+    <I>Fri Jan  6 20:25:34 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000843.html">[Windstille-commit] r1190 - in trunk/data: blender models/characters/yagor
+</A></li>
+        <LI>Next message: <A HREF="000845.html">[Windstille-commit] r1192 - in trunk/src: . scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#844">[ date ]</a>
+              <a href="thread.html#844">[ thread ]</a>
+              <a href="subject.html#844">[ subject ]</a>
+              <a href="author.html#844">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-01-06 20:25:20 +0100 (Fri, 06 Jan 2006)
+New Revision: 1191
+
+Removed:
+   trunk/src/input/input_manager_player.cpp
+   trunk/src/input/input_manager_player.hpp
+   trunk/src/input/input_recorder.cpp
+   trunk/src/input/input_recorder.hpp
+Modified:
+   trunk/src/SConscript
+   trunk/src/camera.cpp
+   trunk/src/camera.hpp
+   trunk/src/input/controller_description.hpp
+   trunk/src/input/input_configurator.cpp
+   trunk/src/input/input_manager.cpp
+   trunk/src/input/input_manager.hpp
+   trunk/src/input/input_manager_sdl.cpp
+   trunk/src/input/input_manager_sdl.hpp
+   trunk/src/math/vector.hpp
+   trunk/src/script_manager.hpp
+   trunk/src/scripting/interface.cpp
+   trunk/src/scripting/interface.hpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/sprite3d/sprite3d.cpp
+   trunk/src/sprite3dview.cpp
+   trunk/src/sprite3dview.hpp
+   trunk/src/windstille_main.cpp
+Log:
+- some cleanup in input
+- added camera path support to scripting
+
+Modified: trunk/src/SConscript
+===================================================================
+--- trunk/src/SConscript	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/SConscript	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -126,9 +126,7 @@
+ 'input/input_configurator.cpp',
+ 'input/input_manager.cpp',
+ 'input/input_manager_impl.cpp',
+-'input/input_manager_player.cpp',
+ 'input/input_manager_sdl.cpp',
+-'input/input_recorder.cpp',
+ 'lisp/getters.cpp',
+ 'lisp/lexer.cpp',
+ 'lisp/lisp.cpp',
+
+Modified: trunk/src/camera.cpp
+===================================================================
+--- trunk/src/camera.cpp	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/camera.cpp	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -19,65 +19,129 @@
+ 
+ #include &quot;player.hpp&quot;
+ #include &quot;sector.hpp&quot;
++#include &quot;script_manager.hpp&quot;
+ #include &quot;display/display.hpp&quot;
+ #include &quot;camera.hpp&quot;
+ 
+ Camera* Camera::current_ = 0;
+ 
++/**
++ * Simple linear interpolation to move along a given vector path
++ * FIXME: Could add curves and different speed per vertex
++ */
++Vector interpolate_path(const std::vector&lt;Vector&gt;&amp; path, float length)
++{
++  float length_so_far = 0.0f;
++  for(std::vector&lt;Vector&gt;::size_type i = 0; i &lt; path.size()-1; ++i)
++    {
++      Vector segment = path[i+1] - path[i];
++      float segment_length = segment.length();
++
++      if (length_so_far + segment_length &gt; length)
++        {
++          float factor = (length - length_so_far) / segment_length;
++          return path[i] + segment * factor;
++        }
++      length_so_far += segment_length;
++    }
++  return path.back();
++}
++
+ Camera::Camera()
+-  : pos(0, 0),
+-    active(true)
++  : pos(0, 0)
+ {
++  path_pos = 0;
+   current_ = this;
++  mode     = CAMERA_FOLLOW_PLAYER;
+ }
+ 
+ void
+-Camera::update(float )
++Camera::update(float delta)
+ {
+-  if (!active)
+-    return;
+-    
+-  int hscroll_threshold = 100;
+-  int vscroll_threshold = 150;
++  switch (mode)
++    {
++    case CAMERA_INACTIVE:
++      // do nothing
++      break;
+ 
+-  Vector tpos = Player::current()-&gt;get_pos();
++    case CAMERA_FOLLOW_PLAYER:
++      {
++        int hscroll_threshold = 100;
++        int vscroll_threshold = 150;
+ 
+-  float dist = tpos.x - pos.x;
+-  if (dist &gt; hscroll_threshold)
+-    pos.x = tpos.x - hscroll_threshold;
+-  else if (dist &lt; - hscroll_threshold)
+-    pos.x = tpos.x + hscroll_threshold;
++        Vector tpos = Player::current()-&gt;get_pos();
+ 
+-  dist = tpos.y - pos.y;
+-  if (dist &gt; vscroll_threshold)
+-    pos.y = tpos.y - vscroll_threshold;
+-  else if (dist &lt; -vscroll_threshold)
+-    pos.y = tpos.y + vscroll_threshold;
++        float dist = tpos.x - pos.x;
++        if (dist &gt; hscroll_threshold)
++          pos.x = tpos.x - hscroll_threshold;
++        else if (dist &lt; - hscroll_threshold)
++          pos.x = tpos.x + hscroll_threshold;
+ 
+-  int start_x = Display::get_width()/2;
+-  int end_x   = Sector::current()-&gt;get_width() - Display::get_width()/2;
++        dist = tpos.y - pos.y;
++        if (dist &gt; vscroll_threshold)
++          pos.y = tpos.y - vscroll_threshold;
++        else if (dist &lt; -vscroll_threshold)
++          pos.y = tpos.y + vscroll_threshold;
+ 
+-  int start_y = Display::get_height()/2;
+-  int end_y   = Sector::current()-&gt;get_height() - Display::get_height()/2;
++        int start_x = Display::get_width()/2;
++        int end_x   = Sector::current()-&gt;get_width() - Display::get_width()/2;
+ 
+-  if (pos.x &lt; start_x)
+-    pos.x = start_x;
++        int start_y = Display::get_height()/2;
++        int end_y   = Sector::current()-&gt;get_height() - Display::get_height()/2;
+ 
+-  if (pos.y &lt; start_y)
+-    pos.y = start_y;
++        if (pos.x &lt; start_x)
++          pos.x = start_x;
+ 
+-  if (pos.x &gt; end_x)
+-    pos.x = end_x;
++        if (pos.y &lt; start_y)
++          pos.y = start_y;
+ 
+-  if (pos.y &gt; end_y)
+-    pos.y = end_y;
++        if (pos.x &gt; end_x)
++          pos.x = end_x;
++
++        if (pos.y &gt; end_y)
++          pos.y = end_y;
++      }
++      break;
++
++    case CAMERA_FOLLOW_PATH:
++      {
++        assert(!path.empty());
++        path_pos += delta * 50.0f;
++
++        Vector p = interpolate_path(path, path_pos);
++        if (p == path.back())
++          {
++            script_manager-&gt;fire_wakeup_event(ScriptManager::CAMERA_DONE);
++            set_mode(CAMERA_INACTIVE);
++          }
++        set_pos(p.x, p.y);
++      }
++      break;
++    }
+ }
+ 
+ void
+ Camera::set_pos(float x, float y)
+ {
+-  pos.x = x + Display::get_width()/2;
+-  pos.y = y + Display::get_height()/2;
++  // Casting here isn't really necessary, but should about some
++  // pixel-jitter when scrolling with subpixel values and pixel
++  // precise images
++  pos.x = static_cast&lt;int&gt;(x + Display::get_width()/2);
++  pos.y = static_cast&lt;int&gt;(y + Display::get_height()/2);
+ }
+ 
++void
++Camera::set_path(const std::vector&lt;Vector&gt;&amp; path_)
++{
++  path     = path_;
++  path_pos = 0;
++  mode     = CAMERA_FOLLOW_PATH;
++}
++
++void
++Camera::set_mode(Mode mode_)
++{
++  mode = mode_;
++}
++
+ /* EOF */
+
+Modified: trunk/src/camera.hpp
+===================================================================
+--- trunk/src/camera.hpp	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/camera.hpp	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -20,15 +20,23 @@
+ #ifndef HEADER_CAMERA_HXX
+ #define HEADER_CAMERA_HXX
+ 
+-/** This class manages the virtual camera movement, it follows the
+-    player, allows the player to watch around, might zoom out if
+-    interesting stuff happens out of the screen and such
++/** 
++ * This class manages the virtual camera movement, it follows the
++ * player, allows the player to watch around, might zoom out if
++ * interesting stuff happens out of the screen and such
+  */
+ class Camera
+ {
++public:
++  enum Mode { CAMERA_INACTIVE, CAMERA_FOLLOW_PLAYER, CAMERA_FOLLOW_PATH };
++
+ private:
++  Mode mode;
++
+   Vector pos;
+-  bool active;
++  
++  std::vector&lt;Vector&gt; path;
++  float path_pos;
+ 
+   static Camera* current_;
+ public:
+@@ -36,10 +44,17 @@
+ 
+   Camera();
+ 
+-  void update(float delta);
++  void   update(float delta);
+   Vector get_pos() const { return pos; }
+-  void set_pos(float x, float y);
+-  void set_active(bool arg_active) { active = arg_active; }
++  void   set_pos(float x, float y);
++
++  void   set_mode(Mode mode_);
++
++  /**
++   * Set Camera to follow the given path
++   */
++  void   set_path(const std::vector&lt;Vector&gt;&amp; path_);
++
+ private:
+   Camera (const Camera&amp;);
+   Camera&amp; operator= (const Camera&amp;);
+
+Modified: trunk/src/input/controller_description.hpp
+===================================================================
+--- trunk/src/input/controller_description.hpp	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/input/controller_description.hpp	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -51,10 +51,6 @@
+   void add_button(const std::string&amp; name, int id);
+   void add_axis  (const std::string&amp; name, int id); 
+ 
+-  int get_button_count() const;
+-  int get_axis_count() const;
+-  int get_keyboard_count() const;
+-
+   const InputEventDefinition&amp; get_definition(int id) const;
+   const InputEventDefinition&amp; get_definition(const std::string&amp; name) const;
+ };
+
+Modified: trunk/src/input/input_configurator.cpp
+===================================================================
+--- trunk/src/input/input_configurator.cpp	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/input/input_configurator.cpp	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -53,9 +53,12 @@
+   add_configure_item(ConfigureItem::CONFIGURE_BUTTON, SECONDARY_BUTTON);
+   add_configure_item(ConfigureItem::CONFIGURE_BUTTON, PRIMARY_BUTTON);
+ 
++  add_configure_item(ConfigureItem::CONFIGURE_AXIS, X_AXIS);
+   add_configure_item(ConfigureItem::CONFIGURE_AXIS, Y_AXIS);
+-  add_configure_item(ConfigureItem::CONFIGURE_AXIS, X_AXIS);
+ 
++  // add_configure_item(ConfigureItem::CONFIGURE_AXIS, X2_AXIS);
++  // add_configure_item(ConfigureItem::CONFIGURE_AXIS, Y2_AXIS);
++
+   print_item();
+ 
+   InputManagerSDL::current()-&gt;clear_bindings();
+
+Modified: trunk/src/input/input_manager.cpp
+===================================================================
+--- trunk/src/input/input_manager.cpp	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/input/input_manager.cpp	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -27,26 +27,19 @@
+ #include &quot;lisp/lisp.hpp&quot;
+ #include &quot;lisp/properties.hpp&quot;
+ #include &quot;input_manager_sdl.hpp&quot;
+-#include &quot;input_manager_player.hpp&quot;
+ #include &quot;input_manager_impl.hpp&quot;
+-#include &quot;input_recorder.hpp&quot;
+ #include &quot;input_manager.hpp&quot;
+ 
+ InputManagerImpl* InputManager::impl = 0;
+-InputRecorder* InputManager::recorder = 0;
+ 
+ void
+-InputManager::init_playback(const std::string&amp; filename)
+-{
+-  impl = new InputManagerPlayer(filename);
+-}
+-
+-void
+ InputManager::init(const std::string&amp; filename)
+ {
+   std::auto_ptr&lt;lisp::Lisp&gt; root (lisp::Parser::parse(filename));
+   lisp::Properties rootp(root.get());
+ 
++  std::cout &lt;&lt; &quot;InputManager: &quot; &lt;&lt; filename &lt;&lt; std::endl;
++
+   const lisp::Lisp* controller = 0;
+   if(rootp.get(&quot;windstille-controller&quot;, controller) == false) {
+     std::ostringstream msg;
+@@ -57,15 +50,6 @@
+   impl = new InputManagerSDL(controller);
+ }
+ 
+-void
+-InputManager::setup_recorder(const std::string&amp; filename)
+-{
+-  if (recorder)
+-    delete recorder;
+-
+-  recorder = new InputRecorder(filename);
+-}
+-
+ void 
+ InputManager::deinit()
+ {
+@@ -77,8 +61,6 @@
+ {
+   assert(impl);
+   impl-&gt;update(delta);
+-  if (recorder)
+-    recorder-&gt;record(get_controller());
+ }
+ 
+ const Controller&amp;
+
+Modified: trunk/src/input/input_manager.hpp
+===================================================================
+--- trunk/src/input/input_manager.hpp	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/input/input_manager.hpp	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -25,7 +25,6 @@
+ #include &quot;controller.hpp&quot;
+ #include &quot;input_event.hpp&quot;
+ 
+-class InputRecorder;
+ class InputManagerImpl;
+ 
+ /** */
+@@ -33,21 +32,17 @@
+ {
+ private:
+   static InputManagerImpl* impl;
+-  static InputRecorder* recorder;
++
+ public:
+   /** Init the InputManager with the data found in \a filename */
+   static void init(const std::string&amp; filename = std::string());
+ 
+-  /** Init the playback of a previously recorded file */
+-  static void init_playback(const std::string&amp; filenam);
+   static void deinit();
+ 
+-  /** Record all input events to \a filename */
+-  static void setup_recorder(const std::string&amp; filename);
+-
+   static void update(float delta);
+   static const Controller&amp; get_controller();
+   static void clear();
++
+ private:
+   InputManager(const InputManager&amp;);
+   InputManager&amp; operator=(const InputManager&amp;);
+
+Deleted: trunk/src/input/input_manager_player.cpp
+===================================================================
+--- trunk/src/input/input_manager_player.cpp	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/input/input_manager_player.cpp	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -1,99 +0,0 @@
+-//  $Id$
+-//
+-//  Pingus - A free Lemmings clone
+-//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+-//
+-//  This program is free software; you can redistribute it and/or
+-//  modify it under the terms of the GNU General Public License
+-//  as published by the Free Software Foundation; either version 2
+-//  of the License, or (at your option) any later version.
+-//
+-//  This program is distributed in the hope that it will be useful,
+-//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-//  GNU General Public License for more details.
+-//
+-//  You should have received a copy of the GNU General Public License
+-//  along with this program; if not, write to the Free Software
+-//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+-
+-#include &lt;iostream&gt;
+-#include &quot;input_manager_player.hpp&quot;
+-
+-InputManagerPlayer::InputManagerPlayer(const std::string&amp; filename)
+-{
+-  (void) filename;
+-#if 0
+-  // FIXME
+-  std::cout &lt;&lt; &quot;InputManagerPlayer::InputManagerPlayer(&quot; &lt;&lt; filename &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
+-  entry_counter = 0;
+-  lisp_object_t* port = lisp_read_from_file(filename.c_str());
+-  lisp_object_t* entry;
+-  while(scm_eof_object_p(entry = scm_read(port)) == lisp_object_t*_BOOL_F)
+-    {
+-      InputEventLst lst;
+-      int entry_num = lisp_scm2int(lisp_cadr(entry));
+-      entry = lisp_cddr(entry);
+-      
+-      while(lisp_cons_p(entry))
+-        {
+-          lst.push_back(scm2event(lisp_car(entry)));
+-          entry = lisp_cdr(entry);
+-        }
+-      entries.push(Entry(entry_num, lst));
+-    }
+-  scm_close_port(port);
+-#endif 
+-}
+-
+-InputEvent
+-InputManagerPlayer::scm2event(const lisp::Lisp* )
+-{
+-  InputEvent event;
+-#if 0
+-  lisp_object_t* sym  = lisp_car(entry);
+-  lisp_object_t* data = lisp_cdr(entry);
+-
+-  if (strcmp(&quot;axis&quot;, lisp_symbol(sym)) == 0)
+-    {
+-      event.type = AXIS_EVENT;
+-      event.axis.name = lisp_integer(lisp_list_nth(data, 0));
+-      event.axis.pos  = lisp_real   (lisp_list_nth(data, 1));
+-    } 
+-  else if (strcmp(&quot;button&quot;, lisp_symbol(sym)) == 0)
+-    {
+-      event.type = BUTTON_EVENT;
+-      event.button.name = lisp_integer(lisp_list_nth(data, 0));
+-      event.button.down = lisp_real   (lisp_list_nth(data, 1));
+-    } 
+-  else 
+-    {
+-      std::cout &lt;&lt; &quot;scm2event: Unknown sym: &quot; &lt;&lt; std::endl; //Guile::scm2string(sym) &lt;&lt; std::endl;
+-    }
+-#endif
+-  return event;
+-}
+-  
+-void
+-InputManagerPlayer::update(float delta)
+-{
+-  (void) delta;
+-  if (entries.front().entry_num == entry_counter)
+-    {
+-      controller.set_events(entries.front().events);
+-      
+-      for (InputEventLst::const_iterator i = controller.get_events().begin(); 
+-           i != controller.get_events().end(); ++i)
+-        {
+-          if (i-&gt;type == AXIS_EVENT)
+-            controller.set_axis_state(i-&gt;axis.name, i-&gt;axis.pos);
+-          else if  (i-&gt;type == BUTTON_EVENT)
+-            controller.set_button_state(i-&gt;button.name, i-&gt;button.down);
+-        }
+-      entries.pop();
+-    }
+-
+-  entry_counter += 1;
+-}
+-
+-/* EOF */
+
+Deleted: trunk/src/input/input_manager_player.hpp
+===================================================================
+--- trunk/src/input/input_manager_player.hpp	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/input/input_manager_player.hpp	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -1,56 +0,0 @@
+-//  $Id$
+-// 
+-//  Pingus - A free Lemmings clone
+-//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+-//
+-//  This program is free software; you can redistribute it and/or
+-//  modify it under the terms of the GNU General Public License
+-//  as published by the Free Software Foundation; either version 2
+-//  of the License, or (at your option) any later version.
+-//
+-//  This program is distributed in the hope that it will be useful,
+-//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-//  GNU General Public License for more details.
+-// 
+-//  You should have received a copy of the GNU General Public License
+-//  along with this program; if not, write to the Free Software
+-//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+-
+-#ifndef HEADER_INPUT_MANAGER_PLAYER_HXX
+-#define HEADER_INPUT_MANAGER_PLAYER_HXX
+-
+-#include &lt;queue&gt;
+-#include &lt;string&gt;
+-#include &quot;input_manager_impl.hpp&quot;
+-#include &quot;lisp/lisp.hpp&quot;
+-
+-/** Playback class for events recorded my the InputRecorder */
+-class InputManagerPlayer : public InputManagerImpl
+-{
+-private:
+-  struct Entry 
+-  {
+-    Entry(int num, const InputEventLst&amp; lst) 
+-      : entry_num(num), events(lst)
+-    {}
+-    int entry_num;
+-    InputEventLst events;
+-  };
+-
+-  int entry_counter;
+-  std::queue&lt;Entry&gt; entries;
+-public:
+-  InputManagerPlayer(const std::string&amp; filename);
+-  
+-  void update(float delta);
+-private:
+-  InputEvent scm2event(const lisp::Lisp* lisp);
+-
+-  InputManagerPlayer (const InputManagerPlayer&amp;);
+-  InputManagerPlayer&amp; operator= (const InputManagerPlayer&amp;);
+-};
+-
+-#endif
+-
+-/* EOF */
+
+Modified: trunk/src/input/input_manager_sdl.cpp
+===================================================================
+--- trunk/src/input/input_manager_sdl.cpp	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/input/input_manager_sdl.cpp	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -135,6 +135,7 @@
+         {
+           lisp::Properties dev_prop(*iter);
+           lisp::PropertyIterator&lt;const lisp::Lisp*&gt; dev_iter = dev_prop.get_iter();
++
+           while(dev_iter.next())
+             {
+               if (dev_iter.item() == &quot;joystick-axis&quot;)
+@@ -216,9 +217,13 @@
+       else if (event.keysym.sym == i-&gt;plus)
+         {
+           if (event.state)
+-            add_axis_event(i-&gt;event, 1.0f);
++            {
++              add_axis_event(i-&gt;event, 1.0f);
++            }
+           else if (!keystate[i-&gt;minus])
+-            add_axis_event(i-&gt;event, 0.0f);
++            {
++              add_axis_event(i-&gt;event, 0.0f);
++            }
+         }
+     }
+ }
+
+Modified: trunk/src/input/input_manager_sdl.hpp
+===================================================================
+--- trunk/src/input/input_manager_sdl.hpp	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/input/input_manager_sdl.hpp	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -92,9 +92,10 @@
+   void clear_bindings();
+ 
+   std::string keyid_to_string(SDLKey id);
+-  SDLKey string_to_keyid(const std::string&amp; str);
++  SDLKey      string_to_keyid(const std::string&amp; str);
+ 
+   void on_event(const SDL_Event&amp; event);
++
+ private:
+   void on_key_event(const SDL_KeyboardEvent&amp; key);
+   void on_joy_button_event(const SDL_JoyButtonEvent&amp; button);
+
+Deleted: trunk/src/input/input_recorder.cpp
+===================================================================
+--- trunk/src/input/input_recorder.cpp	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/input/input_recorder.cpp	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -1,65 +0,0 @@
+-//  $Id$
+-//
+-//  Pingus - A free Lemmings clone
+-//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+-//
+-//  This program is free software; you can redistribute it and/or
+-//  modify it under the terms of the GNU General Public License
+-//  as published by the Free Software Foundation; either version 2
+-//  of the License, or (at your option) any later version.
+-//
+-//  This program is distributed in the hope that it will be useful,
+-//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-//  GNU General Public License for more details.
+-//
+-//  You should have received a copy of the GNU General Public License
+-//  along with this program; if not, write to the Free Software
+-//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+-
+-#include &quot;input_recorder.hpp&quot;
+-
+-InputRecorder::InputRecorder(const std::string&amp; filename)
+-  : out(filename.c_str())
+-{
+-  entry_counter = 0;
+-}
+-
+-InputRecorder::~InputRecorder()
+-{
+-  out.close();
+-}
+-
+-void
+-InputRecorder::record(const Controller&amp; controller)
+-{
+-  InputEventLst lst = controller.get_events();
+-
+-  if (!lst.empty())
+-    {
+-      out &lt;&lt; &quot;(entry &quot; &lt;&lt; entry_counter &lt;&lt; std::endl;
+- 
+-      for (InputEventLst::iterator i = lst.begin(); i != lst.end(); ++i)
+-        {
+-          switch(i-&gt;type)
+-            {
+-            case AXIS_EVENT:
+-              out &lt;&lt; &quot;  (axis &quot; &lt;&lt; i-&gt;axis.name &lt;&lt; &quot; &quot; &lt;&lt; i-&gt;axis.get_pos() &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
+-              break;
+-          
+-            case BUTTON_EVENT:
+-              out &lt;&lt; &quot;  (button &quot; &lt;&lt; i-&gt;button.name &lt;&lt; &quot; &quot; &lt;&lt; i-&gt;button.down &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
+-              break;
+-              
+-            case KEYBOARD_EVENT:
+-              out &lt;&lt; &quot;  (keyboard &quot; &lt;&lt; i-&gt;keyboard.key_type &lt;&lt; &quot; &quot; &lt;&lt; i-&gt;keyboard.code &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
+-              break;
+-            }
+-        }
+-      out &lt;&lt; &quot;)\n&quot; &lt;&lt; std::endl;
+-    }
+-
+-  entry_counter += 1;
+-}
+-
+-/* EOF */
+
+Deleted: trunk/src/input/input_recorder.hpp
+===================================================================
+--- trunk/src/input/input_recorder.hpp	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/input/input_recorder.hpp	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -1,46 +0,0 @@
+-//  $Id$
+-// 
+-//  Pingus - A free Lemmings clone
+-//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+-//
+-//  This program is free software; you can redistribute it and/or
+-//  modify it under the terms of the GNU General Public License
+-//  as published by the Free Software Foundation; either version 2
+-//  of the License, or (at your option) any later version.
+-//
+-//  This program is distributed in the hope that it will be useful,
+-//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-//  GNU General Public License for more details.
+-// 
+-//  You should have received a copy of the GNU General Public License
+-//  along with this program; if not, write to the Free Software
+-//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+-
+-#ifndef HEADER_INPUT_RECORDER_HXX
+-#define HEADER_INPUT_RECORDER_HXX
+-
+-#include &lt;fstream&gt;
+-#include &quot;controller.hpp&quot;
+-
+-/** The InputRecorder hooks into the InputManager and records all
+-    input events to a file, thus allowing the later playback of the
+-    events. */
+-class InputRecorder
+-{
+-private:
+-  std::ofstream out;
+-  int entry_counter;
+-public:
+-  InputRecorder(const std::string&amp; filename);
+-  ~InputRecorder();
+-
+-  void record(const Controller&amp; controller);
+-private:
+-  InputRecorder (const InputRecorder&amp;);
+-  InputRecorder&amp; operator= (const InputRecorder&amp;);
+-};
+-
+-#endif
+-
+-/* EOF */
+
+Modified: trunk/src/math/vector.hpp
+===================================================================
+--- trunk/src/math/vector.hpp	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/math/vector.hpp	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -117,6 +117,8 @@
+     }
+ 
+   float magnitude() const;
++  float length() const { return magnitude(); }
++
+   Vector unit() const;
+   void normalize();
+ 
+
+Modified: trunk/src/script_manager.hpp
+===================================================================
+--- trunk/src/script_manager.hpp	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/script_manager.hpp	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -37,7 +37,8 @@
+     TIME                = (1 &lt;&lt; 0),
+     DIALOG_CLOSED       = (1 &lt;&lt; 1),
+     CONVERSATION_CLOSED = (1 &lt;&lt; 2),
+-    FADE_DONE           = (1 &lt;&lt; 3)
++    FADE_DONE           = (1 &lt;&lt; 3),
++    CAMERA_DONE         = (1 &lt;&lt; 4)
+   };                  
+ 
+   void set_wakeup_event(HSQUIRRELVM vm, WakeupEvent event, float timeout = -1);
+
+Modified: trunk/src/scripting/interface.cpp
+===================================================================
+--- trunk/src/scripting/interface.cpp	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/scripting/interface.cpp	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -84,11 +84,32 @@
+   Camera::current()-&gt;set_pos(x, y);
+ }
+ 
+-void set_camera_active(bool active)
++
++std::vector&lt;Vector&gt; camera_path;
++void camera_begin_path()
+ {
+-  Camera::current()-&gt;set_active(active);
++  camera_path.clear();
+ }
+ 
++void camera_add_point(float x, float y)
++{
++  camera_path.push_back(Vector(x, y));
++}
++
++void camera_end_path()
++{
++  Camera::current()-&gt;set_path(camera_path);
++}
++
++void camera_set_active(bool active)
++{
++  // FIXME: This function is only for backward compability
++  if (active)
++    Camera::current()-&gt;set_mode(Camera::CAMERA_FOLLOW_PLAYER);
++  else
++    Camera::current()-&gt;set_mode(Camera::CAMERA_INACTIVE);
++}
++
+ void set_controller_help_active(bool active)
+ {
+   ControllerHelpWindow::current()-&gt;set_active(active);
+@@ -104,6 +125,11 @@
+   script_manager-&gt;set_wakeup_event(vm, ScriptManager::DIALOG_CLOSED);
+ }
+ 
++void wait_for_camera(HSQUIRRELVM vm)
++{
++  script_manager-&gt;set_wakeup_event(vm, ScriptManager::CAMERA_DONE);
++}
++
+ void wait_for_fade(HSQUIRRELVM vm)
+ {
+   script_manager-&gt;set_wakeup_event(vm, ScriptManager::FADE_DONE);
+
+Modified: trunk/src/scripting/interface.hpp
+===================================================================
+--- trunk/src/scripting/interface.hpp	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/scripting/interface.hpp	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -46,8 +46,12 @@
+ void caption_clear();
+ void caption_end();
+ 
++void camera_set_active(bool active);
++void camera_begin_path();
++void camera_add_point(float x, float y);
++void camera_end_path();
++
+ void set_view(float x, float y);
+-void set_camera_active(bool active);
+ void set_controller_help_active(bool active);
+ 
+ // dialog alignment constants
+@@ -61,6 +65,7 @@
+ void dialog_show(int alignment, const std::string&amp; character, const std::string&amp; portrait, const std::string&amp; text);
+ void wait_for_dialog(HSQUIRRELVM vm) __suspend;
+ void wait_for_fade(HSQUIRRELVM vm) __suspend;
++void wait_for_camera(HSQUIRRELVM vm) __suspend;
+ 
+ void conversation_add(const std::string&amp; text);
+ void conversation_show();
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/scripting/wrapper.cpp	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -275,28 +275,58 @@
+   return 0;
+ }
+ 
+-static int set_view_wrapper(HSQUIRRELVM v)
++static int camera_set_active_wrapper(HSQUIRRELVM v)
+ {
++  SQBool arg0;
++  sq_getbool(v, 2, &amp;arg0);
++  
++  Scripting::camera_set_active(arg0);
++  
++  return 0;
++}
++
++static int camera_begin_path_wrapper(HSQUIRRELVM v)
++{
++  (void) v;
++  
++  Scripting::camera_begin_path();
++  
++  return 0;
++}
++
++static int camera_add_point_wrapper(HSQUIRRELVM v)
++{
+   float arg0;
+   sq_getfloat(v, 2, &amp;arg0);
+   float arg1;
+   sq_getfloat(v, 3, &amp;arg1);
+   
+-  Scripting::set_view(arg0, arg1);
++  Scripting::camera_add_point(arg0, arg1);
+   
+   return 0;
+ }
+ 
+-static int set_camera_active_wrapper(HSQUIRRELVM v)
++static int camera_end_path_wrapper(HSQUIRRELVM v)
+ {
+-  SQBool arg0;
+-  sq_getbool(v, 2, &amp;arg0);
++  (void) v;
+   
+-  Scripting::set_camera_active(arg0);
++  Scripting::camera_end_path();
+   
+   return 0;
+ }
+ 
++static int set_view_wrapper(HSQUIRRELVM v)
++{
++  float arg0;
++  sq_getfloat(v, 2, &amp;arg0);
++  float arg1;
++  sq_getfloat(v, 3, &amp;arg1);
++  
++  Scripting::set_view(arg0, arg1);
++  
++  return 0;
++}
++
+ static int set_controller_help_active_wrapper(HSQUIRRELVM v)
+ {
+   SQBool arg0;
+@@ -341,6 +371,15 @@
+   return sq_suspendvm(v);
+ }
+ 
++static int wait_for_camera_wrapper(HSQUIRRELVM v)
++{
++  HSQUIRRELVM arg0 = v;
++  
++  Scripting::wait_for_camera(arg0);
++  
++  return sq_suspendvm(v);
++}
++
+ static int conversation_add_wrapper(HSQUIRRELVM v)
+ {
+   const char* arg0;
+@@ -831,22 +870,46 @@
+     throw SquirrelError(v, msg.str());
+   }
+ 
+-  sq_pushstring(v, &quot;set_view&quot;, -1);
+-  sq_newclosure(v, &amp;set_view_wrapper, 0);
++  sq_pushstring(v, &quot;camera_set_active&quot;, -1);
++  sq_newclosure(v, &amp;camera_set_active_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+     std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't register function'set_view'&quot;;
++    msg &lt;&lt; &quot;Couldn't register function'camera_set_active'&quot;;
+     throw SquirrelError(v, msg.str());
+   }
+ 
+-  sq_pushstring(v, &quot;set_camera_active&quot;, -1);
+-  sq_newclosure(v, &amp;set_camera_active_wrapper, 0);
++  sq_pushstring(v, &quot;camera_begin_path&quot;, -1);
++  sq_newclosure(v, &amp;camera_begin_path_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+     std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't register function'set_camera_active'&quot;;
++    msg &lt;&lt; &quot;Couldn't register function'camera_begin_path'&quot;;
+     throw SquirrelError(v, msg.str());
+   }
+ 
++  sq_pushstring(v, &quot;camera_add_point&quot;, -1);
++  sq_newclosure(v, &amp;camera_add_point_wrapper, 0);
++  if(SQ_FAILED(sq_createslot(v, -3))) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'camera_add_point'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  sq_pushstring(v, &quot;camera_end_path&quot;, -1);
++  sq_newclosure(v, &amp;camera_end_path_wrapper, 0);
++  if(SQ_FAILED(sq_createslot(v, -3))) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'camera_end_path'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  sq_pushstring(v, &quot;set_view&quot;, -1);
++  sq_newclosure(v, &amp;set_view_wrapper, 0);
++  if(SQ_FAILED(sq_createslot(v, -3))) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'set_view'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
+   sq_pushstring(v, &quot;set_controller_help_active&quot;, -1);
+   sq_newclosure(v, &amp;set_controller_help_active_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+@@ -879,6 +942,14 @@
+     throw SquirrelError(v, msg.str());
+   }
+ 
++  sq_pushstring(v, &quot;wait_for_camera&quot;, -1);
++  sq_newclosure(v, &amp;wait_for_camera_wrapper, 0);
++  if(SQ_FAILED(sq_createslot(v, -3))) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'wait_for_camera'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
+   sq_pushstring(v, &quot;conversation_add&quot;, -1);
+   sq_newclosure(v, &amp;conversation_add_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+
+Modified: trunk/src/sprite3d/sprite3d.cpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d.cpp	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/sprite3d/sprite3d.cpp	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -19,6 +19,7 @@
+ 
+ #include &quot;sprite3d/sprite3d.hpp&quot;
+ 
++#include &lt;assert.h&gt;
+ #include &lt;vector&gt;
+ #include &lt;stdint.h&gt;
+ #include &lt;sstream&gt;
+@@ -36,22 +37,24 @@
+ using namespace sprite3d;
+ 
+ Sprite3D::Sprite3D()
+-  : data(0), actions_switched(false)
++  : data(0), 
++    actions_switched(false)
+ {
+ }
+ 
+ Sprite3D::Sprite3D(const std::string&amp; filename)
+-  : data(sprite3d_manager-&gt;create_data(filename)), actions_switched(false)
++  : data(sprite3d_manager-&gt;create_data(filename)),
++    actions_switched(false)
+ {
+-  frame1.action = &amp;data-&gt;actions[0];
+-  frame1.frame = 0;
+-  frame1.rot   = false;
+-  frame1.speed = 1.0;
+-  frame2       = frame1;
++  frame1.action         = &amp;data-&gt;actions[0];
++  frame1.frame          = 0;
++  frame1.rot            = false;
++  frame1.speed          = 1.0;
++  frame2                = frame1;
+   abort_at_frame.action = 0;
+-  next_frame.action  = 0;
+-  next_action.action = 0;
+-  blend_time = 0.0;
++  next_frame.action     = 0;
++  next_action.action    = 0;
++  blend_time            = 0.0;
+ 
+   blend_sfactor = GL_ONE;
+   blend_dfactor = GL_ZERO;
+@@ -64,6 +67,7 @@
+ void
+ Sprite3D::set_action(const std::string&amp; actionname, float speed)
+ {
++  assert(data);
+   next_frame.action = &amp; data-&gt;get_action(actionname);
+   // set to last action so that next set_next_frame call will result in frame 0
+   if(speed &gt;= 0) {
+@@ -92,7 +96,7 @@
+ {
+   std::vector&lt;std::string&gt; actions;
+   for(std::vector&lt;Action&gt;::const_iterator i = data-&gt;actions.begin(); 
+-      i != data-&gt;actions.begin(); 
++      i != data-&gt;actions.end(); 
+       ++i)
+     {
+       actions.push_back(i-&gt;name);
+
+Modified: trunk/src/sprite3dview.cpp
+===================================================================
+--- trunk/src/sprite3dview.cpp	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/sprite3dview.cpp	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -34,7 +34,7 @@
+ Sprite3DView::Sprite3DView()
+ {
+   current_action = 0;
+-  //sprite = Sprite3D(&quot;models/characters/bob/bob.wsprite&quot;);
++
+   sprite = Sprite3D(&quot;models/characters/jane/jane.wsprite&quot;);
+   actions = sprite.get_actions();
+ 
+@@ -50,6 +50,13 @@
+ }
+ 
+ void
++Sprite3DView::set_model(const std::string&amp; filename)
++{
++  sprite  = Sprite3D(filename);
++  actions = sprite.get_actions();
++}
++
++void
+ Sprite3DView::draw()
+ {
+   sc.reset_modelview();
+@@ -62,6 +69,7 @@
+   sc.translate(Display::get_width()/2, Display::get_height()/2 + 200);
+   sc.scale(3.0f, 3.0f);
+   sc.rotate(rotx, 0.0f, 1.0f, 0.0f);
++  sc.rotate(roty, 1.0f, 0.0f, 0.0f);
+   sprite.draw(sc.color(), Vector(0,0), 0); 
+   sc.pop_modelview();
+ 
+@@ -118,15 +126,15 @@
+         current_action -= 1;
+     }
+ 
+-  if (last_action != current_action)
++  if (last_action != current_action &amp;&amp; !actions.empty())
+     {
+       sprite.set_action(actions[current_action]);
+     }
+ 
+-  roty += controller.get_axis_state(X2_AXIS) * 30.0f;
+-  rotx += controller.get_axis_state(Y2_AXIS) * 30.0f;
++  rotx += controller.get_axis_state(X2_AXIS) * 50.0f * delta;
++  roty += controller.get_axis_state(Y2_AXIS) * 50.0f * delta;
+ 
+-  std::cout &lt;&lt; controller.get_axis_state(Y2_AXIS) &lt;&lt; std::endl;
++  //std::cout &lt;&lt; controller.get_axis_state(Y2_AXIS) &lt;&lt; std::endl;
+ }
+ 
+ /* EOF */
+
+Modified: trunk/src/sprite3dview.hpp
+===================================================================
+--- trunk/src/sprite3dview.hpp	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/sprite3dview.hpp	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -51,6 +51,8 @@
+   void draw();
+   void update(float delta, const Controller&amp; controller);
+ 
++  void set_model(const std::string&amp; filename);
++
+ private:
+   Sprite3DView (const Sprite3DView&amp;);
+   Sprite3DView&amp; operator= (const Sprite3DView&amp;);
+
+Modified: trunk/src/windstille_main.cpp
+===================================================================
+--- trunk/src/windstille_main.cpp	2006-01-06 16:48:24 UTC (rev 1190)
++++ trunk/src/windstille_main.cpp	2006-01-06 19:25:20 UTC (rev 1191)
+@@ -92,7 +92,6 @@
+       controller_description.add_axis(&quot;y2-axis&quot;, Y2_AXIS);
+     }
+ 
+-    if (!config.get&lt;std::string&gt;(&quot;playback-file&quot;).is_set())
+       {
+         if (config.get&lt;std::string&gt;(&quot;controller-file&quot;).is_set())
+           InputManager::init(config.get&lt;std::string&gt;(&quot;controller-file&quot;).get());
+@@ -101,21 +100,24 @@
+         else
+           InputManager::init(&quot;controller/keyboard.scm&quot;);
+       }
+-    else
+-      {
+-        InputManager::init_playback(config.get_string(&quot;playback-file&quot;));
+-      }
+ 
+-    if (config.is_set(&quot;recorder-file&quot;))
+-      InputManager::setup_recorder(config.get_string(&quot;recorder-file&quot;));
+-    
+     if (debug) std::cout &lt;&lt; &quot;Initialising TileFactory&quot; &lt;&lt; std::endl;
+     TileFactory::init();
+ 
+     if (sprite3dview)
+       {
++        Sprite3DView* sprite3dview = new Sprite3DView();
++
++        if (config.get&lt;std::string&gt;(&quot;levelfile&quot;).is_set())
++          {
++            // FIXME: Looks a little hacky, doesn't it?
++            std::string leveldir = dirname(config.get_string(&quot;levelfile&quot;));
++            PHYSFS_addToSearchPath(leveldir.c_str(), true);
++            sprite3dview-&gt;set_model(basename(config.get_string(&quot;levelfile&quot;)));
++          }
++            
+         // Launching Sprite3DView instead of game
+-        screen_manager.set_screen(new Sprite3DView());
++        screen_manager.set_screen(sprite3dview);
+       }
+     else
+       {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000843.html">[Windstille-commit] r1190 - in trunk/data: blender models/characters/yagor
+</A></li>
+	<LI>Next message: <A HREF="000845.html">[Windstille-commit] r1192 - in trunk/src: . scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#844">[ date ]</a>
+              <a href="thread.html#844">[ thread ]</a>
+              <a href="subject.html#844">[ subject ]</a>
+              <a href="author.html#844">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

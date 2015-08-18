@@ -1,0 +1,602 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1209 - in trunk: data data/shader src src/display src/font src/sprite3d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1209%20-%20in%20trunk%3A%20data%20data/shader%20src%20src/display%20src/font%20src/sprite3d&In-Reply-To=%3C200601101248.k0ACmux3017080%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000861.html">
+   <LINK REL="Next"  HREF="000863.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1209 - in trunk: data data/shader src src/display src/font src/sprite3d</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1209%20-%20in%20trunk%3A%20data%20data/shader%20src%20src/display%20src/font%20src/sprite3d&In-Reply-To=%3C200601101248.k0ACmux3017080%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1209 - in trunk: data data/shader src src/display src/font src/sprite3d">grumbel at berlios.de
+       </A><BR>
+    <I>Tue Jan 10 13:48:56 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000861.html">[Windstille-commit] r1208 - in trunk/src: . display font
+</A></li>
+        <LI>Next message: <A HREF="000863.html">[Windstille-commit] r1210 - in trunk: data/shader src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#862">[ date ]</a>
+              <a href="thread.html#862">[ thread ]</a>
+              <a href="subject.html#862">[ subject ]</a>
+              <a href="author.html#862">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-01-10 13:48:52 +0100 (Tue, 10 Jan 2006)
+New Revision: 1209
+
+Added:
+   trunk/data/shader/
+   trunk/data/shader/blacknwhite.frag
+   trunk/data/shader/wooble.frag
+Modified:
+   trunk/src/display/opengl_state.cpp
+   trunk/src/display/opengl_state.hpp
+   trunk/src/display/scene_context.cpp
+   trunk/src/display/shader_program.cpp
+   trunk/src/display/shader_program.hpp
+   trunk/src/display/surface.cpp
+   trunk/src/display/texture.cpp
+   trunk/src/display/vertex_array_drawing_request.cpp
+   trunk/src/font/ttf_font.cpp
+   trunk/src/sprite3d/sprite3d.cpp
+   trunk/src/text_area.cpp
+Log:
+- some cleanup in the shader support
+
+Added: trunk/data/shader/blacknwhite.frag
+===================================================================
+--- trunk/data/shader/blacknwhite.frag	2006-01-09 15:00:38 UTC (rev 1208)
++++ trunk/data/shader/blacknwhite.frag	2006-01-10 12:48:52 UTC (rev 1209)
+@@ -0,0 +1,18 @@
++uniform sampler2D texture;
++
++void main()
++{
++  vec4 color = texture2D(texture, gl_TexCoord[0].xy);
++  float f = (color.r + color.b + color.g)/3.0;
++
++  float alpha = (float(gl_FragCoord.x)/800.0);
++
++  if (f &gt; 0.5) 
++    gl_FragColor = mix(vec4(1,1,1,1), color, alpha);
++  else if (f &gt; 0.3)
++    gl_FragColor = mix(vec4(0.5,0.5,0.5,1.0), color, alpha);
++  else
++    gl_FragColor = mix(vec4(0,0,0,1), color, alpha);
++}
++
++/* EOF */
+
+Added: trunk/data/shader/wooble.frag
+===================================================================
+--- trunk/data/shader/wooble.frag	2006-01-09 15:00:38 UTC (rev 1208)
++++ trunk/data/shader/wooble.frag	2006-01-10 12:48:52 UTC (rev 1209)
+@@ -0,0 +1,21 @@
++uniform sampler2D texture;
++uniform sampler2D noise;
++uniform float time;
++
++void main()
++{
++  vec4 noise1 = texture2D(noise, gl_TexCoord[0].xy*2.0 + vec2(0, sin(time)));
++  vec4 noise2 = texture2D(noise, gl_TexCoord[0].xy*2.0 + vec2(-time*1.1));
++  vec2 offset = (noise1.rg + noise2.rg - 1.0) * 0.1;
++
++  float dx = gl_FragCoord.x/800.0 - 0.5;
++  float dy = gl_FragCoord.y/600.0 - 0.5;
++
++  float d = sqrt(dx*dx + dy*dy)/3.0;
++  offset *= d;
++  vec4 color = texture2D(texture, gl_TexCoord[0].xy + offset);
++
++  gl_FragColor = mix(color, vec4(1.0, 1.0, 1.0, 1.0), length(offset*10));
++}
++
++/* EOF */
+
+Modified: trunk/src/display/opengl_state.cpp
+===================================================================
+--- trunk/src/display/opengl_state.cpp	2006-01-09 15:00:38 UTC (rev 1208)
++++ trunk/src/display/opengl_state.cpp	2006-01-10 12:48:52 UTC (rev 1209)
+@@ -28,7 +28,6 @@
+ #include &lt;assert.h&gt;
+ #include &lt;map&gt;
+ #include &lt;iostream&gt;
+-#include &quot;framebuffer.hpp&quot;
+ #include &quot;texture.hpp&quot;
+ #include &quot;color.hpp&quot;
+ #include &quot;globals.hpp&quot;
+@@ -45,7 +44,6 @@
+   bool was_activated;
+ 
+   Texture     texture[MAX_TEXTURE_UNITS];
+-  Framebuffer framebuffer;
+ 
+   Color color;
+ 
+@@ -68,8 +66,9 @@
+ void
+ OpenGLState::init()
+ {
++  assert(global_ == 0);
++
+   // Init the default settings
+-  glDisable(GL_TEXTURE_2D);
+   glDisable(GL_DEPTH_TEST);
+   glDisable(GL_BLEND);
+ 
+@@ -98,7 +97,6 @@
+ OpenGLState::OpenGLState()
+   : impl(new OpenGLStateImpl())
+ {
+-  //impl-&gt;state[GL_TEXTURE_2D]  = false;
+   impl-&gt;state[GL_DEPTH_TEST]  = false;
+   impl-&gt;state[GL_BLEND]       = false;
+   impl-&gt;state[GL_LINE_SMOOTH] = false;
+@@ -165,16 +163,18 @@
+ void
+ OpenGLState::enable(GLenum cap)
+ {
+-  if (cap == GL_TEXTURE_2D)// FIXME: HACK
+-    return;
++  // Texturing is enabled automatically when a texture is bind
++  assert(cap != GL_TEXTURE_2D);
++
+   set_state(cap, true);
+ }
+ 
+ void
+ OpenGLState::disable(GLenum cap)
+ {  
+-  if (cap == GL_TEXTURE_2D)// FIXME: HACK
+-    return;
++  // Texturing is enabled automatically when a texture is bind
++  assert(cap != GL_TEXTURE_2D);
++
+   set_state(cap, false);
+ }
+ 
+@@ -294,23 +294,6 @@
+         }
+     }
+ 
+-  if (0)
+-    {
+-      if (impl-&gt;framebuffer != global-&gt;impl-&gt;framebuffer)
+-        {
+-          if (impl-&gt;framebuffer)
+-            {
+-              glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;framebuffer.get_handle());
+-              global-&gt;impl-&gt;framebuffer = impl-&gt;framebuffer;
+-            }
+-          else
+-            {
+-              glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+-              global-&gt;impl-&gt;framebuffer = impl-&gt;framebuffer;
+-            }
+-        }
+-    }
+-
+   if (debug)
+     verify();
+ }
+@@ -362,10 +345,4 @@
+   assert_gl(&quot;OpenGLState::verify&quot;);
+ }
+ 
+-void
+-OpenGLState::bind_framebuffer(const Framebuffer&amp; framebuffer)
+-{
+-  impl-&gt;framebuffer = framebuffer;
+-}
+-
+ /* EOF */
+
+Modified: trunk/src/display/opengl_state.hpp
+===================================================================
+--- trunk/src/display/opengl_state.hpp	2006-01-09 15:00:38 UTC (rev 1208)
++++ trunk/src/display/opengl_state.hpp	2006-01-10 12:48:52 UTC (rev 1209)
+@@ -36,32 +36,60 @@
+ class Color;
+ class OpenGLStateImpl;
+ 
+-/** This class manages the state of a OpenGL context, meaning it tries
+-    to reduce state changes and in addition to that it gives a well
+-    default defined state to begin with. */
++/**
++ * This class manages the state of a OpenGL context, meaning it tries
++ * to reduce state changes and in addition to that it gives a well
++ * default defined state to begin with. It is *not* meant to replace
++ * the complete state managment of OpenGL, but limited to those states
++ * that are important to a single drawing operation, such as color,
++ * line width, blend mode, texture and vertex arrays. It does not
++ * handle things like framebuffer objects, since those are mainly
++ * usefull for more then a single operation.
++ *
++ * You use OpenGLState by first creating a object, then setting all
++ * those states you want and finally calling activate(), so activate
++ * the set state. Multiple calls to activate() are allowed.
++ */
+ class OpenGLState
+ {
+ private:
++  // pointer to the global OpenGLState, ie. that that is currently
++  // used by the hardware
+   static OpenGLState* global_;
++  static OpenGLState* global();
++
+ public:
++  /**
++   * Init the global OpenGLState, must be called exactly once 
++   */
+   static void init();
+-  static OpenGLState* global();
+ 
++  /** 
++   * Creates a new OpenGLState with default settings, which are:
++   *
++   * - no texture is set
++   * - vertex array use is disabled
++   * - color is white, fully opaque
++   * - blending is enabled with (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
++   * - depth test is disabled
++   */
+   OpenGLState();
+   ~OpenGLState();
+ 
++  /** 
++   * Binds the given \a texture to the given texture \a unit and
++   * enables texturing via glEnable(GL_TEXTURE2D) for the unit.
++   */
+   void bind_texture(const Texture&amp; texture, int unit = 0);
++
+   void set_blend_func(GLenum sfactor, GLenum dfactor);
+ 
+-  void bind_framebuffer(const Framebuffer&amp; framebuffer);
+-
+   void enable(GLenum cap);
+   void disable(GLenum cap);
+ 
+   void set_state(GLenum array, bool value);
+   bool get_state(GLenum array) const;
+   
+-
+   void enable_client_state(GLenum array);
+   void disable_client_state(GLenum array);
+ 
+@@ -70,11 +98,15 @@
+ 
+   void color(const Color&amp; color);
+ 
+-  /** Activates the given state, you *must* call this before you issue
+-      gl commands that depend on the given state */
++  /**
++   * Activates the given state, you *must* call this before you issue
++   * gl commands that depend on the given state 
++   */
+   void activate();
+   
+-  /** Verify that all states got set as planed, for debugging purpose only */
++  /**
++   * Verify that all states got set as planed, for debugging purpose only
++   */
+   void verify();
+ private:
+   std::auto_ptr&lt;OpenGLStateImpl&gt; impl;
+
+Modified: trunk/src/display/scene_context.cpp
+===================================================================
+--- trunk/src/display/scene_context.cpp	2006-01-09 15:00:38 UTC (rev 1208)
++++ trunk/src/display/scene_context.cpp	2006-01-10 12:48:52 UTC (rev 1209)
+@@ -77,13 +77,19 @@
+                Rectf(0, 0, (800/BLURMAP_DIV)/1024.0f, (600/BLURMAP_DIV)/1024.0f),
+                800/BLURMAP_DIV, 600/BLURMAP_DIV)
+   {
+-    shader_program.attach(ShaderObject(GL_FRAGMENT_SHADER_ARB, &quot;/tmp/shader.frag&quot;));
++    shader_program.attach(ShaderObject(GL_FRAGMENT_SHADER_ARB, &quot;data/shader/blacknwhite.frag&quot;));
+     shader_program.link();
+     blur_surface.get_texture().set_wrap(GL_REPEAT);
+     blur_surface.get_texture().set_filter(GL_LINEAR);
+     noise = Texture(&quot;images/noise3.png&quot;);
+     noise.set_wrap(GL_REPEAT);
+     noise.set_filter(GL_LINEAR);
++
++    glUseProgramObjectARB(shader_program.get_handle());
++    shader_program.set_uniform1i(&quot;texture&quot;, 0);
++    shader_program.set_uniform1i(&quot;noise&quot;,   1);
++    shader_program.set_uniform1f(&quot;time&quot;, fmod(SDL_GetTicks()/10000.0f, 1.0f));
++    glUseProgramObjectARB(0);
+   }
+ };
+ 
+@@ -237,7 +243,6 @@
+ 
+       Rectf uv = impl-&gt;lightmap.get_uv();
+ 
+-      state.enable(GL_TEXTURE_2D);
+       state.bind_texture(impl-&gt;lightmap.get_texture());
+ 
+       state.enable(GL_BLEND);
+@@ -284,7 +289,6 @@
+ 
+       Rectf uv = impl-&gt;blur_surface.get_uv();
+ 
+-      state.enable(GL_TEXTURE_2D);
+       state.bind_texture(impl-&gt;blur_surface.get_texture(), 0);
+       state.bind_texture(impl-&gt;noise, 1);
+ 
+@@ -294,8 +298,6 @@
+       state.activate();
+ 
+       glUseProgramObjectARB(impl-&gt;shader_program.get_handle());
+-      glUniform1iARB(impl-&gt;shader_program.get_uniform_location(&quot;texture&quot;), 0);
+-      glUniform1iARB(impl-&gt;shader_program.get_uniform_location(&quot;noise&quot;), 1);
+ 
+       glBegin(GL_QUADS);
+ 
+
+Modified: trunk/src/display/shader_program.cpp
+===================================================================
+--- trunk/src/display/shader_program.cpp	2006-01-09 15:00:38 UTC (rev 1208)
++++ trunk/src/display/shader_program.cpp	2006-01-10 12:48:52 UTC (rev 1209)
+@@ -24,7 +24,9 @@
+ */
+ 
+ #include &quot;shader_program.hpp&quot;
++#include &lt;iostream&gt;
+ #include &quot;shader_object.hpp&quot;
++#include &quot;util.hpp&quot;
+ 
+ class ShaderProgramImpl
+ {
+@@ -71,7 +73,7 @@
+   if (loc == -1)
+     printf(&quot;No such uniform named \&quot;%s\&quot;\n&quot;, name);
+ 
+-  //printOpenGLError();  // Check for OpenGL errors
++  assert_gl(&quot;ShaderProgram::get_uniform_location()&quot;);
+ 
+   return loc;
+ }
+@@ -82,4 +84,84 @@
+   return impl-&gt;handle;
+ }
+ 
++void
++ShaderProgram::set_uniform1f(const char* name, GLfloat v0)
++{
++  GLint location = glGetUniformLocationARB(impl-&gt;handle, name);
++  if (location == -1)
++    std::cout &lt;&lt; &quot;No such uniform named \&quot;&quot; &lt;&lt; name &lt;&lt; &quot;\&quot;&quot; &lt;&lt; std::endl;
++  else
++    glUniform1fARB(location, v0);
++}
++
++void
++ShaderProgram::set_uniform2f(const char* name, GLfloat v0, GLfloat v1)
++{
++  GLint location = glGetUniformLocationARB(impl-&gt;handle, name);
++  if (location == -1)
++    std::cout &lt;&lt; &quot;No such uniform named \&quot;&quot; &lt;&lt; name &lt;&lt; &quot;\&quot;&quot; &lt;&lt; std::endl;
++  else
++    glUniform2fARB(location, v0, v1);
++}
++
++void
++ShaderProgram::set_uniform3f(const char* name, GLfloat v0, GLfloat v1, GLfloat v2)
++{
++  GLint location = glGetUniformLocationARB(impl-&gt;handle, name);
++  if (location == -1)
++    std::cout &lt;&lt; &quot;No such uniform named \&quot;&quot; &lt;&lt; name &lt;&lt; &quot;\&quot;&quot; &lt;&lt; std::endl;
++  else
++    glUniform3fARB(location, v0, v1, v2);
++}
++
++void
++ShaderProgram::set_uniform4f(const char* name, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3)
++{
++  GLint location = glGetUniformLocationARB(impl-&gt;handle, name);
++  if (location == -1)
++    std::cout &lt;&lt; &quot;No such uniform named \&quot;&quot; &lt;&lt; name &lt;&lt; &quot;\&quot;&quot; &lt;&lt; std::endl;
++  else
++    glUniform4fARB(location, v0, v1, v2, v3);
++}
++
++void
++ShaderProgram::set_uniform1i(const char* name, GLint v0)
++{
++  GLint location = glGetUniformLocationARB(impl-&gt;handle, name);
++  if (location == -1)
++    std::cout &lt;&lt; &quot;No such uniform named \&quot;&quot; &lt;&lt; name &lt;&lt; &quot;\&quot;&quot; &lt;&lt; std::endl;
++  else
++    glUniform1iARB(location, v0);
++}
++
++void
++ShaderProgram::set_uniform2i(const char* name, GLint v0, GLint v1)
++{
++  GLint location = glGetUniformLocationARB(impl-&gt;handle, name);
++  if (location == -1)
++    std::cout &lt;&lt; &quot;No such uniform named \&quot;&quot; &lt;&lt; name &lt;&lt; &quot;\&quot;&quot; &lt;&lt; std::endl;
++  else
++    glUniform2iARB(location, v0, v1);
++}
++
++void
++ShaderProgram::set_uniform3i(const char* name, GLint v0, GLint v1, GLint v2)
++{
++  GLint location = glGetUniformLocationARB(impl-&gt;handle, name);
++  if (location == -1)
++    std::cout &lt;&lt; &quot;No such uniform named \&quot;&quot; &lt;&lt; name &lt;&lt; &quot;\&quot;&quot; &lt;&lt; std::endl;
++  else
++    glUniform3iARB(location, v0, v1, v2);
++}
++
++void
++ShaderProgram::set_uniform4i(const char* name, GLint v0, GLint v1, GLint v2, GLint v3)
++{
++  GLint location = glGetUniformLocationARB(impl-&gt;handle, name);
++  if (location == -1)
++    std::cout &lt;&lt; &quot;No such uniform named \&quot;&quot; &lt;&lt; name &lt;&lt; &quot;\&quot;&quot; &lt;&lt; std::endl;
++  else
++    glUniform4iARB(location, v0, v1, v2, v3);
++}
++
+ /* EOF */
+
+Modified: trunk/src/display/shader_program.hpp
+===================================================================
+--- trunk/src/display/shader_program.hpp	2006-01-09 15:00:38 UTC (rev 1208)
++++ trunk/src/display/shader_program.hpp	2006-01-10 12:48:52 UTC (rev 1209)
+@@ -47,6 +47,19 @@
+ 
+   GLint get_uniform_location(const char* name);
+   GLhandleARB get_handle() const;
++
++  // FIXME: All these only work when you call
++  // glUseProgramObjectARB(shader_program.get_handle()); before them
++  void set_uniform1f(const char* name, GLfloat v0);
++  void set_uniform2f(const char* name, GLfloat v0, GLfloat v1);
++  void set_uniform3f(const char* name, GLfloat v0, GLfloat v1, GLfloat v2);
++  void set_uniform4f(const char* name, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3);
++
++  void set_uniform1i(const char* name, GLint v0);
++  void set_uniform2i(const char* name, GLint v0, GLint v1);
++  void set_uniform3i(const char* name, GLint v0, GLint v1, GLint v2);
++  void set_uniform4i(const char* name, GLint v0, GLint v1, GLint v2, GLint v3);
++
+ private:
+   SharedPtr&lt;ShaderProgramImpl&gt; impl;
+ };
+
+Modified: trunk/src/display/surface.cpp
+===================================================================
+--- trunk/src/display/surface.cpp	2006-01-09 15:00:38 UTC (rev 1208)
++++ trunk/src/display/surface.cpp	2006-01-10 12:48:52 UTC (rev 1209)
+@@ -145,7 +145,6 @@
+   OpenGLState state;
+   state.enable(GL_BLEND);
+   state.set_blend_func(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+-  state.enable(GL_TEXTURE_2D);
+   state.bind_texture(impl-&gt;texture);
+   state.activate();
+ 
+@@ -170,7 +169,6 @@
+ Surface::draw(const SurfaceDrawingParameters&amp; params) const
+ {
+   OpenGLState state;
+-  state.enable(GL_TEXTURE_2D);
+   state.enable(GL_BLEND);
+   state.set_blend_func(params.blendfunc_src, params.blendfunc_dst);
+   state.bind_texture(impl-&gt;texture);
+
+Modified: trunk/src/display/texture.cpp
+===================================================================
+--- trunk/src/display/texture.cpp	2006-01-09 15:00:38 UTC (rev 1208)
++++ trunk/src/display/texture.cpp	2006-01-10 12:48:52 UTC (rev 1209)
+@@ -123,7 +123,6 @@
+         }
+ 
+       OpenGLState state;
+-      state.enable(GL_TEXTURE_2D);
+       state.bind_texture(*this);
+       state.activate();
+ 
+
+Modified: trunk/src/display/vertex_array_drawing_request.cpp
+===================================================================
+--- trunk/src/display/vertex_array_drawing_request.cpp	2006-01-09 15:00:38 UTC (rev 1208)
++++ trunk/src/display/vertex_array_drawing_request.cpp	2006-01-10 12:48:52 UTC (rev 1209)
+@@ -67,13 +67,8 @@
+   
+   if (texture)
+     {
+-      state.enable(GL_TEXTURE_2D);
+       state.bind_texture(texture);
+     }
+-  else
+-    {
+-      state.disable(GL_TEXTURE_2D);
+-    }
+ 
+   if (!colors.empty())
+     {
+
+Modified: trunk/src/font/ttf_font.cpp
+===================================================================
+--- trunk/src/font/ttf_font.cpp	2006-01-09 15:00:38 UTC (rev 1208)
++++ trunk/src/font/ttf_font.cpp	2006-01-10 12:48:52 UTC (rev 1209)
+@@ -192,7 +192,6 @@
+ 
+   state.enable(GL_BLEND);
+   state.set_blend_func(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+-  state.enable(GL_TEXTURE_2D);
+   state.bind_texture(impl-&gt;texture);
+   state.color(color);
+   state.activate();
+
+Modified: trunk/src/sprite3d/sprite3d.cpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d.cpp	2006-01-09 15:00:38 UTC (rev 1208)
++++ trunk/src/sprite3d/sprite3d.cpp	2006-01-10 12:48:52 UTC (rev 1209)
+@@ -333,7 +333,6 @@
+   } 
+ 
+   OpenGLState state;
+-  state.enable(GL_TEXTURE_2D);
+ 
+   if (blend_sfactor != GL_ONE || blend_dfactor != GL_ZERO)
+     {
+
+Modified: trunk/src/text_area.cpp
+===================================================================
+--- trunk/src/text_area.cpp	2006-01-09 15:00:38 UTC (rev 1208)
++++ trunk/src/text_area.cpp	2006-01-10 12:48:52 UTC (rev 1209)
+@@ -154,7 +154,6 @@
+ 
+   OpenGLState state;
+   
+-  state.enable(GL_TEXTURE_2D);
+   state.bind_texture(impl-&gt;font-&gt;get_texture());
+ 
+   state.enable(GL_BLEND);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000861.html">[Windstille-commit] r1208 - in trunk/src: . display font
+</A></li>
+	<LI>Next message: <A HREF="000863.html">[Windstille-commit] r1210 - in trunk: data/shader src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#862">[ date ]</a>
+              <a href="thread.html#862">[ thread ]</a>
+              <a href="subject.html#862">[ subject ]</a>
+              <a href="author.html#862">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

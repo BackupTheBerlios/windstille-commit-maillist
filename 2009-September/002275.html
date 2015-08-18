@@ -1,0 +1,1083 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3278 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3278%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909292227.n8TMRC38025921%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002274.html">
+   <LINK REL="Next"  HREF="002276.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3278 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3278%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909292227.n8TMRC38025921%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3278 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Sep 30 00:27:12 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002274.html">[Windstille-commit] r3277 -	trunk/windstille/data/sectors/trainstation
+</A></li>
+        <LI>Next message: <A HREF="002276.html">[Windstille-commit] r3279 - trunk/windstille
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2275">[ date ]</a>
+              <a href="thread.html#2275">[ thread ]</a>
+              <a href="subject.html#2275">[ subject ]</a>
+              <a href="author.html#2275">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-30 00:27:10 +0200 (Wed, 30 Sep 2009)
+New Revision: 3278
+
+Modified:
+   trunk/windstille/src/editor/animation_widget.cpp
+   trunk/windstille/src/editor/animation_widget.hpp
+   trunk/windstille/src/editor/decal_object_model.cpp
+   trunk/windstille/src/editor/decal_object_model.hpp
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/editor_window.hpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/timeline.cpp
+   trunk/windstille/src/editor/timeline.hpp
+   trunk/windstille/src/editor/timeline_anim_object.hpp
+   trunk/windstille/src/editor/timeline_keyframe_object.hpp
+   trunk/windstille/src/editor/timeline_layer.cpp
+   trunk/windstille/src/editor/timeline_layer.hpp
+   trunk/windstille/src/editor/timeline_layer_widget.cpp
+   trunk/windstille/src/editor/timeline_layer_widget.hpp
+   trunk/windstille/src/editor/timeline_object.hpp
+   trunk/windstille/src/editor/timeline_object_layer.hpp
+   trunk/windstille/src/editor/timeline_properties.hpp
+   trunk/windstille/src/editor/timeline_sound_object.hpp
+   trunk/windstille/src/editor/timeline_widget.cpp
+   trunk/windstille/src/editor/timeline_widget.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+Log:
+Implemented save for the timeline
+
+Modified: trunk/windstille/src/editor/animation_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/animation_widget.cpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/animation_widget.cpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -42,7 +42,10 @@
+   hscroll(hadjustment),
+   m_timeline_widget(),
+   m_timeline_layer_widget(),
+-  m_timeline()
++  m_timeline(),
++  m_timeout_connection(),
++  m_playing(false),
++  m_anim_pos(0.0f)
+ {
+   Glib::RefPtr&lt;Gtk::UIManager&gt;   ui_manager   = editor.get_ui_manager();
+   Glib::RefPtr&lt;Gtk::ActionGroup&gt; action_group = Gtk::ActionGroup::create();
+@@ -63,6 +66,18 @@
+   action_group-&gt;add(Gtk::Action::create(&quot;FrameBackwardAnimation&quot;, Gtk::Stock::GO_BACK),
+                     sigc::mem_fun(editor, &amp;EditorWindow::on_animation_frame_backward));
+ 
++  action_group-&gt;add(Gtk::Action::create(&quot;AnimationZoomIn&quot;,  Gtk::Stock::ZOOM_IN),
++                    sigc::mem_fun(m_timeline_widget, &amp;TimelineWidget::zoom_in));
++  action_group-&gt;add(Gtk::Action::create(&quot;AnimationZoomOut&quot;, Gtk::Stock::ZOOM_OUT),
++                    sigc::mem_fun(m_timeline_widget, &amp;TimelineWidget::zoom_out));
++
++  action_group-&gt;add(Gtk::Action::create(&quot;AnimationForward&quot;, Gtk::Stock::MEDIA_FORWARD));
++  action_group-&gt;add(Gtk::Action::create(&quot;AnimationNext&quot;, Gtk::Stock::MEDIA_NEXT));
++  action_group-&gt;add(Gtk::Action::create(&quot;AnimationPrevious&quot;, Gtk::Stock::MEDIA_PREVIOUS));
++  action_group-&gt;add(Gtk::Action::create(&quot;AnimationRewind&quot;, Gtk::Stock::MEDIA_REWIND));
++  action_group-&gt;add(Gtk::Action::create(&quot;AnimationPlay&quot;, Gtk::Stock::MEDIA_PLAY),
++                    sigc::mem_fun(*this, &amp;AnimationWidget::on_play));
++
+   ui_manager-&gt;insert_action_group(action_group);
+ 
+   ui_manager-&gt;add_ui_from_string(&quot;&lt;ui&gt;&quot;
+@@ -73,9 +88,19 @@
+                                  &quot;    &lt;separator /&gt;&quot;
+                                  &quot;    &lt;toolitem action='NewLayerAnimation'/&gt;&quot;
+                                  &quot;    &lt;separator /&gt;&quot;
++                                 &quot;    &lt;toolitem action='AnimationZoomIn'/&gt;&quot;
++                                 &quot;    &lt;toolitem action='AnimationZoomOut'/&gt;&quot;
++                                 &quot;    &lt;separator /&gt;&quot;
+                                  &quot;    &lt;toolitem action='FrameBackwardAnimation'/&gt;&quot;
+                                  &quot;    &lt;toolitem action='FrameForwardAnimation'/&gt;&quot;
+                                  &quot;    &lt;separator /&gt;&quot;
++                                 &quot;    &lt;toolitem action='AnimationPlay'/&gt;&quot;
++                                 &quot;    &lt;separator /&gt;&quot;
++                                 &quot;    &lt;toolitem action='AnimationPrevious'/&gt;&quot;
++                                 &quot;    &lt;toolitem action='AnimationNext'/&gt;&quot;
++                                 &quot;    &lt;separator /&gt;&quot;
++                                 &quot;    &lt;toolitem action='AnimationRewind'/&gt;&quot;
++                                 &quot;    &lt;toolitem action='AnimationForward'/&gt;&quot;
+                                  &quot;  &lt;/toolbar&gt;&quot;
+                                  &quot;&lt;/ui&gt;&quot;);
+   
+@@ -105,6 +130,35 @@
+ }
+ 
+ void
++AnimationWidget::on_play()
++{
++  if (!m_playing)
++  {
++    std::cout &lt;&lt; &quot;Play&quot; &lt;&lt; std::endl;
++    m_playing = true;
++    m_anim_pos = 0.0f;
++    m_timeout_connection = Glib::signal_timeout().connect(sigc::mem_fun(*this, &amp;AnimationWidget::on_timeout),
++                                                          50,
++                                                          Glib::PRIORITY_DEFAULT);
++  }
++  else
++  {
++    std::cout &lt;&lt; &quot;Stop&quot; &lt;&lt; std::endl;
++    m_playing = false;
++    m_timeout_connection.disconnect();
++  }
++}
++
++bool
++AnimationWidget::on_timeout()
++{
++  m_anim_pos += 0.5f;
++  m_timeline-&gt;apply(m_anim_pos);
++  EditorWindow::current()-&gt;queue_draw();
++  return true;
++}
++
++void
+ AnimationWidget::set_timeline(TimelineHandle timeline)
+ {
+   m_timeline = timeline;
+@@ -112,59 +166,4 @@
+   m_timeline_layer_widget.set_timeline(timeline);
+ }
+ 
+-#ifdef __TEST__
+-
+-#include &lt;gtkmm/main.h&gt;
+-#include &lt;gtkmm/window.h&gt;
+-#include &lt;gtkmm/liststore.h&gt;
+-#include &lt;gtkmm/treeview.h&gt;
+-#include &lt;gtkmm/box.h&gt;
+-#include &lt;gtkmm/adjustment.h&gt;
+-#include &lt;gtkmm/table.h&gt;
+-#include &lt;gtkmm/ruler.h&gt;
+-#include &lt;gtkmm/scrollbar.h&gt;
+-
+-int main(int argc, char** argv)
+-{
+-  Gtk::Main kit(argc, argv);
+-
+-  // create test timeline  
+-  boost::shared_ptr&lt;Timeline&gt; timeline(new Timeline());
+-
+-  TimelineLayerHandle layer1 = timeline-&gt;add_layer(&quot;DoorLeft:pos&quot;);
+-  TimelineLayerHandle layer2 = timeline-&gt;add_layer(&quot;DoorRight:pos&quot;);
+-  TimelineLayerHandle layer3 = timeline-&gt;add_layer(&quot;AnimaitonLayer1&quot;);
+-  TimelineLayerHandle layer4 = timeline-&gt;add_layer(&quot;SoundLayer2&quot;);
+-
+-  layer1-&gt;add_object(TimelineObjectHandle(new TimelineAnimObject(20.0f, 30.0f, &quot;anim1.anim&quot;)));
+-  layer1-&gt;add_object(TimelineObjectHandle(new TimelineAnimObject(60.0f, 30.0f, &quot;anim2.anim&quot;)));
+-
+-  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(8.0f)));
+-  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(10.0f)));
+-  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(11.0f)));
+-  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(15.0f)));
+-  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(20.0f)));
+-  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(35.0f)));
+-  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(40.0f)));
+-
+-  layer3-&gt;add_object(TimelineObjectHandle(new TimelineSoundObject(10.0f, 10.0f, &quot;sound1.wav&quot;)));
+-  layer3-&gt;add_object(TimelineObjectHandle(new TimelineSoundObject(30.0f, 40.0f, &quot;sound.wav&quot;)));
+-
+-  // create the window
+-  Gtk::Window win;
+-  win.set_title(&quot;Timeline Test&quot;);
+-  win.set_default_size(800, 400);
+-
+-  AnimationWidget animation_widget();
+-  animation_widget.set_timeline(timeline);
+-  win.add(animation_widget);
+-  win.show_all();
+-
+-  Gtk::Main::run(win);
+-
+-  return 0;
+-}
+-
+-#endif
+-
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/animation_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/animation_widget.hpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/animation_widget.hpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -54,12 +54,17 @@
+   TimelineLayerWidget  m_timeline_layer_widget;
+ 
+   TimelineHandle m_timeline;
++  sigc::connection m_timeout_connection;
++  bool m_playing;
++  float m_anim_pos;
+ 
+ public:
+   AnimationWidget(EditorWindow&amp; editor);
+ 
+   void set_timeline(TimelineHandle timeline);
+   TimelineWidget&amp; get_timeline_widget() { return m_timeline_widget; }
++  void on_play();
++  bool on_timeout();
+ 
+ private:
+   AnimationWidget(const AnimationWidget&amp;);
+
+Modified: trunk/windstille/src/editor/decal_object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/decal_object_model.cpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/decal_object_model.cpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -326,6 +326,66 @@
+ }
+ 
+ void
++DecalObjectModel::get_property(TimelineProperty property, float&amp; value_out) const
++{
++  switch(property)
++  {
++    case kRotation:
++      value_out = get_angle();
++      break;
++
++    default:
++      ObjectModel::get_property(property, value_out);
++      break;
++  }
++}
++
++void
++DecalObjectModel::get_property(TimelineProperty property, Vector2f&amp; value_out) const
++{
++  switch(property)
++  {
++    case kScale:
++      value_out = get_scale();
++      break;
++
++    default:
++      ObjectModel::get_property(property, value_out);
++      break;
++  }
++}
++
++void
++DecalObjectModel::set_property(TimelineProperty property, float value)
++{
++  switch(property)
++  {
++    case kRotation:
++      set_angle(value);
++      break;
++
++    default:
++      ObjectModel::set_property(property, value);
++      break;
++  }
++}
++
++void
++DecalObjectModel::set_property(TimelineProperty property, const Vector2f&amp; value)
++{
++  switch(property)
++  {
++    case kScale:
++      set_scale(value);
++      break;
++
++    default:
++      ObjectModel::set_property(property, value);
++      break;
++  }
++}
++
++void
+ DecalObjectModel::set_world_pos(const Vector2f&amp; p)
+ {
+   ObjectModel::set_world_pos(p);
+
+Modified: trunk/windstille/src/editor/decal_object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/decal_object_model.hpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/decal_object_model.hpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -90,6 +90,12 @@
+   void set_world_pos(const Vector2f&amp; p);
+   void set_rel_pos(const Vector2f&amp; rel_pos_);
+   void set_select_mask(const SelectMask&amp; select_mask_);
++
++  void get_property(TimelineProperty property, float&amp; value_out) const;
++  void get_property(TimelineProperty property, Vector2f&amp; value_out) const;
++  
++  void set_property(TimelineProperty property, float value);
++  void set_property(TimelineProperty property, const Vector2f&amp; value);
+ };
+ 
+ #endif
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -495,10 +495,13 @@
+   {
+     on_new();
+     WindstilleWidget* wst = get_windstille_widget();
++    AnimationWidget*  animation_widget = get_animation_widget();
++      
+     wst-&gt;load_file(filename);
+     wst-&gt;set_filename(filename);
+     notebook.set_tab_label_text(*notebook.get_nth_page(notebook.get_current_page()), Glib::path_get_basename(filename));
+     layer_manager.set_model(&amp;wst-&gt;get_document().get_sector_model());
++    animation_widget-&gt;set_timeline(wst-&gt;get_document().get_sector_model().get_timeline());
+     print(&quot;Loaded: &quot; + filename);
+   }
+   catch(std::exception&amp; err)
+@@ -564,13 +567,8 @@
+ void
+ EditorWindow::on_save_as()
+ {
+-  int page = notebook.get_current_page();
+-  if (page == -1)
++  if (WindstilleWidget* wst = get_windstille_widget())
+   {
+-    // do nothing;
+-  }
+-  else
+-  {
+     Gtk::FileChooserDialog dialog(&quot;Save File&quot;,
+                                   Gtk::FILE_CHOOSER_ACTION_SAVE);
+     dialog.set_transient_for(*this);
+@@ -579,8 +577,6 @@
+     dialog.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_CANCEL);
+     dialog.add_button(Gtk::Stock::SAVE,   Gtk::RESPONSE_OK);
+ 
+-    WindstilleWidget* wst = static_cast&lt;WindstilleWidget*&gt;(notebook.get_nth_page(page));
+- 
+     if (wst-&gt;get_filename().empty())
+       dialog.set_current_folder(&quot;data/sectors/&quot;);
+     else
+@@ -601,6 +597,7 @@
+         wst-&gt;get_document().get_sector_model().write(writer);
+         wst-&gt;set_filename(filename);
+ 
++        int page = notebook.get_current_page();
+         notebook.set_tab_label_text(*notebook.get_nth_page(page), Glib::path_get_basename(filename));
+         add_recent_file(filename);
+         print(&quot;Wrote: &quot; + filename);
+@@ -788,7 +785,7 @@
+ }
+ 
+ void
+-EditorWindow::on_animation_add_keyframe()
++EditorWindow::on_animation_add_keyframe(TimelineProperty property)
+ {
+   std::cout &lt;&lt; &quot;EditorWindow::on_animation_add_keyframe()&quot; &lt;&lt; std::endl;
+   if (Document* document = get_document())
+@@ -800,7 +797,7 @@
+       SelectionHandle selection = document-&gt;get_selection();
+       for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
+       {
+-        document-&gt;timeline_add_keyframe(*i, kPosition, timeline_widget-&gt;get_cursor_pos());
++        document-&gt;timeline_add_keyframe(*i, property, timeline_widget-&gt;get_cursor_pos());
+       }
+       queue_draw();
+     }
+@@ -898,6 +895,27 @@
+   }
+ }
+ 
++AnimationWidget*
++EditorWindow::get_animation_widget()
++{
++  int page = notebook.get_current_page();
++  if (page == -1)
++  {
++    return 0;
++  }
++  else
++  {
++    if (Gtk::VPaned* paned = dynamic_cast&lt;Gtk::VPaned*&gt;(notebook.get_nth_page(page)))
++    {
++      return dynamic_cast&lt;AnimationWidget*&gt;(paned-&gt;get_child2());
++    }
++    else
++    {
++      return 0;
++    }
++  }
++}
++
+ Document*
+ EditorWindow::get_document()
+ {
+
+Modified: trunk/windstille/src/editor/editor_window.hpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.hpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/editor_window.hpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -36,6 +36,7 @@
+ #include &quot;editor/layer_manager.hpp&quot;
+ #include &quot;editor/document.hpp&quot;
+ 
++class AnimationWidget;
+ class Document;
+ class LayerWidget;
+ class NavgraphInsertTool;
+@@ -147,7 +148,7 @@
+ 
+   void on_animation_layer_new();
+ 
+-  void on_animation_add_keyframe();
++  void on_animation_add_keyframe(TimelineProperty property);
+   /** @} */
+ 
+   void toggle_render_layer(Glib::RefPtr&lt;Gtk::ToggleAction&gt; action, unsigned int mask);
+@@ -165,6 +166,7 @@
+   LayerManager&amp; get_layer_manager() { return layer_manager; }
+   WindstilleWidget* get_windstille_widget();
+   TimelineWidget*   get_timeline_widget();
++  AnimationWidget*   get_animation_widget();
+   Document* get_document();
+   
+   void load_file(const std::string&amp; filename);
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -364,6 +364,10 @@
+   writer.write(&quot;ambient-color&quot;, ambient_color);
+   writer.write(&quot;init-script&quot;, &quot;init.nut&quot;);
+ 
++  writer.start_section(&quot;timeline&quot;);
++  m_timeline-&gt;write(writer);
++  writer.end_section();
++
+   writer.start_section(&quot;navigation&quot;);
+   nav_graph-&gt;write(writer);
+   writer.end_section();
+
+Modified: trunk/windstille/src/editor/timeline.cpp
+===================================================================
+--- trunk/windstille/src/editor/timeline.cpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/timeline.cpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -62,6 +62,12 @@
+     case kPosition:
+       return TimelineObjectLayerHandle(new TimelineObjectDataLayer&lt;Vector2f&gt;(object, property));
+       
++    case kRotation:
++      return TimelineObjectLayerHandle(new TimelineObjectDataLayer&lt;float&gt;(object, property));
++
++    case kScale:
++      return TimelineObjectLayerHandle(new TimelineObjectDataLayer&lt;Vector2f&gt;(object, property));
++      
+     default:
+       throw std::runtime_error(&quot;Timeline::create_object_layer: unknown property given&quot;);
+   }
+@@ -105,4 +111,15 @@
+   }  
+ }
+ 
++void
++Timeline::write(FileWriter&amp; writer) const
++{
++  writer.start_section(&quot;layers&quot;);
++  for(const_iterator i = begin(); i != end(); ++i)
++  {
++    (*i)-&gt;write(writer);
++  }  
++  writer.end_section();
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/timeline.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline.hpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/timeline.hpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -24,6 +24,7 @@
+ #include &quot;editor/object_model.hpp&quot;
+ 
+ class Vector2f;
++class FileWriter;
+ 
+ class Timeline
+ {
+@@ -58,6 +59,8 @@
+ 
+   void apply(float pos);
+ 
++  void write(FileWriter&amp; writer) const;
++
+ private:
+   Timeline(const Timeline&amp;);
+   Timeline&amp; operator=(const Timeline&amp;);
+
+Modified: trunk/windstille/src/editor/timeline_anim_object.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_anim_object.hpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/timeline_anim_object.hpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -41,6 +41,13 @@
+   void  set_pos(float pos) { m_pos = pos; }
+   float get_width() const { return m_width; }
+   std::string get_name() const { return m_name; }
++  void write(FileWriter&amp; writer) const 
++  {
++    writer.start_section(&quot;animation&quot;);
++    writer.write(&quot;pos&quot;,  m_pos);
++    writer.write(&quot;name&quot;, m_name);
++    writer.end_section();
++  }
+ 
+ private:
+   TimelineAnimObject(const TimelineAnimObject&amp;);
+
+Modified: trunk/windstille/src/editor/timeline_keyframe_object.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_keyframe_object.hpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/timeline_keyframe_object.hpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -21,6 +21,8 @@
+ 
+ #include &quot;editor/timeline_object.hpp&quot;
+ 
++#include &quot;util/file_writer.hpp&quot;
++
+ class TimelineKeyframeObject : public TimelineObject
+ {
+ protected:
+@@ -54,6 +56,13 @@
+ 
+   const C&amp; get_data() const { return m_data; }
+   void     set_data(const C&amp; data) { m_data = data; }
++  void write(FileWriter&amp; writer) const 
++  {
++    writer.start_section(&quot;keyframe&quot;);
++    writer.write(&quot;pos&quot;,  m_pos);
++    writer.write(&quot;data&quot;, m_data);
++    writer.end_section();
++  }
+ 
+ private:
+   TimelineKeyframeDataObject(const TimelineKeyframeDataObject&amp;);
+
+Modified: trunk/windstille/src/editor/timeline_layer.cpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_layer.cpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/timeline_layer.cpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -20,6 +20,7 @@
+ 
+ #include &lt;assert.h&gt;
+ 
++#include &quot;util/file_writer.hpp&quot;
+ #include &quot;editor/timeline_object.hpp&quot;
+ 
+ TimelineLayer::TimelineLayer(const std::string&amp; name)
+@@ -74,4 +75,17 @@
+   return objects;
+ }
+ 
++void
++TimelineLayer::write(FileWriter&amp; writer) const
++{
++  writer.start_section(&quot;layer&quot;);
++  writer.start_section(&quot;objects&quot;);
++  for(const_iterator i = begin(); i != end(); ++i)
++  {
++    (*i)-&gt;write(writer);
++  }
++  writer.end_section();
++  writer.end_section();
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/timeline_layer.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_layer.hpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/timeline_layer.hpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -25,6 +25,8 @@
+ 
+ #include &quot;timeline_handles.hpp&quot;
+ 
++class FileWriter;
++
+ class TimelineLayer
+ {
+ public:
+@@ -59,6 +61,8 @@
+   std::string get_name() const { return m_name; }
+   virtual void apply(float pos) {}
+ 
++  virtual void write(FileWriter&amp; writer) const;
++
+ private:
+   TimelineLayer(const TimelineLayer&amp;);
+   TimelineLayer&amp; operator=(const TimelineLayer&amp;);
+
+Modified: trunk/windstille/src/editor/timeline_layer_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_layer_widget.cpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/timeline_layer_widget.cpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -21,7 +21,8 @@
+ #include &quot;timeline_layer.hpp&quot;
+ 
+ TimelineLayerWidget::TimelineLayerWidget() :
+-  m_timeline()
++  m_timeline(),
++  m_column_height(32)
+ {
+ }
+ 
+@@ -57,19 +58,19 @@
+       cr-&gt;get_text_extents((*i)-&gt;get_name(), extents);
+ 
+       cr-&gt;set_source_rgb(1,1,1);
+-      cr-&gt;rectangle(0, 32 * (i - m_timeline-&gt;begin()),
+-                    allocation.get_width(), 32);
++      cr-&gt;rectangle(0, m_column_height * (i - m_timeline-&gt;begin()),
++                    allocation.get_width(), m_column_height);
+       cr-&gt;fill();
+ 
+       // draw text
+       cr-&gt;set_source_rgb(0,0,0);
+-      cr-&gt;move_to(8, 10 + 32 * (i - m_timeline-&gt;begin()) - extents.y_bearing);
++      cr-&gt;move_to(8, 10 + m_column_height * (i - m_timeline-&gt;begin()) - extents.y_bearing);
+       cr-&gt;show_text((*i)-&gt;get_name());
+ 
+       // draw line
+       cr-&gt;set_source_rgb(0,0,0);
+-      cr-&gt;move_to(0, 32 + 32 * (i - m_timeline-&gt;begin()));
+-      cr-&gt;line_to(allocation.get_width(), 32+ 32 * (i - m_timeline-&gt;begin()));
++      cr-&gt;move_to(0, m_column_height + m_column_height * (i - m_timeline-&gt;begin()));
++      cr-&gt;line_to(allocation.get_width(), m_column_height+ m_column_height * (i - m_timeline-&gt;begin()));
+       cr-&gt;stroke();
+     }
+   }
+
+Modified: trunk/windstille/src/editor/timeline_layer_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_layer_widget.hpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/timeline_layer_widget.hpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -27,6 +27,7 @@
+ {
+ private:
+   TimelineHandle m_timeline;
++  int m_column_height;
+ 
+ public:
+   TimelineLayerWidget();
+
+Modified: trunk/windstille/src/editor/timeline_object.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_object.hpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/timeline_object.hpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -32,6 +32,8 @@
+   virtual float get_width() const =0;
+   virtual void  set_pos(float pos) =0;
+ 
++  virtual void write(FileWriter&amp; writer) const =0;
++
+ private:
+   TimelineObject(const TimelineObject&amp;);
+   TimelineObject&amp; operator=(const TimelineObject&amp;);
+
+Modified: trunk/windstille/src/editor/timeline_object_layer.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_object_layer.hpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/timeline_object_layer.hpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -40,6 +40,20 @@
+   TimelineProperty  get_property() const { return m_property; }
+   ObjectModelHandle get_object()   const { return m_object; }
+ 
++  virtual void write(FileWriter&amp; writer) const
++  {
++    writer.start_section(&quot;object-layer&quot;);
++    writer.write(&quot;object&quot;,   m_object-&gt;get_id());
++    writer.write(&quot;property&quot;, m_property); // FIXME: convert property to string
++    writer.start_section(&quot;objects&quot;);
++    for(const_iterator i = begin(); i != end(); ++i)
++    {
++      (*i)-&gt;write(writer);
++    }
++    writer.end_section();
++    writer.end_section();
++  }
++
+ private:
+   TimelineObjectLayer(const TimelineObjectLayer&amp;);
+   TimelineObjectLayer&amp; operator=(const TimelineObjectLayer&amp;);
+
+Modified: trunk/windstille/src/editor/timeline_properties.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_properties.hpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/timeline_properties.hpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -21,10 +21,10 @@
+ 
+ enum TimelineProperty
+ {
+-  kPosition,
+-  kColor,
+-  kRotation,
+-  kScale
++  kPosition, // Vector2f
++  kColor,    // Color
++  kRotation, // float
++  kScale     // Vector2f
+ };
+ 
+ #endif
+
+Modified: trunk/windstille/src/editor/timeline_sound_object.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_sound_object.hpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/timeline_sound_object.hpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -40,6 +40,14 @@
+   float get_width() const { return m_width; }
+   std::string get_name() const { return m_name; }
+ 
++  void write(FileWriter&amp; writer) const 
++  {
++    writer.start_section(&quot;sound&quot;);
++    writer.write(&quot;pos&quot;,  m_pos);
++    writer.write(&quot;name&quot;, m_name);
++    writer.end_section();
++  }
++
+ private:
+   TimelineSoundObject(const TimelineSoundObject&amp;);
+   TimelineSoundObject&amp; operator=(const TimelineSoundObject&amp;);
+
+Modified: trunk/windstille/src/editor/timeline_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_widget.cpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/timeline_widget.cpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -36,7 +36,9 @@
+   m_mode(kNoMode),
+   down_pos(),
+   move_pos(),
+-  m_cursor_pos(0.0f)
++  m_cursor_pos(0.0f),
++  m_column_width(8),
++  m_column_height(32)
+ {
+   signal_button_release_event().connect(sigc::mem_fun(this, &amp;TimelineWidget::mouse_up));
+   signal_button_press_event().connect(sigc::mem_fun(this, &amp;TimelineWidget::mouse_down));
+@@ -61,10 +63,10 @@
+     move_pos.x = static_cast&lt;float&gt;(ev-&gt;x);
+     move_pos.y = static_cast&lt;float&gt;(ev-&gt;y);
+ 
+-    TimelineLayerHandle layer = m_timeline-&gt;get_layer(static_cast&lt;int&gt;(ev-&gt;y / 32));
++    TimelineLayerHandle layer = m_timeline-&gt;get_layer(static_cast&lt;int&gt;(ev-&gt;y / m_column_height));
+     if (layer)
+     {
+-      TimelineObjectHandle obj = layer-&gt;get_object(static_cast&lt;float&gt;(ev-&gt;x / 8));
++      TimelineObjectHandle obj = layer-&gt;get_object(static_cast&lt;float&gt;(ev-&gt;x / m_column_width));
+       if (obj)
+       {
+         m_mode = kDragMode;
+@@ -98,7 +100,7 @@
+   }
+   else if (ev-&gt;button == 3)
+   { // set cursor
+-    set_cursor_pos(floorf(static_cast&lt;float&gt;(ev-&gt;x / 8)));
++    set_cursor_pos(floorf(static_cast&lt;float&gt;(ev-&gt;x / m_column_width)));
+     m_mode = kCursorSetMode;
+     queue_draw();
+   }
+@@ -128,7 +130,7 @@
+       for (std::set&lt;TimelineObjectHandle&gt;::iterator i = m_selection.begin(); 
+            i != m_selection.end(); ++i)
+       {
+-        (*i)-&gt;set_pos((*i)-&gt;get_pos() + (move_pos.x - down_pos.x)/8);
++        (*i)-&gt;set_pos((*i)-&gt;get_pos() + (move_pos.x - down_pos.x)/m_column_width);
+       }
+     }
+     queue_draw();
+@@ -159,7 +161,7 @@
+   }
+   else if (m_mode == kCursorSetMode)
+   {
+-    set_cursor_pos(floorf(static_cast&lt;float&gt;(ev-&gt;x / 8)));
++    set_cursor_pos(floorf(static_cast&lt;float&gt;(ev-&gt;x / m_column_width)));
+     queue_draw();
+   }
+ 
+@@ -169,12 +171,14 @@
+ void
+ TimelineWidget::add_to_selection(const Rectf&amp; selection)
+ {
+-  Timeline::iterator start = m_timeline-&gt;begin() + std::max(0, std::min(m_timeline-&gt;size(), static_cast&lt;int&gt;((selection.top+16)    / 32)));
+-  Timeline::iterator end   = m_timeline-&gt;begin() + std::max(0, std::min(m_timeline-&gt;size(), static_cast&lt;int&gt;((selection.bottom+16) / 32)));
++  Timeline::iterator start = m_timeline-&gt;begin() + 
++    std::max(0, std::min(m_timeline-&gt;size(), static_cast&lt;int&gt;((selection.top + m_column_height/2)    / m_column_height)));
++  Timeline::iterator end   = m_timeline-&gt;begin() + 
++    std::max(0, std::min(m_timeline-&gt;size(), static_cast&lt;int&gt;((selection.bottom + m_column_height/2) / m_column_height)));
+ 
+   for(Timeline::iterator i = start; i != end; ++i)
+   {
+-    const TimelineLayer::Objects&amp; objects = (*i)-&gt;get_objects(selection.left / 8.0f, selection.right / 8.0f);
++    const TimelineLayer::Objects&amp; objects = (*i)-&gt;get_objects(selection.left / m_column_width, selection.right / m_column_width);
+     m_selection.insert(objects.begin(), objects.end());
+   }
+ }
+@@ -240,15 +244,15 @@
+ 
+   cr-&gt;save();
+   
+-  int height = m_timeline-&gt;size() * 32;
++  int height = m_timeline-&gt;size() * m_column_height;
+ 
+   // draw vertical lines
+   cr-&gt;set_source_rgb(0.875, 0.875, 0.875);
+-  for(int x = 0; x &lt; allocation.get_width(); x += 8)
++  for(int x = 0; x &lt; allocation.get_width(); x += m_column_width)
+   {
+-    if (x % 80 == 0)
++    if (x % (m_column_width * 10) == 0)
+     {
+-      cr-&gt;rectangle(x, 0, 8, height);
++      cr-&gt;rectangle(x, 0, m_column_width, height);
+     }
+   }
+   cr-&gt;fill();
+@@ -257,7 +261,7 @@
+ 
+   // draw horizontal lines
+   cr-&gt;set_source_rgb(0.5, 0.5, 0.5);
+-  for(int y = 0; y &lt;= height; y += 32)
++  for(int y = 0; y &lt;= height; y += m_column_height)
+   {
+     cr-&gt;move_to(0, y);
+     cr-&gt;line_to(allocation.get_width(), y);
+@@ -266,7 +270,7 @@
+ 
+   // draw vertical lines
+   cr-&gt;set_source_rgb(0.75, 0.75, 0.75);
+-  for(int x = 0; x &lt; allocation.get_width(); x += 8)
++  for(int x = 0; x &lt; allocation.get_width(); x += m_column_width)
+   {
+     cr-&gt;move_to(x, 0);
+     cr-&gt;line_to(x, height);
+@@ -284,7 +288,7 @@
+   cr-&gt;save();
+ 
+   cr-&gt;set_source_rgb(1,1,1);
+-  cr-&gt;rectangle(0, 0, allocation.get_width(), 32 * m_timeline-&gt;size());
++  cr-&gt;rectangle(0, 0, allocation.get_width(), m_column_height * m_timeline-&gt;size());
+   cr-&gt;fill();
+   
+   draw_grid(cr);
+@@ -293,12 +297,12 @@
+   for(Timeline::iterator i = m_timeline-&gt;begin(); i != m_timeline-&gt;end(); ++i)
+   {
+     draw_timeline_layer(cr, *i);
+-    cr-&gt;translate(0, 32);
++    cr-&gt;translate(0, m_column_height);
+   }
+   cr-&gt;restore();
+ 
+-  cr-&gt;rectangle(m_cursor_pos * 8, 0,
+-                8, m_timeline-&gt;size() * 32);
++  cr-&gt;rectangle(m_cursor_pos * m_column_width, 0,
++                m_column_width, m_timeline-&gt;size() * m_column_height);
+   cr-&gt;set_source_rgba(1,1,0,0.5);
+   cr-&gt;fill_preserve();
+   cr-&gt;set_line_width(1.0f);
+@@ -336,7 +340,7 @@
+         cr-&gt;set_source_rgb(0.5, 0.75, 0.0);
+       }
+       
+-      cr-&gt;rectangle(keyframe-&gt;get_pos()*8, 4, 8, 24);
++      cr-&gt;rectangle(keyframe-&gt;get_pos() * m_column_width, 4, m_column_width, m_column_height - 8);
+       cr-&gt;fill();
+ 
+       if (in_selection)
+@@ -344,7 +348,7 @@
+       else
+         cr-&gt;set_source_rgb(0, 0, 0);
+ 
+-      cr-&gt;rectangle(keyframe-&gt;get_pos()*8, 4, 8, 24);
++      cr-&gt;rectangle(keyframe-&gt;get_pos() * m_column_width, 4, m_column_width, m_column_height - 8);
+       cr-&gt;stroke();  
+       
+       cr-&gt;restore();
+@@ -381,8 +385,8 @@
+         cr-&gt;set_source_rgb(0.0, 0.5, 0.75);
+       }
+ 
+-      cr-&gt;rectangle(anim-&gt;get_pos()*8,  4,
+-                    anim-&gt;get_width()*8, 24);
++      cr-&gt;rectangle(anim-&gt;get_pos()   * m_column_width,  4,
++                    anim-&gt;get_width() * m_column_width, m_column_height - 8);
+       cr-&gt;fill();
+ 
+       if (in_selection)
+@@ -394,13 +398,13 @@
+         cr-&gt;set_source_rgb(0, 0, 0);
+       }
+ 
+-      cr-&gt;rectangle(anim-&gt;get_pos()*8, 4,
+-                    anim-&gt;get_width()*8, 24);
++      cr-&gt;rectangle(anim-&gt;get_pos()   * m_column_width, 4,
++                    anim-&gt;get_width() * m_column_width, m_column_height - 8);
+       cr-&gt;stroke();
+ 
+       cr-&gt;set_source_rgb(1,1,1);
+-      cr-&gt;move_to((anim-&gt;get_pos() + anim-&gt;get_width()/2)*8 - extents.width/2, 
+-                  20);
++      cr-&gt;move_to((anim-&gt;get_pos() + anim-&gt;get_width()/2) * m_column_width - extents.width/2, 
++                  m_column_height / 2 + 4);
+       cr-&gt;show_text(anim-&gt;get_name());
+ 
+       cr-&gt;restore();
+@@ -430,6 +434,7 @@
+       {
+         if (m_mode == kDragMode)
+           cr-&gt;translate(move_pos.x - down_pos.x, 0.0);
++
+         cr-&gt;set_source_rgb(1.0, 0.0, 0.75);
+       }
+       else
+@@ -437,18 +442,18 @@
+         cr-&gt;set_source_rgb(0.75, 0.0, 0.5);
+       }
+ 
+-      cr-&gt;rectangle(sound-&gt;get_pos()*8,  4,
+-                    sound-&gt;get_width()*8, 24);
++      cr-&gt;rectangle(sound-&gt;get_pos()   * m_column_width,  4,
++                    sound-&gt;get_width() * m_column_width, m_column_height - 8);
+       cr-&gt;fill();
+ 
+       cr-&gt;set_source_rgb(0, 0, 0);
+-      cr-&gt;rectangle(sound-&gt;get_pos()*8, 4,
+-                    sound-&gt;get_width()*8, 24);
++      cr-&gt;rectangle(sound-&gt;get_pos()   * m_column_width, 4,
++                    sound-&gt;get_width() * m_column_width, m_column_height - 8);
+       cr-&gt;stroke();
+ 
+-      cr-&gt;set_source_rgb(1,1,1);
+-      cr-&gt;move_to((sound-&gt;get_pos() + sound-&gt;get_width()/2)*8 - extents.width/2, 
+-                  20);
++      cr-&gt;set_source_rgb(1,1,0);
++      cr-&gt;move_to((sound-&gt;get_pos() + sound-&gt;get_width()/2) * m_column_width - extents.width/2, 
++                  m_column_height / 2 + 4);
+       cr-&gt;show_text(sound-&gt;get_name());
+ 
+       cr-&gt;restore();
+@@ -465,6 +470,23 @@
+ }
+ 
+ void
++TimelineWidget::zoom_in()
++{
++  m_column_width += 1;
++  queue_draw();
++}
++
++void
++TimelineWidget::zoom_out()
++{
++  if (m_column_width &gt; 2)
++  {
++    m_column_width -= 1;
++    queue_draw();
++  }
++}
++
++void
+ TimelineWidget::set_timeline(boost::shared_ptr&lt;Timeline&gt; timeline)
+ {
+   m_timeline = timeline;
+
+Modified: trunk/windstille/src/editor/timeline_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_widget.hpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/timeline_widget.hpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -46,7 +46,9 @@
+   Vector2f move_pos;
+ 
+   float m_cursor_pos;
+-
++  int m_column_width;
++  int m_column_height;
++  
+ public:
+   TimelineWidget();
+   ~TimelineWidget();
+@@ -62,6 +64,9 @@
+ 
+   void delete_selection();
+ 
++  void zoom_in();
++  void zoom_out();
++
+ protected:
+   //Override default signal handler:
+   virtual bool on_expose_event(GdkEventExpose* event);
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-09-29 16:49:10 UTC (rev 3277)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-09-29 22:27:10 UTC (rev 3278)
+@@ -408,8 +408,19 @@
+       break;
+ 
+     case GDK_i:
+-      EditorWindow::current()-&gt;on_animation_add_keyframe();
++      std::cout &lt;&lt; &quot;Position Keyframe&quot; &lt;&lt; std::endl;
++      EditorWindow::current()-&gt;on_animation_add_keyframe(kPosition);
+       break;
++
++    case GDK_k:
++      std::cout &lt;&lt; &quot;Position Scale&quot; &lt;&lt; std::endl;
++      EditorWindow::current()-&gt;on_animation_add_keyframe(kScale);
++      break;
++
++    case GDK_u:
++      std::cout &lt;&lt; &quot;Position Rotation&quot; &lt;&lt; std::endl;
++      EditorWindow::current()-&gt;on_animation_add_keyframe(kRotation);
++      break;
+       
+     case GDK_d:
+       m_document-&gt;selection_duplicate();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002274.html">[Windstille-commit] r3277 -	trunk/windstille/data/sectors/trainstation
+</A></li>
+	<LI>Next message: <A HREF="002276.html">[Windstille-commit] r3279 - trunk/windstille
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2275">[ date ]</a>
+              <a href="thread.html#2275">[ thread ]</a>
+              <a href="subject.html#2275">[ subject ]</a>
+              <a href="author.html#2275">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

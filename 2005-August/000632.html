@@ -1,0 +1,560 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r979 - in trunk/src: . scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r979%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200508182213.j7IMDsjf011728%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000631.html">
+   <LINK REL="Next"  HREF="000633.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r979 - in trunk/src: . scripting</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r979%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200508182213.j7IMDsjf011728%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r979 - in trunk/src: . scripting">grumbel at berlios.de
+       </A><BR>
+    <I>Fri Aug 19 00:13:54 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000631.html">[Windstille-commit] r978 - in trunk: data/images data/images/inventory src src/math src/scripting
+</A></li>
+        <LI>Next message: <A HREF="000633.html">[Windstille-commit] r980 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#632">[ date ]</a>
+              <a href="thread.html#632">[ thread ]</a>
+              <a href="subject.html#632">[ subject ]</a>
+              <a href="author.html#632">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-08-19 00:13:52 +0200 (Fri, 19 Aug 2005)
+New Revision: 979
+
+Modified:
+   trunk/src/controller_help_window.cpp
+   trunk/src/controller_help_window.hpp
+   trunk/src/conversation.cpp
+   trunk/src/conversation.hpp
+   trunk/src/dialog_manager.cpp
+   trunk/src/dialog_manager.hpp
+   trunk/src/energy_bar.cpp
+   trunk/src/energy_bar.hpp
+   trunk/src/game_session.cpp
+   trunk/src/game_session.hpp
+   trunk/src/inventory.cpp
+   trunk/src/inventory.hpp
+   trunk/src/pda.cpp
+   trunk/src/pda.hpp
+   trunk/src/player.cpp
+   trunk/src/screen.hpp
+   trunk/src/scripting/interface.cpp
+   trunk/src/sector.hpp
+Log:
+- turned a bunch of GameSession overlays into 'Screen's, this should be used cleanup the event handling a bit
+
+Modified: trunk/src/controller_help_window.cpp
+===================================================================
+--- trunk/src/controller_help_window.cpp	2005-08-18 19:59:50 UTC (rev 978)
++++ trunk/src/controller_help_window.cpp	2005-08-18 22:13:52 UTC (rev 979)
+@@ -107,7 +107,7 @@
+ }
+ 
+ void
+-ControllerHelpWindow::update(float delta)
++ControllerHelpWindow::update(float delta, const Controller&amp; controller)
+ {
+   impl-&gt;text_area-&gt;update(delta);
+ }
+
+Modified: trunk/src/controller_help_window.hpp
+===================================================================
+--- trunk/src/controller_help_window.hpp	2005-08-18 19:59:50 UTC (rev 978)
++++ trunk/src/controller_help_window.hpp	2005-08-18 22:13:52 UTC (rev 979)
+@@ -26,18 +26,19 @@
+ #ifndef HEADER_CONTROLLER_HELP_WINDOW_HPP
+ #define HEADER_CONTROLLER_HELP_WINDOW_HPP
+ 
++#include &quot;screen.hpp&quot;
+ #include &quot;sharedptr.hpp&quot;
+ 
+ class ControllerHelpWindowImpl;
+ 
+ /** */
+-class ControllerHelpWindow
++class ControllerHelpWindow : public Screen
+ {
+ public:
+   ControllerHelpWindow();
+ 
+   void draw();
+-  void update(float delta);
++  void update(float delta, const Controller&amp; controller);
+   void set_active(bool active);
+   static ControllerHelpWindow* current() { return current_; }
+ 
+
+Modified: trunk/src/conversation.cpp
+===================================================================
+--- trunk/src/conversation.cpp	2005-08-18 19:59:50 UTC (rev 978)
++++ trunk/src/conversation.cpp	2005-08-18 22:13:52 UTC (rev 979)
+@@ -74,13 +74,12 @@
+ }
+ 
+ void
+-Conversation::update(float delta)
++Conversation::update(float delta, const Controller&amp; controller)
+ {
+   (void) delta;
+   if (!active)
+     return;
+-    
+-  Controller controller = InputManager::get_controller();
++
+   const InputEventLst&amp; events = controller.get_events();
+ 
+   for(InputEventLst::const_iterator i = events.begin(); i != events.end(); ++i)
+@@ -106,7 +105,7 @@
+             {
+             case OK_BUTTON:
+               active = false;
+-              GameSession::current()-&gt;pda.add_dialog(&quot;Jane&quot;, choices[selection]);
++              GameSession::current()-&gt;get_pda().add_dialog(&quot;Jane&quot;, choices[selection]);
+               choices.clear();
+               GameSession::current()-&gt;set_control_state(GameSession::GAME);
+               script_manager-&gt;fire_wakeup_event(ScriptManager::CONVERSATION_CLOSED);
+
+Modified: trunk/src/conversation.hpp
+===================================================================
+--- trunk/src/conversation.hpp	2005-08-18 19:59:50 UTC (rev 978)
++++ trunk/src/conversation.hpp	2005-08-18 22:13:52 UTC (rev 979)
+@@ -22,10 +22,11 @@
+ 
+ #include &lt;vector&gt;
+ #include &lt;string&gt;
++#include &quot;screen.hpp&quot;
+ 
+ /** Displays a list of text strings from which the user can select
+     one, used to form multiple-choice dialogs */
+-class Conversation
++class Conversation : public Screen
+ {
+ private:
+   bool active;
+@@ -41,7 +42,7 @@
+   Conversation();
+ 
+   void draw();
+-  void update(float delta);
++  void update(float delta, const Controller&amp; controller);
+ 
+   void add(const std::string&amp; text);
+   int  get_selection() const;
+
+Modified: trunk/src/dialog_manager.cpp
+===================================================================
+--- trunk/src/dialog_manager.cpp	2005-08-18 19:59:50 UTC (rev 978)
++++ trunk/src/dialog_manager.cpp	2005-08-18 22:13:52 UTC (rev 979)
+@@ -107,13 +107,13 @@
+ }
+ 
+ void
+-DialogManager::update(float delta)
++DialogManager::update(float delta, const Controller&amp; controller)
+ {
+   text_area-&gt;update(delta);
+ 
+   delay += delta;
+ 
+-  InputEventLst events = InputManager::get_controller().get_events();
++  InputEventLst events = controller.get_events();
+ 	
+   for (InputEventLst::iterator i = events.begin(); i != events.end(); ++i)
+     {
+
+Modified: trunk/src/dialog_manager.hpp
+===================================================================
+--- trunk/src/dialog_manager.hpp	2005-08-18 19:59:50 UTC (rev 978)
++++ trunk/src/dialog_manager.hpp	2005-08-18 22:13:52 UTC (rev 979)
+@@ -24,11 +24,12 @@
+ #include &lt;string&gt;
+ #include &quot;sprite2d/sprite.hpp&quot;
+ #include &quot;globals.hpp&quot;
++#include &quot;screen.hpp&quot;
+ 
+ class TextArea;
+ 
+ /** */
+-class DialogManager
++class DialogManager : public Screen
+ {
+ private:
+   void create_text();
+@@ -67,7 +68,7 @@
+   ~DialogManager();
+ 
+   void draw();
+-  void update(float delta);
++  void update(float delta, const Controller&amp; controller);
+ 
+   void add_dialog(int alignment, const std::string&amp; portrait, const std::string&amp; text);
+   void add_caption(int alignment, const std::string&amp; text);
+
+Modified: trunk/src/energy_bar.cpp
+===================================================================
+--- trunk/src/energy_bar.cpp	2005-08-18 19:59:50 UTC (rev 978)
++++ trunk/src/energy_bar.cpp	2005-08-18 22:13:52 UTC (rev 979)
+@@ -53,7 +53,7 @@
+ }
+ 
+ void
+-EnergyBar::update(float delta)
++EnergyBar::update(float delta, const Controller&amp; controller)
+ {
+   bar.update(delta);
+ }
+
+Modified: trunk/src/energy_bar.hpp
+===================================================================
+--- trunk/src/energy_bar.hpp	2005-08-18 19:59:50 UTC (rev 978)
++++ trunk/src/energy_bar.hpp	2005-08-18 22:13:52 UTC (rev 979)
+@@ -20,10 +20,11 @@
+ #ifndef HEADER_ENERGYBAR_HXX
+ #define HEADER_ENERGYBAR_HXX
+ 
++#include &quot;screen.hpp&quot;
+ #include &quot;sprite2d/sprite.hpp&quot;
+ 
+ /** */
+-class EnergyBar
++class EnergyBar : public Screen
+ {
+ private:
+   Sprite bar;
+@@ -32,7 +33,7 @@
+   ~EnergyBar();
+   
+   void draw();
+-  void update(float delta);
++  void update(float delta, const Controller&amp; controller);
+ private:
+   EnergyBar (const EnergyBar&amp;);
+   EnergyBar&amp; operator= (const EnergyBar&amp;);
+
+Modified: trunk/src/game_session.cpp
+===================================================================
+--- trunk/src/game_session.cpp	2005-08-18 19:59:50 UTC (rev 978)
++++ trunk/src/game_session.cpp	2005-08-18 22:13:52 UTC (rev 979)
+@@ -203,15 +203,15 @@
+           break;
+ 
+         case RUNNING:
+-          sector-&gt;update (delta);
+-          energy_bar-&gt;update(delta);
++          sector-&gt;update(delta);
++          energy_bar-&gt;update(delta, controller);
+           switch (control_state) 
+             {
+             case DIALOG:
+-              dialog_manager-&gt;update(delta);
++              dialog_manager-&gt;update(delta, controller);
+               break;
+             case CONVERSATION:
+-              conversation-&gt;update(delta);
++              conversation-&gt;update(delta, controller);
+               break;
+             case GAME:
+               break;
+@@ -219,11 +219,11 @@
+           break;
+         }
+       
+-      controller_help_window.update(delta);
+-      pda.update(delta);
++      controller_help_window.update(delta, controller);
++      pda.update(delta, controller);
+     }
+   
+-  inventory-&gt;update(delta);
++  inventory-&gt;update(delta, controller);
+ 
+   if(keystate[SDLK_ESCAPE])
+     quit();
+@@ -329,4 +329,10 @@
+     }
+ }
+ 
++PDA&amp;
++GameSession::get_pda()
++{
++  return pda;
++}
++
+ /* EOF */
+
+Modified: trunk/src/game_session.hpp
+===================================================================
+--- trunk/src/game_session.hpp	2005-08-18 19:59:50 UTC (rev 978)
++++ trunk/src/game_session.hpp	2005-08-18 22:13:52 UTC (rev 979)
+@@ -57,10 +57,12 @@
+ 
+   Sector*        sector;
+   View*          view;
++
+   EnergyBar*     energy_bar;
+   DialogManager* dialog_manager;
+   Conversation*  conversation;
+   Inventory*     inventory;
++  PDA            pda;
+ 
+   std::string filename;
+ 
+@@ -81,7 +83,6 @@
+ 
+   SceneContext&amp; get_scene_context() { return sc; }
+   View* get_view() { return view; }
+-  PDA pda;
+ 
+   void set_control_state(ControlState state) { control_state = state; }
+ 
+@@ -99,6 +100,8 @@
+   void update(float delta, const Controller&amp; controller);
+   void handle_event(const SDL_Event&amp; event);
+ 
++  PDA&amp; get_pda();
++
+   void quit();
+ };
+ 
+
+Modified: trunk/src/inventory.cpp
+===================================================================
+--- trunk/src/inventory.cpp	2005-08-18 19:59:50 UTC (rev 978)
++++ trunk/src/inventory.cpp	2005-08-18 22:13:52 UTC (rev 979)
+@@ -52,7 +52,7 @@
+   Items items;
+   int current_item;
+ 
+-  void update(float delta);
++  void update(float delta, const Controller&amp; controller);
+   void draw();
+   
+   void incr_current_item() { 
+@@ -118,16 +118,14 @@
+ }
+ 
+ void
+-Inventory::update(float delta)
++Inventory::update(float delta, const Controller&amp; controller)
+ {
+-  impl-&gt;update(delta);
++  impl-&gt;update(delta, controller);
+ }
+ 
+ void
+-InventoryImpl::update(float delta)
++InventoryImpl::update(float delta, const Controller&amp; controller)
+ {
+-  Controller controller = InputManager::get_controller();
+- 
+   float step_angle = (2*M_PI) / items.size();
+   if (fabsf(add_angle) &gt; step_angle)
+     {
+
+Modified: trunk/src/inventory.hpp
+===================================================================
+--- trunk/src/inventory.hpp	2005-08-18 19:59:50 UTC (rev 978)
++++ trunk/src/inventory.hpp	2005-08-18 22:13:52 UTC (rev 979)
+@@ -26,12 +26,13 @@
+ #ifndef HEADER_WINDSTILLE_INVENTORY_HPP
+ #define HEADER_WINDSTILLE_INVENTORY_HPP
+ 
++#include &quot;screen.hpp&quot;
+ #include &quot;sharedptr.hpp&quot;
+ 
+ class InventoryImpl;
+ 
+ /** */
+-class Inventory
++class Inventory : public Screen
+ {
+ private:
+ public:
+@@ -39,7 +40,7 @@
+   ~Inventory();
+ 
+   void draw();
+-  void update(float delta);
++  void update(float delta, const Controller&amp; controller);
+ 
+ private:
+   SharedPtr&lt;InventoryImpl&gt; impl;
+
+Modified: trunk/src/pda.cpp
+===================================================================
+--- trunk/src/pda.cpp	2005-08-18 19:59:50 UTC (rev 978)
++++ trunk/src/pda.cpp	2005-08-18 22:13:52 UTC (rev 979)
+@@ -67,12 +67,11 @@
+ }
+ 
+ void
+-PDA::update(float delta)
++PDA::update(float delta, const Controller&amp; controller)
+ {
+   if (!active)
+     return;
+   
+-  Controller controller = InputManager::get_controller();
+   const InputEventLst&amp; events = controller.get_events();
+   for(InputEventLst::const_iterator i = events.begin(); i != events.end(); ++i) {
+     if (i-&gt;type == AXIS_EVENT &amp;&amp; i-&gt;axis.name == X_AXIS) {
+
+Modified: trunk/src/pda.hpp
+===================================================================
+--- trunk/src/pda.hpp	2005-08-18 19:59:50 UTC (rev 978)
++++ trunk/src/pda.hpp	2005-08-18 22:13:52 UTC (rev 979)
+@@ -26,6 +26,8 @@
+ #ifndef HEADER_PDA_HPP
+ #define HEADER_PDA_HPP
+ 
++#include &quot;screen.hpp&quot;
++
+ class TextArea;
+ 
+ class DialogEntry
+@@ -48,13 +50,13 @@
+ };
+ 
+ /** */
+-class PDA
++class PDA : public Screen
+ {
+ public:
+   PDA();
+ 
+   void draw();
+-  void update(float delta);
++  void update(float delta, const Controller&amp; controller);
+   bool is_active() const {return active;}
+   void set_active(bool arg_active) {active = arg_active;}
+   void add_dialog(const std::string&amp; character, const std::string&amp; text);
+
+Modified: trunk/src/player.cpp
+===================================================================
+--- trunk/src/player.cpp	2005-08-18 19:59:50 UTC (rev 978)
++++ trunk/src/player.cpp	2005-08-18 22:13:52 UTC (rev 979)
+@@ -114,7 +114,7 @@
+ {
+   controller = InputManager::get_controller();
+ 
+-  if (!console.is_active() &amp;&amp; !GameSession::current()-&gt;pda.is_active()
++  if (!console.is_active() &amp;&amp; !GameSession::current()-&gt;get_pda().is_active()
+   &amp;&amp; GameSession::current()-&gt;get_game_state() != GameSession::DIALOG
+   &amp;&amp; GameSession::current()-&gt;get_game_state() != GameSession::CONVERSATION)
+     {
+
+Modified: trunk/src/screen.hpp
+===================================================================
+--- trunk/src/screen.hpp	2005-08-18 19:59:50 UTC (rev 978)
++++ trunk/src/screen.hpp	2005-08-18 22:13:52 UTC (rev 979)
+@@ -32,9 +32,15 @@
+   Screen();
+   virtual ~Screen();
+ 
++  /** Draw the current screen */
+   virtual void draw() =0;
++
++  /** Update the current screen by \a delta and with input from \a
++      controller */
+   virtual void update(float delta, const Controller&amp; controller) =0;
+-  virtual void handle_event(const SDL_Event&amp; event) =0;
++
++  /** Called once a new SDL_Event arrives */
++  virtual void handle_event(const SDL_Event&amp; event) {}
+ };
+ 
+ #endif
+
+Modified: trunk/src/scripting/interface.cpp
+===================================================================
+--- trunk/src/scripting/interface.cpp	2005-08-18 19:59:50 UTC (rev 978)
++++ trunk/src/scripting/interface.cpp	2005-08-18 22:13:52 UTC (rev 979)
+@@ -75,27 +75,27 @@
+ {
+   DialogManager::current()-&gt;add_dialog(alignment, portrait, text);
+   GameSession::current()-&gt;set_control_state(GameSession::DIALOG);
+-  GameSession::current()-&gt;pda.add_dialog(character, text);
++  GameSession::current()-&gt;get_pda().add_dialog(character, text);
+ }
+ 
+ void add_objective(const std::string&amp; name, const std::string&amp; text)
+ {
+-  GameSession::current()-&gt;pda.add_objective(name, text);
++  GameSession::current()-&gt;get_pda().add_objective(name, text);
+ }
+ 
+ void objective_complete(const std::string&amp; name)
+ {
+-  GameSession::current()-&gt;pda.objective_complete(name);
++  GameSession::current()-&gt;get_pda().objective_complete(name);
+ }
+ 
+ bool is_objective_given(const std::string&amp; name)
+ {
+-  return GameSession::current()-&gt;pda.is_objective_given(name);
++  return GameSession::current()-&gt;get_pda().is_objective_given(name);
+ }
+ 
+ bool is_objective_complete(const std::string&amp; name)
+ {
+-  return GameSession::current()-&gt;pda.is_objective_given(name);
++  return GameSession::current()-&gt;get_pda().is_objective_given(name);
+ }
+ 
+ bool run_before(HSQUIRRELVM vm)
+
+Modified: trunk/src/sector.hpp
+===================================================================
+--- trunk/src/sector.hpp	2005-08-18 19:59:50 UTC (rev 978)
++++ trunk/src/sector.hpp	2005-08-18 22:13:52 UTC (rev 979)
+@@ -68,6 +68,7 @@
+   void commit_removes();
+   void expose_object_to_squirrel(GameObject* object);
+   void remove_object_from_squirrel(GameObject* object);
++
+ public:
+   Sector(const std::string&amp; filename);
+   ~Sector();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000631.html">[Windstille-commit] r978 - in trunk: data/images data/images/inventory src src/math src/scripting
+</A></li>
+	<LI>Next message: <A HREF="000633.html">[Windstille-commit] r980 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#632">[ date ]</a>
+              <a href="thread.html#632">[ thread ]</a>
+              <a href="subject.html#632">[ subject ]</a>
+              <a href="author.html#632">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,375 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r349 - trunk/test/physics
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r349%20-%20trunk/test/physics&In-Reply-To=%3C200506120149.j5C1n1S3018787%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000005.html">
+   <LINK REL="Next"  HREF="000007.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r349 - trunk/test/physics</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r349%20-%20trunk/test/physics&In-Reply-To=%3C200506120149.j5C1n1S3018787%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r349 - trunk/test/physics">grumbel at sheep.berlios.de
+       </A><BR>
+    <I>Sun Jun 12 03:49:01 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000005.html">[Windstille-commit] r348 - in trunk: . test test/physics
+</A></li>
+        <LI>Next message: <A HREF="000007.html">[Windstille-commit] r350 - trunk/test/physics
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6">[ date ]</a>
+              <a href="thread.html#6">[ thread ]</a>
+              <a href="subject.html#6">[ subject ]</a>
+              <a href="author.html#6">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-06-12 03:48:56 +0200 (Sun, 12 Jun 2005)
+New Revision: 349
+
+Modified:
+   trunk/test/physics/main.cxx
+   trunk/test/physics/physics.cxx
+   trunk/test/physics/physics.hxx
+Log:
+- collisions are correctly detected now
+
+Modified: trunk/test/physics/main.cxx
+===================================================================
+--- trunk/test/physics/main.cxx	2005-06-10 16:49:45 UTC (rev 348)
++++ trunk/test/physics/main.cxx	2005-06-12 01:48:56 UTC (rev 349)
+@@ -38,6 +38,14 @@
+   int x_pos;
+   int y_pos;
+ 
++  //physics.add_object(PhysicObject(0, 0, 32, 600)).movable = false;
++  //physics.add_object(PhysicObject(800-32, 0, 32, 600)).movable = false;
++
++  //physics.add_object(PhysicObject(32, 0, 800-32, 32)).movable = false;
++  //physics.add_object(PhysicObject(32, 600-32, 800-32, 32)).movable = false;
++
++  physics.add_object(PhysicObject(400, 300, 100, 100)).movable = false;
++
+   // Run Main Loop
+   while(!CL_Keyboard::get_keycode(CL_KEY_ESCAPE))
+     {
+
+Modified: trunk/test/physics/physics.cxx
+===================================================================
+--- trunk/test/physics/physics.cxx	2005-06-10 16:49:45 UTC (rev 348)
++++ trunk/test/physics/physics.cxx	2005-06-12 01:48:56 UTC (rev 349)
+@@ -17,6 +17,8 @@
+ //  along with this program; if not, write to the Free Software
+ //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ 
++#include &lt;iostream&gt;
++#include &lt;assert.h&gt;
+ #include &lt;ClanLib/display.h&gt;
+ #include &quot;physics.hxx&quot;
+ 
+@@ -25,7 +27,7 @@
+   friction       = 0.01f;
+   
+   x_acceleration = 0.0f;
+-  y_acceleration = 2.0f;
++  y_acceleration = 0.0f;
+ }
+ 
+ Physics::~Physics()
+@@ -37,26 +39,171 @@
+ {
+   for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
+     {
+-      CL_Display::fill_rect(CL_Rectf(CL_Pointf(i-&gt;x_pos, i-&gt;y_pos),
+-                                    CL_Sizef(i-&gt;width, i-&gt;height)),
+-                            CL_Color(255, 255, 255));
++      if (!i-&gt;collision)
++        CL_Display::fill_rect(CL_Rectf(CL_Pointf(i-&gt;x_pos, i-&gt;y_pos),
++                                       CL_Sizef(i-&gt;width, i-&gt;height)),
++                              CL_Color(255, 255, 255));        
++      else
++        CL_Display::fill_rect(CL_Rectf(CL_Pointf(i-&gt;x_pos, i-&gt;y_pos),
++                                       CL_Sizef(i-&gt;width, i-&gt;height)),
++                              CL_Color(255, 0, 255));        
++      
++      CL_Display::draw_line(i-&gt;x_pos + i-&gt;width/2,
++                            i-&gt;y_pos + i-&gt;height/2,
++                            i-&gt;x_pos + i-&gt;width/2 + i-&gt;x_velocity,
++                            i-&gt;y_pos + i-&gt;height/2 + i-&gt;y_velocity,
++                            CL_Color(255, 0, 255));
+     }
+ }
++
++Physics::CollisionResult
++Physics::simplesweep1d(float a, float aw, float av,
++                       float b, float bw, float bv)
++{
++  // Normalize the calculation so that only A moves and B stands still
++  float v = av - bv;
++
++  if (v &gt; 0)
++    {
++      CollisionResult res;
++      res.u0 = (b - (a + aw)) / v;
++      res.u1 = (b + bw - a) / v;
++      res.state = COL_AT;
++
++      assert(res.u0 &lt; res.u1);
++      return res;
++    }
++  else if (v &lt; 0)
++    {
++      CollisionResult res;
++      res.u0 = (b + bw - a) / v;
++      res.u1 = (b - (a + aw)) / v;
++      res.state = COL_AT;
++
++      assert(res.u0 &lt; res.u1);
++      return res;
++    }
++  else // (v == 0)
++    {
++      CollisionResult res;
++
++      if ((a + aw) &lt; b || (a &gt; b + bw))
++        res.state = COL_NEVER;
++      else
++        res.state = COL_ALWAYS;
++
++      return res;
++    }
++}
+   
+ void
++Physics::resolve_collision(PhysicObject&amp; a, PhysicObject&amp; b, CollisionResult&amp; x, CollisionResult&amp; y, 
++                           float delta)
++{
++  if (x.state == COL_NEVER || y.state == COL_NEVER)
++    {
++      // nothing todo
++    }
++  else 
++    {
++      // code here
++      if (x.state == COL_AT)
++        {
++          //std::cout &lt;&lt; a.id &lt;&lt; &quot;: &quot; &lt;&lt; x.u0 &lt;&lt; &quot; &quot; &lt;&lt; x.u1 &lt;&lt; &quot; &quot; &lt;&lt; delta &lt;&lt; std::endl;
++          if (x.u1 &lt; 0 || x.u0 &gt; delta)
++            {
++              // miss, no collision in the current time frame
++            }
++          else
++            {
++              if (y.state == COL_ALWAYS)
++                {
++                  //std::cout &lt;&lt; &quot;col: &quot; &lt;&lt; a &lt;&lt; &quot; &quot; &lt;&lt; b &lt;&lt; std::endl;
++                  a.collision = true;
++                }
++              else if (y.state == COL_AT)
++                {
++                  if (y.u1 &lt; 0 || y.u0 &gt; delta)
++                    {
++                      // miss, no collision in the current time frame
++                    }
++                  else
++                    {
++                      //std::cout &lt;&lt; &quot;col: &quot; &lt;&lt; a &lt;&lt; &quot; &quot; &lt;&lt; b &lt;&lt; std::endl;
++                      a.collision = true;
++                    }
++                }
++              else
++                {
++                  assert(!&quot;Never reached&quot;);
++                }
++            }
++        }
++      else if (x.state == COL_ALWAYS)
++        {
++          if (y.state == COL_AT)
++            {
++              if (y.u1 &lt; 0 || y.u0 &gt; delta)
++                {
++                  // miss, no collision in the current time frame
++                }
++              else
++                {
++                  // collision
++                  //std::cout &lt;&lt; &quot;col: &quot; &lt;&lt; a &lt;&lt; &quot; &quot; &lt;&lt; b &lt;&lt; std::endl;
++                  a.collision = true;
++                }
++            }
++          else if (y.state == COL_ALWAYS)
++            {
++              // stuck
++              //std::cout &lt;&lt; &quot;col: &quot; &lt;&lt; a &lt;&lt; &quot; &quot; &lt;&lt; b &lt;&lt; std::endl;
++              a.collision = true;
++            }
++          else
++            {
++              assert(!&quot;Never reached&quot;);
++            }
++        }
++      else
++        {
++          assert(!&quot;Never reached&quot;);
++        }
++    }
++}
++
++void
+ Physics::update(float delta)
+ {
+   for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
+     {
+-      i-&gt;x_velocity -= (i-&gt;x_velocity * friction) * delta;
+-      i-&gt;y_velocity -= (i-&gt;y_velocity * friction) * delta;
++      i-&gt;collision = false;
++                
++      if (i-&gt;movable)
++        {
++          //                        i - why doesn't this work?
++          for(Objects::iterator j = objects.begin(); j != objects.end(); ++j)
++            {
++              if (i != j)
++                {
++                  CollisionResult x_res = simplesweep1d(i-&gt;x_pos, i-&gt;width, i-&gt;x_velocity,
++                                                        j-&gt;x_pos, j-&gt;width, j-&gt;x_velocity);
++                  CollisionResult y_res = simplesweep1d(i-&gt;y_pos, i-&gt;height, i-&gt;y_velocity,
++                                                        j-&gt;y_pos, j-&gt;height, j-&gt;y_velocity);
++                  resolve_collision(*i, *j, x_res, y_res, delta);
++                }
++            }
+ 
+-      i-&gt;x_velocity += x_acceleration * delta;
+-      i-&gt;y_velocity += y_acceleration * delta;
++          // Insert Collisions handling
++          i-&gt;x_pos += i-&gt;x_velocity * delta;
++          i-&gt;y_pos += i-&gt;y_velocity * delta;
+ 
+-      // Insert Collisions handling
+-      i-&gt;x_pos += i-&gt;x_velocity * delta;
+-      i-&gt;y_pos += i-&gt;y_velocity * delta;
++          i-&gt;x_velocity -= (i-&gt;x_velocity * friction) * delta;
++          i-&gt;y_velocity -= (i-&gt;y_velocity * friction) * delta;
++              
++          i-&gt;x_velocity += x_acceleration * delta;
++          i-&gt;y_velocity += y_acceleration * delta;
++        }
+     }
+ }
+ 
+
+Modified: trunk/test/physics/physics.hxx
+===================================================================
+--- trunk/test/physics/physics.hxx	2005-06-10 16:49:45 UTC (rev 348)
++++ trunk/test/physics/physics.hxx	2005-06-12 01:48:56 UTC (rev 349)
+@@ -29,6 +29,8 @@
+   /** Uniq Id which identifies this object */
+   int id;
+ 
++  bool movable;
++
+   // Top/Right corner of the object
+   float x_pos;
+   float y_pos;
+@@ -41,12 +43,15 @@
+   float x_velocity;
+   float y_velocity;
+ 
++  bool collision;
++
+   PhysicObject(float x_, float y_, float width_, float height_) 
+   {
+     id = -1;
+-
++    movable = true;
+     mass = 1.0f;
+-
++    collision = false;
++    
+     x_pos = x_;
+     y_pos = y_;
+     
+@@ -58,6 +63,15 @@
+   }
+ };
+ 
++inline
++std::ostream&amp; operator&lt;&lt;(std::ostream&amp; out, const PhysicObject&amp; obj)
++{
++  out &lt;&lt; obj.id &lt;&lt; &quot;:[(&quot; &lt;&lt; obj.x_pos &lt;&lt; &quot;, &quot;
++      &lt;&lt; obj.y_pos &lt;&lt; &quot;), &quot;
++      &lt;&lt; &quot;(&quot; &lt;&lt; obj.width &lt;&lt; &quot;, &quot; &lt;&lt; obj.height &lt;&lt; &quot;)]+[&quot; &lt;&lt; obj.x_velocity &lt;&lt; &quot;, &quot; &lt;&lt; obj.y_velocity &lt;&lt; &quot;]&quot;;
++  return out;
++}
++
+ /** */
+ class Physics
+ {
+@@ -70,6 +84,29 @@
+   float x_acceleration;
+   float y_acceleration;
+ 
++  enum CollisionState { COL_AT, COL_ALWAYS, COL_NEVER };
++
++  struct CollisionResult 
++  {
++    CollisionState state;
++
++    // Time at which the collision starts, only valid if state == COL_AT
++    float u0;
++    
++    // Time at which the collisions ends, only valid if state == COL_AT
++    float u1;
++  };
++
++  /** Calculate when two objects, given by there position (a,b), there
++      width (aw,bw) and there velocity (av,bw) start colliding (u0)
++      and end colliding (u1). true is set when u0 and u1 could be
++      calculated, false when the relative velocity was zero.
++  */
++  CollisionResult simplesweep1d(float a, float aw, float av,
++                                float b, float bw, float bv);
++
++  void resolve_collision(PhysicObject&amp; a, PhysicObject&amp; b, CollisionResult&amp; x, CollisionResult&amp; y, 
++                         float delta);
+ public:
+ 
+   Physics();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000005.html">[Windstille-commit] r348 - in trunk: . test test/physics
+</A></li>
+	<LI>Next message: <A HREF="000007.html">[Windstille-commit] r350 - trunk/test/physics
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#6">[ date ]</a>
+              <a href="thread.html#6">[ thread ]</a>
+              <a href="subject.html#6">[ subject ]</a>
+              <a href="author.html#6">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,633 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1537 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1537%20-%20trunk/griv&In-Reply-To=%3C200711132317.lADNHegd027122%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001186.html">
+   <LINK REL="Next"  HREF="001188.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1537 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1537%20-%20trunk/griv&In-Reply-To=%3C200711132317.lADNHegd027122%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1537 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Nov 14 00:17:40 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001186.html">[Windstille-commit] r1536 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001188.html">[Windstille-commit] r1538 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1187">[ date ]</a>
+              <a href="thread.html#1187">[ thread ]</a>
+              <a href="subject.html#1187">[ subject ]</a>
+              <a href="author.html#1187">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-14 00:17:39 +0100 (Wed, 14 Nov 2007)
+New Revision: 1537
+
+Added:
+   trunk/griv/TODO
+Modified:
+   trunk/griv/SConstruct
+   trunk/griv/display.cpp
+   trunk/griv/display.hpp
+   trunk/griv/griv.cpp
+   trunk/griv/image.cpp
+   trunk/griv/image.hpp
+   trunk/griv/texture.cpp
+   trunk/griv/texture.hpp
+   trunk/griv/workspace.cpp
+Log:
+- trying to get OpenGL to work
+
+Modified: trunk/griv/SConstruct
+===================================================================
+--- trunk/griv/SConstruct	2007-11-13 18:15:58 UTC (rev 1536)
++++ trunk/griv/SConstruct	2007-11-13 23:17:39 UTC (rev 1537)
+@@ -1,6 +1,6 @@
+ # -*- python -*-
+ 
+-env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O0&quot;, &quot;-g&quot;], LIBS=['SDL_image', 'mhash'])
++env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O0&quot;, &quot;-g&quot;], LIBS=['SDL_image', 'mhash', 'GL', 'GLU'])
+ env.ParseConfig(&quot;sdl-config --libs --cflags&quot;)
+ 
+ env.Program('griv', ['griv.cpp',
+
+Added: trunk/griv/TODO
+===================================================================
+--- trunk/griv/TODO	2007-11-13 18:15:58 UTC (rev 1536)
++++ trunk/griv/TODO	2007-11-13 23:17:39 UTC (rev 1537)
+@@ -0,0 +1,6 @@
++- move position into Image
++- handle object placement elsewhere
++
++1532 - software rendering revision
++
++# EOF #
+
+Modified: trunk/griv/display.cpp
+===================================================================
+--- trunk/griv/display.cpp	2007-11-13 18:15:58 UTC (rev 1536)
++++ trunk/griv/display.cpp	2007-11-13 23:17:39 UTC (rev 1537)
+@@ -24,14 +24,19 @@
+ */
+ 
+ #include &lt;iostream&gt;
++#include &lt;X11/Xlib.h&gt;
++#include &lt;GL/gl.h&gt;
++#include &quot;SDL_syswm.h&quot;
+ #include &quot;display.hpp&quot;
+ 
+-SDL_Surface* Display::screen = 0;
+-Uint32 Display::flags = 0;
++SDL_SysWMinfo syswm;
++SDL_Surface* Framebuffer::screen = 0;
++Uint32 Framebuffer::flags = 0;
+ 
+ void
+-Display::init()
++Framebuffer::init()
+ {
++  std::cout &lt;&lt; &quot;Framebuffer::init()&quot; &lt;&lt; std::endl;
+   if (SDL_Init(SDL_INIT_VIDEO) != 0)
+     {
+       std::cout &lt;&lt; &quot;Unable to initialize SDL: &quot; &lt;&lt; SDL_GetError() &lt;&lt; std::endl;
+@@ -39,9 +44,14 @@
+     }
+   atexit(SDL_Quit); 
+  
+-  flags = SDL_RESIZABLE;
+-  screen = SDL_SetVideoMode(1024, 768, 0, flags);
+-    
++  //SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1); 
++  //SDL_GL_SetAttribute(SDL_GL_RED_SIZE,   5);
++  //SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 5);
++  //SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,  5);
++  
++  flags = SDL_RESIZABLE | SDL_OPENGL;
++  screen = SDL_SetVideoMode(800, 600, 0, flags);
++
+   if (screen == NULL) 
+     {
+       std::cout &lt;&lt; &quot;Unable to set video mode: &quot; &lt;&lt; SDL_GetError() &lt;&lt; std::endl;
+@@ -49,38 +59,76 @@
+     }
+ 
+   SDL_WM_SetCaption(&quot;Griv 0.0.1&quot;, 0 /* icon */);
++  SDL_EnableUNICODE(1);
+ 
+-  SDL_EnableUNICODE(1);
++  glViewport(0, 0, screen-&gt;w, screen-&gt;h);
++  glMatrixMode(GL_PROJECTION);
++  glLoadIdentity();
++  glOrtho(0.0, screen-&gt;w, screen-&gt;h, 0.0, 1000.0, -1000.0);
++  glMatrixMode(GL_MODELVIEW);
++  glLoadIdentity();
++  //static const float cl_pixelcenter_constant = 0.375;
++  //glTranslated(cl_pixelcenter_constant, cl_pixelcenter_constant, 0.0);
++  
++  SDL_VERSION(&amp;syswm.version); // this is important!
++  if (SDL_GetWMInfo(&amp;syswm) == -1)
++    {
++      std::cout &lt;&lt; &quot;Couldn't get WM info &quot; &lt;&lt; std::endl;
++    }
++
++  //XInitThreads();
+ }
+ 
+ void
+-Display::toggle_fullscreen()
++Framebuffer::toggle_fullscreen()
+ {
+-  if (flags &amp; SDL_FULLSCREEN)
+-    flags = SDL_RESIZABLE;
+-  else
+-    flags |= SDL_FULLSCREEN;
++  if (0)
++    {
++      if (flags &amp; SDL_FULLSCREEN)
++        flags = SDL_RESIZABLE;
++      else
++        flags |= SDL_FULLSCREEN;
+  
+-  // Should use desktop resolution for this instead, but how?
+-  screen = SDL_SetVideoMode(1152, 864, 0, flags); 
++      // Should use desktop resolution for this instead, but how?
++      screen = SDL_SetVideoMode(1152, 864, 0, flags); 
++    }
+ }
+ 
+ void
+-Display::resize(int w, int h)
++Framebuffer::resize(int w, int h)
+ {
+-  screen = SDL_SetVideoMode(w, h, 0, SDL_RESIZABLE);
++  //screen = SDL_SetVideoMode(w, h, 0, SDL_RESIZABLE);
+ }
+ 
+ void
+-Display::flip()
++Framebuffer::flip()
+ {
+-  SDL_Flip(screen);  
++  //SDL_Flip(screen);
++  SDL_GL_SwapBuffers();
+ }
+ 
+ void
+-Display::clear()
++Framebuffer::clear()
+ {
+-  SDL_FillRect(Display::get_screen(), NULL, SDL_MapRGB(Display::get_screen()-&gt;format, 0, 0, 0));
++  glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
++  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
++  //SDL_FillRect(Framebuffer::get_screen(), NULL, SDL_MapRGB(Framebuffer::get_screen()-&gt;format, 0, 0, 0));
+ }
+ 
++void
++Framebuffer::lock()
++{
++  syswm.info.x11.lock_func();
++  XLockDisplay(syswm.info.x11.display);
++  syswm.info.x11.unlock_func();
++}
++
++void
++Framebuffer::unlock()
++{
++  syswm.info.x11.lock_func();
++  XUnlockDisplay(syswm.info.x11.display);
++  syswm.info.x11.unlock_func();
++}
++
+ /* EOF */
+
+Modified: trunk/griv/display.hpp
+===================================================================
+--- trunk/griv/display.hpp	2007-11-13 18:15:58 UTC (rev 1536)
++++ trunk/griv/display.hpp	2007-11-13 23:17:39 UTC (rev 1537)
+@@ -26,10 +26,25 @@
+ #ifndef HEADER_DISPLAY_HPP
+ #define HEADER_DISPLAY_HPP
+ 
++#include &lt;GL/gl.h&gt;
++#include &lt;GL/glu.h&gt;
++#include &lt;sstream&gt;
++#include &lt;stdexcept&gt;
+ #include &quot;SDL.h&quot;
+ 
++static inline void assert_gl(const char* message)
++{
++  GLenum error = glGetError();
++  if(error != GL_NO_ERROR) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;OpenGLError while '&quot; &lt;&lt; message &lt;&lt; &quot;': &quot;
++        &lt;&lt; gluErrorString(error);
++    throw std::runtime_error(msg.str());
++  }
++}
++
+ /** */
+-class Display
++class Framebuffer
+ {
+ private:
+   static SDL_Surface* screen;
+@@ -47,9 +62,9 @@
+   static void resize(int w, int h);
+   static void flip();
+   static void clear();
+-private:
+-  Display (const Display&amp;);
+-  Display&amp; operator= (const Display&amp;);
++
++  static void lock();
++  static void unlock();
+ };
+ 
+ #endif
+
+Modified: trunk/griv/griv.cpp
+===================================================================
+--- trunk/griv/griv.cpp	2007-11-13 18:15:58 UTC (rev 1536)
++++ trunk/griv/griv.cpp	2007-11-13 23:17:39 UTC (rev 1537)
+@@ -38,7 +38,7 @@
+             break;
+ 
+           case SDL_VIDEORESIZE:
+-            Display::resize(event.resize.w, event.resize.h);
++            Framebuffer::resize(event.resize.w, event.resize.h);
+             force_redraw = true;
+             break;
+ 
+@@ -53,7 +53,7 @@
+               }
+             else if (event.key.keysym.sym == SDLK_F11)
+               {
+-                Display::toggle_fullscreen();
++                Framebuffer::toggle_fullscreen();
+                 force_redraw = true;
+               }
+             else if (event.key.keysym.sym == SDLK_SPACE)
+@@ -85,8 +85,8 @@
+                 if (event.button.state == SDL_PRESSED)
+                   {
+                     //std::cout &lt;&lt; &quot;zoom out&quot; &lt;&lt; std::endl;
+-                    workspace-&gt;zoom_out(event.button.x - Display::get_width()/2,
+-                                        event.button.y - Display::get_height()/2);
++                    workspace-&gt;zoom_out(event.button.x - Framebuffer::get_width()/2,
++                                        event.button.y - Framebuffer::get_height()/2);
+                     loader.clear();
+                   }
+               }
+@@ -96,8 +96,8 @@
+                 if (event.button.state == SDL_PRESSED)
+                   {
+                     //std::cout &lt;&lt; &quot;zoom in&quot; &lt;&lt; std::endl;
+-                    workspace-&gt;zoom_in(event.button.x - Display::get_width()/2,
+-                                       event.button.y - Display::get_height()/2);
++                    workspace-&gt;zoom_in(event.button.x - Framebuffer::get_width()/2,
++                                       event.button.y - Framebuffer::get_height()/2);
+                     loader.clear();
+                   }
+               }
+@@ -114,7 +114,7 @@
+ Griv::main(int argc, char** argv)
+ {
+   Filesystem::init();
+-  Display::init();
++  Framebuffer::init();
+   Image::init();
+ 
+   workspace = new Workspace();
+@@ -149,9 +149,9 @@
+         {
+           force_redraw = false;
+ 
+-          Display::clear();
++          Framebuffer::clear();
+           workspace-&gt;draw();
+-          Display::flip();
++          Framebuffer::flip();
+ 
+           old_res = workspace-&gt;res;
+           old_x_offset = x_offset;
+@@ -167,7 +167,7 @@
+   delete workspace;
+ 
+   Image::deinit();
+-  Display::deinit();
++  Framebuffer::deinit();
+   Filesystem::deinit();
+ 
+   return 0;
+
+Modified: trunk/griv/image.cpp
+===================================================================
+--- trunk/griv/image.cpp	2007-11-13 18:15:58 UTC (rev 1536)
++++ trunk/griv/image.cpp	2007-11-13 23:17:39 UTC (rev 1537)
+@@ -24,7 +24,9 @@
+ */
+ 
+ #include &lt;iostream&gt;
++#include &lt;GL/gl.h&gt;
+ #include &quot;SDL_image.h&quot;
++#include &quot;texture.hpp&quot;
+ #include &quot;image.hpp&quot;
+ 
+ SDL_Surface* Image::loading_16;
+@@ -52,6 +54,7 @@
+ Image::Image(const std::string&amp; url)
+   : url(url), 
+     surface(0),
++    texture(0),
+     res(0),
+     image_requested(false)
+ {
+@@ -67,6 +70,7 @@
+ Image::receive(SDL_Surface* new_surface)
+ { 
+   SDL_LockMutex(mutex);
++  //Framebuffer::lock();
+   if (new_surface)
+     {
+       if (surface)
+@@ -74,14 +78,21 @@
+           SDL_Surface* old_surface = surface;
+           surface = new_surface;
+           SDL_FreeSurface(old_surface); 
++
++          delete texture;
++          texture = 0;
++
++          //texture = new Texture(surface);
+         }
+       else
+         {
+           surface = new_surface;
++          //texture = new Texture(surface);
+         }
+       force_redraw = true;
+     }
+   image_requested = false;
++  //Framebuffer::unlock();
+   SDL_UnlockMutex(mutex);
+ }
+ 
+@@ -89,8 +100,9 @@
+ Image::draw(int x, int y, int res)
+ {
+   SDL_LockMutex(mutex);
+-  if (x &gt; Display::get_width() ||
+-      y &gt; Display::get_height() ||
++  //Framebuffer::lock();
++  if (x &gt; Framebuffer::get_width() ||
++      y &gt; Framebuffer::get_height() ||
+       x &lt; -res || 
+       y &lt; -res)
+     { // Image out of screen
+@@ -115,11 +127,29 @@
+       SDL_Rect dstrect;
+       dstrect.x = x;
+       dstrect.y = y;
+-      if (surface)
+-        SDL_BlitSurface(surface, NULL, Display::get_screen(), &amp;dstrect);
+-      else if (image_requested)
+-        SDL_BlitSurface(placeholder(res), NULL, Display::get_screen(), &amp;dstrect);        
++      
++      if (0)
++        {
++          if (surface)
++            SDL_BlitSurface(surface, NULL, Framebuffer::get_screen(), &amp;dstrect);
++          else if (image_requested)
++            SDL_BlitSurface(placeholder(res), NULL, Framebuffer::get_screen(), &amp;dstrect);        
++        }
++      else
++        {
++          if (surface)
++            {
++              glColor3f(1.0f, 1.0f, 1.0f);
++              glBegin(GL_QUADS);
++              glVertex2i(x, y);
++              glVertex2i(x + surface-&gt;w, y);
++              glVertex2i(x + surface-&gt;w, y + surface-&gt;h);
++              glVertex2i(x, y + surface-&gt;h);
++              glEnd();
++            }
++        }
+     }
++  //Framebuffer::unlock();
+   SDL_UnlockMutex(mutex);
+ }
+ 
+
+Modified: trunk/griv/image.hpp
+===================================================================
+--- trunk/griv/image.hpp	2007-11-13 18:15:58 UTC (rev 1536)
++++ trunk/griv/image.hpp	2007-11-13 23:17:39 UTC (rev 1537)
+@@ -31,6 +31,8 @@
+ #include &quot;loader.hpp&quot;
+ #include &quot;griv.hpp&quot;
+ 
++class Texture;
++
+ class Image
+ {
+ public:
+@@ -70,6 +72,7 @@
+ 
+   SDL_Surface* surface_16x16;
+   SDL_Surface* surface;
++  Texture*     texture;
+   int res;
+   bool image_requested;
+ 
+
+Modified: trunk/griv/texture.cpp
+===================================================================
+--- trunk/griv/texture.cpp	2007-11-13 18:15:58 UTC (rev 1536)
++++ trunk/griv/texture.cpp	2007-11-13 23:17:39 UTC (rev 1537)
+@@ -23,14 +23,74 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;iostream&gt;
++#include &lt;stdexcept&gt;
++#include &quot;display.hpp&quot;
+ #include &quot;texture.hpp&quot;
+ 
+ Texture::Texture(SDL_Surface* surface)
+ {
++  std::cout &lt;&lt; &quot;Creating Texture&quot; &lt;&lt; std::endl;
++  glGenTextures(1, &amp;handle);
++
++  width  = surface-&gt;w;
++  height = surface-&gt;h;
++
++  const SDL_PixelFormat* format = surface-&gt;format;
++
++  if(format-&gt;BitsPerPixel != 24 &amp;&amp; format-&gt;BitsPerPixel != 32)
++    throw std::runtime_error(&quot;image has not 24 or 32 bit color depth&quot;);
++  
++  GLint maxt;
++  glGetIntegerv(GL_MAX_TEXTURE_SIZE, &amp;maxt);
++  if(surface-&gt;w &gt; maxt || surface-&gt;h &gt; maxt)
++    {
++      throw std::runtime_error(&quot;Texture size not supported&quot;);
++    }
++
++  GLint sdl_format;
++  if (format-&gt;BytesPerPixel == 3)
++    {
++      sdl_format = GL_RGB;
++    }
++  else if (format-&gt;BytesPerPixel == 4)
++    {
++      sdl_format = GL_RGBA;
++    }
++  else
++    {
++      throw std::runtime_error(&quot;Texture: Image format not supported&quot;);
++    }
++
++  glBindTexture(GL_TEXTURE_2D, handle);
++  glEnable(GL_TEXTURE_2D);
++
++  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
++  glPixelStorei(GL_UNPACK_ROW_LENGTH, surface-&gt;pitch/format-&gt;BytesPerPixel);
++  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB,
++               surface-&gt;w, surface-&gt;h, 0, sdl_format,
++               GL_UNSIGNED_BYTE, surface-&gt;pixels);
++
++  assert_gl(&quot;creating texture&quot;);
++
++  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
++  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
++  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
++  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP);
++
++  assert_gl(&quot;setting texture parameters&quot;);
+ }
+ 
+ Texture::~Texture()
+ {
++  glDeleteTextures(1, &amp;handle);
+ }
+ 
++void
++Texture::bind()
++{
++  glBindTexture(GL_TEXTURE_2D, handle);
++}
++
+ /* EOF */
+
+Modified: trunk/griv/texture.hpp
+===================================================================
+--- trunk/griv/texture.hpp	2007-11-13 18:15:58 UTC (rev 1536)
++++ trunk/griv/texture.hpp	2007-11-13 23:17:39 UTC (rev 1537)
+@@ -26,18 +26,27 @@
+ #ifndef HEADER_TEXTURE_HPP
+ #define HEADER_TEXTURE_HPP
+ 
++#include &lt;GL/gl.h&gt;
++#include &lt;GL/glu.h&gt;
+ #include &quot;SDL.h&quot;
+ 
+ /** */
+ class Texture
+ {
+ private:
++  GLuint handle;
++
++  int width;
++  int height;
++
+ public:
+   Texture(SDL_Surface* surface);
+   ~Texture();
+ 
+   int get_width() const;
+   int get_height() const;
++  
++  void bind();
+ private:
+   Texture (const Texture&amp;);
+   Texture&amp; operator= (const Texture&amp;);
+
+Modified: trunk/griv/workspace.cpp
+===================================================================
+--- trunk/griv/workspace.cpp	2007-11-13 18:15:58 UTC (rev 1536)
++++ trunk/griv/workspace.cpp	2007-11-13 23:17:39 UTC (rev 1537)
+@@ -46,8 +46,8 @@
+   int w = int(sqrt(4 * images.size() / 3));
+   for(int i = 0; i &lt; int(images.size()); ++i)
+     {
+-      images[i]-&gt;draw((i % w) * res + x_offset + Display::get_width()/2,
+-                      (i / w) * res + y_offset + Display::get_height()/2,
++      images[i]-&gt;draw((i % w) * (res+res/32) + x_offset + Framebuffer::get_width()/2,
++                      (i / w) * (res+res/32) + y_offset + Framebuffer::get_height()/2,
+                       res);
+     }
+ }
+@@ -62,7 +62,8 @@
+       std::vector&lt;std::string&gt; dir_list = Filesystem::open_directory(filename);
+       for(std::vector&lt;std::string&gt;::iterator i = dir_list.begin(); i != dir_list.end(); ++i)
+         {
+-          add(*i);
++          if (*i != &quot;.xvpics&quot;)
++            add(*i);
+         }
+     }
+   else if (has_suffix(filename, &quot;.jpg&quot;) ||
+@@ -78,8 +79,8 @@
+ Workspace::zoom_in(int x, int y)
+ {
+   res *= 2;
+-  if (res &gt; 2048)
+-    res = 2048;
++  if (res &gt; 8192)
++    res = 8192;
+   else
+     { //300,200 ~ 212, 134 ~ 64, 0
+       x_offset *= 2;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001186.html">[Windstille-commit] r1536 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001188.html">[Windstille-commit] r1538 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1187">[ date ]</a>
+              <a href="thread.html#1187">[ thread ]</a>
+              <a href="subject.html#1187">[ subject ]</a>
+              <a href="author.html#1187">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

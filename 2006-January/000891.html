@@ -1,0 +1,280 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1238 - trunk/tools
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1238%20-%20trunk/tools&In-Reply-To=%3C200601201939.k0KJdw3M013859%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000890.html">
+   <LINK REL="Next"  HREF="000892.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1238 - trunk/tools</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1238%20-%20trunk/tools&In-Reply-To=%3C200601201939.k0KJdw3M013859%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1238 - trunk/tools">grumbel at berlios.de
+       </A><BR>
+    <I>Fri Jan 20 20:39:58 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000890.html">[Windstille-commit] r1237 - trunk/tools
+</A></li>
+        <LI>Next message: <A HREF="000892.html">[Windstille-commit] r1239 - trunk/tools
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#891">[ date ]</a>
+              <a href="thread.html#891">[ thread ]</a>
+              <a href="subject.html#891">[ subject ]</a>
+              <a href="author.html#891">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-01-20 20:39:57 +0100 (Fri, 20 Jan 2006)
+New Revision: 1238
+
+Modified:
+   trunk/tools/data.py
+   trunk/tools/helper.py
+   trunk/tools/windstille_export2.py
+Log:
+- optimized a bit and added vertex and mesh moving
+
+Modified: trunk/tools/data.py
+===================================================================
+--- trunk/tools/data.py	2006-01-20 01:04:23 UTC (rev 1237)
++++ trunk/tools/data.py	2006-01-20 19:39:57 UTC (rev 1238)
+@@ -17,39 +17,44 @@
+ 
+     self.vertices         = []
+ 
+-    # Table to translate (object, index) to new_index
+-    # Format: [[object, index, new_index], ...]
+-    self.transtable       = []
++  def merge(self, mesh):
++      &quot;&quot;&quot;Merges a mesh with self&quot;&quot;&quot;
++      if self.texture_filename != mesh.texture_filename:
++          raise Exception, &quot;Error: MeshData:merge: meshes can only be merged if they have the same texture&quot;
++      elif self.vertices != []:
++          raise Exception, &quot;Error: MeshData:merge: Must merge the meshes before finalization&quot;
++      else:
++          self.faces += mesh.faces
+ 
+-  def transtable_has_vertex(self, new_object, new_index):
+-      for (object, index, new_index) in self.transtable:
+-          if object == new_object and index == new_object:
+-              return True
+-          else:
+-              return False
+-
+-  def translate(self, vert):
+-      &quot;&quot;&quot;Translate a vertex given as object, index pair to its
+-      corresponding index, as used in the wsprite file&quot;&quot;&quot;
+-      
+-      for (object, index, new_index) in self.transtable:
+-          if object == vert.object and index == vert.index:
+-              return new_index
+-      
+-      print &quot;MeshData: Couldn't translate vertex: %s, %s&quot; % (vert.object, vert.index)
+-      return 0
+-
+   def finalize(self):
+-      &quot;&quot;&quot;Reorders vertex indexes and merge vertexes which have the same
+-      UV coordinates&quot;&quot;&quot;
++      &quot;&quot;&quot;Reorders vertex indexes and merge vertexes which have the
++      same UV coordinates, thus bringing the MeshData into a stage
++      where it is ready to be written out to file&quot;&quot;&quot;
+ 
++      # Merge vertices with the same UV
++      vertices = {}
+       for face in self.faces:
+           for vert in face.verts:
+-              if not self.transtable_has_vertex(vert.object, vert.index):
+-                  new_index = len(self.transtable)
+-                  self.transtable.append([vert.object, vert.index, new_index])
+-                  self.vertices.append(vert)
++              key = (vert.uv[0], vert.uv[1])
++              vertices[key] = vert
+ 
++      print &quot;Vertices: &quot;, len(vertices)
++
++      # FIXME: This might not work with vertices that have the same
++      # uv, but different positions
++      for face in self.faces:
++          for vi in range(0, len(face.verts)):
++              key = (face.verts[vi].uv[0], face.verts[vi].uv[1])
++              face.verts[vi] = vertices[key]
++
++      # Generate new index numbering
++      self.vertices = vertices.values()
++      for i, vert in enumerate(self.vertices):
++          vert.new_index = i
++
++      ## Remove '//' infront of the filename that Blender inserts there
++      self.texture_filename = self.texture_filename[2:]
++      
+ class FaceData:
+     def __init__(self, verts, normal):
+         self.verts   = verts
+@@ -57,10 +62,11 @@
+ 
+ class VertexData:
+     def __init__(self, object, index, uv, normal):
+-        self.object = object
+-        self.index  = index
+-        self.uv     = uv
+-        self.normal = normal
++        self.object    = object
++        self.index     = index
++        self.uv        = uv
++        self.normal    = normal
++        self.new_index = -1
+ 
+ class AttachmentPointData:
+     &quot;&quot;&quot;Data for an attachment point, its location and its rotation&quot;&quot;&quot;
+
+Modified: trunk/tools/helper.py
+===================================================================
+--- trunk/tools/helper.py	2006-01-20 01:04:23 UTC (rev 1237)
++++ trunk/tools/helper.py	2006-01-20 19:39:57 UTC (rev 1238)
+@@ -49,10 +49,11 @@
+ def get_text(textname):
+   &quot;&quot;&quot;Little shortcut function to return the content of
+   Blender.Text.get(textname) as a single string and do a little error
+-  handling in addition&quot;&quot;&quot; 
+-  textobj = Blender.Text.Get(textname)
+-  if not textobj:
+-    print &quot;WARNING: Text '%s' not found&quot; % textname
++  handling in addition&quot;&quot;&quot;
++  try:
++    textobj = Blender.Text.Get(textname)
++  except Exception, err:
++    print &quot;WARNING: &quot;, err
+     return &quot;&quot;
+   else:
+     return string.join(textobj.asLines(), &quot;\n&quot;)
+
+Modified: trunk/tools/windstille_export2.py
+===================================================================
+--- trunk/tools/windstille_export2.py	2006-01-20 01:04:23 UTC (rev 1237)
++++ trunk/tools/windstille_export2.py	2006-01-20 19:39:57 UTC (rev 1238)
+@@ -33,6 +33,12 @@
+ #
+ # See windstille/docs/models.txt for more details
+ 
++### TODO ###
++# - add merging of vertices with the same uv
++# - add merging of meshes with the same texture
++# - add handling of meshes with armatures, but without actions
++############
++
+ import struct, shlex, os.path, math
+ import Blender
+ from Blender import NMesh
+@@ -153,16 +159,22 @@
+           self.action_data.append(ActionData(action.getName(), actioncfg, frame_data))
+ 
+   def collect_object_data(self):
++    self.mesh_data = {}
+     for obj in self.mesh_objects:
+-      self.mesh_data += self.collect_mesh_data(obj)
++      ### Convert mesh_objects to MeshData and merge all meshes with
++      ### the same texture     
++      for (texture, mesh) in self.collect_mesh_data(obj).iteritems():
++        if self.mesh_data.has_key(texture):
++          self.mesh_data[texture].merge(mesh)
++        else:
++          self.mesh_data[texture] = mesh
++    self.mesh_data = self.mesh_data.values()
+ 
+-    # insert code to merge meshes here
+-
+-    # Create the transtable
++    # Optimize the meshs by merging meshes and vertices
+     for mesh in self.mesh_data:
+       mesh.finalize()
+ 
+-  def collect_mesh_data(self, obj):
++  def collect_mesh_data(self, obj): # returns { texture_filename : MeshData, ...}
+       &quot;&quot;&quot;
+       Returns mesh_data as dict with format:
+       key: texture_filename
+@@ -174,7 +186,7 @@
+           if face.image:
+               texture_filename = face.image.filename
+           else:
+-              texture_filename = &quot;//404.png&quot; # FIXME: what is // good for?
++              texture_filename = &quot;//404.png&quot;
+ 
+           if not mesh_data.has_key(texture_filename):
+               mesh_data[texture_filename] = MeshData(texture_filename)
+@@ -197,7 +209,7 @@
+               mesh_data[texture_filename].faces.append(FaceData(faces,
+                                                                 [face.normal[1], -face.normal[2], -face.normal[0]]))
+ 
+-      return mesh_data.values()
++      return mesh_data
+ 
+   def collect_frame_data(self):
+       &quot;&quot;&quot;
+@@ -217,12 +229,12 @@
+       # no triangles here (those are global), just vertexes (those are local)
+       for mesh_data in self.mesh_data:
+           vertex_positions = []
+-          for vertex in mesh_data.transtable:
+-              if obj != vertex[0]:
+-                  obj  = vertex[0]
++          for vertex in mesh_data.vertices:
++              if obj != vertex.object:
++                  obj  = vertex.object
+                   data = Blender.NMesh.GetRawFromObject(obj.getName())
+ 
+-              index = vertex[1]
++              index = vertex.index
+ 
+               m = obj.getMatrix()
+ 
+@@ -264,9 +276,9 @@
+           ## Vertex indices of triangles
+           for face in mesh.faces:
+               out.write(struct.pack(&quot;=HHH&quot;,
+-                                    mesh.translate(face.verts[0]),
+-                                    mesh.translate(face.verts[1]),
+-                                    mesh.translate(face.verts[2])))
++                                    face.verts[0].new_index,
++                                    face.verts[1].new_index,
++                                    face.verts[2].new_index))
+ 
+           ## Normal
+           for face in mesh.faces:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000890.html">[Windstille-commit] r1237 - trunk/tools
+</A></li>
+	<LI>Next message: <A HREF="000892.html">[Windstille-commit] r1239 - trunk/tools
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#891">[ date ]</a>
+              <a href="thread.html#891">[ thread ]</a>
+              <a href="subject.html#891">[ subject ]</a>
+              <a href="author.html#891">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

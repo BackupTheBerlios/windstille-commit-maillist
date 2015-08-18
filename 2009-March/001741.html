@@ -1,0 +1,526 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2744 - in trunk/windstille: . src src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2744%20-%20in%20trunk/windstille%3A%20.%20src%20src/editor&In-Reply-To=%3C200903241844.n2OIijgH014994%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001740.html">
+   <LINK REL="Next"  HREF="001742.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2744 - in trunk/windstille: . src src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2744%20-%20in%20trunk/windstille%3A%20.%20src%20src/editor&In-Reply-To=%3C200903241844.n2OIijgH014994%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2744 - in trunk/windstille: . src src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Mar 24 19:44:45 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001740.html">[Windstille-commit] r2743 - trunk/windstille
+</A></li>
+        <LI>Next message: <A HREF="001742.html">[Windstille-commit] r2745 - in trunk/windstille: data/editor	src/display src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1741">[ date ]</a>
+              <a href="thread.html#1741">[ thread ]</a>
+              <a href="subject.html#1741">[ subject ]</a>
+              <a href="author.html#1741">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-24 19:44:44 +0100 (Tue, 24 Mar 2009)
+New Revision: 2744
+
+Added:
+   trunk/windstille/src/editor/decal_object_model.cpp
+   trunk/windstille/src/editor/decal_object_model.hpp
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/src/SConscript
+   trunk/windstille/src/editor/object_model.cpp
+   trunk/windstille/src/editor/object_model.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/editor/windstille_widget.hpp
+Log:
+Made ObjectModel more abstract, splitted Surface drawing into DecalObjectModel
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-03-24 03:41:03 UTC (rev 2743)
++++ trunk/windstille/TODO	2009-03-24 18:44:44 UTC (rev 2744)
+@@ -485,13 +485,32 @@
+ Editor
+ ======
+ 
+-* toggle control layer visibility
++* think about Undo/Redo
+ 
++* add a Blender like layer system:
++ 
++  - layers are a 1 bit in a uint32_t
++  - each Object has a layer mask
++  - when doing a get_selection(Rect(), layermask), objects check
++    against the layer mask and are ignored when they don't match
++  - layers can be visible or hidden, again draw(layermask) is used to
++    check objects for layer membership
++  - objects can belong to multiple layers at once
++  - advantage of this is that layers exist outside the whole sorting
++    logic, so all that stuff can remain unchanged
++
++* add button to toggle control layer visibility
++
+ * Display::aspect_size is ugly, turn that into a Display::set_size();
+ 
+-* implement non-Surface based objects, i.e. a simple Path or a full
+-  NavigationGraph
++* implement non-Surface based objects:
+ 
++   - seperate Surface stuff, turn it into a scaleable/rotatable decal quad
++   - simple path
++   - full NavigationGraph
++   - Sprite
++   - Sprite3d / Character
++
+ * light layer doesn't work in the editor
+ 
+ * reevaluate the current parent/child implementation, since its very
+@@ -502,8 +521,13 @@
+   - circular parentship causes universe to explode
+   - cloning doesn't preserve parentship  
+ 
+-* ObjectSelector/IconView allows drag&amp;drop even when nothing is selected
++  - parents could be handled like normal objects, but with the
++    SelectTool traversing all children and marking them before the
++    move begings, Ctrl could be used to toggle this behaviour
+ 
++* ObjectSelector/IconView allows drag&amp;drop even when nothing is
++  selected, leading to a Grumbel dummy image drag&amp;drop without effect
++
+ * add a Rect::contains(Rect) call and adjust SelectTool
+ 
+ * save bitmask along with object to allow pixel perfect click
+
+Modified: trunk/windstille/src/SConscript
+===================================================================
+--- trunk/windstille/src/SConscript	2009-03-24 03:41:03 UTC (rev 2743)
++++ trunk/windstille/src/SConscript	2009-03-24 18:44:44 UTC (rev 2744)
+@@ -242,7 +242,8 @@
+         'editor/scroll_tool.cpp',
+         'editor/sector_model.cpp',
+         'editor/selection.cpp',
+-        'editor/object_model.cpp',
++        'editor/object_model.cpp',      
++        'editor/decal_object_model.cpp',
+         'editor/control_point.cpp',
+         'editor/zoom_tool.cpp',
+         'editor/select_tool.cpp',
+
+Added: trunk/windstille/src/editor/decal_object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/decal_object_model.cpp	2009-03-24 03:41:03 UTC (rev 2743)
++++ trunk/windstille/src/editor/decal_object_model.cpp	2009-03-24 18:44:44 UTC (rev 2744)
+@@ -0,0 +1,87 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &quot;display/surface.hpp&quot;
++#include &quot;display/surface_drawing_parameters.hpp&quot;
++#include &quot;display/scene_context.hpp&quot;
++#include &quot;decal_object_model.hpp&quot;
++
++ObjectModelHandle
++DecalObjectModel::create(const std::string&amp; name, const Vector2f&amp; pos,
++                         const std::string&amp; path, MapType type)
++{
++  return ObjectModelHandle(new DecalObjectModel(name, pos, path, type));
++}
++
++DecalObjectModel::DecalObjectModel(const std::string&amp; name, const Vector2f&amp; rel_pos, 
++                                   const std::string&amp; path_, MapType type_)
++  : ObjectModel(&quot;DecalObjectModel&quot;, rel_pos),
++    surface(path_),
++    type(type_)
++{
++}
++
++DecalObjectModel::~DecalObjectModel()
++{
++}
++
++void
++DecalObjectModel::draw(SceneContext&amp; sc)
++{
++  ObjectModel::draw(sc);
++
++  Vector2f wo_pos = get_world_pos();
++  Vector2f center_offset(-surface.get_width()/2,
++                         -surface.get_height()/2);
++
++  switch(type)
++    {
++      case COLORMAP:
++        sc.color().draw(surface, wo_pos + center_offset); 
++        break;
++
++      case LIGHTMAP:
++        sc.light().draw(surface, SurfaceDrawingParameters()
++                        .set_pos(wo_pos + center_offset)
++                        .set_blend_func(GL_SRC_ALPHA, GL_ONE)); 
++        break;
++
++      case HIGHLIGHTMAP:
++        sc.highlight().draw(surface, SurfaceDrawingParameters()
++                            .set_pos(wo_pos + center_offset)
++                            .set_blend_func(GL_SRC_ALPHA, GL_ONE)); 
++        break;
++    }
++}
++
++Rectf
++DecalObjectModel::get_bounding_box() const
++{
++  Vector2f center_offset(-surface.get_width()/2,
++                         -surface.get_height()/2);
++
++  return Rectf(get_world_pos() + center_offset, Sizef(surface.get_width(), surface.get_height()));
++}
++
++ObjectModelHandle
++DecalObjectModel::clone() const
++{
++  return ObjectModelHandle(new DecalObjectModel(*this));
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/decal_object_model.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/editor/decal_object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/decal_object_model.hpp	2009-03-24 03:41:03 UTC (rev 2743)
++++ trunk/windstille/src/editor/decal_object_model.hpp	2009-03-24 18:44:44 UTC (rev 2744)
+@@ -0,0 +1,48 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_EDITOR_DECAL_OBJECT_MODEL_HPP
++#define HEADER_WINDSTILLE_EDITOR_DECAL_OBJECT_MODEL_HPP
++
++#include &quot;display/surface.hpp&quot;
++#include &quot;object_model.hpp&quot;
++
++class DecalObjectModel : public ObjectModel
++{
++public:
++  enum MapType { COLORMAP, LIGHTMAP, HIGHLIGHTMAP };
++
++  static ObjectModelHandle create(const std::string&amp; name, const Vector2f&amp; pos, const std::string&amp; path, MapType type);
++
++private:
++  Surface surface;
++  MapType type;
++
++public:
++  DecalObjectModel(const std::string&amp; name, const Vector2f&amp; rel_pos, 
++                   const std::string&amp; path_, MapType type_);
++  ~DecalObjectModel();
++
++  void draw(SceneContext&amp; sc);
++  Rectf get_bounding_box() const;
++  ObjectModelHandle clone() const;
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/decal_object_model.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/windstille/src/editor/object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/object_model.cpp	2009-03-24 03:41:03 UTC (rev 2743)
++++ trunk/windstille/src/editor/object_model.cpp	2009-03-24 18:44:44 UTC (rev 2744)
+@@ -22,33 +22,16 @@
+ #include &quot;display/scene_context.hpp&quot;
+ #include &quot;object_model.hpp&quot;
+ 
+-ObjectModelHandle
+-ObjectModel::create(const std::string&amp; name, const std::string&amp; path, const Vector2f&amp; pos,
+-                    MapType type)
+-{
+-  return ObjectModelHandle(new ObjectModel(name, path, pos, type));
+-}
+-
+-ObjectModel::ObjectModel(const std::string&amp; name_, const std::string&amp; path_, const Vector2f&amp; rel_pos_, MapType type_)
++ObjectModel::ObjectModel(const std::string&amp; name_, const Vector2f&amp; rel_pos_)
+   : name(name_),
+-    path(path_),
+-    rel_pos(rel_pos_),
+-    type(type_)
++    rel_pos(rel_pos_)
+ {
+-  std::cout &lt;&lt; &quot;Path: &quot; &lt;&lt; path &lt;&lt; std::endl;
+-  surface = Surface(path.substr(5)); // cut &quot;data/&quot; part
+ }
+ 
+ ObjectModel::~ObjectModel()
+ {
+ }
+ 
+-ObjectModelHandle
+-ObjectModel::clone() const
+-{
+-  return ObjectModel::create(name, path, get_world_pos(), type);
+-}
+-
+ void
+ ObjectModel::set_parent(const ObjectModelHandle&amp; parent_)
+ {
+@@ -89,39 +72,9 @@
+       sc.control().draw_line(wo_pos, parent-&gt;get_world_pos(), Color(0,0,1, 0.5f));
+     }
+ 
+-  Vector2f center_offset(-surface.get_width()/2,
+-                         -surface.get_height()/2);
+-
+-  switch(type)
+-    {
+-      case COLORMAP:
+-        sc.color().draw(surface, wo_pos + center_offset); 
+-        break;
+-
+-      case LIGHTMAP:
+-        sc.light().draw(surface, SurfaceDrawingParameters()
+-                        .set_pos(wo_pos + center_offset)
+-                        .set_blend_func(GL_SRC_ALPHA, GL_ONE)); 
+-        break;
+-
+-      case HIGHLIGHTMAP:
+-        sc.highlight().draw(surface, SurfaceDrawingParameters()
+-                            .set_pos(wo_pos + center_offset)
+-                            .set_blend_func(GL_SRC_ALPHA, GL_ONE)); 
+-        break;
+-    }
+   sc.control().fill_rect(Rectf(wo_pos - Vector2f(8, 8), Sizef(16, 16)), Color(1,0,0));
+ }
+ 
+-Rectf
+-ObjectModel::get_bounding_box() const
+-{
+-  Vector2f center_offset(-surface.get_width()/2,
+-                         -surface.get_height()/2);
+-
+-  return Rectf(get_world_pos() + center_offset, Sizef(surface.get_width(), surface.get_height()));
+-}
+-
+ void
+ ObjectModel::on_move_start()
+ {  
+
+Modified: trunk/windstille/src/editor/object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/object_model.hpp	2009-03-24 03:41:03 UTC (rev 2743)
++++ trunk/windstille/src/editor/object_model.hpp	2009-03-24 18:44:44 UTC (rev 2744)
+@@ -33,28 +33,19 @@
+ 
+ class ObjectModel
+ {
+-public:
+-  enum MapType { COLORMAP, LIGHTMAP, HIGHLIGHTMAP };
+-  static ObjectModelHandle create(const std::string&amp; name, const std::string&amp; path, const Vector2f&amp; pos,
+-                                  MapType type = COLORMAP);
+-
+ private:
+-  ObjectModelPtr parent_ptr;
+-
+   std::string name;
+-  std::string path;
+   Vector2f    rel_pos;
+-  Surface     surface;
+-  MapType     type;
+ 
++  ObjectModelPtr parent_ptr;
+   Vector2f move_offset;
+ 
+ public:
+-  ObjectModel(const std::string&amp; name, const std::string&amp; path, const Vector2f&amp; pos, MapType type);
+-  ~ObjectModel();
+-
+-  void set_parent(const ObjectModelHandle&amp; parent_);
++  ObjectModel();
++  ObjectModel(const std::string&amp; name, const Vector2f&amp; pos);
++  virtual ~ObjectModel();
+   
++  void set_parent(const ObjectModelHandle&amp; parent_);
+   std::string get_name() const { return name; }
+ 
+   Vector2f get_world_pos() const;
+@@ -62,18 +53,13 @@
+   Vector2f get_rel_pos() const { return rel_pos; }
+   void     set_rel_pos(const Vector2f&amp; rel_pos_)  {  rel_pos = rel_pos_; }
+   
+-  void draw(SceneContext&amp; sc);
+-  Rectf get_bounding_box() const;
+-
+   void on_move_start();
+   void on_move_update(const Vector2f&amp; offset);
+   void on_move_end(const Vector2f&amp; offset);
+ 
+-  ObjectModelHandle clone() const;
+-
+-private:
+-  ObjectModel(const ObjectModel&amp;);
+-  ObjectModel&amp; operator=(const ObjectModel&amp;);
++  virtual void draw(SceneContext&amp; sc);
++  virtual Rectf get_bounding_box() const = 0;
++  virtual ObjectModelHandle clone() const =0;
+ };
+ 
+ #endif
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-03-24 03:41:03 UTC (rev 2743)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-03-24 18:44:44 UTC (rev 2744)
+@@ -40,7 +40,7 @@
+   : sector_model(new SectorModel()),
+     active_tool(0),
+     scroll_tool(new ScrollTool()),
+-    map_type(ObjectModel::COLORMAP)
++    map_type(DecalObjectModel::COLORMAP)
+ {
+   set_gl_capability(glconfig, share_list);
+ 
+@@ -385,17 +385,17 @@
+   switch(event-&gt;keyval)
+     {
+       case GDK_1:
+-        map_type = ObjectModel::COLORMAP;
++        map_type = DecalObjectModel::COLORMAP;
+         std::cout &lt;&lt; &quot;COLORMAP&quot; &lt;&lt; std::endl;
+         break;
+ 
+       case GDK_2:
+-        map_type = ObjectModel::LIGHTMAP;
++        map_type = DecalObjectModel::LIGHTMAP;
+         std::cout &lt;&lt; &quot;LIGHTMAP&quot; &lt;&lt; std::endl;
+         break;
+ 
+       case GDK_3:
+-        map_type = ObjectModel::HIGHLIGHTMAP;
++        map_type = DecalObjectModel::HIGHLIGHTMAP;
+         std::cout &lt;&lt; &quot;HIGHLIGHTMAP&quot; &lt;&lt; std::endl;
+         break;
+ 
+@@ -447,10 +447,10 @@
+   std::cout &lt;&lt; &quot;WindstilleWidget: on_drag_data_received: &quot;
+             &lt;&lt; x &lt;&lt; &quot;, &quot; &lt;&lt; y &lt;&lt; &quot;: &quot; &lt;&lt; data.get_data_type() &lt;&lt; &quot; &quot; &lt;&lt; data.get_data_as_string() &lt;&lt; std::endl;
+ 
+-  ObjectModelHandle object = ObjectModel::create(data.get_data_as_string(),
+-                                                 data.get_data_as_string(), 
+-                                                 state.screen_to_world(Vector2f(x, y)),
+-                                                 map_type);
++  ObjectModelHandle object = DecalObjectModel::create(data.get_data_as_string(),
++                                                      state.screen_to_world(Vector2f(x, y)),
++                                                      data.get_data_as_string().substr(5), 
++                                                      map_type);
+   sector_model-&gt;add(object);
+ }
+ 
+
+Modified: trunk/windstille/src/editor/windstille_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.hpp	2009-03-24 03:41:03 UTC (rev 2743)
++++ trunk/windstille/src/editor/windstille_widget.hpp	2009-03-24 18:44:44 UTC (rev 2744)
+@@ -33,6 +33,7 @@
+ #include &quot;display/scene_context.hpp&quot;
+ #include &quot;math/vector2f.hpp&quot;
+ #include &quot;control_point.hpp&quot;
++#include &quot;decal_object_model.hpp&quot;
+ #include &quot;selection.hpp&quot;
+ 
+ class Tool;
+@@ -54,7 +55,7 @@
+   Tool* active_tool;
+   std::auto_ptr&lt;ScrollTool&gt; scroll_tool;
+   SelectionHandle selection;
+-  ObjectModel::MapType map_type;
++  DecalObjectModel::MapType map_type;
+ 
+ public:
+   WindstilleWidget(const Glib::RefPtr&lt;const Gdk::GL::Config&gt;&amp; glconfig,
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001740.html">[Windstille-commit] r2743 - trunk/windstille
+</A></li>
+	<LI>Next message: <A HREF="001742.html">[Windstille-commit] r2745 - in trunk/windstille: data/editor	src/display src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1741">[ date ]</a>
+              <a href="thread.html#1741">[ thread ]</a>
+              <a href="subject.html#1741">[ subject ]</a>
+              <a href="author.html#1741">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

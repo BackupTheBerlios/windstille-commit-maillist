@@ -1,0 +1,382 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1253 - in trunk/src: . sprite2d squirrel
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-April/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1253%20-%20in%20trunk/src%3A%20.%20sprite2d%20squirrel&In-Reply-To=%3C200604120027.k3C0RApo019511%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000904.html">
+   <LINK REL="Next"  HREF="000906.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1253 - in trunk/src: . sprite2d squirrel</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1253%20-%20in%20trunk/src%3A%20.%20sprite2d%20squirrel&In-Reply-To=%3C200604120027.k3C0RApo019511%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1253 - in trunk/src: . sprite2d squirrel">grumbel at berlios.de
+       </A><BR>
+    <I>Wed Apr 12 02:27:10 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000904.html">[Windstille-commit] r1252 - trunk/data/images/tiles
+</A></li>
+        <LI>Next message: <A HREF="000906.html">[Windstille-commit] r1254 - in trunk/src: . scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#905">[ date ]</a>
+              <a href="thread.html#905">[ thread ]</a>
+              <a href="subject.html#905">[ subject ]</a>
+              <a href="author.html#905">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-04-12 02:27:00 +0200 (Wed, 12 Apr 2006)
+New Revision: 1253
+
+Modified:
+   trunk/src/sprite2d/data.cpp
+   trunk/src/sprite2d/manager.cpp
+   trunk/src/sprite2dview.cpp
+   trunk/src/sprite2dview.hpp
+   trunk/src/squirrel/
+   trunk/src/windstille_main.cpp
+Log:
+- added a simple image/sprite viewer
+
+Modified: trunk/src/sprite2d/data.cpp
+===================================================================
+--- trunk/src/sprite2d/data.cpp	2006-04-09 23:08:52 UTC (rev 1252)
++++ trunk/src/sprite2d/data.cpp	2006-04-12 00:27:00 UTC (rev 1253)
+@@ -18,21 +18,53 @@
+ namespace sprite2d
+ {
+ 
++static bool has_suffix(const std::string&amp; str, const std::string&amp; suffix)
++{
++  if (str.length() &gt;= suffix.length())
++    return str.compare(str.length() - suffix.length(), suffix.length(), suffix) == 0;
++  else
++    return false;
++}
++
+ Data::Data(const std::string&amp; filename)
+ {
+   if (PHYSFS_exists(filename.c_str()))
+     {
+-      std::auto_ptr&lt;lisp::Lisp&gt; root (lisp::Parser::parse(filename));
+-      lisp::Properties rootp(root.get());
+-      const lisp::Lisp* sprite = 0;
+-      if(rootp.get(&quot;sprite&quot;, sprite) == false) {
+-        std::ostringstream msg;
+-        msg &lt;&lt; &quot;File '&quot; &lt;&lt; filename &lt;&lt; &quot;' is not a windstille sprite&quot;;
+-        throw std::runtime_error(msg.str());
+-      }
++      if (has_suffix(filename, &quot;.sprite&quot;))
++        {
++          std::auto_ptr&lt;lisp::Lisp&gt; root (lisp::Parser::parse(filename));
++          lisp::Properties rootp(root.get());
++          const lisp::Lisp* sprite = 0;
++          if(rootp.get(&quot;sprite&quot;, sprite) == false) {
++            std::ostringstream msg;
++            msg &lt;&lt; &quot;File '&quot; &lt;&lt; filename &lt;&lt; &quot;' is not a windstille sprite&quot;;
++            throw std::runtime_error(msg.str());
++          }
+     
+-      std::string dir = dirname(filename);
+-      parse(dir, sprite);
++          std::string dir = dirname(filename);
++          parse(dir, sprite);
++        }
++      else if (has_suffix(filename, &quot;.png&quot;) || has_suffix(filename, &quot;.jpg&quot;))
++        {
++          if (PHYSFS_exists(filename.c_str()))
++            {
++              std::auto_ptr&lt;Action&gt; action(new Action);
++              action-&gt;name   = &quot;default&quot;;
++              action-&gt;speed  = 1.0;
++              action-&gt;scale  = 1.0f;
++              action-&gt;offset = Vector(0, 0);
++              action-&gt;surfaces.push_back(Surface(filename));
++              actions.push_back(action.release());
++            }
++          else
++            {
++              throw std::runtime_error(&quot;Couldn't find '&quot; + filename + &quot;'&quot;);
++            }
++        }
++      else
++        {
++          throw std::runtime_error(&quot;Sprite filename has unknown suffix: '&quot; + filename + &quot;'&quot;);
++        }
+     }
+   else if (filename.length() &gt; std::string(&quot;.sprite&quot;).length())
+     { // If sprite file is not found, we search for a file with the
+@@ -44,7 +76,7 @@
+           std::auto_ptr&lt;Action&gt; action(new Action);
+           action-&gt;name   = &quot;default&quot;;
+           action-&gt;speed  = 1.0;
+-          action-&gt;scale = 1.0f;
++          action-&gt;scale  = 1.0f;
+           action-&gt;offset = Vector(0, 0);
+           action-&gt;surfaces.push_back(Surface(pngfile));
+           actions.push_back(action.release());
+
+Modified: trunk/src/sprite2d/manager.cpp
+===================================================================
+--- trunk/src/sprite2d/manager.cpp	2006-04-09 23:08:52 UTC (rev 1252)
++++ trunk/src/sprite2d/manager.cpp	2006-04-12 00:27:00 UTC (rev 1253)
+@@ -36,3 +36,5 @@
+ }
+ 
+ }
++
++/* EOF */
+
+Modified: trunk/src/sprite2dview.cpp
+===================================================================
+--- trunk/src/sprite2dview.cpp	2006-04-09 23:08:52 UTC (rev 1252)
++++ trunk/src/sprite2dview.cpp	2006-04-12 00:27:00 UTC (rev 1253)
+@@ -23,11 +23,27 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;iostream&gt;
++#include &quot;math.hpp&quot;
++#include &quot;input/controller.hpp&quot;
+ #include &quot;sprite2dview.hpp&quot;
+ 
+ Sprite2DView::Sprite2DView()
+ {
+-  
++  index = 0;
++
++  directory.push_back(&quot;images/test/mech1.png&quot;);
++  directory.push_back(&quot;images/test/mech2.png&quot;);
++  directory.push_back(&quot;images/test/mech3.png&quot;);
++
++  sprite      = Sprite(directory.back());
++  next_sprite = Sprite(directory.front());
++  offset = 0.0f;
++
++  mode = MANUAL; 
++  //mode = SLIDESHOW;
++  zoom = 1.0f;
++  pos  = Vector(0,0);
+ }
+ 
+ Sprite2DView::~Sprite2DView()
+@@ -37,20 +53,108 @@
+ 
+ void
+ Sprite2DView::draw()
++{ 
++  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
++
++  switch(mode)
++    {
++    case SLIDESHOW:
++      if (aspect &gt; 4.0/3.0)
++        {
++          sprite.draw(Vector(-offset, 0));
++        }
++      else
++        {
++          sprite.draw(Vector(0, -offset));
++        } 
++      break;
++      
++    case MANUAL:
++      sprite.set_scale(zoom);
++      sprite.draw(pos);
++      break;
++    }
++}
++
++void
++Sprite2DView::update_slideshow(float delta, const Controller&amp; controller)
+ {
+-  
++  offset += delta * 50.0f;
++
++  width  = sprite.get_width();
++  height = sprite.get_height();
++  aspect = width/height;
++
++  if (aspect &gt; 4.0/3.0)
++    { // expand vertical
++      float scale = 600.0f/height;
++      width  *= scale;
++      height *= scale;
++      sprite.set_scale(scale);
++
++      if (offset - (width - 800) &gt; 0)
++        {
++          offset = 0;
++
++          if (++index &gt;= int(directory.size()))
++            index = 0;
++
++          sprite = next_sprite;
++          next_sprite = Sprite(directory[index]);
++        }
++    }
++  else
++    { // expand horizontal
++      float scale = 800.0f/width;
++      width  *= scale;
++      height *= scale;
++      sprite.set_scale(scale);
++
++      if (offset - (height - 600) &gt; 0)
++        {
++          offset = 0;
++
++          if (++index &gt;= int(directory.size()))
++            index = 0;
++
++          sprite = next_sprite;
++          next_sprite = Sprite(directory[index]);
++        }
++    }
+ }
+ 
+ void
+-Sprite2DView::update(float delta, const Controller&amp; controller)
++Sprite2DView::update_manual(float delta, const Controller&amp; controller)
+ {
++  pos.x += controller.get_axis_state(X_AXIS) * 100.0f * delta;
++  pos.y += controller.get_axis_state(Y_AXIS) * 100.0f * delta;
+   
++  if (controller.get_button_state(PRIMARY_BUTTON))
++    zoom *= 1.0f + 0.3f * delta;
++
++  if (controller.get_button_state(SECONDARY_BUTTON))
++    zoom /= 1.0f + 0.3f * delta;
++
++  sprite.update(delta);
+ }
+ 
+ void
+-Sprite2DView::set_model(const std::string&amp; filename)
++Sprite2DView::update(float delta, const Controller&amp; controller)
++{  
++  switch(mode) {
++  case SLIDESHOW:
++    update_slideshow(delta, controller);
++    break;
++  case MANUAL:
++    update_manual(delta, controller);
++    break;
++  }
++}
++
++void
++Sprite2DView::set_sprite(const std::string&amp; filename)
+ {
++  sprite = Sprite(filename);
+ }
+ 
+-
+ /* EOF */
+
+Modified: trunk/src/sprite2dview.hpp
+===================================================================
+--- trunk/src/sprite2dview.hpp	2006-04-09 23:08:52 UTC (rev 1252)
++++ trunk/src/sprite2dview.hpp	2006-04-12 00:27:00 UTC (rev 1253)
+@@ -38,9 +38,24 @@
+ {
+ private:
+   SceneContext sc;
++  std::vector&lt;std::string&gt; directory;
+ 
++  enum Mode { SLIDESHOW, MANUAL } mode;
++  
++  // Manual Mode Variables
++  float  zoom;
++  Vector pos;
++
++  // Slideshow variables
++  float width;
++  float height;
++  float aspect;
++
++  int    index;
+   Sprite sprite;
+-  float scale;
++  Sprite next_sprite;
++  float  scale;
++  float  offset;
+ 
+ public:
+   Sprite2DView();
+@@ -49,8 +64,11 @@
+   void draw();
+   void update(float delta, const Controller&amp; controller);
+ 
+-  void set_model(const std::string&amp; filename);
++  void update_slideshow(float delta, const Controller&amp; controller);
++  void update_manual(float delta, const Controller&amp; controller);
+ 
++  void set_sprite(const std::string&amp; filename);
++
+ private:
+   Sprite2DView (const Sprite2DView&amp;);
+   Sprite2DView&amp; operator= (const Sprite2DView&amp;);
+
+
+Property changes on: trunk/src/squirrel
+___________________________________________________________________
+Name: svn:ignore
+   - libsquirrel.a
+.sconsign
+
+   + 
+libsquirrel.a
+.sconsign
+semantic.cache
+
+
+Modified: trunk/src/windstille_main.cpp
+===================================================================
+--- trunk/src/windstille_main.cpp	2006-04-09 23:08:52 UTC (rev 1252)
++++ trunk/src/windstille_main.cpp	2006-04-12 00:27:00 UTC (rev 1253)
+@@ -135,7 +135,7 @@
+         Sprite2DView* sprite2dview = new Sprite2DView();
+ 
+         if (!levelfile.empty())
+-          sprite2dview-&gt;set_model(levelfile);
++          sprite2dview-&gt;set_sprite(levelfile);
+ 
+         // Launching Sprite2DView instead of game
+         screen_manager.set_screen(sprite2dview);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000904.html">[Windstille-commit] r1252 - trunk/data/images/tiles
+</A></li>
+	<LI>Next message: <A HREF="000906.html">[Windstille-commit] r1254 - in trunk/src: . scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#905">[ date ]</a>
+              <a href="thread.html#905">[ thread ]</a>
+              <a href="subject.html#905">[ subject ]</a>
+              <a href="author.html#905">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

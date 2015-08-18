@@ -1,0 +1,384 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r985 - in trunk/src: . collision scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r985%20-%20in%20trunk/src%3A%20.%20collision%20scripting&In-Reply-To=%3C200508191346.j7JDk4wd025497%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000637.html">
+   <LINK REL="Next"  HREF="000639.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r985 - in trunk/src: . collision scripting</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r985%20-%20in%20trunk/src%3A%20.%20collision%20scripting&In-Reply-To=%3C200508191346.j7JDk4wd025497%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r985 - in trunk/src: . collision scripting">grumbel at berlios.de
+       </A><BR>
+    <I>Fri Aug 19 15:46:04 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000637.html">[Windstille-commit] r984 - in trunk: data/images src
+</A></li>
+        <LI>Next message: <A HREF="000639.html">[Windstille-commit] r986 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#638">[ date ]</a>
+              <a href="thread.html#638">[ thread ]</a>
+              <a href="subject.html#638">[ subject ]</a>
+              <a href="author.html#638">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-08-19 15:46:03 +0200 (Fri, 19 Aug 2005)
+New Revision: 985
+
+Modified:
+   trunk/src/collision/collision_engine.cpp
+   trunk/src/collision/collision_engine.hpp
+   trunk/src/laser_pointer.cpp
+   trunk/src/laser_pointer.hpp
+   trunk/src/player.cpp
+   trunk/src/player.hpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/scripting/wrapper.hpp
+   trunk/src/tile_map.cpp
+   trunk/src/tile_map.hpp
+Log:
+- added not yet really working raycasting for the laserpointer
+
+Modified: trunk/src/collision/collision_engine.cpp
+===================================================================
+--- trunk/src/collision/collision_engine.cpp	2005-08-19 01:29:52 UTC (rev 984)
++++ trunk/src/collision/collision_engine.cpp	2005-08-19 13:46:03 UTC (rev 985)
+@@ -713,5 +713,19 @@
+   return result;
+ }
+ 
++Vector
++CollisionEngine::raycast(const Vector&amp; pos, float angle)
++{
++  for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
++    {
++      if ((*i)-&gt;get_type() == CollisionObject::TILEMAP)
++        {
++          return (*i)-&gt;tilemap-&gt;raycast(pos, angle);
++        }
++    }
++
++  return Vector(0, 0);
++}
++
+ /* EOF */
+ 
+
+Modified: trunk/src/collision/collision_engine.hpp
+===================================================================
+--- trunk/src/collision/collision_engine.hpp	2005-08-19 01:29:52 UTC (rev 984)
++++ trunk/src/collision/collision_engine.hpp	2005-08-19 13:46:03 UTC (rev 985)
+@@ -45,6 +45,10 @@
+   CollisionObject* add(CollisionObject *obj);
+   void remove(CollisionObject *obj);
+ 
++  /** Shoots a ray from \a pos into direction \a angle, returns the
++      position were the ray collides with the tilemap FIXME: Should be
++      extended to handle objects as well */
++  Vector raycast(const Vector&amp; pos, float angle);
+ private:
+   void unstuck(CollisionObject&amp; a, CollisionObject&amp; b, float delta);
+   CollisionData collide(CollisionObject&amp; a, CollisionObject&amp; b, float delta);
+
+Modified: trunk/src/laser_pointer.cpp
+===================================================================
+--- trunk/src/laser_pointer.cpp	2005-08-19 01:29:52 UTC (rev 984)
++++ trunk/src/laser_pointer.cpp	2005-08-19 13:46:03 UTC (rev 985)
+@@ -25,6 +25,8 @@
+ 
+ #include &quot;display/vertex_array_drawing_request.hpp&quot;
+ #include &quot;player.hpp&quot;
++#include &quot;collision/collision_engine.hpp&quot;
++#include &quot;sector.hpp&quot;
+ #include &quot;laser_pointer.hpp&quot;
+ 
+ LaserPointer::LaserPointer()
+@@ -44,25 +46,23 @@
+ LaserPointer::draw(SceneContext&amp; sc)
+ {
+   Vector pos = Player::current()-&gt;get_pos();
++  pos.y -= 80;
++  Vector target = Sector::current()-&gt;get_collision_engine()-&gt;raycast(pos, angle);
+ 
+-  VertexArrayDrawingRequest* array = new VertexArrayDrawingRequest(pos - Vector(0, 64), 10000,
++  VertexArrayDrawingRequest* array = new VertexArrayDrawingRequest(Vector(0,0), 10000,
+                                                                    sc.highlight().get_modelview());
+   array-&gt;set_mode(GL_LINE_STRIP);
+   array-&gt;set_texture(noise);
+   array-&gt;set_blend_func(GL_SRC_ALPHA, GL_ONE);
+ 
+   array-&gt;color(Color(1.0f, 0.0f, 0.0f, 1.0f));
+-  array-&gt;texcoord(0/400.0f, progress);
+-  array-&gt;vertex(0, 0);
++  array-&gt;texcoord(pos.x/400.0f, progress);
++  array-&gt;vertex(pos.x, pos.y);
+ 
+   array-&gt;color(Color(1.0f, 0.0f, 0.0f, 1.0f));
+-  array-&gt;texcoord(300/400.0f, progress);
+-  array-&gt;vertex(300, 0);
++  array-&gt;texcoord(target.x/400.0f, progress);
++  array-&gt;vertex(target.x, target.y);
+ 
+-  array-&gt;color(Color(1.0f, 0.0f, 0.0f, 0.0f));
+-  array-&gt;texcoord(400/400.0f, progress);
+-  array-&gt;vertex(400, 0);
+-
+   sc.highlight().draw(array);
+ }
+ 
+@@ -72,4 +72,16 @@
+   progress += 0.1 * delta;
+ }
+ 
++float
++LaserPointer::get_angle() const
++{
++  return angle;
++}
++
++void
++LaserPointer::set_angle(float a)
++{
++  angle = a;
++}
++
+ /* EOF */
+
+Modified: trunk/src/laser_pointer.hpp
+===================================================================
+--- trunk/src/laser_pointer.hpp	2005-08-19 01:29:52 UTC (rev 984)
++++ trunk/src/laser_pointer.hpp	2005-08-19 13:46:03 UTC (rev 985)
+@@ -34,6 +34,7 @@
+ private:
+   Texture noise;
+   float   progress;
++  float   angle;
+ 
+ public:
+   LaserPointer();
+@@ -42,6 +43,8 @@
+   void draw(SceneContext&amp; sc);
+   void update(float delta);
+ 
++  float get_angle() const;
++  void  set_angle(float angle);
+ private:
+   LaserPointer (const LaserPointer&amp;);
+   LaserPointer&amp; operator= (const LaserPointer&amp;);
+
+Modified: trunk/src/player.cpp
+===================================================================
+--- trunk/src/player.cpp	2005-08-19 01:29:52 UTC (rev 984)
++++ trunk/src/player.cpp	2005-08-19 13:46:03 UTC (rev 985)
+@@ -30,6 +30,7 @@
+ #include &quot;glutil/surface_manager.hpp&quot;
+ #include &quot;particles/particle_system.hpp&quot;
+ #include &quot;collision/collision_engine.hpp&quot;
++#include &quot;laser_pointer.hpp&quot;
+ #include &quot;game_session.hpp&quot;
+ #include &quot;console.hpp&quot;
+ 
+@@ -45,6 +46,7 @@
+   grenade(&quot;3dsprites/grenade.wsprite&quot;),
+   state(STAND)
+ {
++  laser_pointer = new LaserPointer();
+   sprite = Sprite3D(&quot;3dsprites/heroken.wsprite&quot;);
+   pos.x = 320;
+   pos.y = 200;
+@@ -70,6 +72,7 @@
+ 
+ Player::~Player()
+ {
++  delete laser_pointer;
+ }
+ 
+ void
+@@ -90,6 +93,7 @@
+   
+   //BoneID id = sprite.get_bone_id(&quot;Hand.R&quot;);
+   //grenade-&gt;draw(sc, sprite.get_bone_matrix(id));
++  laser_pointer-&gt;draw(sc);
+ }
+ 
+ void
+@@ -115,6 +119,11 @@
+ {
+   controller = InputManager::get_controller();
+ 
++  if (controller.get_axis_state(Y_AXIS) &lt; 0)
++    laser_pointer-&gt;set_angle(laser_pointer-&gt;get_angle() - 1.0 * delta);
++  else if (controller.get_axis_state(Y_AXIS) &gt; 0)
++    laser_pointer-&gt;set_angle(laser_pointer-&gt;get_angle() + 1.0 * delta);
++
+   if (GameSession::current()-&gt;is_active())
+     {
+       switch(state) {
+
+Modified: trunk/src/player.hpp
+===================================================================
+--- trunk/src/player.hpp	2005-08-19 01:29:52 UTC (rev 984)
++++ trunk/src/player.hpp	2005-08-19 13:46:03 UTC (rev 985)
+@@ -30,6 +30,7 @@
+ #include &quot;glutil/surface.hpp&quot;
+ 
+ class Controller;
++class LaserPointer;
+ 
+ class Player : public Entity
+ {
+@@ -48,6 +49,7 @@
+   CollisionObject* c_object;
+   Slot slot;
+ 
++  LaserPointer* laser_pointer;
+ public:
+   enum State
+   {
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2005-08-19 01:29:52 UTC (rev 984)
++++ trunk/src/scripting/wrapper.cpp	2005-08-19 13:46:03 UTC (rev 985)
+@@ -1,6 +1,6 @@
+ /**
+  * WARNING: This file is automatically generated from:
+- *  'src/scripting/wrapper.interface.hpp'
++ *  'scripting/wrapper.interface.hpp'
+  * DO NOT CHANGE
+  */
+ #include &lt;config.h&gt;
+
+Modified: trunk/src/scripting/wrapper.hpp
+===================================================================
+--- trunk/src/scripting/wrapper.hpp	2005-08-19 01:29:52 UTC (rev 984)
++++ trunk/src/scripting/wrapper.hpp	2005-08-19 13:46:03 UTC (rev 985)
+@@ -1,6 +1,6 @@
+ /**
+  * WARNING: This file is automatically generated from:
+- *  'src/scripting/wrapper.interface.hpp'
++ *  'scripting/wrapper.interface.hpp'
+  * DO NOT CHANGE
+  */
+ #ifndef __windstille_WRAPPER_H__
+
+Modified: trunk/src/tile_map.cpp
+===================================================================
+--- trunk/src/tile_map.cpp	2005-08-19 01:29:52 UTC (rev 984)
++++ trunk/src/tile_map.cpp	2005-08-19 13:46:03 UTC (rev 985)
+@@ -24,6 +24,7 @@
+ #include &quot;globals.hpp&quot;
+ #include &quot;view.hpp&quot;
+ #include &quot;display/vertex_array_drawing_request.hpp&quot;
++#include &quot;collision/collision_engine.hpp&quot;
+ #include &quot;lisp/properties.hpp&quot;
+ 
+ TileMap::TileMap(const lisp::Lisp* lisp)
+@@ -173,4 +174,52 @@
+     return 0;
+ }
+ 
++Vector
++TileMap::raycast(const Vector&amp; pos, float angle)
++{
++  // Ray position in Tile units
++  int x = static_cast&lt;int&gt;(pos.x / TILE_SIZE);
++  int y = static_cast&lt;int&gt;(pos.y / TILE_SIZE);
++
++  Vector direction(cos(angle), sin(angle));
++
++  int step_x = (direction.x &gt; 0) ? 1 : -1;
++  int step_y = (direction.y &gt; 0) ? 1 : -1;
++
++  float tMaxX = (direction.x == 0) ? 0 : fmodf(pos.x, TILE_SIZE)/direction.x;
++  float tMaxY = (direction.y == 0) ? 0 : fmodf(pos.y, TILE_SIZE)/direction.y;
++
++  float tDeltaX = (direction.x == 0) ? 0 : (TILE_SIZE / direction.x);
++  float tDeltaY = (direction.y == 0) ? 0 : (TILE_SIZE / direction.y);
++
++  while(x &gt;= 0 &amp;&amp; x &lt; get_width() &amp;&amp;
++        y &gt;= 0 &amp;&amp; y &lt; get_height())
++    {
++      Tile* tile = field(x, y);  
++      if (tile &amp;&amp; tile-&gt;colmap)
++        {
++          if ((tMaxX - tDeltaX) &lt; (tMaxY - tDeltaY))
++            return pos + Vector((tMaxX - tDeltaX) * direction.x, (tMaxX - tDeltaX) * direction.y);
++          else
++            return pos + Vector((tMaxY - tDeltaY) * direction.x, (tMaxY - tDeltaY) * direction.y);
++          //return Vector(x * TILE_SIZE, y * TILE_SIZE);
++        }
++
++      // move one tile
++      if (tMaxX &lt; tMaxY) 
++        {
++          tMaxX += tDeltaX;
++          x = x + step_x;
++        }
++      else 
++        {
++          tMaxY += tDeltaY;
++          y = y + step_y;
++        }
++    }
++
++  // Ray got out of the map
++  return Vector(x * TILE_SIZE, y * TILE_SIZE);
++}
++
+ /* EOF */
+
+Modified: trunk/src/tile_map.hpp
+===================================================================
+--- trunk/src/tile_map.hpp	2005-08-19 01:29:52 UTC (rev 984)
++++ trunk/src/tile_map.hpp	2005-08-19 13:46:03 UTC (rev 985)
+@@ -55,6 +55,10 @@
+   int get_height () const { return field.get_height (); }
+ 
+   int get_tile_size () const { return TILE_SIZE; }
++
++  /** Shoots a ray from \a pos into direction \a angle, returns the
++      position were the ray collides with the tilemap */
++  Vector raycast(const Vector&amp; pos, float angle);
+ };
+ 
+ #endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000637.html">[Windstille-commit] r984 - in trunk: data/images src
+</A></li>
+	<LI>Next message: <A HREF="000639.html">[Windstille-commit] r986 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#638">[ date ]</a>
+              <a href="thread.html#638">[ thread ]</a>
+              <a href="subject.html#638">[ subject ]</a>
+              <a href="author.html#638">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

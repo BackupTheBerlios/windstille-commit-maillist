@@ -1,0 +1,414 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2740 - in trunk/windstille: . src/display	src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2740%20-%20in%20trunk/windstille%3A%20.%20src/display%0A%09src/editor&In-Reply-To=%3C200903240007.n2O07JUY008138%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001736.html">
+   <LINK REL="Next"  HREF="001738.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2740 - in trunk/windstille: . src/display	src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2740%20-%20in%20trunk/windstille%3A%20.%20src/display%0A%09src/editor&In-Reply-To=%3C200903240007.n2O07JUY008138%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2740 - in trunk/windstille: . src/display	src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Mar 24 01:07:19 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001736.html">[Windstille-commit] r2739 - in trunk/windstille: . data/editor	src/editor
+</A></li>
+        <LI>Next message: <A HREF="001738.html">[Windstille-commit] r2741 - in trunk/windstille: . data/editor	src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1737">[ date ]</a>
+              <a href="thread.html#1737">[ thread ]</a>
+              <a href="subject.html#1737">[ subject ]</a>
+              <a href="author.html#1737">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-24 01:07:18 +0100 (Tue, 24 Mar 2009)
+New Revision: 2740
+
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/src/display/scene_context.cpp
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/editor_window.hpp
+   trunk/windstille/src/editor/main.cpp
+   trunk/windstille/src/editor/object_model.cpp
+   trunk/windstille/src/editor/object_model.hpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/editor/windstille_widget.hpp
+Log:
+Some support for toggling light/color/highlight layers in editor
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-03-23 19:26:14 UTC (rev 2739)
++++ trunk/windstille/TODO	2009-03-24 00:07:18 UTC (rev 2740)
+@@ -485,6 +485,8 @@
+ Editor
+ ======
+ 
++* circular parentship causes universe to explode
++
+ * add a Rect::contains(Rect) call
+ 
+ * duplicate objects
+
+Modified: trunk/windstille/src/display/scene_context.cpp
+===================================================================
+--- trunk/windstille/src/display/scene_context.cpp	2009-03-23 19:26:14 UTC (rev 2739)
++++ trunk/windstille/src/display/scene_context.cpp	2009-03-24 00:07:18 UTC (rev 2740)
+@@ -69,7 +69,8 @@
+                   SceneContext::HIGHLIGHTMAP | 
+                   SceneContext::LIGHTMAPSCREEN |
+                   SceneContext::BLURMAP),
+-      framebuffers(0), //new Framebuffers())
++      framebuffers(0),
++      //framebuffers(new Framebuffers()),
+       lightmap(Display::get_width()/LIGHTMAP_DIV, Display::get_height()/LIGHTMAP_DIV)
+   {
+   }
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-03-23 19:26:14 UTC (rev 2739)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-03-24 00:07:18 UTC (rev 2740)
+@@ -20,11 +20,11 @@
+ #include &lt;gtkmm/filechooserdialog.h&gt;
+ #include &lt;gtkmm/actiongroup.h&gt;
+ #include &lt;gtkmm/radioaction.h&gt;
+-#include &lt;gtkmm/icontheme.h&gt;
+ #include &lt;gtkmm/uimanager.h&gt;
+ #include &lt;gtkmm/toolbar.h&gt;
+ #include &lt;gtkmm/stock.h&gt;
+ 
++#include &quot;display/scene_context.hpp&quot;
+ #include &quot;windstille_widget.hpp&quot;
+ #include &quot;about_window.hpp&quot;
+ #include &quot;editor_window.hpp&quot;
+@@ -74,6 +74,10 @@
+     &quot;      &lt;menuitem action='ZoomIn'/&gt;&quot;
+     &quot;      &lt;menuitem action='ZoomOut'/&gt;&quot;
+     &quot;      &lt;menuitem action='Zoom100'/&gt;&quot;
++    &quot;      &lt;separator/&gt;&quot;
++    &quot;      &lt;menuitem action='ToggleColorLayer'/&gt;&quot;
++    &quot;      &lt;menuitem action='ToggleLightLayer'/&gt;&quot;
++    &quot;      &lt;menuitem action='ToggleHighlightLayer'/&gt;&quot;
+     &quot;    &lt;/menu&gt;&quot;
+     &quot;    &lt;menu action='MenuTools'&gt;&quot;
+     &quot;      &lt;menuitem action='SelectTool'/&gt;&quot;
+@@ -119,6 +123,10 @@
+     &quot;    &lt;toolitem action='SelectTool'/&gt;&quot;
+     &quot;    &lt;toolitem action='NodeTool'/&gt;&quot;
+     &quot;    &lt;toolitem action='ZoomTool'/&gt;&quot;
++    &quot;    &lt;separator/&gt;&quot;
++    &quot;    &lt;toolitem action='ToggleColorLayer'/&gt;&quot;
++    &quot;    &lt;toolitem action='ToggleLightLayer'/&gt;&quot;
++    &quot;    &lt;toolitem action='ToggleHighlightLayer'/&gt;&quot;
+     &quot;  &lt;/toolbar&gt;&quot;
+     &quot;&lt;/ui&gt;&quot;;
+ 
+@@ -173,9 +181,21 @@
+   action_group-&gt;add(Gtk::Action::create(&quot;About&quot;,       Gtk::Stock::ABOUT),
+                     sigc::mem_fun(*this, &amp;EditorWindow::on_about_clicked));
+ 
+-  Glib::RefPtr&lt;Gtk::IconTheme&gt; icon_theme = Gtk::IconTheme::get_default();
+-  icon_theme-&gt;append_search_path(&quot;data/editor/&quot;);
++  Glib::RefPtr&lt;Gtk::ToggleAction&gt; toggle_color_layer = Gtk::ToggleAction::create_with_icon_name(&quot;ToggleColorLayer&quot;, &quot;color&quot;, &quot;Toogle Color Layer&quot;, &quot;Toogle Color Layer&quot;);
++  Glib::RefPtr&lt;Gtk::ToggleAction&gt; toggle_light_layer = Gtk::ToggleAction::create_with_icon_name(&quot;ToggleLightLayer&quot;, &quot;light&quot;, &quot;Toogle Light Layer&quot;, &quot;Toogle Light Layer&quot;);
++  Glib::RefPtr&lt;Gtk::ToggleAction&gt; toggle_highlight_layer = Gtk::ToggleAction::create_with_icon_name(&quot;ToggleHighlightLayer&quot;, &quot;highlight&quot;, &quot;Toogle Highlight Layer&quot;, &quot;Toogle Highlight Layer&quot;);
++  
++  toggle_color_layer-&gt;set_active(true);
++  toggle_light_layer-&gt;set_active(true);
++  toggle_highlight_layer-&gt;set_active(true);
+ 
++  action_group-&gt;add(toggle_color_layer,
++                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::toggle_render_layer), toggle_color_layer, (uint32_t)SceneContext::COLORMAP));
++  action_group-&gt;add(toggle_light_layer,
++                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::toggle_render_layer), toggle_light_layer, (uint32_t)SceneContext::LIGHTMAP));
++  action_group-&gt;add(toggle_highlight_layer,
++                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::toggle_render_layer), toggle_highlight_layer, (uint32_t)SceneContext::HIGHLIGHTMAP));
++
+   // Tools
+   action_group-&gt;add(Gtk::Action::create(&quot;MenuTools&quot;,  &quot;_Tools&quot;));
+   Gtk::RadioButtonGroup tool_group;
+@@ -394,6 +414,27 @@
+     }
+ }
+ 
++void
++EditorWindow::toggle_render_layer(Glib::RefPtr&lt;Gtk::ToggleAction&gt; action, uint32_t mask)
++{
++  if (WindstilleWidget* wst = get_windstille_widget())
++    {
++      SceneContext&amp; sc = *wst-&gt;get_sc();
++
++      if (action-&gt;get_active())
++        {
++          sc.set_render_mask(sc.get_render_mask() | mask);
++        }
++      else
++        {
++          sc.set_render_mask(sc.get_render_mask() &amp; (~mask));
++        }
++
++      std::cout &lt;&lt; &quot;mask: &quot; &lt;&lt; sc.get_render_mask() &lt;&lt; std::endl;
++      wst-&gt;queue_draw();
++    }
++}
++
+ Tool*
+ EditorWindow::get_current_tool() const
+ {
+
+Modified: trunk/windstille/src/editor/editor_window.hpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.hpp	2009-03-23 19:26:14 UTC (rev 2739)
++++ trunk/windstille/src/editor/editor_window.hpp	2009-03-24 00:07:18 UTC (rev 2740)
+@@ -24,6 +24,7 @@
+ #include &lt;gtkmm/statusbar.h&gt;
+ #include &lt;gtkmm/textview.h&gt;
+ #include &lt;gtkmm/paned.h&gt;
++#include &lt;gtkmm/toggleaction.h&gt;
+ #include &lt;gtkmm/window.h&gt;
+ #include &lt;gtkmm/notebook.h&gt;
+ 
+@@ -91,6 +92,8 @@
+   void on_switch_page(GtkNotebookPage* page, guint page_num);
+   void on_tool_select(Glib::RefPtr&lt;Gtk::RadioAction&gt; action, Tool*);
+ 
++  void toggle_render_layer(Glib::RefPtr&lt;Gtk::ToggleAction&gt; action, uint32_t mask);
++
+   Tool* get_current_tool() const;
+   WindstilleWidget* get_windstille_widget();
+   
+
+Modified: trunk/windstille/src/editor/main.cpp
+===================================================================
+--- trunk/windstille/src/editor/main.cpp	2009-03-23 19:26:14 UTC (rev 2739)
++++ trunk/windstille/src/editor/main.cpp	2009-03-24 00:07:18 UTC (rev 2740)
+@@ -21,6 +21,7 @@
+ #include &lt;iostream&gt;
+ #include &lt;stdexcept&gt;
+ #include &lt;sstream&gt;
++#include &lt;gtkmm/icontheme.h&gt;
+ #include &lt;gtkmm/main.h&gt;
+ #include &lt;gtkglmm.h&gt;
+ #include &lt;physfs.h&gt;
+@@ -54,6 +55,9 @@
+           throw std::runtime_error(&quot;*** Cannot find any OpenGL-capable visual.&quot;);
+         }
+ 
++      Glib::RefPtr&lt;Gtk::IconTheme&gt; icon_theme = Gtk::IconTheme::get_default();
++      icon_theme-&gt;append_search_path(&quot;data/editor/&quot;);
++      
+       EditorWindow window(glconfig);
+       
+       window.show_all();
+
+Modified: trunk/windstille/src/editor/object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/object_model.cpp	2009-03-23 19:26:14 UTC (rev 2739)
++++ trunk/windstille/src/editor/object_model.cpp	2009-03-24 00:07:18 UTC (rev 2740)
+@@ -18,18 +18,21 @@
+ 
+ #include &lt;iostream&gt;
+ 
++#include &quot;display/surface_drawing_parameters.hpp&quot;
+ #include &quot;display/scene_context.hpp&quot;
+ #include &quot;object_model.hpp&quot;
+ 
+ ObjectModelHandle
+-ObjectModel::create(const std::string&amp; name, const std::string&amp; path, const Vector2f&amp; pos)
++ObjectModel::create(const std::string&amp; name, const std::string&amp; path, const Vector2f&amp; pos,
++                    MapType type)
+ {
+-  return ObjectModelHandle(new ObjectModel(name, path, pos));
++  return ObjectModelHandle(new ObjectModel(name, path, pos, type));
+ }
+ 
+-ObjectModel::ObjectModel(const std::string&amp; name_, const std::string&amp; path, const Vector2f&amp; rel_pos_)
++ObjectModel::ObjectModel(const std::string&amp; name_, const std::string&amp; path, const Vector2f&amp; rel_pos_, MapType type_)
+   : name(name_),
+-    rel_pos(rel_pos_)
++    rel_pos(rel_pos_),
++    type(type_)
+ {
+   std::cout &lt;&lt; &quot;Path: &quot; &lt;&lt; path &lt;&lt; std::endl;
+   surface = Surface(path.substr(5)); // cut &quot;data/&quot; part
+@@ -80,8 +83,25 @@
+     {
+       sc.control().draw_line(wo_pos, parent-&gt;get_world_pos(), Color(0,0,1, 0.5f));
+     }
+-     
+-  sc.color().draw(surface, wo_pos);
++
++  switch(type)
++    {
++      case COLORMAP:
++        sc.color().draw(surface, wo_pos); 
++        break;
++
++      case LIGHTMAP:
++        sc.light().draw(surface, SurfaceDrawingParameters()
++                        .set_pos(wo_pos)
++                        .set_blend_func(GL_SRC_ALPHA, GL_ONE)); 
++        break;
++
++      case HIGHLIGHTMAP:
++        sc.highlight().draw(surface, SurfaceDrawingParameters()
++                            .set_pos(wo_pos)
++                            .set_blend_func(GL_SRC_ALPHA, GL_ONE)); 
++        break;
++    }
+   sc.control().fill_rect(Rectf(wo_pos - Vector2f(8, 8), Sizef(16, 16)), Color(1,0,0));
+ }
+ 
+
+Modified: trunk/windstille/src/editor/object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/object_model.hpp	2009-03-23 19:26:14 UTC (rev 2739)
++++ trunk/windstille/src/editor/object_model.hpp	2009-03-24 00:07:18 UTC (rev 2740)
+@@ -34,7 +34,9 @@
+ class ObjectModel
+ {
+ public:
+-  static ObjectModelHandle create(const std::string&amp; name, const std::string&amp; path, const Vector2f&amp; pos);
++  enum MapType { COLORMAP, LIGHTMAP, HIGHLIGHTMAP };
++  static ObjectModelHandle create(const std::string&amp; name, const std::string&amp; path, const Vector2f&amp; pos,
++                                  MapType type = COLORMAP);
+ 
+ private:
+   ObjectModelPtr parent_ptr;
+@@ -42,11 +44,12 @@
+   std::string name;
+   Vector2f    rel_pos;
+   Surface     surface;
++  MapType     type;
+ 
+   Vector2f move_offset;
+ 
+ public:
+-  ObjectModel(const std::string&amp; name, const std::string&amp; path, const Vector2f&amp; pos);
++  ObjectModel(const std::string&amp; name, const std::string&amp; path, const Vector2f&amp; pos, MapType type);
+   ~ObjectModel();
+ 
+   void set_parent(const ObjectModelHandle&amp; parent_);
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-03-23 19:26:14 UTC (rev 2739)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-03-24 00:07:18 UTC (rev 2740)
+@@ -43,15 +43,13 @@
+ }
+ 
+ void
+-SectorModel::add(const std::string&amp; path, const Vector2f&amp; pos)
++SectorModel::add(const ObjectModelHandle&amp; object)  
+ {
+-  ObjectModelHandle obj = ObjectModel::create(&quot;obj:&quot; + path, path, pos);
++  objects.push_back(object);
+ 
+-  objects.push_back(obj);
+-
+   Gtk::TreeStore::iterator it = objects_tree-&gt;append(root_it-&gt;children());
+   (*it)[ObjectTreeColumns::instance().type_icon] = Gdk::Pixbuf::create_from_file(&quot;data/editor/type.png&quot;);
+-  (*it)[ObjectTreeColumns::instance().name]      = obj-&gt;get_name();
++  (*it)[ObjectTreeColumns::instance().name]      = object-&gt;get_name();
+   (*it)[ObjectTreeColumns::instance().visible]   = false; 
+ }
+ 
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-03-23 19:26:14 UTC (rev 2739)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-03-24 00:07:18 UTC (rev 2740)
+@@ -67,7 +67,7 @@
+ public:
+   SectorModel();
+ 
+-  void add(const std::string&amp; path, const Vector2f&amp; obj);
++  void add(const ObjectModelHandle&amp; object);
+   void draw(SceneContext&amp; sc);
+ 
+   // void select_objects(const Rectf&amp; rect, bool replace_old_selection = true) const;
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-03-23 19:26:14 UTC (rev 2739)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-03-24 00:07:18 UTC (rev 2740)
+@@ -188,6 +188,8 @@
+     {
+       state.push(*sc);
+ 
++      sc-&gt;light().fill_screen(Color(0.25f, 0.25f, 0.25f));
++
+       sector_model-&gt;draw(*sc);
+ 
+       for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
+@@ -395,7 +397,11 @@
+   std::cout &lt;&lt; &quot;WindstilleWidget: on_drag_data_received: &quot;
+             &lt;&lt; x &lt;&lt; &quot;, &quot; &lt;&lt; y &lt;&lt; &quot;: &quot; &lt;&lt; data.get_data_type() &lt;&lt; &quot; &quot; &lt;&lt; data.get_data_as_string() &lt;&lt; std::endl;
+ 
+-  sector_model-&gt;add(data.get_data_as_string(), state.screen_to_world(Vector2f(x, y)));
++  ObjectModelHandle object = ObjectModel::create(data.get_data_as_string(),
++                                                 data.get_data_as_string(), 
++                                                 state.screen_to_world(Vector2f(x, y)),
++                                                 ObjectModel::COLORMAP);
++  sector_model-&gt;add(object);
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/editor/windstille_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.hpp	2009-03-23 19:26:14 UTC (rev 2739)
++++ trunk/windstille/src/editor/windstille_widget.hpp	2009-03-24 00:07:18 UTC (rev 2740)
+@@ -100,6 +100,8 @@
+   void set_selection(const SelectionHandle&amp; selection);
+   SelectionHandle get_selection() const;
+ 
++  SceneContext* get_sc() const { return sc.get(); }
++
+ private:
+   WindstilleWidget (const WindstilleWidget&amp;);
+   WindstilleWidget&amp; operator= (const WindstilleWidget&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001736.html">[Windstille-commit] r2739 - in trunk/windstille: . data/editor	src/editor
+</A></li>
+	<LI>Next message: <A HREF="001738.html">[Windstille-commit] r2741 - in trunk/windstille: . data/editor	src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1737">[ date ]</a>
+              <a href="thread.html#1737">[ thread ]</a>
+              <a href="subject.html#1737">[ subject ]</a>
+              <a href="author.html#1737">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

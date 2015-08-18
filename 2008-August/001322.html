@@ -1,0 +1,281 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2341 - trunk/griv/new
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2341%20-%20trunk/griv/new&In-Reply-To=%3C200808171110.m7HBA9Kh029050%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001325.html">
+   <LINK REL="Next"  HREF="001339.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2341 - trunk/griv/new</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2341%20-%20trunk/griv/new&In-Reply-To=%3C200808171110.m7HBA9Kh029050%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2341 - trunk/griv/new">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Aug 17 13:10:09 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001325.html">[Windstille-commit] r2340 - trunk/griv/new
+</A></li>
+        <LI>Next message: <A HREF="001339.html">[Windstille-commit] r2342 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1322">[ date ]</a>
+              <a href="thread.html#1322">[ thread ]</a>
+              <a href="subject.html#1322">[ subject ]</a>
+              <a href="author.html#1322">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-17 13:10:04 +0200 (Sun, 17 Aug 2008)
+New Revision: 2341
+
+Modified:
+   trunk/griv/new/TODO
+   trunk/griv/new/griv.cpp
+   trunk/griv/new/griv.hpp
+   trunk/griv/new/jpeg.cpp
+Log:
+Stuff
+
+Modified: trunk/griv/new/TODO
+===================================================================
+--- trunk/griv/new/TODO	2008-08-17 01:08:22 UTC (rev 2340)
++++ trunk/griv/new/TODO	2008-08-17 11:10:04 UTC (rev 2341)
+@@ -6,13 +6,14 @@
+ * move image sorting code on workspace over
+ * request lower res tiles, before requesting highres tiles
+ * move JPEG decoding in a seperate thread so that the database thread can run free with database stuff 
++* jpegtran *can't* do crop of large scale JPEGs in small amount of
++  space, so cropping with libjpeg likely won't work
+ 
+ JPEG Functions:
+ ===============
+ 
+ * get_size(JpegImage) -&gt; (w, h)
+ * crop(JpegImage)  -&gt; JpegImage -&gt; Blob
+-* scale(JpegImage) -&gt; JpegImage -&gt; Blob
+ * Filename -&gt; JpegImage
+ 
+ 
+
+Modified: trunk/griv/new/griv.cpp
+===================================================================
+--- trunk/griv/new/griv.cpp	2008-08-17 01:08:22 UTC (rev 2340)
++++ trunk/griv/new/griv.cpp	2008-08-17 11:10:04 UTC (rev 2341)
+@@ -64,6 +64,35 @@
+ }
+ 
+ void
++Griv::info(const std::vector&lt;std::string&gt;&amp; filenames)
++{
++  for(std::vector&lt;std::string&gt;::const_iterator i = filenames.begin(); i != filenames.end(); ++i)
++    {
++      Size size;
++      JPEG::get_size(*i, size);
++      std::cout &lt;&lt; *i &lt;&lt; &quot; &quot; &lt;&lt; size.width &lt;&lt; &quot;x&quot; &lt;&lt; size.height &lt;&lt; std::endl;
++    }
++}
++
++void
++Griv::downscale(const std::vector&lt;std::string&gt;&amp; filenames)
++{
++  int num = 0;
++  for(std::vector&lt;std::string&gt;::const_iterator i = filenames.begin(); i != filenames.end(); ++i, ++num)
++    {
++      std::cout &lt;&lt; *i &lt;&lt; std::endl;
++      SoftwareSurface surface = JPEG::load(*i, 8);
++
++      std::ostringstream out;
++      out &lt;&lt; &quot;/tmp/out-&quot; &lt;&lt; num &lt;&lt; &quot;.jpg&quot;;
++      Blob blob = JPEG::save(surface, 75);
++      blob.write_to_file(out.str());
++
++      std::cout &lt;&lt; &quot;Wrote: &quot; &lt;&lt; out.str() &lt;&lt; std::endl;
++    }  
++}
++
++void
+ Griv::cleanup(const std::string&amp; database)
+ {
+   SQLiteConnection db(database);
+@@ -260,6 +289,14 @@
+         {
+           cleanup(database);
+         }
++      else if (strcmp(argv[1], &quot;info&quot;) == 0)
++        {
++          info(filenames);
++        }
++      else if (strcmp(argv[1], &quot;downscale&quot;) == 0)
++        {
++          downscale(filenames);
++        }
+       else if (strcmp(argv[1], &quot;prepare&quot;) == 0)
+         {
+           generate_tiles(database, filenames);
+
+Modified: trunk/griv/new/griv.hpp
+===================================================================
+--- trunk/griv/new/griv.hpp	2008-08-17 01:08:22 UTC (rev 2340)
++++ trunk/griv/new/griv.hpp	2008-08-17 11:10:04 UTC (rev 2341)
+@@ -31,6 +31,8 @@
+   void print_usage();
+   int main(int argc, char** argv);
+ 
++  void info(const std::vector&lt;std::string&gt;&amp; filenames);
++  void downscale(const std::vector&lt;std::string&gt;&amp; filenames);
+   void cleanup(const std::string&amp; database);
+   void check(const std::string&amp; database);
+   void list(const std::string&amp; database);
+
+Modified: trunk/griv/new/jpeg.cpp
+===================================================================
+--- trunk/griv/new/jpeg.cpp	2008-08-17 01:08:22 UTC (rev 2340)
++++ trunk/griv/new/jpeg.cpp	2008-08-17 11:10:04 UTC (rev 2341)
+@@ -290,5 +290,111 @@
+   // FIXME: This causes an unnecessary copy, should have a BlobImpl that is based on std::vector&lt;&gt;
+   return Blob(data);
+ }
++
++#if 0 
++void 
++JPEG::crop()
++{
++  struct jpeg_decompress_struct srcinfo;
++  struct jpeg_compress_struct dstinfo;
++  struct jpeg_error_mgr jsrcerr, jdsterr;
++
++  jvirt_barray_ptr * src_coef_arrays;
++  jvirt_barray_ptr * dst_coef_arrays;
++
++  /* Initialize the JPEG decompression object with default error handling. */
++  srcinfo.err = jpeg_std_error(&amp;jsrcerr);
++  jpeg_create_decompress(&amp;srcinfo);
++
++  /* Initialize the JPEG compression object with default error handling. */
++  dstinfo.err = jpeg_std_error(&amp;jdsterr);
++  jpeg_create_compress(&amp;dstinfo);
++
++  jsrcerr.trace_level = jdsterr.trace_level;
++  srcinfo.mem-&gt;max_memory_to_use = dstinfo.mem-&gt;max_memory_to_use;
++
++  /* Specify data source for decompression */
++  jpeg_stdio_src(&amp;srcinfo, fp);
++
++  /* Enable saving of extra markers that we want to copy */
++  // jcopy_markers_setup(&amp;srcinfo, copyoption);
++
++  /* Read file header */
++  jpeg_read_header(&amp;srcinfo, TRUE);
++
++  /* Any space needed by a transform option must be requested before
++   * jpeg_read_coefficients so that memory allocation will be done right.
++   */
++  jtransform_request_workspace(&amp;srcinfo, &amp;transformoption);
++
++  /* Read source file as DCT coefficients */
++  src_coef_arrays = jpeg_read_coefficients(&amp;srcinfo);
++
++  /* Initialize destination compression parameters from source values */
++  jpeg_copy_critical_parameters(&amp;srcinfo, &amp;dstinfo);
++
++  /* Adjust destination parameters if required by transform options;
++   * also find out which set of coefficient arrays will hold the output.
++   */
++  dstinfo-&gt;image_width = info-&gt;output_width;
++  dstinfo-&gt;image_height = info-&gt;output_height;
++
++  dst_coef_arrays = src_coef_arrays;
++
++  jpeg_stdio_dest(&amp;dstinfo, fp);
++
++  /* Start compressor (note no image data is actually written here) */
++  jpeg_write_coefficients(&amp;dstinfo, dst_coef_arrays);
++
++  /* Copy to the output file any extra markers that we want to preserve */
++  jcopy_markers_execute(&amp;srcinfo, &amp;dstinfo, copyoption);
++
++  // JDIMENSION x_crop_offset, JDIMENSION y_crop_offset,
++   
++  { // Crop
++    JBLOCKARRAY src_buffer, dst_buffer;
++    jpeg_component_info *compptr;
++
++    /* We simply have to copy the right amount of data (the destination's
++     * image size) starting at the given X and Y offsets in the source.
++     */
++    for (int ci = 0; ci &lt; dstinfo-&gt;num_components; ci++)
++      {
++        compptr = dstinfo-&gt;comp_info + ci;
++        JDIMENSION x_crop_blocks = x_crop_offset * compptr-&gt;h_samp_factor;
++        JDIMENSION y_crop_blocks = y_crop_offset * compptr-&gt;v_samp_factor;
++
++        for (JDIMENSION dst_blk_y = 0; dst_blk_y &lt; compptr-&gt;height_in_blocks; dst_blk_y += compptr-&gt;v_samp_factor) 
++          {
++            dst_buffer = (*srcinfo-&gt;mem-&gt;access_virt_barray)
++              ((j_common_ptr) srcinfo, dst_coef_arrays[ci], dst_blk_y,
++               (JDIMENSION) compptr-&gt;v_samp_factor, TRUE);
++
++            src_buffer = (*srcinfo-&gt;mem-&gt;access_virt_barray)
++              ((j_common_ptr) srcinfo, src_coef_arrays[ci],
++               dst_blk_y + y_crop_blocks,
++               (JDIMENSION) compptr-&gt;v_samp_factor, FALSE);
++
++            for (int offset_y = 0; offset_y &lt; compptr-&gt;v_samp_factor; offset_y++) 
++              {
++                jcopy_block_row(src_buffer[offset_y] + x_crop_blocks,
++                                dst_buffer[offset_y],
++                                compptr-&gt;width_in_blocks);
++              }
++          }
++      }
++  }
++
++  { // Cleanup
++    /* Finish compression and release memory */
++    jpeg_finish_compress(&amp;dstinfo);
++    jpeg_destroy_compress(&amp;dstinfo);
++    jpeg_finish_decompress(&amp;srcinfo);
++    jpeg_destroy_decompress(&amp;srcinfo);
++
++  }
++}
++#endif
++
+ 
+ /* EOF */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001325.html">[Windstille-commit] r2340 - trunk/griv/new
+</A></li>
+	<LI>Next message: <A HREF="001339.html">[Windstille-commit] r2342 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1322">[ date ]</a>
+              <a href="thread.html#1322">[ thread ]</a>
+              <a href="subject.html#1322">[ subject ]</a>
+              <a href="author.html#1322">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

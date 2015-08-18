@@ -1,0 +1,388 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2946 - in trunk/windstille: . src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2946%20-%20in%20trunk/windstille%3A%20.%20src/editor&In-Reply-To=%3C200904221653.n3MGroRb018736%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001942.html">
+   <LINK REL="Next"  HREF="001944.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2946 - in trunk/windstille: . src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2946%20-%20in%20trunk/windstille%3A%20.%20src/editor&In-Reply-To=%3C200904221653.n3MGroRb018736%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2946 - in trunk/windstille: . src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Apr 22 18:53:50 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001942.html">[Windstille-commit] r2945 - in trunk/windstille: . src/editor
+</A></li>
+        <LI>Next message: <A HREF="001944.html">[Windstille-commit] r2947 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1943">[ date ]</a>
+              <a href="thread.html#1943">[ thread ]</a>
+              <a href="subject.html#1943">[ subject ]</a>
+              <a href="author.html#1943">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-04-22 18:53:48 +0200 (Wed, 22 Apr 2009)
+New Revision: 2946
+
+Added:
+   trunk/windstille/src/editor/layer_commands.hpp
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/group_command.hpp
+   trunk/windstille/src/editor/object_commands.hpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+Log:
+Implemented some undo/redo for LayerAdd/Remove
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-04-22 05:01:32 UTC (rev 2945)
++++ trunk/windstille/TODO	2009-04-22 16:53:48 UTC (rev 2946)
+@@ -522,6 +522,8 @@
+ Editor
+ ======
+ 
++* unify delete/remove/erase a bit
++
+ * figure out a way to rename image files without breaking the levels
+ 
+ * new boost1.37 seems to be missing boost_signals, instead it has
+@@ -775,7 +777,7 @@
+ 
+ * think about Undo/Redo
+ 
+-  * CommandGroupCommand
++  * CommandGroupCommand  [done]
+ 
+   * NodeAddCommand
+   * NodeRemoveCommand
+@@ -794,8 +796,8 @@
+   * ObjectSetHFlip        [done]
+   * ObjectSetVFlip        [done]
+ 
+-  * LayerAddCommand
+-  * LayerRemovedCommand
++  * LayerAddCommand     [done, except proper order]
++  * LayerRemovedCommand [done, except proper order]
+   * LayerReorderCommand
+ 
+   * FunctorCommand(boost::functor&lt;void ()&gt;&amp; undo,
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-04-22 05:01:32 UTC (rev 2945)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-04-22 16:53:48 UTC (rev 2946)
+@@ -30,6 +30,7 @@
+ #include &lt;gtkmm/stock.h&gt;
+ #include &lt;gtkmm/separatortoolitem.h&gt;
+ 
++#include &quot;layer_commands.hpp&quot;
+ #include &quot;undo_manager.hpp&quot;
+ #include &quot;display/scene_context.hpp&quot;
+ #include &quot;windstille_widget.hpp&quot;
+@@ -41,6 +42,7 @@
+ #include &quot;navgraph_select_tool.hpp&quot;
+ #include &quot;sector_model.hpp&quot;
+ #include &quot;layer_widget.hpp&quot;
++
+ #include &quot;editor_window.hpp&quot;
+ 
+ EditorWindow* EditorWindow::current_ = 0;
+@@ -840,7 +842,12 @@
+   if (WindstilleWidget* wst = get_windstille_widget())
+     {
+       //std::cout &lt;&lt; &quot;Deleting layer: &quot; &lt;&lt; wst &lt;&lt; std::endl;
+-      wst-&gt;get_sector_model()-&gt;delete_layer(wst-&gt;get_current_layer_path());
++      //wst-&gt;get_sector_model()-&gt;delete_layer(wst-&gt;get_current_layer_path());
++
++      CommandHandle cmd(new LayerDeleteCommand(*wst-&gt;get_sector_model(), wst-&gt;get_current_layer_path()));
++      wst-&gt;get_undo_manager()-&gt;execute(cmd);
++      EditorWindow::current()-&gt;update_undo_state();
++      queue_draw();
+     }
+ }
+ 
+@@ -850,8 +857,13 @@
+   if (WindstilleWidget* wst = get_windstille_widget())
+     {
+       //std::cout &lt;&lt; &quot;Adding layer&quot; &lt;&lt; std::endl;
+-      wst-&gt;get_sector_model()-&gt;add_layer(&quot;New Layer&quot;, wst-&gt;get_current_layer_path());
++      //wst-&gt;get_sector_model()-&gt;add_layer(&quot;New Layer&quot;, wst-&gt;get_current_layer_path());
+ 
++      CommandHandle cmd(new LayerAddCommand(*wst-&gt;get_sector_model(), wst-&gt;get_current_layer_path()));
++      wst-&gt;get_undo_manager()-&gt;execute(cmd);
++      EditorWindow::current()-&gt;update_undo_state();
++      queue_draw();
++
+       layer_manager.get_treeview().expand_all();
+     }
+ }
+
+Modified: trunk/windstille/src/editor/group_command.hpp
+===================================================================
+--- trunk/windstille/src/editor/group_command.hpp	2009-04-22 05:01:32 UTC (rev 2945)
++++ trunk/windstille/src/editor/group_command.hpp	2009-04-22 16:53:48 UTC (rev 2946)
+@@ -30,7 +30,6 @@
+ 
+ public:
+   GroupCommand() {}
+-  ~GroupCommand() {}
+ 
+   void add(CommandHandle cmd) {
+     cmds.push_back(cmd);
+
+Added: trunk/windstille/src/editor/layer_commands.hpp
+===================================================================
+--- trunk/windstille/src/editor/layer_commands.hpp	2009-04-22 05:01:32 UTC (rev 2945)
++++ trunk/windstille/src/editor/layer_commands.hpp	2009-04-22 16:53:48 UTC (rev 2946)
+@@ -0,0 +1,80 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_EDITOR_LAYER_COMMANDS_HPP
++#define HEADER_WINDSTILLE_EDITOR_LAYER_COMMANDS_HPP
++
++#include &quot;layer.hpp&quot;
++#include &quot;command.hpp&quot;
++#include &quot;sector_model.hpp&quot;
++
++class LayerAddCommand : public Command
++{
++private:
++  SectorModel&amp; sector;
++  Gtk::TreeModel::Path path;
++
++public:
++  LayerAddCommand(SectorModel&amp; sector_, const Gtk::TreeModel::Path&amp; path_)
++    : sector(sector_), 
++      path(path_)
++  {}
++
++  void redo() {
++    sector.add_layer(&quot;New Layer&quot;, path);
++  }
++
++  void undo() {
++    sector.delete_layer(path);
++  }
++
++private:
++  LayerAddCommand(const LayerAddCommand&amp;);
++  LayerAddCommand&amp; operator=(const LayerAddCommand&amp;);
++};
++
++class LayerDeleteCommand : public Command
++{
++private:
++  SectorModel&amp; sector;
++  Gtk::TreeModel::Path path;
++  LayerHandle layer;
++
++public:
++  LayerDeleteCommand(SectorModel&amp; sector_, const Gtk::TreeModel::Path&amp; path_)
++    : sector(sector_), 
++      path(path_),
++      layer(sector.get_layer(path))
++  {}
++
++  void redo() {
++    sector.delete_layer(path);
++  }
++
++  void undo() {
++    sector.add_layer(layer/*, path*/);
++  }
++
++private:
++  LayerDeleteCommand(const LayerDeleteCommand&amp;);
++  LayerDeleteCommand&amp; operator=(const LayerDeleteCommand&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/layer_commands.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/windstille/src/editor/object_commands.hpp
+===================================================================
+--- trunk/windstille/src/editor/object_commands.hpp	2009-04-22 05:01:32 UTC (rev 2945)
++++ trunk/windstille/src/editor/object_commands.hpp	2009-04-22 16:53:48 UTC (rev 2946)
+@@ -36,7 +36,6 @@
+     : layer(sector.get_layer(object_)),
+       object(object_)
+   {}
+-  virtual ~ObjectRemoveCommand() {}
+   
+   void redo() {
+     layer-&gt;remove(object);
+@@ -59,7 +58,6 @@
+     : layer(layer_),
+       object(object_)
+   {}
+-  virtual ~ObjectAddCommand() {}
+   
+   void redo() {
+     layer-&gt;add(object);
+@@ -83,7 +81,6 @@
+       orig_pos(object-&gt;get_rel_pos()),
+       new_pos(new_pos_)
+   {}
+-  virtual ~ObjectSetPosCommand() {}
+   
+   void redo() {
+     object-&gt;set_rel_pos(new_pos);
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-04-22 05:01:32 UTC (rev 2945)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-04-22 16:53:48 UTC (rev 2946)
+@@ -62,6 +62,23 @@
+ }
+ 
+ void
++SectorModel::add_layer(LayerHandle layer, const Gtk::TreeModel::Path&amp; path)
++{
++ Gtk::ListStore::iterator it;
++
++  if (path.empty())
++    it = layer_tree-&gt;append();
++  else
++    it = layer_tree-&gt;insert(layer_tree-&gt;get_iter(path));
++  
++  (*it)[LayerManagerColumns::instance().type_icon] = Gdk::Pixbuf::create_from_file(&quot;data/editor/type.png&quot;);
++  (*it)[LayerManagerColumns::instance().name]      = &quot;Restored Layer&quot;;
++  (*it)[LayerManagerColumns::instance().visible]   = true; 
++  (*it)[LayerManagerColumns::instance().locked]    = false; 
++  (*it)[LayerManagerColumns::instance().layer]     = layer;
++}
++
++void
+ SectorModel::add_layer(const std::string&amp; name, const Gtk::TreeModel::Path&amp; path)
+ {
+   Gtk::ListStore::iterator it;
+@@ -519,7 +536,6 @@
+ SectorModel::on_row_deleted(const Gtk::TreeModel::Path&amp; path)
+ {
+   //std::cout &lt;&lt; &quot;LayerManager:on_row_deleted&quot; &lt;&lt; std::endl;
+-  
+   queue_draw();
+ }
+ 
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-04-22 05:01:32 UTC (rev 2945)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-04-22 16:53:48 UTC (rev 2946)
+@@ -52,7 +52,7 @@
+   Gtk::TreeModelColumn&lt;Glib::ustring&gt;              name;
+   Gtk::TreeModelColumn&lt;bool&gt;                       visible;
+   Gtk::TreeModelColumn&lt;bool&gt;                       locked;
+-  Gtk::TreeModelColumn&lt;LayerHandle&gt;            layer;
++  Gtk::TreeModelColumn&lt;LayerHandle&gt;                layer;
+ 
+ private:
+   LayerManagerColumns() {
+@@ -68,11 +68,10 @@
+ {
+ private:
+   std::auto_ptr&lt;NavigationGraph&gt; nav_graph;
+-  Glib::RefPtr&lt;Gtk::ListStore&gt; layer_tree;
++  Glib::RefPtr&lt;Gtk::ListStore&gt;   layer_tree;
+   Color ambient_color;
+   
+ public:
+-  //typedef Objects::iterator iterator;
+   typedef std::vector&lt;LayerHandle&gt; Layers;
+ 
+   SectorModel();
+@@ -87,6 +86,7 @@
+   void set_all_locked(bool v);
+ 
+   void add_layer(const std::string&amp; name, const Gtk::TreeModel::Path&amp; path = Gtk::TreeModel::Path());
++  void add_layer(LayerHandle layer, const Gtk::TreeModel::Path&amp; path = Gtk::TreeModel::Path());
+   void delete_layer(const Gtk::TreeModel::Path&amp; path);
+ 
+   void add(const ObjectModelHandle&amp; object, const Gtk::TreeModel::Path&amp; path);
+@@ -100,8 +100,6 @@
+   Layers get_layers() const;
+   LayerHandle get_layer(ObjectModelHandle object);
+   
+-  // void select_objects(const Rectf&amp; rect, bool replace_old_selection = true) const;
+-
+   Glib::RefPtr&lt;Gtk::ListStore&gt; get_layer_tree() { return layer_tree; }
+ 
+   void on_row_changed(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter);
+@@ -130,9 +128,6 @@
+ 
+   void queue_draw();
+ 
+-  //iterator begin() { return objects.begin(); }
+-  //iterator end() { return objects.end(); }
+-
+ private:
+   SectorModel(const SectorModel&amp;);
+   SectorModel&amp; operator=(const SectorModel&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001942.html">[Windstille-commit] r2945 - in trunk/windstille: . src/editor
+</A></li>
+	<LI>Next message: <A HREF="001944.html">[Windstille-commit] r2947 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1943">[ date ]</a>
+              <a href="thread.html#1943">[ thread ]</a>
+              <a href="subject.html#1943">[ subject ]</a>
+              <a href="author.html#1943">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

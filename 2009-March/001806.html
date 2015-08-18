@@ -1,0 +1,149 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2809 - in trunk/windstille: . src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2809%20-%20in%20trunk/windstille%3A%20.%20src/editor&In-Reply-To=%3C200903291749.n2THnGxl011652%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001805.html">
+   <LINK REL="Next"  HREF="001807.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2809 - in trunk/windstille: . src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2809%20-%20in%20trunk/windstille%3A%20.%20src/editor&In-Reply-To=%3C200903291749.n2THnGxl011652%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2809 - in trunk/windstille: . src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Mar 29 19:49:16 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001805.html">[Windstille-commit] r2808 - trunk/windstille
+</A></li>
+        <LI>Next message: <A HREF="001807.html">[Windstille-commit] r2810 - in trunk/windstille: . src/editor	src/math
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1806">[ date ]</a>
+              <a href="thread.html#1806">[ thread ]</a>
+              <a href="subject.html#1806">[ subject ]</a>
+              <a href="author.html#1806">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-29 19:49:15 +0200 (Sun, 29 Mar 2009)
+New Revision: 2809
+
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/src/editor/sector_model.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+Log:
+Duplicated objects get inserted on their parent layer, instead of the currently marked layer
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-03-29 17:44:47 UTC (rev 2808)
++++ trunk/windstille/TODO	2009-03-29 17:49:15 UTC (rev 2809)
+@@ -506,10 +506,6 @@
+ Editor
+ ======
+ 
+-* duplicate should not insert objects on the current layer, but on the
+-  layer the objects they are on, this would allow duplicating whole
+-  multi-layered rooms with ease
+-
+ * QuadTree could be useful when levels get larger
+ 
+ * make use of Statusbar
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-03-29 17:44:47 UTC (rev 2808)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-03-29 17:49:15 UTC (rev 2809)
+@@ -89,6 +89,7 @@
+ 
+   HardLayerHandle get_layer(const Gtk::TreeModel::Path&amp; path) const;
+   HardLayers get_layers() const;
++  HardLayerHandle get_layer(ObjectModelHandle object);
+   
+   // void select_objects(const Rectf&amp; rect, bool replace_old_selection = true) const;
+ 
+@@ -102,8 +103,6 @@
+ 
+   ObjectModelHandle get_object_at(const Vector2f&amp; pos, const Layers&amp; layers) const;
+   SelectionHandle   get_selection(const Rectf&amp; rect, const Layers&amp; layers) const;
+-
+-  HardLayerHandle get_layer(ObjectModelHandle object);
+   
+   void raise_to_top(ObjectModelHandle object);
+   void lower_to_bottom(ObjectModelHandle object);
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-03-29 17:44:47 UTC (rev 2808)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-03-29 17:49:15 UTC (rev 2809)
+@@ -318,20 +318,23 @@
+ void
+ WindstilleWidget::selection_duplicate()
+ {
+-  Gtk::TreeModel::Path path;
+-  Gtk::TreeViewColumn* focus_column;
+-  EditorWindow::current()-&gt;get_layer_manager().get_treeview().get_cursor(path, focus_column);
+-
+   SelectionHandle new_selection = Selection::create();
+   for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
+     {
+-      ObjectModelHandle obj = (*i)-&gt;clone();
+-      
+-      // Move clone a litte to make it more obvious that something happened
+-      obj-&gt;set_rel_pos(obj-&gt;get_rel_pos() + Vector2f(32.0f, 32.0f));
++      HardLayerHandle layer = sector_model-&gt;get_layer(*i);
++      ObjectModelHandle obj = (*i)-&gt;clone();     
+ 
+-      sector_model-&gt;add(obj, path);
+-      new_selection-&gt;add(obj);
++      if (!layer)
++        {
++          EditorWindow::current()-&gt;print(&quot;Couldn't find parent layer while duplicating&quot;);
++        }
++      else
++        {
++          // Move clone a litte to make it more obvious that something happened
++          obj-&gt;set_rel_pos(obj-&gt;get_rel_pos() + Vector2f(32.0f, 32.0f));
++          layer-&gt;add(obj);
++          new_selection-&gt;add(obj);
++        }
+     }
+   selection = new_selection;
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001805.html">[Windstille-commit] r2808 - trunk/windstille
+</A></li>
+	<LI>Next message: <A HREF="001807.html">[Windstille-commit] r2810 - in trunk/windstille: . src/editor	src/math
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1806">[ date ]</a>
+              <a href="thread.html#1806">[ thread ]</a>
+              <a href="subject.html#1806">[ subject ]</a>
+              <a href="author.html#1806">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,207 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2875 - in trunk/windstille: . src/display
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2875%20-%20in%20trunk/windstille%3A%20.%20src/display&In-Reply-To=%3C200904051907.n35J7H0H023261%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001871.html">
+   <LINK REL="Next"  HREF="001873.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2875 - in trunk/windstille: . src/display</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2875%20-%20in%20trunk/windstille%3A%20.%20src/display&In-Reply-To=%3C200904051907.n35J7H0H023261%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2875 - in trunk/windstille: . src/display">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Apr  5 21:07:17 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001871.html">[Windstille-commit] r2874 - trunk/windstille/src/display
+</A></li>
+        <LI>Next message: <A HREF="001873.html">[Windstille-commit] r2876 - trunk/windstille/src/util
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1872">[ date ]</a>
+              <a href="thread.html#1872">[ thread ]</a>
+              <a href="subject.html#1872">[ subject ]</a>
+              <a href="author.html#1872">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-04-05 21:07:16 +0200 (Sun, 05 Apr 2009)
+New Revision: 2875
+
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/src/display/software_surface.cpp
+   trunk/windstille/src/display/software_surface.hpp
+   trunk/windstille/src/display/surface_manager.cpp
+   trunk/windstille/src/display/texture_packer.cpp
+Log:
+Implemented proper 1px border (slow, but working)
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-04-05 18:19:11 UTC (rev 2874)
++++ trunk/windstille/TODO	2009-04-05 19:07:16 UTC (rev 2875)
+@@ -186,11 +186,13 @@
+ Miscellaneous
+ =============
+ 
++* replace power_of_two function with one not based on a slow while() loop
++
+ * maybe add special support for opaque textures, i.e. Textures with
+   1-bit alpha, which could be used to bucket sort drawing requests and
+   reduce texture switches (in case those ever start posing a problem)
+ 
+-* <A HREF="http://www.blackpawn.com/texts/lightmaps/default.html">http://www.blackpawn.com/texts/lightmaps/default.html</A>
++* Write a texture packer: <A HREF="http://www.blackpawn.com/texts/lightmaps/default.html">http://www.blackpawn.com/texts/lightmaps/default.html</A>
+ 
+ * Display::aspect_size is ugly, turn that into a Display::set_size();
+ 
+@@ -514,6 +516,13 @@
+ Editor
+ ======
+ 
++* Texture::put can't handle non-RGBA surface
++
++* add a SoftwareSurface::grow() which creates a new SoftwareSurface
++  with a 1px boarder for fixing texture blend issue
++
++* add way to convert Texture to SoftwareSurface for debugging
++
+ * share SoftwareSurface via Manager class
+ 
+ * add binlocate support
+
+Modified: trunk/windstille/src/display/software_surface.cpp
+===================================================================
+--- trunk/windstille/src/display/software_surface.cpp	2009-04-05 18:19:11 UTC (rev 2874)
++++ trunk/windstille/src/display/software_surface.cpp	2009-04-05 19:07:16 UTC (rev 2875)
+@@ -171,5 +171,21 @@
+       return false;
+     }
+ }
++
++SoftwareSurface
++SoftwareSurface::add_1px_border() const
++{
++  SoftwareSurface surface(get_width()+2, get_height()+2);
++
++  // FIXME: Really slow
++  blit(surface, 0, 0);
++  blit(surface, 2, 0);
++  blit(surface, 0, 2);
++  blit(surface, 2, 2);
++
++  blit(surface, 1, 1);
++
++  return surface;
++}
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/display/software_surface.hpp
+===================================================================
+--- trunk/windstille/src/display/software_surface.hpp	2009-04-05 18:19:11 UTC (rev 2874)
++++ trunk/windstille/src/display/software_surface.hpp	2009-04-05 19:07:16 UTC (rev 2875)
+@@ -52,6 +52,11 @@
+   void blit(SoftwareSurface&amp; dst, int x, int y) const;
+   void blit(const Rect&amp; src_rect, SoftwareSurface&amp; dst, int x, int y) const;
+ 
++  /** Creates a copy of the original surface with an added a 1pix
++      border around the original. The border contains duplicates the
++      edge pixels.  */
++  SoftwareSurface add_1px_border() const;
++
+   SDL_Surface* get_surface() const;
+ 
+   bool is_at(int x, int y) const;
+
+Modified: trunk/windstille/src/display/surface_manager.cpp
+===================================================================
+--- trunk/windstille/src/display/surface_manager.cpp	2009-04-05 18:19:11 UTC (rev 2874)
++++ trunk/windstille/src/display/surface_manager.cpp	2009-04-05 19:07:16 UTC (rev 2875)
+@@ -73,7 +73,6 @@
+ 
+       if (1)
+         {
+-          // FIXME: Need to 'grow' the image by 1 pixel, so we don't get blending artifacts
+           Surface result = texture_packer-&gt;upload(image);
+           surfaces.insert(std::make_pair(filename, result));
+           return result;              
+
+Modified: trunk/windstille/src/display/texture_packer.cpp
+===================================================================
+--- trunk/windstille/src/display/texture_packer.cpp	2009-04-05 18:19:11 UTC (rev 2874)
++++ trunk/windstille/src/display/texture_packer.cpp	2009-04-05 19:07:16 UTC (rev 2875)
+@@ -16,6 +16,7 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
++#include &lt;iostream&gt;
+ #include &lt;stdexcept&gt;
+ #include &lt;memory&gt;
+ 
+@@ -141,8 +142,11 @@
+ }
+ 
+ Surface
+-TexturePacker::upload(const SoftwareSurface&amp; surface)
++TexturePacker::upload(const SoftwareSurface&amp; in_surface)
+ {
++  // Add a 1px border around surfaces to avoid blending artifacts
++  SoftwareSurface surface = in_surface.add_1px_border();
++
+   Size    size(surface.get_width(), surface.get_height());
+   Rect    rect;
+   Texture texture;
+@@ -155,10 +159,12 @@
+     {
+       texture.put(surface, rect.left, rect.top);
+ 
++      //std::cout &lt;&lt; &quot;Texture: &quot; &lt;&lt; texture.get_handle() &lt;&lt; &quot; &quot; &lt;&lt; rect &lt;&lt; std::endl;
++
+       return Surface(texture,
+-                     Rectf(float(rect.left)  / texture.get_width(), float(rect.top)    / texture.get_height(),
+-                           float(rect.right) / texture.get_width(), float(rect.bottom) / texture.get_height()),
+-                     surface.get_width(), surface.get_height());
++                     Rectf(float(rect.left+1)  / texture.get_width(), float(rect.top+1)    / texture.get_height(),
++                           float(rect.right-1) / texture.get_width(), float(rect.bottom-1) / texture.get_height()),
++                     in_surface.get_width(), in_surface.get_height());
+     }
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001871.html">[Windstille-commit] r2874 - trunk/windstille/src/display
+</A></li>
+	<LI>Next message: <A HREF="001873.html">[Windstille-commit] r2876 - trunk/windstille/src/util
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1872">[ date ]</a>
+              <a href="thread.html#1872">[ thread ]</a>
+              <a href="subject.html#1872">[ subject ]</a>
+              <a href="author.html#1872">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

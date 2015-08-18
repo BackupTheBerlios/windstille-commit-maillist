@@ -1,0 +1,197 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1548 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1548%20-%20trunk/griv&In-Reply-To=%3C200711150047.lAF0lYrm010111%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001197.html">
+   <LINK REL="Next"  HREF="001199.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1548 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1548%20-%20trunk/griv&In-Reply-To=%3C200711150047.lAF0lYrm010111%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1548 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Nov 15 01:47:34 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001197.html">[Windstille-commit] r1547 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001199.html">[Windstille-commit] r1549 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1198">[ date ]</a>
+              <a href="thread.html#1198">[ thread ]</a>
+              <a href="subject.html#1198">[ subject ]</a>
+              <a href="author.html#1198">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-15 01:47:33 +0100 (Thu, 15 Nov 2007)
+New Revision: 1548
+
+Modified:
+   trunk/griv/griv.cpp
+   trunk/griv/image.cpp
+   trunk/griv/image.hpp
+   trunk/griv/workspace.cpp
+   trunk/griv/workspace.hpp
+Log:
+- added dynamic reorganisation
+
+Modified: trunk/griv/griv.cpp
+===================================================================
+--- trunk/griv/griv.cpp	2007-11-15 00:32:53 UTC (rev 1547)
++++ trunk/griv/griv.cpp	2007-11-15 00:47:33 UTC (rev 1548)
+@@ -191,6 +191,8 @@
+   Uint32 ticks = SDL_GetTicks();
+   while(true)
+     {
++      force_redraw = true;
++
+       Uint32 cticks = SDL_GetTicks();
+       int delta = cticks - ticks;
+       if (delta &gt; 0)
+@@ -206,6 +208,7 @@
+               force_redraw = false;
+ 
+               Framebuffer::clear();
++              workspace-&gt;update(delta / 1000.0f);
+               workspace-&gt;draw();
+               Framebuffer::flip();
+ 
+
+Modified: trunk/griv/image.cpp
+===================================================================
+--- trunk/griv/image.cpp	2007-11-15 00:32:53 UTC (rev 1547)
++++ trunk/griv/image.cpp	2007-11-15 00:47:33 UTC (rev 1548)
+@@ -193,4 +193,22 @@
+     return 1024;
+ }
+ 
++void
++Image::set_pos(float x, float y)
++{
++  target_x_pos = x;
++  target_y_pos = y;
++}
++
++void
++Image::update(float delta)
++{
++  delta *= 16.0f;
++  if (delta &gt; 1.0f)
++    delta = 1.0f;
++
++  x_pos = (1.0f - delta) * x_pos + delta * target_x_pos;
++  y_pos = (1.0f - delta) * y_pos + delta * target_y_pos;
++}
++
+ /* EOF */
+
+Modified: trunk/griv/image.hpp
+===================================================================
+--- trunk/griv/image.hpp	2007-11-15 00:32:53 UTC (rev 1547)
++++ trunk/griv/image.hpp	2007-11-15 00:47:33 UTC (rev 1548)
+@@ -80,16 +80,23 @@
+ 
+   SDL_mutex* mutex;
+ 
++private:
+   float x_pos;
+   float y_pos;
+ 
++  float target_x_pos;
++  float target_y_pos;
++
++public:
+   Image(const std::string&amp; url);
+   ~Image();
+ 
+   void receive(SDL_Surface* new_surface);
+   void draw(float x_offset, float y_offset, float res);
++  void update(float delta);
+ 
+   int round_res(int res);
++  void set_pos(float x, float y);
+ };
+ 
+ #endif
+
+Modified: trunk/griv/workspace.cpp
+===================================================================
+--- trunk/griv/workspace.cpp	2007-11-15 00:32:53 UTC (rev 1547)
++++ trunk/griv/workspace.cpp	2007-11-15 00:47:33 UTC (rev 1548)
+@@ -52,14 +52,23 @@
+ }
+ 
+ void
++Workspace::update(float delta)
++{
++  for(int i = 0; i &lt; int(images.size()); ++i)
++    {
++      images[i]-&gt;update(delta);
++    }  
++}
++
++void
+ Workspace::layout(int aspect_w, int aspect_h)
+ {
+   int w = int(sqrt(aspect_w * images.size() / aspect_h));
+ 
+   for(int i = 0; i &lt; int(images.size()); ++i)
+     {
+-      images[i]-&gt;x_pos = (i % w) * 1.1f;
+-      images[i]-&gt;y_pos = (i / w) * 1.1f;
++      images[i]-&gt;set_pos((i % w) * 1.15f,
++                         (i / w) * 1.15f);
+     }
+ }
+ 
+
+Modified: trunk/griv/workspace.hpp
+===================================================================
+--- trunk/griv/workspace.hpp	2007-11-15 00:32:53 UTC (rev 1547)
++++ trunk/griv/workspace.hpp	2007-11-15 00:47:33 UTC (rev 1548)
+@@ -41,6 +41,7 @@
+   Workspace();
+ 
+   void draw();
++  void update(float delta);
+   void add(const std::string&amp; filename);
+ 
+   void zoom_in(int mouse_x, int mouse_y, float zoom);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001197.html">[Windstille-commit] r1547 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001199.html">[Windstille-commit] r1549 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1198">[ date ]</a>
+              <a href="thread.html#1198">[ thread ]</a>
+              <a href="subject.html#1198">[ subject ]</a>
+              <a href="author.html#1198">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

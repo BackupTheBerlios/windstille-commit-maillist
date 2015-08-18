@@ -1,0 +1,1009 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r992 - in trunk/src: . gui
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r992%20-%20in%20trunk/src%3A%20.%20gui&In-Reply-To=%3C200508202235.j7KMZkje028737%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000644.html">
+   <LINK REL="Next"  HREF="000646.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r992 - in trunk/src: . gui</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r992%20-%20in%20trunk/src%3A%20.%20gui&In-Reply-To=%3C200508202235.j7KMZkje028737%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r992 - in trunk/src: . gui">grumbel at berlios.de
+       </A><BR>
+    <I>Sun Aug 21 00:35:46 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000644.html">[Windstille-commit] r991 - trunk/data/blender/hero
+</A></li>
+        <LI>Next message: <A HREF="000646.html">[Windstille-commit] r993 - trunk/src/gui
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#645">[ date ]</a>
+              <a href="thread.html#645">[ thread ]</a>
+              <a href="subject.html#645">[ subject ]</a>
+              <a href="author.html#645">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-08-21 00:35:34 +0200 (Sun, 21 Aug 2005)
+New Revision: 992
+
+Added:
+   trunk/src/gui/
+   trunk/src/gui/Jamfile
+   trunk/src/gui/button.cpp
+   trunk/src/gui/button.hpp
+   trunk/src/gui/component.cpp
+   trunk/src/gui/component.hpp
+   trunk/src/gui/grid_component.cpp
+   trunk/src/gui/grid_component.hpp
+   trunk/src/gui/gui_manager.cpp
+   trunk/src/gui/gui_manager.hpp
+Modified:
+   trunk/src/Jamfile
+   trunk/src/laser_pointer.cpp
+   trunk/src/laser_pointer.hpp
+   trunk/src/pda.cpp
+   trunk/src/pda.hpp
+   trunk/src/player.cpp
+   trunk/src/player.hpp
+   trunk/src/screen_manager.cpp
+Log:
+- started a generic GUI for use in the PDA, terminals and similar things
+
+Modified: trunk/src/Jamfile
+===================================================================
+--- trunk/src/Jamfile	2005-08-20 18:35:51 UTC (rev 991)
++++ trunk/src/Jamfile	2005-08-20 22:35:34 UTC (rev 992)
+@@ -1,21 +1,22 @@
+ SubDir TOP src ;
+ 
+ SubInclude TOP src badguy ;
++SubInclude TOP src collision ;
+ SubInclude TOP src display ;
+ SubInclude TOP src glutil ;
++SubInclude TOP src gui ;
+ SubInclude TOP src input ;
+ SubInclude TOP src lisp ;
++SubInclude TOP src math ;
++SubInclude TOP src particles ;
+ SubInclude TOP src physfs ;
+-SubInclude TOP src squirrel ;
++SubInclude TOP src scripting ;
++SubInclude TOP src signals ;
+ SubInclude TOP src sound ;
+-SubInclude TOP src scripting ;
+ SubInclude TOP src sprite2d ;
+ SubInclude TOP src sprite3d ;
++SubInclude TOP src squirrel ;
+ SubInclude TOP src tinygettext ;
+-SubInclude TOP src collision ;
+-SubInclude TOP src particles ;
+-SubInclude TOP src math ;
+-SubInclude TOP src signals ;
+ 
+ sources = 
+         baby_xml.cpp
+@@ -127,6 +128,8 @@
+         $(display_objects)
+ 
+         $(glutil_objects)
++
++        $(gui_objects)
+     
+         $(input_objects)
+ 
+
+Added: trunk/src/gui/Jamfile
+===================================================================
+--- trunk/src/gui/Jamfile	2005-08-20 18:35:51 UTC (rev 991)
++++ trunk/src/gui/Jamfile	2005-08-20 22:35:34 UTC (rev 992)
+@@ -0,0 +1,15 @@
++SubDir TOP src gui ;
++
++sources = 
++  button.hpp
++  button.cpp
++  component.hpp
++  component.cpp
++  gui_manager.hpp
++  gui_manager.cpp
++  grid_component.hpp
++  grid_component.cpp
++;
++
++TRANSLATABLE_SOURCES = [ SearchSource $(sources) ] ;
++gui_objects = [ CompileObjects $(sources) ] ;
+
+Added: trunk/src/gui/button.cpp
+===================================================================
+--- trunk/src/gui/button.cpp	2005-08-20 18:35:51 UTC (rev 991)
++++ trunk/src/gui/button.cpp	2005-08-20 22:35:34 UTC (rev 992)
+@@ -0,0 +1,59 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &quot;display/display.hpp&quot;
++#include &quot;fonts.hpp&quot;
++#include &quot;button.hpp&quot;
++
++namespace GUI {
++
++Button::Button(const std::string&amp; label_, Component* parent)
++  : Component(Rectf(), parent),
++    label(label_)
++{
++}
++
++Button::~Button()
++{
++}
++
++void
++Button::draw()
++{
++  Display::fill_rect(rect, Color(0.0f, 0.0f, 0.0f, 0.5f));
++  Display::draw_rect(rect, Color(1.0f, 1.0f, 1.0f, 0.5f));
++  Fonts::ttfdialog-&gt;draw_center(rect.left + rect.get_width()/2, rect.top + rect.get_height()/2,
++                                label);
++}
++
++void
++Button::update(float delta, const Controller&amp; controller)
++{
++  
++}
++
++} // namespace GUI
++
++/* EOF */
+
+Added: trunk/src/gui/button.hpp
+===================================================================
+--- trunk/src/gui/button.hpp	2005-08-20 18:35:51 UTC (rev 991)
++++ trunk/src/gui/button.hpp	2005-08-20 22:35:34 UTC (rev 992)
+@@ -0,0 +1,56 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_WINDSTILLE_GUI_BUTTON_HPP
++#define HEADER_WINDSTILLE_GUI_BUTTON_HPP
++
++#include &lt;string&gt;
++#include &quot;component.hpp&quot;
++
++namespace GUI {
++
++/** */
++class Button : public Component
++{
++private:
++  std::string label;
++
++public:
++  Button(const std::string&amp; lable, Component* parent);
++  ~Button();
++
++  void draw();
++  void update(float delta, const Controller&amp; controller);
++  
++private:
++  Button (const Button&amp;);
++  Button&amp; operator= (const Button&amp;);
++};
++
++} // namespace GUI
++
++#endif
++
++/* EOF */
+
+Added: trunk/src/gui/component.cpp
+===================================================================
+--- trunk/src/gui/component.cpp	2005-08-20 18:35:51 UTC (rev 991)
++++ trunk/src/gui/component.cpp	2005-08-20 22:35:34 UTC (rev 992)
+@@ -0,0 +1,67 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &quot;component.hpp&quot;
++
++namespace GUI {
++
++Component::Component(const Rectf&amp; rect_, Component* parent_)
++  : rect(rect_),
++    parent(parent_),
++    active(false)
++{
++}
++
++Component::~Component()
++{
++}
++
++bool
++Component::is_active() const
++{
++  return active;
++}
++
++void
++Component::set_active(bool a)
++{
++  active = a;
++}
++
++Rectf
++Component::get_screen_rect() const
++{
++  return rect;
++}
++
++void
++Component::set_screen_rect(const Rectf&amp; r)
++{
++  rect = r;
++}
++
++} // namespace GUI
++
++/* EOF */
+
+Added: trunk/src/gui/component.hpp
+===================================================================
+--- trunk/src/gui/component.hpp	2005-08-20 18:35:51 UTC (rev 991)
++++ trunk/src/gui/component.hpp	2005-08-20 22:35:34 UTC (rev 992)
+@@ -0,0 +1,64 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_WINDSTILLE_GUI_COMPONENT_HPP
++#define HEADER_WINDSTILLE_GUI_COMPONENT_HPP
++
++#include &quot;math/rect.hpp&quot;
++
++class Controller;
++
++namespace GUI {
++
++/** */
++class Component
++{
++protected:
++  Rectf rect;
++  Component* parent;
++  bool active;
++
++public:
++  Component(const Rectf&amp; rect, Component* parent);
++  virtual ~Component();
++  
++  bool is_active() const;
++  void set_active(bool a);
++
++  virtual void draw() =0;
++  virtual void update(float delta, const Controller&amp; controller) =0;
++
++  Rectf get_screen_rect() const;
++  void  set_screen_rect(const Rectf&amp; rect);
++private:
++  Component (const Component&amp;);
++  Component&amp; operator= (const Component&amp;);
++};
++
++} // namespace GUI
++
++#endif
++
++/* EOF */
+
+Added: trunk/src/gui/grid_component.cpp
+===================================================================
+--- trunk/src/gui/grid_component.cpp	2005-08-20 18:35:51 UTC (rev 991)
++++ trunk/src/gui/grid_component.cpp	2005-08-20 22:35:34 UTC (rev 992)
+@@ -0,0 +1,154 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &lt;iostream&gt;
++#include &quot;display/display.hpp&quot;
++#include &quot;input/controller.hpp&quot;
++#include &quot;grid_component.hpp&quot;
++
++namespace GUI {
++
++GridComponent::GridComponent(const Rectf&amp; rect, int weight, int height, Component* parent)
++  : Component(rect, parent),
++    grid(weight, height),
++    child_active(false) 
++{
++}
++
++GridComponent::~GridComponent()
++{
++}
++
++void
++GridComponent::draw()
++{
++  Display::fill_rect(rect, Color(0.0f, 0.0f, 0.0f, 0.5f));
++  Display::draw_rect(rect, Color(1.0f, 1.0f, 1.0f, 0.5f));
++
++  for(int y = 0; y &lt; grid.get_height(); ++y)
++    for(int x = 0; x &lt; grid.get_width(); ++x)
++      {
++        if (grid(x, y))
++          {
++            if (x == pos.x &amp;&amp; y == pos.y)
++              Display::fill_rect(grid(x, y)-&gt;get_screen_rect(), Color(1.0f, 1.0f, 1.0f, 0.5f));
++            grid(x, y)-&gt;draw();
++          }
++      }
++}
++
++void
++GridComponent::update(float delta, const Controller&amp; controller)
++{
++  for(int y = 0; y &lt; grid.get_height(); ++y)
++    for(int x = 0; x &lt; grid.get_width(); ++x)
++      {
++        if (grid(x, y)) 
++          {
++            if (child_active &amp;&amp; pos.x == x &amp;&amp; pos.y == y)
++              grid(x, y)-&gt;update(delta, controller);
++            else
++              grid(x, y)-&gt;update(delta, Controller());
++          }
++      }
++
++  for(InputEventLst::const_iterator i = controller.get_events().begin(); i != controller.get_events().end(); ++i) 
++    {
++      if (i-&gt;type == BUTTON_EVENT)
++        {
++          if (i-&gt;button.name == OK_BUTTON)
++            {
++              child_active = true;
++            }
++          else if (i-&gt;button.name == CANCEL_BUTTON)
++            {
++              
++            }
++        }
++      else if (i-&gt;type == AXIS_EVENT)
++        {
++          if (i-&gt;axis.name == X_AXIS)
++            {
++              if (i-&gt;axis.pos &lt; 0)
++                {
++                  pos.x -= 1;
++                  if (pos.x &lt; 0)
++                    pos.x = grid.get_width()-1;
++                }
++              else if (i-&gt;axis.pos &gt; 0)
++                {
++                  pos.x += 1;
++                  if (pos.x &gt;= grid.get_width())
++                    pos.x = 0;
++                }
++            }
++          else if (i-&gt;axis.name == Y_AXIS)
++            {
++              if (i-&gt;axis.pos &lt; 0)
++                {
++                  pos.y -= 1;
++                  if (pos.y &lt; 0)
++                    pos.y = grid.get_height()-1;
++                }
++              else if (i-&gt;axis.pos &gt; 0)
++                {
++                  pos.y += 1;
++                  if (pos.y &gt;= grid.get_height())
++                    pos.y = 0;
++                }
++            }            
++        }
++    }
++}
++
++void
++GridComponent::pack(Component* component, int x, int y)
++{
++  assert(x &gt;= 0);
++  assert(y &gt;= 0);
++  assert(x &lt; grid.get_width());
++  assert(y &lt; grid.get_height());
++
++  if (grid(x, y) != 0)
++    {
++      std::cout &lt;&lt; &quot;Warning component already at: &quot; &lt;&lt; x &lt;&lt; &quot;, &quot; &lt;&lt; y &lt;&lt; &quot;, ignoring&quot; &lt;&lt; std::endl;
++    }
++  else
++    {
++      Rectf rect = get_screen_rect();
++      grid(x, y) = component;
++
++      float padding = 15.0f;
++
++      component-&gt;set_screen_rect(Rectf(Vector(rect.left + x * (rect.get_width()/grid.get_width()) + padding,
++                                              rect.top  + y * (rect.get_height()/grid.get_height()) + padding),
++                                       Sizef(rect.get_width()/grid.get_width() - 2*padding,
++                                             rect.get_height()/grid.get_height() - 2*padding)));
++    }
++}
++
++} // namespace GUI
++
++/* EOF */
+
+Added: trunk/src/gui/grid_component.hpp
+===================================================================
+--- trunk/src/gui/grid_component.hpp	2005-08-20 18:35:51 UTC (rev 991)
++++ trunk/src/gui/grid_component.hpp	2005-08-20 22:35:34 UTC (rev 992)
+@@ -0,0 +1,60 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_WINDSTILLE_GUI_GRID_COMPONENT_HPP
++#define HEADER_WINDSTILLE_GUI_GRID_COMPONENT_HPP
++
++#include &quot;field.hpp&quot;
++#include &quot;component.hpp&quot;
++
++namespace GUI {
++
++/** */
++class GridComponent : public Component
++{
++private:
++  typedef Field&lt;Component*&gt; Grid;
++  Grid grid;
++  Point pos;
++  bool child_active;
++  
++public:
++  GridComponent(const Rectf&amp; rect, int weight, int height, Component* parent);
++  ~GridComponent();
++  
++  void draw();
++  void update(float delta, const Controller&amp; controller);
++
++  void pack(Component* component, int x, int y);
++private:
++  GridComponent (const GridComponent&amp;);
++  GridComponent&amp; operator= (const GridComponent&amp;);
++};
++
++} // namespace GUI
++
++#endif
++
++/* EOF */
+
+Added: trunk/src/gui/gui_manager.cpp
+===================================================================
+--- trunk/src/gui/gui_manager.cpp	2005-08-20 18:35:51 UTC (rev 991)
++++ trunk/src/gui/gui_manager.cpp	2005-08-20 22:35:34 UTC (rev 992)
+@@ -0,0 +1,78 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &quot;input/controller.hpp&quot;
++#include &quot;button.hpp&quot;
++#include &quot;screen_manager.hpp&quot;
++#include &quot;grid_component.hpp&quot;
++#include &quot;gui_manager.hpp&quot;
++
++namespace GUI {
++
++GUIManager::GUIManager()
++{
++  GridComponent* grid = new GridComponent(Rectf(100, 100, 700, 500), 3, 4, NULL);
++  component = grid;
++
++  grid-&gt;pack(new Button(&quot;1&quot;, grid), 0, 0);
++  grid-&gt;pack(new Button(&quot;2&quot;, grid), 1, 0);
++  grid-&gt;pack(new Button(&quot;3&quot;, grid), 2, 0);
++
++  grid-&gt;pack(new Button(&quot;4&quot;, grid), 0, 1);
++  grid-&gt;pack(new Button(&quot;5&quot;, grid), 1, 1);
++  grid-&gt;pack(new Button(&quot;6&quot;, grid), 2, 1);
++
++  grid-&gt;pack(new Button(&quot;7&quot;, grid), 0, 2);
++  grid-&gt;pack(new Button(&quot;8&quot;, grid), 1, 2);
++  grid-&gt;pack(new Button(&quot;9&quot;, grid), 2, 2);
++
++  grid-&gt;pack(new Button(&quot;Cl&quot;, grid), 0, 3);
++  grid-&gt;pack(new Button(&quot;0&quot;,  grid), 1, 3);
++  grid-&gt;pack(new Button(&quot;Ok&quot;, grid), 2, 3);
++}
++
++GUIManager::~GUIManager()
++{
++  delete component;
++}
++
++void
++GUIManager::draw()
++{
++  component-&gt;draw();
++}
++
++void
++GUIManager::update(float delta, const Controller&amp; controller)
++{
++  component-&gt;update(delta, controller);
++
++  if (controller.button_was_pressed(CANCEL_BUTTON))
++    screen_manager.set_overlay(0);
++}
++
++} // namespace GUI
++
++/* EOF */
+
+Added: trunk/src/gui/gui_manager.hpp
+===================================================================
+--- trunk/src/gui/gui_manager.hpp	2005-08-20 18:35:51 UTC (rev 991)
++++ trunk/src/gui/gui_manager.hpp	2005-08-20 22:35:34 UTC (rev 992)
+@@ -0,0 +1,56 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_WINDSTILLE_GUI_GUI_MANAGER_HPP
++#define HEADER_WINDSTILLE_GUI_GUI_MANAGER_HPP
++
++#include &quot;component.hpp&quot;
++#include &quot;screen.hpp&quot;
++
++namespace GUI {
++
++/** */
++class GUIManager : public Screen
++{
++private:
++  Component* component;
++
++public:
++  GUIManager();
++  ~GUIManager();
++
++  void draw();
++  void update(float delta, const Controller&amp; controller);
++
++private:
++  GUIManager (const GUIManager&amp;);
++  GUIManager&amp; operator= (const GUIManager&amp;);
++};
++
++} // namespace GUI
++
++#endif
++
++/* EOF */
+
+Modified: trunk/src/laser_pointer.cpp
+===================================================================
+--- trunk/src/laser_pointer.cpp	2005-08-20 18:35:51 UTC (rev 991)
++++ trunk/src/laser_pointer.cpp	2005-08-20 22:35:34 UTC (rev 992)
+@@ -34,6 +34,8 @@
+ {
+   noise = Texture(&quot;images/noise2.png&quot;);
+   laserpointer = Sprite(&quot;images/laserpointer.sprite&quot;);
++  laserpointer_light = Sprite(&quot;images/laserpointer_light.sprite&quot;);
++  laserpointer_light.set_blend_func(GL_SRC_ALPHA, GL_ONE);
+   noise.set_wrap(GL_REPEAT);
+   noise.set_filter(GL_LINEAR);
+   
+@@ -124,21 +126,11 @@
+   array-&gt;color(Color(1.0f, 0.0f, 0.0f, 1.0f));
+   array-&gt;texcoord((target - pos).norm()/256.0f, progress);
+   array-&gt;vertex(target.x, target.y);
+-   
+-  if (0)
+-    {
+-      array-&gt;color(Color(1.0f, 1.0f, 0.0f, 1.0f));
+-      array-&gt;texcoord(pos.x/200.0f, progress);
+-      array-&gt;vertex(pos.x, pos.y);
+ 
+-      array-&gt;color(Color(1.0f, 1.0f, 0.0f, 1.0f));
+-      array-&gt;texcoord(target.x/200.0f, progress);
+-      array-&gt;vertex(pos.x + cos(angle) * 100.0f, pos.y + sin(angle) * 100.0f);
+-    }
+-
+   sc.highlight().draw(array);
+   laserpointer.set_blend_func(GL_SRC_ALPHA, GL_ONE);
+   sc.highlight().draw(laserpointer, target);
++  sc.light().draw(laserpointer_light, target);
+ }
+ 
+ void
+
+Modified: trunk/src/laser_pointer.hpp
+===================================================================
+--- trunk/src/laser_pointer.hpp	2005-08-20 18:35:51 UTC (rev 991)
++++ trunk/src/laser_pointer.hpp	2005-08-20 22:35:34 UTC (rev 992)
+@@ -34,6 +34,7 @@
+ private:
+   Texture noise;
+   Sprite  laserpointer;
++  Sprite  laserpointer_light;
+   float   progress;
+   float   angle;
+ 
+
+Modified: trunk/src/pda.cpp
+===================================================================
+--- trunk/src/pda.cpp	2005-08-20 18:35:51 UTC (rev 991)
++++ trunk/src/pda.cpp	2005-08-20 22:35:34 UTC (rev 992)
+@@ -43,7 +43,7 @@
+ }
+ 
+ PDA::PDA()
+-  : state(PDA_INVENTORY)
++  : state(PDA_OBJECTIVES)
+ { 
+   text_area = 0;
+ }
+@@ -71,11 +71,11 @@
+       if (i-&gt;axis.pos &gt; 0) {
+         state = static_cast&lt;pda_state&gt;(state + 1);
+         if (state &gt; PDA_DIALOGS)
+-          state = PDA_INVENTORY;
++          state = PDA_OBJECTIVES;
+       }
+       else if (i-&gt;axis.pos &lt; 0) {
+         state = static_cast&lt;pda_state&gt;(state - 1);
+-        if (state &lt; PDA_INVENTORY)
++        if (state &lt; PDA_OBJECTIVES)
+           state = PDA_DIALOGS;
+       }
+     }
+@@ -85,9 +85,6 @@
+   int height = 400;
+   
+   switch (state) {
+-    case PDA_INVENTORY:
+-      show_inventory();
+-      break;
+     case PDA_OBJECTIVES:
+       show_objectives();
+       break;
+@@ -155,17 +152,10 @@
+ }
+ 
+ void
+-PDA::show_inventory()
+-{
+-  new_text = &quot;&lt;large&gt;Personal Digital Assistant&lt;/large&gt;\n&quot;;
+-  new_text += &quot;&lt;b&gt;inventory&lt;/b&gt; - objectives - dialogs\n\n&quot;;
+-}
+-
+-void
+ PDA::show_objectives()
+ {
+   new_text = &quot;&lt;large&gt;Personal Digital Assistant&lt;/large&gt;\n&quot;;
+-  new_text += &quot;inventory - &lt;b&gt;objectives&lt;/b&gt; - dialogs\n\n&quot;;
++  new_text += &quot;&lt;b&gt;objectives&lt;/b&gt; - dialogs\n\n&quot;;
+   
+   for (std::vector&lt;ObjectiveEntry&gt;::reverse_iterator i = objectives.rbegin(); i != objectives.rend(); ++i) {
+     new_text += i-&gt;name;
+@@ -182,7 +172,7 @@
+ PDA::show_dialogs()
+ {
+   new_text = &quot;&lt;large&gt;Personal Digital Assistant&lt;/large&gt;\n&quot;;
+-  new_text += &quot;inventory - objectives - &lt;b&gt;dialogs&lt;/b&gt;\n\n&quot;;
++  new_text += &quot;objectives - &lt;b&gt;dialogs&lt;/b&gt;\n\n&quot;;
+   
+   for (std::vector&lt;DialogEntry&gt;::reverse_iterator i = dialogs.rbegin(); i != dialogs.rend(); ++i) {
+     new_text += i-&gt;character;
+
+Modified: trunk/src/pda.hpp
+===================================================================
+--- trunk/src/pda.hpp	2005-08-20 18:35:51 UTC (rev 991)
++++ trunk/src/pda.hpp	2005-08-20 22:35:34 UTC (rev 992)
+@@ -65,7 +65,6 @@
+   bool is_objective_complete(const std::string&amp; name);
+ 
+ private:
+-  void show_inventory();
+   void show_objectives();
+   void show_dialogs();
+   
+@@ -75,7 +74,7 @@
+   
+   std::string new_text;  
+   std::string old_text;
+-  enum pda_state { PDA_INVENTORY, PDA_OBJECTIVES, PDA_DIALOGS } state;
++  enum pda_state { PDA_OBJECTIVES, PDA_DIALOGS } state;
+ };
+ 
+ #endif
+
+Modified: trunk/src/player.cpp
+===================================================================
+--- trunk/src/player.cpp	2005-08-20 18:35:51 UTC (rev 991)
++++ trunk/src/player.cpp	2005-08-20 22:35:34 UTC (rev 992)
+@@ -42,6 +42,8 @@
+ 
+ Player::Player () :
+   light(&quot;images/light3.sprite&quot;),
++  flashlight(&quot;images/flashlightlight.sprite&quot;),
++  flashlighthighlight(&quot;images/flashlighthighlight.sprite&quot;),
+   //sprite (&quot;3dsprites/heroken.wsprite&quot;),
+   grenade(&quot;3dsprites/grenade.wsprite&quot;),
+   state(STAND)
+@@ -78,10 +80,17 @@
+ void
+ Player::draw (SceneContext&amp; sc)
+ {
+-  light.set_blend_func(GL_SRC_ALPHA, GL_ONE);
+-  light.set_scale(4.0f);
++  //light.set_blend_func(GL_SRC_ALPHA, GL_ONE);
++  //light.set_scale(4.0f);
+ 
+-  //sc.light().draw(light, pos, 100.0f);
++  flashlight.set_blend_func(GL_SRC_ALPHA, GL_ONE);
++  flashlight.set_scale(2.0f);
++
++  flashlighthighlight.set_blend_func(GL_SRC_ALPHA, GL_ONE);
++  flashlighthighlight.set_scale(2.0f);
++
++  sc.highlight().draw(flashlighthighlight, pos - Vector(40, 80), 100.0f);
++  sc.light().draw(flashlight, pos - Vector(40, 80), 100.0f);
+   sprite.draw(sc.color(), pos, 100);
+ 
+   Entity* obj = find_useable_entity();
+
+Modified: trunk/src/player.hpp
+===================================================================
+--- trunk/src/player.hpp	2005-08-20 18:35:51 UTC (rev 991)
++++ trunk/src/player.hpp	2005-08-20 22:35:34 UTC (rev 992)
+@@ -38,6 +38,8 @@
+   Controller controller;
+ 
+   Sprite   light;
++  Sprite   flashlight;
++  Sprite   flashlighthighlight;
+   Sprite3D sprite;
+   Sprite3D grenade;
+ 
+
+Modified: trunk/src/screen_manager.cpp
+===================================================================
+--- trunk/src/screen_manager.cpp	2005-08-20 18:35:51 UTC (rev 991)
++++ trunk/src/screen_manager.cpp	2005-08-20 22:35:34 UTC (rev 992)
+@@ -34,8 +34,11 @@
+ #include &quot;input/input_manager.hpp&quot;
+ #include &quot;input/input_configurator.hpp&quot;
+ #include &quot;sound/sound_manager.hpp&quot;
++#include &quot;gui/gui_manager.hpp&quot;
+ #include &quot;screen_manager.hpp&quot;
+ 
++using GUI::GUIManager;
++
+ ScreenManager screen_manager; 
+ 
+ ScreenManager::ScreenManager()
+@@ -162,6 +165,10 @@
+             {    
+               switch (event.key.keysym.sym)
+                 {               
++                case SDLK_F8:
++                  set_overlay(new GUIManager());
++                  break;
++
+                 case SDLK_F9:
+                   set_overlay(new InputConfigurator());
+                   break;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000644.html">[Windstille-commit] r991 - trunk/data/blender/hero
+</A></li>
+	<LI>Next message: <A HREF="000646.html">[Windstille-commit] r993 - trunk/src/gui
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#645">[ date ]</a>
+              <a href="thread.html#645">[ thread ]</a>
+              <a href="subject.html#645">[ subject ]</a>
+              <a href="author.html#645">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

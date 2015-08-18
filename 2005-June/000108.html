@@ -1,0 +1,574 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r451 - in trunk/src: . input
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r451%20-%20in%20trunk/src%3A%20.%20input&In-Reply-To=%3C200506271827.j5RIRWVR024446%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000107.html">
+   <LINK REL="Next"  HREF="000109.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r451 - in trunk/src: . input</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r451%20-%20in%20trunk/src%3A%20.%20input&In-Reply-To=%3C200506271827.j5RIRWVR024446%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r451 - in trunk/src: . input">grumbel at sheep.berlios.de
+       </A><BR>
+    <I>Mon Jun 27 20:27:32 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000107.html">[Windstille-commit] r450 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000109.html">[Windstille-commit] r452 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#108">[ date ]</a>
+              <a href="thread.html#108">[ thread ]</a>
+              <a href="subject.html#108">[ subject ]</a>
+              <a href="author.html#108">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-06-27 20:27:28 +0200 (Mon, 27 Jun 2005)
+New Revision: 451
+
+Added:
+   trunk/src/input/input_keyboard.hxx
+   trunk/src/input/input_keyboard_input_device.cxx
+   trunk/src/input/input_keyboard_input_device.hxx
+Modified:
+   trunk/src/Jamfile
+   trunk/src/console.cxx
+   trunk/src/console.hxx
+   trunk/src/input/input_event.hxx
+   trunk/src/input/input_manager_custom.cxx
+   trunk/src/input/input_manager_custom.hxx
+   trunk/src/input/input_manager_impl.cxx
+   trunk/src/input/input_manager_impl.hxx
+   trunk/src/input/input_recorder.cxx
+Log:
+- added input support to the console
+
+Modified: trunk/src/Jamfile
+===================================================================
+--- trunk/src/Jamfile	2005-06-27 17:39:06 UTC (rev 450)
++++ trunk/src/Jamfile	2005-06-27 18:27:28 UTC (rev 451)
+@@ -24,8 +24,11 @@
+         input/input_axis_input_device.cxx
+         input/input_axis_input_device.hxx
+         input/input_button.hxx
++        input/input_keyboard.hxx
+         input/input_button_input_device.cxx
+         input/input_button_input_device.hxx
++        input/input_keyboard_input_device.hxx
++        input/input_keyboard_input_device.cxx
+         input/input_event.hxx
+         input/input_manager_custom.cxx
+         input/input_manager_custom.hxx
+@@ -97,7 +100,6 @@
+         field.hxx
+         fonts.cxx
+         fonts.hxx
+-        game_delta.hxx
+         game_object.cxx
+         game_object.hxx
+         game_session.cxx
+
+Modified: trunk/src/console.cxx
+===================================================================
+--- trunk/src/console.cxx	2005-06-27 17:39:06 UTC (rev 450)
++++ trunk/src/console.cxx	2005-06-27 18:27:28 UTC (rev 451)
+@@ -17,8 +17,10 @@
+ //  along with this program; if not, write to the Free Software
+ //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ 
++#include &lt;ClanLib/Display/keys.h&gt;
+ #include &quot;assert.hxx&quot;
+ #include &quot;fonts.hxx&quot;
++#include &quot;input/input_manager.hxx&quot;
+ #include &quot;console.hxx&quot;
+ 
+ Console* Console::current_ = 0;
+@@ -49,9 +51,8 @@
+ void
+ Console::draw()
+ {
+-  int y = y_pos;
+-
+   CL_Font font = Fonts::copyright;
++  int y = y_pos - font.get_height() - 2;
+ 
+   font.set_alignment(origin_bottom_left);
+   for(Buffer::reverse_iterator i = buffer.rbegin(); i != buffer.rend(); ++i)
+@@ -67,6 +68,10 @@
+         }
+       y -= font.get_height() + 2;
+     }
++
++  font.set_alignment(origin_bottom_left);
++  font.set_alpha(1.0f);
++  font.draw(x_pos, y_pos, &quot;&gt;&quot; + command_line);
+ }
+ 
+ void
+@@ -76,6 +81,35 @@
+     {
+       i-&gt;display_time += delta;
+     }  
++
++  InputEventLst events = InputManager::get_controller().get_events();
++  
++  for (InputEventLst::iterator i = events.begin(); i != events.end(); ++i)
++    {
++      if ((*i).type == KEYBOARD_EVENT)
++        {
++          if ((*i).keyboard.key_type == KeyboardEvent::LETTER)
++            {
++              //std::cout &lt;&lt; &quot;Key: '&quot; &lt;&lt; (char)((*i).keyboard.code) &lt;&lt; &quot;' &quot; &lt;&lt; (*i).keyboard.code &lt;&lt; std::endl;
++              command_line += (char)(*i).keyboard.code;
++            }
++          else if ((*i).keyboard.key_type == KeyboardEvent::SPECIAL)
++            {
++              switch (i-&gt;keyboard.code)
++                {
++                case CL_KEY_BACKSPACE:
++                  if (!command_line.empty())
++                    command_line = command_line.substr(0, command_line.size() - 2);
++                  break;
++
++                case CL_KEY_ENTER:
++                  add(command_line);
++                  command_line = &quot;&quot;;
++                  break;
++                }
++            }
++        }
++    }
+ }
+ 
+ /* EOF */
+
+Modified: trunk/src/console.hxx
+===================================================================
+--- trunk/src/console.hxx	2005-06-27 17:39:06 UTC (rev 450)
++++ trunk/src/console.hxx	2005-06-27 18:27:28 UTC (rev 451)
+@@ -37,6 +37,7 @@
+   typedef std::vector&lt;ConsoleEntry&gt; Buffer;
+   Buffer buffer;
+   static Console* current_;
++  std::string command_line;
+ public:
+   static Console* current();
+ 
+
+Modified: trunk/src/input/input_event.hxx
+===================================================================
+--- trunk/src/input/input_event.hxx	2005-06-27 17:39:06 UTC (rev 450)
++++ trunk/src/input/input_event.hxx	2005-06-27 18:27:28 UTC (rev 451)
+@@ -22,8 +22,15 @@
+ 
+ #include &lt;vector&gt;
+ 
+-enum InputEventType { BUTTON_EVENT, AXIS_EVENT };
++enum InputEventType { BUTTON_EVENT, AXIS_EVENT, KEYBOARD_EVENT };
+ 
++/** Used for textual input */
++struct KeyboardEvent
++{
++  enum KeyType { LETTER, SPECIAL } key_type;
++  int code;
++};
++
+ struct ButtonEvent
+ {
+   int name;
+@@ -51,8 +58,9 @@
+     
+   union 
+   {
+-    struct ButtonEvent button;
+-    struct AxisEvent   axis;
++    struct ButtonEvent   button;
++    struct AxisEvent     axis;
++    struct KeyboardEvent keyboard;
+   };
+ };
+ 
+
+Added: trunk/src/input/input_keyboard.hxx
+===================================================================
+--- trunk/src/input/input_keyboard.hxx	2005-06-27 17:39:06 UTC (rev 450)
++++ trunk/src/input/input_keyboard.hxx	2005-06-27 18:27:28 UTC (rev 451)
+@@ -0,0 +1,43 @@
++//  $Id$
++// 
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++// 
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#ifndef HEADER_INPUT_KEYBOARD_HXX
++#define HEADER_INPUT_KEYBOARD_HXX
++
++#include &quot;input_event.hxx&quot;
++
++/** */
++class InputKeyboard
++{
++protected:
++  std::vector&lt;CL_Slot&gt; slots;
++  CL_Signal_v2&lt;KeyboardEvent::KeyType, int&gt; key;
++
++public:
++  InputKeyboard() {}
++  virtual ~InputKeyboard() {}
++  
++  virtual void update(float ) {}
++
++  CL_Signal_v2&lt;KeyboardEvent::KeyType, int&gt;&amp; on_key() { return key; }
++};
++
++#endif
++
++/* EOF */
+
+Added: trunk/src/input/input_keyboard_input_device.cxx
+===================================================================
+--- trunk/src/input/input_keyboard_input_device.cxx	2005-06-27 17:39:06 UTC (rev 450)
++++ trunk/src/input/input_keyboard_input_device.cxx	2005-06-27 18:27:28 UTC (rev 451)
+@@ -0,0 +1,47 @@
++//  $Id$
++//
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++//
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#include &lt;ctype.h&gt;
++#include &lt;ClanLib/Display/input_event.h&gt;
++#include &quot;input_event.hxx&quot;
++#include &quot;input_keyboard_input_device.hxx&quot;
++
++InputKeyboardInputDevice::InputKeyboardInputDevice(CL_InputDevice&amp; dev_)
++  : dev(dev_)
++{
++  slots.push_back(dev.sig_key_down().connect(this, &amp;InputKeyboardInputDevice::on_key_down)); 
++  slots.push_back(dev.sig_key_up().connect(this, &amp;InputKeyboardInputDevice::on_key_up)); 
++}
++
++void
++InputKeyboardInputDevice::on_key_up(const CL_InputEvent&amp; event)
++{
++  
++}
++
++void
++InputKeyboardInputDevice::on_key_down(const CL_InputEvent&amp; event)
++{
++  if (!event.str.empty() &amp;&amp; (isgraph(event.str[0]) || event.str[0] == ' ' ||  event.str[0] == '\t'))
++    key(KeyboardEvent::LETTER, event.str[0]);
++  else
++    key(KeyboardEvent::SPECIAL, event.id);
++}
++
++/* EOF */
+
+Added: trunk/src/input/input_keyboard_input_device.hxx
+===================================================================
+--- trunk/src/input/input_keyboard_input_device.hxx	2005-06-27 17:39:06 UTC (rev 450)
++++ trunk/src/input/input_keyboard_input_device.hxx	2005-06-27 18:27:28 UTC (rev 451)
+@@ -0,0 +1,42 @@
++//  $Id$
++// 
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++// 
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#ifndef HEADER_INPUT_KEYBOARD_INPUT_DEVICE_HXX
++#define HEADER_INPUT_KEYBOARD_INPUT_DEVICE_HXX
++
++#include &lt;ClanLib/Display/input_device.h&gt;
++#include &quot;input_keyboard.hxx&quot;
++
++/** */
++class InputKeyboardInputDevice : public InputKeyboard
++{
++private:
++  CL_InputDevice dev;
++
++  void on_key_up(const CL_InputEvent&amp; event);
++  void on_key_down(const CL_InputEvent&amp; event);
++
++public:
++  InputKeyboardInputDevice(CL_InputDevice&amp; dev);
++  void update(float) {}
++};
++
++#endif
++
++/* EOF */
+
+Modified: trunk/src/input/input_manager_custom.cxx
+===================================================================
+--- trunk/src/input/input_manager_custom.cxx	2005-06-27 17:39:06 UTC (rev 450)
++++ trunk/src/input/input_manager_custom.cxx	2005-06-27 18:27:28 UTC (rev 451)
+@@ -28,6 +28,7 @@
+ #include &quot;controller_def.hxx&quot;
+ #include &quot;input_button_input_device.hxx&quot;
+ #include &quot;input_axis_input_device.hxx&quot;
++#include &quot;input_keyboard_input_device.hxx&quot;
+ #include &quot;button_factory.hxx&quot;
+ #include &quot;axis_factory.hxx&quot;
+ 
+@@ -63,6 +64,18 @@
+                     &lt;&lt; &quot;' not configured and will not be usable&quot; &lt;&lt; std::endl;
+         }
+     }
++
++  for (int i = 0; i &lt; (int)keyboards.size(); ++i)
++    {
++      if (keyboards[i])
++        {
++          slots.push_back(keyboards[i]-&gt;on_key().connect(this, &amp;InputManagerCustom::on_key));
++        }
++      else
++        {
++          std::cout &lt;&lt; &quot;# Warrning: Keyboard not configured&quot; &lt;&lt; std::endl;
++        }
++    }
+ }
+ 
+ void 
+@@ -70,6 +83,7 @@
+ {
+   buttons.resize(ControllerDef::get_button_count());
+   axes.resize(ControllerDef::get_axis_count());
++  keyboards.resize(ControllerDef::get_keyboard_count());
+ 
+   lisp::ListIterator iter(lisp);
+   while(iter.next()) {
+@@ -77,22 +91,25 @@
+ 
+     int id = ControllerDef::button_name2id(name);
+     if (id != -1)
+-    {
+-      buttons[id] = ButtonFactory::create(iter.lisp());
+-    }
+-    else
+-    {
+-      id = ControllerDef::axis_name2id(name);
+-      if (id != -1)
+       {
+-        axes[id] = AxisFactory::create(iter.lisp());
++        buttons[id] = ButtonFactory::create(iter.lisp());
+       }
+-      else
++    else if (name == &quot;keyboard&quot;)
+       {
+-        std::cout &lt;&lt; &quot;# Warning: InputManagerCustom::init: Error unknown tag: &quot; &lt;&lt; std::endl;
+-        //                        &lt;&lt; Guile::scm2string(sym) &lt;&lt; std::endl;
++        keyboards[0] = new InputKeyboardInputDevice(CL_Keyboard::get_device());
+       }
+-    }
++    else
++      {
++        id = ControllerDef::axis_name2id(name);
++        if (id != -1)
++          {
++            axes[id] = AxisFactory::create(iter.lisp());
++          }
++        else
++          {
++            std::cout &lt;&lt; &quot;# Warning: InputManagerCustom::init: Error unknown tag: &quot; &lt;&lt; std::endl;
++          }
++      }
+   }
+ }  
+ 
+@@ -118,6 +135,12 @@
+ }
+ 
+ void
++InputManagerCustom::on_key(KeyboardEvent::KeyType key_type, int code)
++{
++  add_keyboard_event(0, key_type, code);
++}
++
++void
+ InputManagerCustom::update(float delta)
+ {
+   for (int i = 0; i &lt; (int)buttons.size(); ++i)
+@@ -131,6 +154,12 @@
+       if (axes[i])
+         axes[i]-&gt;update(delta);
+     }
++
++  for (int i = 0; i &lt; (int)keyboards.size(); ++i)
++    {
++      if (keyboards[i])
++        keyboards[i]-&gt;update(delta);
++    }
+ }
+ 
+ /* EOF */
+
+Modified: trunk/src/input/input_manager_custom.hxx
+===================================================================
+--- trunk/src/input/input_manager_custom.hxx	2005-06-27 17:39:06 UTC (rev 450)
++++ trunk/src/input/input_manager_custom.hxx	2005-06-27 18:27:28 UTC (rev 451)
+@@ -25,6 +25,7 @@
+ #include &quot;input_event.hxx&quot;
+ #include &quot;input_button.hxx&quot;
+ #include &quot;input_axis.hxx&quot;
++#include &quot;input_keyboard.hxx&quot;
+ #include &quot;input_manager_impl.hxx&quot;
+ #include &quot;lisp/lisp.hpp&quot;
+ 
+@@ -34,12 +35,14 @@
+ private:
+   std::vector&lt;CL_Slot&gt; slots;
+ 
+-  typedef std::vector&lt;InputAxis*&gt;   Axes;
+-  typedef std::vector&lt;InputButton*&gt; Buttons;
+-  
+-  Axes    axes;
+-  Buttons buttons;
++  typedef std::vector&lt;InputAxis*&gt;     Axes;
++  typedef std::vector&lt;InputButton*&gt;   Buttons;
++  typedef std::vector&lt;InputKeyboard*&gt; Keyboards;
+ 
++  Axes      axes;
++  Buttons   buttons;
++  Keyboards keyboards;
++
+ public:
+   InputManagerCustom(const lisp::Lisp* lisp);
+   
+@@ -48,6 +51,7 @@
+   void on_button_up(int name);
+   void on_button_down(int name);
+   void on_axis_move(float pos, int name);
++  void on_key(KeyboardEvent::KeyType key_type, int code);
+ private:
+   void init(const lisp::Lisp* lisp);
+ 
+
+Modified: trunk/src/input/input_manager_impl.cxx
+===================================================================
+--- trunk/src/input/input_manager_impl.cxx	2005-06-27 17:39:06 UTC (rev 450)
++++ trunk/src/input/input_manager_impl.cxx	2005-06-27 18:27:28 UTC (rev 451)
+@@ -53,6 +53,16 @@
+ }
+ 
+ void
++InputManagerImpl::add_keyboard_event(int name, KeyboardEvent::KeyType key_type, int code)
++{
++  InputEvent event;
++  event.type = KEYBOARD_EVENT;
++  event.keyboard.key_type = key_type;
++  event.keyboard.code     = code;
++  events.push_back(event);  
++}
++
++void
+ InputManagerImpl::clear()
+ {
+   events.clear();
+
+Modified: trunk/src/input/input_manager_impl.hxx
+===================================================================
+--- trunk/src/input/input_manager_impl.hxx	2005-06-27 17:39:06 UTC (rev 450)
++++ trunk/src/input/input_manager_impl.hxx	2005-06-27 18:27:28 UTC (rev 451)
+@@ -43,6 +43,7 @@
+ 
+   void add_axis_event  (int name, float pos);
+   void add_button_event(int name, bool down);
++  void add_keyboard_event(int name, KeyboardEvent::KeyType key_type, int code);
+ private:
+   InputManagerImpl(const InputManagerImpl&amp;);
+   InputManagerImpl&amp; operator=(const InputManagerImpl&amp;);
+
+Modified: trunk/src/input/input_recorder.cxx
+===================================================================
+--- trunk/src/input/input_recorder.cxx	2005-06-27 17:39:06 UTC (rev 450)
++++ trunk/src/input/input_recorder.cxx	2005-06-27 18:27:28 UTC (rev 451)
+@@ -50,6 +50,10 @@
+             case BUTTON_EVENT:
+               out &lt;&lt; &quot;  (button &quot; &lt;&lt; i-&gt;button.name &lt;&lt; &quot; &quot; &lt;&lt; i-&gt;button.down &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
+               break;
++              
++            case KEYBOARD_EVENT:
++              out &lt;&lt; &quot;  (keyboard &quot; &lt;&lt; i-&gt;keyboard.key_type &lt;&lt; &quot; &quot; &lt;&lt; i-&gt;keyboard.code &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
++              break;
+             }
+         }
+       out &lt;&lt; &quot;)\n&quot; &lt;&lt; std::endl;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000107.html">[Windstille-commit] r450 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000109.html">[Windstille-commit] r452 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#108">[ date ]</a>
+              <a href="thread.html#108">[ thread ]</a>
+              <a href="subject.html#108">[ subject ]</a>
+              <a href="author.html#108">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

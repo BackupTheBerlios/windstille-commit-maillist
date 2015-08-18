@@ -1,0 +1,314 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1284 - trunk/windstille-nds/windstille/tools
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1284%20-%20trunk/windstille-nds/windstille/tools&In-Reply-To=%3C200609102337.k8ANbdga012696%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000935.html">
+   <LINK REL="Next"  HREF="000937.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1284 - trunk/windstille-nds/windstille/tools</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1284%20-%20trunk/windstille-nds/windstille/tools&In-Reply-To=%3C200609102337.k8ANbdga012696%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1284 - trunk/windstille-nds/windstille/tools">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Sep 11 01:37:39 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000935.html">[Windstille-commit] r1283 - trunk/windstille-nds/windstille/tools
+</A></li>
+        <LI>Next message: <A HREF="000937.html">[Windstille-commit] r1285 - trunk/htdocs
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#936">[ date ]</a>
+              <a href="thread.html#936">[ thread ]</a>
+              <a href="subject.html#936">[ subject ]</a>
+              <a href="author.html#936">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-09-11 01:37:38 +0200 (Mon, 11 Sep 2006)
+New Revision: 1284
+
+Added:
+   trunk/windstille-nds/windstille/tools/dialog.rb
+   trunk/windstille-nds/windstille/tools/jane2worker.xml
+Log:
+- dialog test and xml demo file
+
+Added: trunk/windstille-nds/windstille/tools/dialog.rb
+===================================================================
+--- trunk/windstille-nds/windstille/tools/dialog.rb	2006-09-10 16:27:49 UTC (rev 1283)
++++ trunk/windstille-nds/windstille/tools/dialog.rb	2006-09-10 23:37:38 UTC (rev 1284)
+@@ -0,0 +1,119 @@
++#! /usr/bin/ruby -w
++
++require &quot;rexml/document&quot;
++
++class Dialog
++  attr_accessor :next
++  
++  def initialize(name_, text_, next_)
++    @name = name_
++    @text = text_
++    @next = next_
++  end
++
++  def show()
++    puts &quot;#{@name}: #{@text}&quot; 
++    $stdin.readline
++    return @next
++  end
++end
++
++class ChoiceList
++  attr_accessor :choices
++
++  def initialize()
++    @choices = []
++  end
++  
++  def show()
++    choices.each_with_index{|choice, i|
++      puts &quot;#{i} #{choice.text}&quot;
++    }
++    puts &quot;&quot;
++    begin 
++      print &quot;# &quot;
++      $stdout.flush
++      j = Integer($stdin.readline)
++    end until (j.is_a?(Integer) and (j &gt;= 0 and j &lt; choices.length))
++
++    return choices[j].next
++  end
++end
++
++class Choice
++  attr_accessor :text, :next
++  def initialize(arg_text, arg_next)
++    @text = arg_text
++    @next = arg_next
++  end
++end
++
++conversations = {}
++
++def run(conversations, start)
++  if start then
++    nxt = conversations[start].show()
++    run(conversations, nxt)
++  else
++    puts &quot;\n[END OF DISCUSSION]&quot;
++  end
++end
++
++if ARGV.length != 1 then
++  puts &quot;Usage: #{$0} FILENAME&quot;
++else
++  file = File.new(ARGV[0])
++  doc = REXML::Document.new(file)
++
++  doc.elements.each(&quot;/conversation/*&quot;){|el|
++    id = el.attributes[&quot;id&quot;]
++
++    if conversations.has_key?(id) then
++      puts &quot;Warning: Duplicate conversation id: #{id}&quot;
++    end
++
++    case el.name
++      when &quot;dialog-list&quot;
++      idx = 0
++      last_dialog = nil
++      el.elements.each(&quot;dialog&quot;) { |i|
++        dialog = Dialog.new(i.elements[&quot;name&quot;].text,
++                            i.elements[&quot;text&quot;].text, 
++                            (if i.elements[&quot;next&quot;] then
++                               i.elements[&quot;next&quot;].text
++                             else
++                               nil
++                             end))
++        if idx == 0 then
++          conversations[id] = dialog
++        else
++          conversations[&quot;#{id}-#{idx}&quot;] = dialog
++        end
++
++        if last_dialog then
++          last_dialog.next = &quot;#{id}-#{idx}&quot;
++        end
++
++        last_dialog = dialog
++        idx += 1
++      }
++
++      when &quot;dialog&quot;
++      dialog = Dialog.new(el.elements[&quot;name&quot;].text,
++                          el.elements[&quot;text&quot;].text, 
++                          el.elements[&quot;next&quot;].text)
++      conversations[id] = dialog
++            
++      when &quot;choice-list&quot;
++      choice_list = ChoiceList.new()
++      el.elements.each(&quot;choice&quot;) { |i|
++        choice_list.choices.push(Choice.new(i.elements[&quot;text&quot;].text,
++                                            i.elements[&quot;next&quot;].text))
++      }
++      conversations[id] = choice_list
++    end
++  }
++  run(conversations, &quot;start&quot;)
++end
++
++# EOF #
+
+
+Property changes on: trunk/windstille-nds/windstille/tools/dialog.rb
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Added: trunk/windstille-nds/windstille/tools/jane2worker.xml
+===================================================================
+--- trunk/windstille-nds/windstille/tools/jane2worker.xml	2006-09-10 16:27:49 UTC (rev 1283)
++++ trunk/windstille-nds/windstille/tools/jane2worker.xml	2006-09-10 23:37:38 UTC (rev 1284)
+@@ -0,0 +1,106 @@
++&lt;?xml version=&quot;1.0&quot;?&gt;
++
++&lt;conversation&gt;
++  &lt;choice-list id=&quot;start&quot;&gt;
++    &lt;choice&gt;
++      &lt;text&gt;Can you here me? Are you ok?&lt;/text&gt;
++      &lt;next&gt;jane2worker&lt;/next&gt;
++    &lt;/choice&gt;
++
++    &lt;choice&gt;
++      &lt;text&gt;This one looks dead.&lt;/text&gt;
++      &lt;next&gt;jane2self&lt;/next&gt;
++    &lt;/choice&gt;
++
++    &lt;choice&gt;
++      &lt;text&gt;Hi Bob, how are you doing?&lt;/text&gt;
++      &lt;next&gt;jane2bob2&lt;/next&gt;
++    &lt;/choice&gt;
++  &lt;/choice-list&gt;
++
++  &lt;choice-list id=&quot;bobchoices&quot;&gt;
++    &lt;choice&gt;
++      &lt;text&gt;Sure about that? You look just like him.&lt;/text&gt;
++      &lt;next&gt;workerangry&lt;/next&gt;
++    &lt;/choice&gt;
++
++    &lt;choice&gt;
++      &lt;text&gt;Ok, must have mistaken you for him.&lt;/text&gt;
++      &lt;next&gt;start&lt;/next&gt;
++    &lt;/choice&gt;
++  &lt;/choice-list&gt;
++
++  &lt;dialog id=&quot;workerangry&quot;&gt;
++    &lt;name&gt;Worker&lt;/name&gt;
++    &lt;text&gt;Yes, absolutly and know could you get me out of this please?&lt;/text&gt;
++    &lt;next&gt;&lt;/next&gt;
++  &lt;/dialog&gt;
++
++  &lt;dialog-list id=&quot;jane2bob2&quot;&gt;
++    &lt;dialog&gt;
++      &lt;name&gt;Jane&lt;/name&gt;
++      &lt;text&gt;Hi Bob, how are you doing?&lt;/text&gt;
++    &lt;/dialog&gt;
++    
++    &lt;dialog&gt;
++      &lt;name&gt;Worker&lt;/name&gt;
++      &lt;text&gt;What kind of stupid question is that? I am not Bob and it
++        should be pretty obvious what I am doing here&lt;/text&gt;
++      &lt;next&gt;start&lt;/next&gt;
++    &lt;/dialog&gt;
++  &lt;/dialog-list&gt;
++
++  &lt;dialog-list id=&quot;jane2worker&quot;&gt;
++    &lt;dialog&gt;
++      &lt;name&gt;Jane&lt;/name&gt;
++      &lt;text&gt;Can you here me? Are you already?&lt;/text&gt;
++    &lt;/dialog&gt;
++    
++    &lt;dialog&gt;
++      &lt;name&gt;Worker&lt;/name&gt; 
++      &lt;text&gt;Yeah, I am already, for most part at least, but as you can
++        see the rubble keeps me trapped.&lt;/text&gt;
++    &lt;/dialog&gt;
++
++    &lt;dialog&gt;
++      &lt;name&gt;Jane&lt;/name&gt;
++      &lt;text&gt;Lets try to lift it then, doesn't seem to heavy.&lt;/text&gt;
++    &lt;/dialog&gt;
++
++    &lt;dialog&gt;
++      &lt;name&gt;Worker&lt;/name&gt;
++
++      &lt;text&gt;Not a chance, just standard lightwight steam pipe stuff,
++        but heavily interconnected. We need a plasma cutter to free
++        it.&lt;/text&gt;
++    &lt;/dialog&gt;
++
++    &lt;dialog&gt;
++      &lt;name&gt;Jane&lt;/name&gt;
++      &lt;text&gt;Plasma cutter, hm, wher could I find one down here?&lt;/text&gt;
++    &lt;/dialog&gt;
++
++    &lt;dialog&gt;
++      &lt;name&gt;Worker&lt;/name&gt;
++      &lt;text&gt;To your left you fine a mine digger, that might have one its its tool box.&lt;/text&gt;
++    &lt;/dialog&gt;
++
++    &lt;dialog&gt;
++      &lt;name&gt;Jane&lt;/name&gt;
++      &lt;text&gt;Ok, hold on, I'll be right back in a moment.&lt;/text&gt;
++    &lt;/dialog&gt;
++  &lt;/dialog-list&gt;
++
++  &lt;dialog-list id=&quot;jane2self&quot;&gt;
++    &lt;dialog&gt;
++      &lt;name&gt;Jane&lt;/name&gt;
++      &lt;text&gt;That one looks dead already, not a chance he survived that.&lt;/text&gt;
++    &lt;/dialog&gt;
++  &lt;/dialog-list&gt;
++
++  &lt;dialog&gt;
++    &lt;name&gt;Jane&lt;/name&gt;
++    &lt;text&gt;Plasma cutter, hm, wher could I find one down here?&lt;/text&gt;
++    &lt;next&gt;start&lt;/next&gt;
++  &lt;/dialog&gt;
++&lt;/conversation&gt;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000935.html">[Windstille-commit] r1283 - trunk/windstille-nds/windstille/tools
+</A></li>
+	<LI>Next message: <A HREF="000937.html">[Windstille-commit] r1285 - trunk/htdocs
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#936">[ date ]</a>
+              <a href="thread.html#936">[ thread ]</a>
+              <a href="subject.html#936">[ subject ]</a>
+              <a href="author.html#936">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

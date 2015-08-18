@@ -1,0 +1,268 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2365 - trunk/griv/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2365%20-%20trunk/griv/src&In-Reply-To=%3C200808290033.m7T0XwLk027739%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001361.html">
+   <LINK REL="Next"  HREF="001363.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2365 - trunk/griv/src</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2365%20-%20trunk/griv/src&In-Reply-To=%3C200808290033.m7T0XwLk027739%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2365 - trunk/griv/src">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Aug 29 02:33:58 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001361.html">[Windstille-commit] r2364 - trunk/griv/src
+</A></li>
+        <LI>Next message: <A HREF="001363.html">[Windstille-commit] r2366 - trunk/griv/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1362">[ date ]</a>
+              <a href="thread.html#1362">[ thread ]</a>
+              <a href="subject.html#1362">[ subject ]</a>
+              <a href="author.html#1362">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-29 02:33:56 +0200 (Fri, 29 Aug 2008)
+New Revision: 2365
+
+Modified:
+   trunk/griv/src/image.cpp
+   trunk/griv/src/image.hpp
+Log:
+Small code cleanup
+
+Modified: trunk/griv/src/image.cpp
+===================================================================
+--- trunk/griv/src/image.cpp	2008-08-28 13:21:32 UTC (rev 2364)
++++ trunk/griv/src/image.cpp	2008-08-29 00:33:56 UTC (rev 2365)
+@@ -231,8 +231,23 @@
+     }
+ }
+ 
++void 
++Image::draw_tiles(const Rect&amp; rect, int tiledb_scale, 
++                  const Vector2f&amp; pos, float scale)
++{
++  float tilesize = 256.0f * scale;
++
++  for(int y = rect.top; y &lt; rect.bottom; ++y)
++    for(int x = rect.left; x &lt; rect.right; ++x)
++      {
++        draw_tile(x, y, tiledb_scale, 
++                  impl-&gt;pos + Vector2f(x,y) * tilesize,
++                  scale);
++      }
++}
++
+ void
+-Image::draw(const Rectf&amp; cliprect, float fscale)
++Image::process_queue()
+ {
+   // Check the queue for newly arrived tiles
+   while (!impl-&gt;tile_queue.empty())
+@@ -257,11 +272,68 @@
+ 
+       impl-&gt;cache[tile_id] = s;
+     }
++}
++
++void
++Image::cache_cleanup()
++{
++  // Image is not visible so clear the cache
++  for(Jobs::iterator i = impl-&gt;jobs.begin(); i != impl-&gt;jobs.end(); ++i)
++    i-&gt;abort();
++  impl-&gt;jobs.clear();
++        
++  // FIXME: We should keep at least some tiles or wait with the
++  // cache purge a bit longer
++
++  // FIXME: We also need to purge the cache more often, since with
++  // big images we would end up never clearing it
++      
++  // Clear the cache, but keep the smallest tile (Wonky hack)
++  if (0)
++    {
++      impl-&gt;cache.clear();
++    }
++  else
++    {
++      int max_tiledb_scale = 0;
++      SurfaceStruct s;
++      int tileid = -1;
++
++      //FIXME: Calculate a size at which the thumbnail is 32x32 or
++      //smaller, keep that and everything smaller, discard the rest
++      for(Cache::iterator i = impl-&gt;cache.begin(); i != impl-&gt;cache.end(); ++i)
++        {
++          int tiledb_scale = (i-&gt;first &gt;&gt; 16);
++          if (tiledb_scale &gt; max_tiledb_scale)
++            {
++              max_tiledb_scale = tiledb_scale;
++              tileid = i-&gt;first;
++              s      = i-&gt;second;
++            }
++        }
++      impl-&gt;cache.clear();
++
++      if (max_tiledb_scale != 0)
++        {
++          impl-&gt;cache[tileid] = s;
++        }
++    } 
++}
++
++
++void
++Image::draw(const Rectf&amp; cliprect, float fscale)
++{
++  process_queue();
+   
+   Rectf image_rect(impl-&gt;pos, Sizef(impl-&gt;file_entry.size * impl-&gt;scale)); // in world coordinates
+ 
+-  if (cliprect.is_overlapped(image_rect))
++  if (!cliprect.is_overlapped(image_rect))
+     {
++      cache_cleanup();
++    }
++  else
++    {
+       // scale factor for requesting the tile from the TileDatabase
+       int tiledb_scale = Math::max(0, static_cast&lt;int&gt;(log(1.0f / (fscale*impl-&gt;scale)) /
+                                                        log(2)));
+@@ -286,69 +358,22 @@
+           image_region.bottom = (image_region.bottom - impl-&gt;pos.y) / impl-&gt;scale;
+ 
+           int   itilesize = 256 * scale_factor;
+-          float tilesize  = 256.0f * scale_factor * impl-&gt;scale;
+-
++          
+           int start_x = (image_region.left)  / itilesize;
+           int end_x   = (image_region.right) / itilesize + 1;
+ 
+           int start_y = (image_region.top   ) / itilesize;
+           int end_y   = (image_region.bottom) / itilesize + 1;
+ 
+-          for(int y = start_y; y &lt; end_y; y += 1)
+-            for(int x = start_x; x &lt; end_x; x += 1)
+-              {
+-                draw_tile(x, y, tiledb_scale, 
+-                          impl-&gt;pos + Vector2f(x,y) * tilesize,
+-                          scale_factor * impl-&gt;scale);
+-              }
++          draw_tiles(Rect(start_x, start_y, end_x, end_y), 
++                     tiledb_scale, 
++                     impl-&gt;pos,
++                     scale_factor * impl-&gt;scale);
+         }
+     }
+-  else
+-    {
+-      // Image is not visible so clear the cache
+-      for(Jobs::iterator i = impl-&gt;jobs.begin(); i != impl-&gt;jobs.end(); ++i)
+-        i-&gt;abort();
+-      impl-&gt;jobs.clear();
+-        
+-      // FIXME: We should keep at least some tiles or wait with the
+-      // cache purge a bit longer
+-
+-      // FIXME: We also need to purge the cache more often, since with
+-      // big images we would end up never clearing it
+-      
+-      // Clear the cache, but keep the smallest tile (Wonky hack)
+-      if (0)
+-        {
+-          impl-&gt;cache.clear();
+-        }
+-      else
+-        {
+-          int max_tiledb_scale = 0;
+-          SurfaceStruct s;
+-          int tileid = -1;
+-
+-          //FIXME: Calculate a size at which the thumbnail is 32x32 or
+-          //smaller, keep that and everything smaller, discard the rest
+-          for(Cache::iterator i = impl-&gt;cache.begin(); i != impl-&gt;cache.end(); ++i)
+-            {
+-              int tiledb_scale = (i-&gt;first &gt;&gt; 16);
+-              if (tiledb_scale &gt; max_tiledb_scale)
+-                {
+-                  max_tiledb_scale = tiledb_scale;
+-                  tileid = i-&gt;first;
+-                  s      = i-&gt;second;
+-                }
+-            }
+-          impl-&gt;cache.clear();
+-
+-          if (max_tiledb_scale != 0)
+-            {
+-              impl-&gt;cache[tileid] = s;
+-            }
+-        }
+-    }
+ }
+ 
++
+ void
+ Image::receive_tile(const TileEntry&amp; tile)
+ {
+
+Modified: trunk/griv/src/image.hpp
+===================================================================
+--- trunk/griv/src/image.hpp	2008-08-28 13:21:32 UTC (rev 2364)
++++ trunk/griv/src/image.hpp	2008-08-29 00:33:56 UTC (rev 2365)
+@@ -61,11 +61,15 @@
+ private:
+   Surface get_tile(int x, int y, int tile_scale);
+ 
++  void cache_cleanup();
++  void process_queue();
++
+ public:
+   Image();
+   Image(const FileEntry&amp; file_entry);
+ 
+   void draw_tile(int x, int y, int tiledb_scale, const Vector2f&amp; rect, float scale);
++  void draw_tiles(const Rect&amp; rect, int tiledb_scale, const Vector2f&amp; pos, float scale);
+   void draw(const Rectf&amp; cliprect, float scale);
+ 
+   void set_pos(const Vector2f&amp; pos);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001361.html">[Windstille-commit] r2364 - trunk/griv/src
+</A></li>
+	<LI>Next message: <A HREF="001363.html">[Windstille-commit] r2366 - trunk/griv/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1362">[ date ]</a>
+              <a href="thread.html#1362">[ thread ]</a>
+              <a href="subject.html#1362">[ subject ]</a>
+              <a href="author.html#1362">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

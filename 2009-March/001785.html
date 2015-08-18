@@ -1,0 +1,536 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2788 - in trunk/windstille: . data/editor	src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2788%20-%20in%20trunk/windstille%3A%20.%20data/editor%0A%09src/editor&In-Reply-To=%3C200903280458.n2S4wYTi032426%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001784.html">
+   <LINK REL="Next"  HREF="001786.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2788 - in trunk/windstille: . data/editor	src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2788%20-%20in%20trunk/windstille%3A%20.%20data/editor%0A%09src/editor&In-Reply-To=%3C200903280458.n2S4wYTi032426%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2788 - in trunk/windstille: . data/editor	src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Mar 28 05:58:34 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001784.html">[Windstille-commit] r2787 - trunk/windstille/data/images/decal
+</A></li>
+        <LI>Next message: <A HREF="001786.html">[Windstille-commit] r2789 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1785">[ date ]</a>
+              <a href="thread.html#1785">[ thread ]</a>
+              <a href="subject.html#1785">[ subject ]</a>
+              <a href="author.html#1785">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-28 05:58:33 +0100 (Sat, 28 Mar 2009)
+New Revision: 2788
+
+Added:
+   trunk/windstille/data/editor/grid.png
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/hard_layer.cpp
+   trunk/windstille/src/editor/hard_layer.hpp
+   trunk/windstille/src/editor/object_tree.cpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+Log:
+Removed most functors and replaced them with classic iteration over vector returned by get_layers()
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-03-28 00:51:46 UTC (rev 2787)
++++ trunk/windstille/TODO	2009-03-28 04:58:33 UTC (rev 2788)
+@@ -501,6 +501,28 @@
+ Editor
+ ======
+ 
++* New Layer System:
++
++  - needs a way to iterate in reverse over all layers, needed since
++    select() and draw() work in different directions
++
++  - need an easy way to get the layer on which an object is for
++    raise()/lower(), etc.
++
++  - a way to iterate over layers in classic way could be helpful
++
++  - need a clean way to get the current layer
++
++  - a locked layer should be ignored in all select operations, so that
++    it can't be moved by accident, adding to them should be forbidden
++    as well
++
++  - adding a &quot;std::vector&lt;HardLayerHandle&gt; get_layers() const&quot; seems
++    most simple, trouble is that visible/locked/name data might get
++    out of sync
++
++  - add function to select all objects on the current layer
++
+ * drawing is broken after loading a level, only get fixed when toggling Light layer
+ 
+ * background pattern goes away when Color pattern is disabled, since
+
+Added: trunk/windstille/data/editor/grid.png
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/windstille/data/editor/grid.png
+___________________________________________________________________
+Name: svn:mime-type
+   + image/png
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-03-28 00:51:46 UTC (rev 2787)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-03-28 04:58:33 UTC (rev 2788)
+@@ -304,7 +304,7 @@
+   vpaned.pack1(object_selector, Gtk::EXPAND);
+   vpaned.pack2(object_tree,     Gtk::SHRINK);
+ 
+-  hpaned.set_position(1024);
++  hpaned.set_position(1000);
+   vpaned.set_position(420);
+ 
+   // Window
+
+Modified: trunk/windstille/src/editor/hard_layer.cpp
+===================================================================
+--- trunk/windstille/src/editor/hard_layer.cpp	2009-03-28 00:51:46 UTC (rev 2787)
++++ trunk/windstille/src/editor/hard_layer.cpp	2009-03-28 04:58:33 UTC (rev 2788)
+@@ -19,6 +19,8 @@
+ #include &quot;hard_layer.hpp&quot;
+ 
+ HardLayer::HardLayer()
++  : visible(true),
++    locked(false)
+ {
+ }
+ 
+
+Modified: trunk/windstille/src/editor/hard_layer.hpp
+===================================================================
+--- trunk/windstille/src/editor/hard_layer.hpp	2009-03-28 00:51:46 UTC (rev 2787)
++++ trunk/windstille/src/editor/hard_layer.hpp	2009-03-28 04:58:33 UTC (rev 2788)
+@@ -36,11 +36,23 @@
+   typedef std::list&lt;ObjectModelHandle&gt; Objects;
+ 
+   Objects objects;
+-
++  std::string name;
++  bool visible;
++  bool locked;
++  
+ public:
+   HardLayer();
+   ~HardLayer();
+ 
++  void set_name(const std::string&amp; str) { name = str; }
++  std::string get_name() const { return name; }
++
++  bool is_visible() const { return visible; }
++  bool is_locked() const { return locked; }
++
++  void set_visible(bool v) { visible = v; }
++  void set_locked(bool v) { locked = v; }
++
+   void add(const ObjectModelHandle&amp; object);
+   void remove(const ObjectModelHandle&amp; object);
+ 
+
+Modified: trunk/windstille/src/editor/object_tree.cpp
+===================================================================
+--- trunk/windstille/src/editor/object_tree.cpp	2009-03-28 00:51:46 UTC (rev 2787)
++++ trunk/windstille/src/editor/object_tree.cpp	2009-03-28 04:58:33 UTC (rev 2788)
+@@ -32,7 +32,7 @@
+     label(&quot;Layer Manager&quot;, Gtk::ALIGN_LEFT)
+ {
+   treeview.set_headers_clickable();
+-  treeview.set_headers_visible(false);
++  treeview.set_headers_visible(true);
+   treeview.set_enable_tree_lines();
+   treeview.set_reorderable();
+ 
+@@ -87,7 +87,7 @@
+       treeview.append_column(&quot;Type&quot;, ObjectTreeColumns::instance().type_icon);
+       treeview.append_column_editable(&quot;Name&quot;, ObjectTreeColumns::instance().name);
+       treeview.append_column_editable(&quot;Visible&quot;, ObjectTreeColumns::instance().visible);
+-      treeview.append_column_editable(&quot;Visible&quot;, ObjectTreeColumns::instance().locked);
++      treeview.append_column_editable(&quot;Locked&quot;, ObjectTreeColumns::instance().locked);
+ 
+       treeview.expand_all();
+       treeview.set_cursor(Gtk::TreeModel::Path(&quot;0&quot;));
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-03-28 00:51:46 UTC (rev 2787)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-03-28 04:58:33 UTC (rev 2788)
+@@ -63,7 +63,7 @@
+ }
+ 
+ void
+-SectorModel::delete_layer(Gtk::TreeModel::Path&amp; path)
++SectorModel::delete_layer(const Gtk::TreeModel::Path&amp; path)
+ {
+   layer_tree-&gt;erase(layer_tree-&gt;get_iter(path));
+ }
+@@ -74,141 +74,102 @@
+   Gtk::TreeStore::iterator it = layer_tree-&gt;get_iter(path);
+   ((HardLayerHandle)(*it)[ObjectTreeColumns::instance().layer])-&gt;add(object);
+ }
+-
+-struct RemoveObjectFunctor
++
++struct GetLayersFunctor
+ {
+-  const ObjectModelHandle&amp; object;
++  SectorModel::HardLayers&amp; objects;
+ 
+-  RemoveObjectFunctor(const ObjectModelHandle&amp; object_)
+-    : object(object_)
++  GetLayersFunctor(SectorModel::HardLayers&amp; objects_) 
++    : objects(objects_)
+   {}
+ 
+-  bool remove(const Gtk::TreeModel::iterator&amp; it)
++  bool get_layers(const Gtk::TreeModel::iterator&amp; it)
+   {
+-    ((HardLayerHandle)((*it)[ObjectTreeColumns::instance().layer]))-&gt;remove(object);
+-    return false; // continue tree traversal
++    objects.push_back((*it)[ObjectTreeColumns::instance().layer]);
++    return false;
+   }
+ };
+ 
++SectorModel::HardLayers
++SectorModel::get_layers() const
++{
++  HardLayers lst;
++  GetLayersFunctor func(lst);
++  layer_tree-&gt;foreach_iter(sigc::mem_fun(func, &amp;GetLayersFunctor::get_layers));
++  return lst;
++}
++
+ void
+ SectorModel::remove(const ObjectModelHandle&amp; object)
+ {
+-  RemoveObjectFunctor func(object);
+-  layer_tree-&gt;foreach_iter(sigc::mem_fun(func, &amp;RemoveObjectFunctor::remove));
++  const HardLayers&amp; layers = get_layers();
++ 
++  for(HardLayers::const_reverse_iterator i = layers.rbegin(); i != layers.rend(); ++i)
++    {
++      (*i)-&gt;remove(object);
++    }
+ }
+-
+-struct DrawLayerFunctor
+-{
+-  SceneContext&amp; sc;
+-  const Layers&amp;       layers;
+-
+-  DrawLayerFunctor(SceneContext&amp; sc_, const Layers&amp; layers_)
+-    : sc(sc_), layers(layers_)
+-  {}
+-
+-  bool draw(const Gtk::TreeModel::iterator&amp; it) 
+-  {
+-    if ((*it)[ObjectTreeColumns::instance().visible])
+-      {      
+-        ((HardLayerHandle)((*it)[ObjectTreeColumns::instance().layer]))-&gt;draw(sc, layers);
+-      }
+-
+-    return false;
+-  }
+-};
+-
++
+ void
+-SectorModel::draw(SceneContext&amp; sc, const Layers&amp; layers)
++SectorModel::draw(SceneContext&amp; sc, const Layers&amp; layermask)
+ {
+-  DrawLayerFunctor func(sc, layers);
+-  layer_tree-&gt;foreach_iter(sigc::mem_fun(func, &amp;DrawLayerFunctor::draw));
++  const HardLayers&amp; layers = get_layers();
++ 
++  for(HardLayers::const_reverse_iterator i = layers.rbegin(); i != layers.rend(); ++i)
++    {
++      if ((*i)-&gt;is_visible())
++        (*i)-&gt;draw(sc, layermask);
++    }
+ }
+-
+-struct LayerUpdateFunctor
+-{
+-  float&amp; delta;
+-  
+-  LayerUpdateFunctor(float&amp; delta_)
+-    : delta(delta_)
+-  {}
+-
+-  bool update(const Gtk::TreeModel::iterator&amp; it)
+-  {
+-    if ((*it)[ObjectTreeColumns::instance().visible])
+-      {      
+-        ((HardLayerHandle)((*it)[ObjectTreeColumns::instance().layer]))-&gt;update(delta);
+-      }
+-    return false;    
+-  }
+-};
+-
++
+ void
+ SectorModel::update(float delta)
+ {
+-  LayerUpdateFunctor func(delta);
+-  layer_tree-&gt;foreach_iter(sigc::mem_fun(func, &amp;LayerUpdateFunctor::update));
+-}
++  const HardLayers&amp; layers = get_layers();
+ 
+-struct LayerGetObjectAt
++  for(HardLayers::const_iterator i = layers.begin(); i != layers.end(); ++i)
++    {
++      if ((*i)-&gt;is_visible())
++        (*i)-&gt;update(delta);
++    }
++}
++
++ObjectModelHandle
++SectorModel::get_object_at(const Vector2f&amp; pos, const Layers&amp; layermask) const
+ {
+-  const Vector2f&amp; pos;
+-  const Layers&amp;   layers;
+-  ObjectModelHandle object;
++  const HardLayers&amp; layers = get_layers();
++  SelectionHandle selection = Selection::create();
+ 
+-  LayerGetObjectAt(const Vector2f&amp; pos_, const Layers&amp; layers_)
+-    : pos(pos_),
+-      layers(layers_)
+-  {}
++  for(HardLayers::const_iterator i = layers.begin(); i != layers.end(); ++i)
++    {
++      if ((*i)-&gt;is_visible() &amp;&amp; !(*i)-&gt;is_locked())
++        {
++          ObjectModelHandle object = (*i)-&gt;get_object_at(pos, layermask);
++          
++          if (object.get())
++            return object;
++        }
++    }
+ 
+-  bool get_object_at(const Gtk::TreeModel::iterator&amp; it)
+-  {
+-    if ((*it)[ObjectTreeColumns::instance().visible])
+-      {
+-        object = ((HardLayerHandle)((*it)[ObjectTreeColumns::instance().layer]))-&gt;get_object_at(pos, layers);
+-        if (object.get())
+-          return true;
+-      }
+-    return false;
+-  }
+-};
+-
+-ObjectModelHandle
+-SectorModel::get_object_at(const Vector2f&amp; pos, const Layers&amp; layers) const
+-{
+-  LayerGetObjectAt func(pos, layers);
+-  layer_tree-&gt;foreach_iter(sigc::mem_fun(func, &amp;LayerGetObjectAt::get_object_at));
+-  return func.object;
++  return ObjectModelHandle();
+ }
+-
+-struct LayerGetSelection
++
++SelectionHandle
++SectorModel::get_selection(const Rectf&amp; rect, const Layers&amp; layermask) const
+ {
+-  const Rectf&amp; rect;
+-  const Layers&amp; layers;
+-  SelectionHandle selection;
++  const HardLayers&amp; layers = get_layers();
++  SelectionHandle selection = Selection::create();
+ 
+-  LayerGetSelection(const Rectf&amp; rect_, const Layers&amp; layers_)
+-    : rect(rect_),
+-      layers(layers_),
+-      selection(Selection::create())
+-  {}
++  for(HardLayers::const_iterator i = layers.begin(); i != layers.end(); ++i)
++    {
++      if ((*i)-&gt;is_visible() &amp;&amp; !(*i)-&gt;is_locked())
++        {
++          SelectionHandle new_sel = (*i)-&gt;get_selection(rect, layermask);
++          selection-&gt;add(new_sel-&gt;begin(), new_sel-&gt;end());
++        }
++    }
+ 
+-  bool get_selection(const Gtk::TreeModel::iterator&amp; it)
+-  {
+-    if ((*it)[ObjectTreeColumns::instance().visible])
+-      {
+-        SelectionHandle new_sel = ((HardLayerHandle)((*it)[ObjectTreeColumns::instance().layer]))-&gt;get_selection(rect, layers);
+-        selection-&gt;add(new_sel-&gt;begin(), new_sel-&gt;end());
+-      }
+-    return false;
+-  }
+-};
+-
+-SelectionHandle
+-SectorModel::get_selection(const Rectf&amp; rect, const Layers&amp; layers) const
+-{
+-  LayerGetSelection func(rect, layers);
+-  layer_tree-&gt;foreach_iter(sigc::mem_fun(func, &amp;LayerGetSelection::get_selection));
+-  return func.selection;
++  return selection;
+ }
+ 
+ void
+@@ -238,7 +199,17 @@
+ SnapData
+ SectorModel::snap_object(const Rectf&amp; rect, const std::set&lt;ObjectModelHandle&gt;&amp; ignore_objects) const
+ {
+-  return root_layer-&gt;snap_object(rect, ignore_objects);
++  const HardLayers&amp; layers = get_layers();
++
++  SnapData snap_data;
++  for(HardLayers::const_iterator i = layers.begin(); i != layers.end(); ++i)
++    {
++      if ((*i)-&gt;is_visible())
++        {
++          snap_data.merge((*i)-&gt;snap_object(rect, ignore_objects));
++        }
++    }
++  return snap_data;
+ }
+ 
+ void
+@@ -317,9 +288,8 @@
+ }
+ 
+ void
+-SectorModel::on_row_changed(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter)
++SectorModel::queue_draw()
+ {
+-  std::cout &lt;&lt; &quot;ObjectTree:on_row_changed&quot; &lt;&lt; std::endl;
+   if (WindstilleWidget* wst = EditorWindow::current()-&gt;get_windstille_widget())
+     {
+       wst-&gt;queue_draw();
+@@ -327,16 +297,31 @@
+ }
+ 
+ void
+-SectorModel::on_row_deleted(const Gtk::TreeModel::Path&amp; path)
++SectorModel::on_row_changed(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter)
+ {
+-  std::cout &lt;&lt; &quot;ObjectTree:on_row_deleted&quot; &lt;&lt; std::endl;
+-  if (WindstilleWidget* wst = EditorWindow::current()-&gt;get_windstille_widget())
++  std::cout &lt;&lt; &quot;ObjectTree:on_row_changed&quot; &lt;&lt; std::endl;
++  if (iter)
+     {
+-      wst-&gt;queue_draw();
++      // Update the Layer object with data from the tree
++      HardLayerHandle layer = (*iter)[ObjectTreeColumns::instance().layer];
++      if (layer.get())
++        {
++          layer-&gt;set_name(((Glib::ustring)(*iter)[ObjectTreeColumns::instance().name]).raw());
++          layer-&gt;set_visible((*iter)[ObjectTreeColumns::instance().visible]);
++          layer-&gt;set_locked((*iter)[ObjectTreeColumns::instance().locked]);
++        }
+     }
++  queue_draw();
+ }
+ 
+ void
++SectorModel::on_row_deleted(const Gtk::TreeModel::Path&amp; path)
++{
++  std::cout &lt;&lt; &quot;ObjectTree:on_row_deleted&quot; &lt;&lt; std::endl;
++  queue_draw();
++}
++
++void
+ SectorModel::on_row_has_child_toggled(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter)
+ {
+   std::cout &lt;&lt; &quot;ObjectTree:on_row_has_child_toggled&quot; &lt;&lt; std::endl;
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-03-28 00:51:46 UTC (rev 2787)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-03-28 04:58:33 UTC (rev 2788)
+@@ -67,9 +67,10 @@
+   Gtk::TreeStore::iterator root_it;
+   Glib::RefPtr&lt;Gtk::TreeStore&gt; layer_tree;
+   HardLayerHandle root_layer;
+-  
++
+ public:
+   //typedef Objects::iterator iterator;
++  typedef std::vector&lt;HardLayerHandle&gt; HardLayers;
+ 
+   SectorModel();
+ 
+@@ -79,11 +80,13 @@
+   void update(float delta, const Gtk::TreeRow&amp; row);
+ 
+   void add_layer(const std::string&amp; name, const Gtk::TreeModel::Path&amp; path);
+-  void delete_layer(Gtk::TreeModel::Path&amp; path);
++  void delete_layer(const Gtk::TreeModel::Path&amp; path);
+ 
+   void add(const ObjectModelHandle&amp; object, const Gtk::TreeModel::Path&amp; path);
+   void remove(const ObjectModelHandle&amp; object);
+ 
++  HardLayers get_layers() const;
++
+   // void select_objects(const Rectf&amp; rect, bool replace_old_selection = true) const;
+ 
+   Glib::RefPtr&lt;Gtk::TreeStore&gt; get_layer_tree() { return layer_tree; }
+@@ -108,6 +111,8 @@
+   void write(FileWriter&amp; writer) const;
+   void write(FileWriter&amp; writer, const Gtk::TreeRow&amp; row) const;
+ 
++  void queue_draw();
++
+   //iterator begin() { return objects.begin(); }
+   //iterator end() { return objects.end(); }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001784.html">[Windstille-commit] r2787 - trunk/windstille/data/images/decal
+</A></li>
+	<LI>Next message: <A HREF="001786.html">[Windstille-commit] r2789 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1785">[ date ]</a>
+              <a href="thread.html#1785">[ thread ]</a>
+              <a href="subject.html#1785">[ subject ]</a>
+              <a href="author.html#1785">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

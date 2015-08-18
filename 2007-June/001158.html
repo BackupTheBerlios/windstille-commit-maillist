@@ -1,0 +1,314 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1507 - in trunk/windstille/src: . armature
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1507%20-%20in%20trunk/windstille/src%3A%20.%20armature&In-Reply-To=%3C200706231909.l5NJ96NC025063%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001157.html">
+   <LINK REL="Next"  HREF="001159.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1507 - in trunk/windstille/src: . armature</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1507%20-%20in%20trunk/windstille/src%3A%20.%20armature&In-Reply-To=%3C200706231909.l5NJ96NC025063%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1507 - in trunk/windstille/src: . armature">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Jun 23 21:09:06 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001157.html">[Windstille-commit] r1506 - trunk/windstille/data/armature
+</A></li>
+        <LI>Next message: <A HREF="001159.html">[Windstille-commit] r1508 - in trunk/windstille/src: . math
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1158">[ date ]</a>
+              <a href="thread.html#1158">[ thread ]</a>
+              <a href="subject.html#1158">[ subject ]</a>
+              <a href="author.html#1158">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-06-23 21:09:06 +0200 (Sat, 23 Jun 2007)
+New Revision: 1507
+
+Modified:
+   trunk/windstille/src/armature/armature.hpp
+   trunk/windstille/src/armature/mesh.cpp
+   trunk/windstille/src/armature/mesh.hpp
+   trunk/windstille/src/armature/model.cpp
+   trunk/windstille/src/armature/model.hpp
+   trunk/windstille/src/armature_test.cpp
+Log:
+- some buggy bone animation and a few bug fixes
+
+Modified: trunk/windstille/src/armature/armature.hpp
+===================================================================
+--- trunk/windstille/src/armature/armature.hpp	2007-06-23 16:10:21 UTC (rev 1506)
++++ trunk/windstille/src/armature/armature.hpp	2007-06-23 19:09:06 UTC (rev 1507)
+@@ -53,6 +53,9 @@
+ 
+   void  parse(FileReader&amp; reader);
+   Bone* get_bone(const std::string&amp; name);
++
++  Matrix* get_render_matrix(const std::string&amp; name);
++
+   void  draw();
+   void  draw_bone(Bone* bone, Vector3 p, Matrix matrix);
+ private:
+
+Modified: trunk/windstille/src/armature/mesh.cpp
+===================================================================
+--- trunk/windstille/src/armature/mesh.cpp	2007-06-23 16:10:21 UTC (rev 1506)
++++ trunk/windstille/src/armature/mesh.cpp	2007-06-23 19:09:06 UTC (rev 1507)
+@@ -30,6 +30,7 @@
+ #include &quot;display/opengl_state.hpp&quot;
+ #include &quot;display/texture_manager.hpp&quot;
+ #include &quot;file_reader.hpp&quot;
++#include &quot;armature.hpp&quot;
+ #include &quot;mesh.hpp&quot;
+ 
+ Mesh::Mesh(FileReader&amp; reader, const std::string&amp; path)
+@@ -60,11 +61,14 @@
+               if ((*i).get(&quot;bone&quot;,     group.bone_name) &amp;&amp;
+                   (*i).get(&quot;weight&quot;,   group.weight) &amp;&amp; 
+                   (*i).get(&quot;vertices&quot;, group.vertices))
+-
+-                if (group.weight != 0.0f) // ignore useless bones
+-                  groups.push_back(group);
++                {
++                  if (group.weight != 0.0f) // ignore useless bones
++                    groups.push_back(group);
++                }
+               else
++                {
+                 std::cout &lt;&lt; &quot;Mesh::VertexGroup: Element missing&quot; &lt;&lt; std::endl;
++                }
+             }
+           else
+             {
+@@ -112,6 +116,9 @@
+   // Normalize Weight to 1.0f
+   for(Vertices::iterator i = vertices_.begin(); i != vertices_.end(); ++i)
+     {
++      if (i-&gt;weights.empty())
++        std::cout &lt;&lt; &quot;Vertex doesn't have weight: &quot; &lt;&lt; i - vertices_.begin() &lt;&lt; std::endl;
++
+       float total_weight = 0.0f;
+       for(std::vector&lt;float&gt;::iterator w = i-&gt;weights.begin(); w != i-&gt;weights.end(); ++w)
+         total_weight += *w;
+@@ -203,10 +210,66 @@
+ 
+   assert_gl(&quot;gl init before sprite&quot;);
+ 
++  for(Vertices::size_type i = 0; i &lt; vertices_.size(); ++i)
++    { // evil messing around with vertices, need more order
++      vertices[3*i + 0] = vertices_[i].render_pos.x;
++      vertices[3*i + 1] = vertices_[i].render_pos.y;
++      vertices[3*i + 2] = vertices_[i].render_pos.z;
++    }
++
+   glVertexPointer(3, GL_FLOAT, 0, &amp;*vertices.begin());
++
+   glNormalPointer(GL_FLOAT, 0, &amp;*normals.begin());
+   glTexCoordPointer(2, GL_FLOAT, 0, &amp;*texcoords.begin());
+   glDrawElements(GL_TRIANGLES, triangles.size(), GL_UNSIGNED_INT, &amp;*triangles.begin());
+ }
+ 
++void
++Mesh::apply(Armature* armature)
++{
++  for(Vertices::iterator i = vertices_.begin(); i != vertices_.end(); ++i)
++    {
++      if (i-&gt;bone_names.empty())
++        {
++          // This shouldn't be reached for full mehes
++          i-&gt;render_pos = i-&gt;pos;
++        }
++      else
++        {
++          if (i-&gt;bones.empty())
++            {
++              for(unsigned int j = 0; j &lt; i-&gt;bone_names.size(); ++j)
++                i-&gt;bones.push_back(armature-&gt;get_bone(i-&gt;bone_names[j]));
++            }
++
++          i-&gt;render_pos = Vector3(0.0f, 0.0f, 0.0f);
++          for(unsigned int j = 0; j &lt; i-&gt;bone_names.size(); ++j)
++            {
++              Bone* bone   = i-&gt;bones[j];
++              float weight = i-&gt;weights[j];
++
++              //std::cout &lt;&lt; &quot;apply: &quot; &lt;&lt; i-&gt;bone_names[j] &lt;&lt; &quot; &quot; &lt;&lt; bone &lt;&lt; &quot; &quot; &lt;&lt; weight &lt;&lt; std::endl;
++
++              if (bone)
++                { // FIXME: Need to calculate the offset from the bone and rotate that, not the pos
++                  i-&gt;render_pos += (bone-&gt;render_matrix.multiply(i-&gt;pos)) * weight;
++                }
++              else
++                {
++                  std::cout &lt;&lt; &quot;Couldn't find bone: &quot; &lt;&lt; i-&gt;bone_names[j] &lt;&lt; std::endl;
++                }
++            }
++        }
++    }
++}
++
++void
++Mesh::reset()
++{
++  for(Vertices::iterator i = vertices_.begin(); i != vertices_.end(); ++i)
++    {
++      i-&gt;render_pos = i-&gt;pos;
++    }
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/armature/mesh.hpp
+===================================================================
+--- trunk/windstille/src/armature/mesh.hpp	2007-06-23 16:10:21 UTC (rev 1506)
++++ trunk/windstille/src/armature/mesh.hpp	2007-06-23 19:09:06 UTC (rev 1507)
+@@ -36,6 +36,7 @@
+ 
+ class FileReader;
+ class Bone;
++class Armature;
+ 
+ struct VertexGroup
+ {
+@@ -50,6 +51,8 @@
+   Vector3 normal;
+   Vector  texcoord;
+ 
++  Vector3 render_pos;
++
+   // Influences from bone;
+   std::vector&lt;float&gt; weights;
+   std::vector&lt;std::string&gt; bone_names;
+@@ -83,6 +86,8 @@
+   ~Mesh();
+ 
+   void draw();
++  void apply(Armature* armature);
++  void reset();
+ private:
+   Mesh (const Mesh&amp;);
+   Mesh&amp; operator= (const Mesh&amp;);
+
+Modified: trunk/windstille/src/armature/model.cpp
+===================================================================
+--- trunk/windstille/src/armature/model.cpp	2007-06-23 16:10:21 UTC (rev 1506)
++++ trunk/windstille/src/armature/model.cpp	2007-06-23 19:09:06 UTC (rev 1507)
+@@ -49,6 +49,8 @@
+           std::cout &lt;&lt; &quot;Ignoring unhandled tag: &quot; &lt;&lt; i-&gt;get_name() &lt;&lt; std::endl;
+         }
+     }
++
++  reset();
+ }
+ 
+ Model::~Model()
+@@ -66,4 +68,22 @@
+     }
+ }
+ 
++void
++Model::reset()
++{
++  for(Meshes::iterator i = meshes.begin(); i != meshes.end(); ++i)
++    {
++      (*i)-&gt;reset();
++    }  
++}
++
++void
++Model::apply(Armature* armature)
++{
++  for(Meshes::iterator i = meshes.begin(); i != meshes.end(); ++i)
++    {
++      (*i)-&gt;apply(armature);
++    }    
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/armature/model.hpp
+===================================================================
+--- trunk/windstille/src/armature/model.hpp	2007-06-23 16:10:21 UTC (rev 1506)
++++ trunk/windstille/src/armature/model.hpp	2007-06-23 19:09:06 UTC (rev 1507)
+@@ -31,6 +31,7 @@
+ 
+ class FileReader;
+ class Mesh;
++class Armature;
+ 
+ /** */
+ class Model
+@@ -45,6 +46,8 @@
+   ~Model();
+ 
+   void draw();
++  void apply(Armature* armature);
++  void reset();
+ private:
+   Model (const Model&amp;);
+   Model&amp; operator= (const Model&amp;);
+
+Modified: trunk/windstille/src/armature_test.cpp
+===================================================================
+--- trunk/windstille/src/armature_test.cpp	2007-06-23 16:10:21 UTC (rev 1506)
++++ trunk/windstille/src/armature_test.cpp	2007-06-23 19:09:06 UTC (rev 1507)
+@@ -57,7 +57,7 @@
+ 
+   pose_idx = 0;
+ 
+-  //armature-&gt;apply(*poses[pose_idx]);
++  armature-&gt;apply(*poses[pose_idx]);
+ 
+   xrot = 0;
+   yrot = 0;
+@@ -94,8 +94,9 @@
+ {
+   time += delta;
+ 
+-  pose_idx = int(time * 20.0f) % poses.size();
+-  //armature-&gt;apply(*poses[pose_idx]);
++  pose_idx = int(time * 5.0f) % poses.size();
++  armature-&gt;apply(*poses[pose_idx]);
++  model-&gt;apply(armature);
+ 
+   if (controller.button_was_pressed(ESCAPE_BUTTON) ||
+       controller.button_was_pressed(PAUSE_BUTTON))
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001157.html">[Windstille-commit] r1506 - trunk/windstille/data/armature
+</A></li>
+	<LI>Next message: <A HREF="001159.html">[Windstille-commit] r1508 - in trunk/windstille/src: . math
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1158">[ date ]</a>
+              <a href="thread.html#1158">[ thread ]</a>
+              <a href="subject.html#1158">[ subject ]</a>
+              <a href="author.html#1158">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

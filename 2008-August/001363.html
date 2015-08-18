@@ -1,0 +1,190 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2366 - trunk/griv/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2366%20-%20trunk/griv/src&In-Reply-To=%3C200808291145.m7TBjgCu010596%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001362.html">
+   <LINK REL="Next"  HREF="001364.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2366 - trunk/griv/src</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2366%20-%20trunk/griv/src&In-Reply-To=%3C200808291145.m7TBjgCu010596%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2366 - trunk/griv/src">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Aug 29 13:45:42 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001362.html">[Windstille-commit] r2365 - trunk/griv/src
+</A></li>
+        <LI>Next message: <A HREF="001364.html">[Windstille-commit] r2367 - in trunk/griv: . src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1363">[ date ]</a>
+              <a href="thread.html#1363">[ thread ]</a>
+              <a href="subject.html#1363">[ subject ]</a>
+              <a href="author.html#1363">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-29 13:45:41 +0200 (Fri, 29 Aug 2008)
+New Revision: 2366
+
+Modified:
+   trunk/griv/src/image.cpp
+Log:
+Small improvement in which tiles are cached and which aren't
+
+Modified: trunk/griv/src/image.cpp
+===================================================================
+--- trunk/griv/src/image.cpp	2008-08-29 00:33:56 UTC (rev 2365)
++++ trunk/griv/src/image.cpp	2008-08-29 11:45:41 UTC (rev 2366)
+@@ -46,7 +46,7 @@
+   FileEntry file_entry;
+   float scale;
+ 
+-  int max_tiledb_scale;
++  int min_keep_scale; 
+   Vector2f pos;
+ 
+   Image::Cache cache;
+@@ -66,24 +66,21 @@
+ Image::Image()
+ {
+ }
+-
++
+ Image::Image(const FileEntry&amp; file_entry)
+   : impl(new ImageImpl())
+ {
+   impl-&gt;file_entry = file_entry;
+   impl-&gt;scale      = 1.0f;
+-  
+-  int  tiledb_scale = 0;
+-  Size tmpsize = file_entry.size;
+ 
+-  do {
+-    tmpsize.width  /= 2;
+-    tmpsize.height /= 2;
+-    tiledb_scale += 1;
+-  } while (tmpsize.width  &gt; 32 ||
+-           tmpsize.height &gt; 32);
+-
+-  impl-&gt;max_tiledb_scale = tiledb_scale;
++  int size  = Math::max(file_entry.size.width, file_entry.size.height);
++  impl-&gt;min_keep_scale = 0;
++  while(size &gt; 32) 
++    {
++      size /= 2;
++      impl-&gt;min_keep_scale +=1 ;
++    }
++  
+ }
+ 
+ void
+@@ -277,50 +274,30 @@
+ void
+ Image::cache_cleanup()
+ {
+-  // Image is not visible so clear the cache
++  // Image is not visible, so cancel all jobs
+   for(Jobs::iterator i = impl-&gt;jobs.begin(); i != impl-&gt;jobs.end(); ++i)
+     i-&gt;abort();
+   impl-&gt;jobs.clear();
+         
+-  // FIXME: We should keep at least some tiles or wait with the
+-  // cache purge a bit longer
+-
+   // FIXME: We also need to purge the cache more often, since with
+-  // big images we would end up never clearing it
++  // big gigapixel images we would end up never clearing it
+       
+-  // Clear the cache, but keep the smallest tile (Wonky hack)
+-  if (0)
+-    {
+-      impl-&gt;cache.clear();
+-    }
+-  else
+-    {
+-      int max_tiledb_scale = 0;
+-      SurfaceStruct s;
+-      int tileid = -1;
++  // Erase all tiles larger then 32x32
+ 
+-      //FIXME: Calculate a size at which the thumbnail is 32x32 or
+-      //smaller, keep that and everything smaller, discard the rest
+-      for(Cache::iterator i = impl-&gt;cache.begin(); i != impl-&gt;cache.end(); ++i)
++  // FIXME: Could make this more clever and relative to the number
++  // of the images we display, since with large collections 32x32
++  // might be to much for memory while with small collections it
++  // will lead to unnecessary loading artifacts.      
++  for(Cache::iterator i = impl-&gt;cache.begin(); i != impl-&gt;cache.end(); ++i)
++    {
++      int tiledb_scale = (i-&gt;first &gt;&gt; 16); // get scale
++      if (tiledb_scale &gt; impl-&gt;min_keep_scale)
+         {
+-          int tiledb_scale = (i-&gt;first &gt;&gt; 16);
+-          if (tiledb_scale &gt; max_tiledb_scale)
+-            {
+-              max_tiledb_scale = tiledb_scale;
+-              tileid = i-&gt;first;
+-              s      = i-&gt;second;
+-            }
++          impl-&gt;cache.erase(i);
+         }
+-      impl-&gt;cache.clear();
+-
+-      if (max_tiledb_scale != 0)
+-        {
+-          impl-&gt;cache[tileid] = s;
+-        }
+-    } 
++    }
+ }
+ 
+-
+ void
+ Image::draw(const Rectf&amp; cliprect, float fscale)
+ {
+@@ -335,6 +312,7 @@
+   else
+     {
+       // scale factor for requesting the tile from the TileDatabase
++      // FIXME: Can likely be done without float
+       int tiledb_scale = Math::max(0, static_cast&lt;int&gt;(log(1.0f / (fscale*impl-&gt;scale)) /
+                                                        log(2)));
+       int scale_factor = Math::pow2(tiledb_scale);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001362.html">[Windstille-commit] r2365 - trunk/griv/src
+</A></li>
+	<LI>Next message: <A HREF="001364.html">[Windstille-commit] r2367 - in trunk/griv: . src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1363">[ date ]</a>
+              <a href="thread.html#1363">[ thread ]</a>
+              <a href="subject.html#1363">[ subject ]</a>
+              <a href="author.html#1363">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,247 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1545 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1545%20-%20trunk/griv&In-Reply-To=%3C200711141435.lAEEZv72026166%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001194.html">
+   <LINK REL="Next"  HREF="001196.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1545 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1545%20-%20trunk/griv&In-Reply-To=%3C200711141435.lAEEZv72026166%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1545 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Nov 14 15:35:57 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001194.html">[Windstille-commit] r1544 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001196.html">[Windstille-commit] r1546 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1195">[ date ]</a>
+              <a href="thread.html#1195">[ thread ]</a>
+              <a href="subject.html#1195">[ subject ]</a>
+              <a href="author.html#1195">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-14 15:35:57 +0100 (Wed, 14 Nov 2007)
+New Revision: 1545
+
+Modified:
+   trunk/griv/griv.cpp
+   trunk/griv/griv.hpp
+Log:
+- added smooth zoom with mouse buttons
+
+Modified: trunk/griv/griv.cpp
+===================================================================
+--- trunk/griv/griv.cpp	2007-11-14 14:16:17 UTC (rev 1544)
++++ trunk/griv/griv.cpp	2007-11-14 14:35:57 UTC (rev 1545)
+@@ -19,6 +19,8 @@
+ 
+ Griv::Griv()
+ {
++  zoom_in_pressed = false;
++  zoom_out_pressed = false;
+ }
+ 
+ Griv::~Griv()
+@@ -26,7 +28,7 @@
+ }
+ 
+ void
+-Griv::process_events()
++Griv::process_events(float delta)
+ {
+   SDL_Event event;
+   while (SDL_PollEvent(&amp;event))
+@@ -73,6 +75,8 @@
+ 
+ 
+           case SDL_MOUSEMOTION:
++            mouse_x = event.motion.x;
++            mouse_y = event.motion.y;
+             if (drag_n_drop)
+               {
+                 x_offset += event.motion.xrel*4;
+@@ -83,30 +87,34 @@
+           case SDL_MOUSEBUTTONDOWN:
+           case SDL_MOUSEBUTTONUP:
+                 
+-            if (event.button.button == 3 ||
+-                event.button.button == 5)
++            if (event.button.button == 5)
+               {
+                 if (event.button.state == SDL_PRESSED)
+                   {
+-                    //std::cout &lt;&lt; &quot;zoom out&quot; &lt;&lt; std::endl;
+                     workspace-&gt;zoom_out(event.button.x - Framebuffer::get_width()/2,
+                                         event.button.y - Framebuffer::get_height()/2,
+                                         1.1f);
+                     loader.clear();
+                   }
+               }
+-            else if (event.button.button == 1 ||
+-                     event.button.button == 4)
++            else if (event.button.button == 4)
+               {
+                 if (event.button.state == SDL_PRESSED)
+                   {
+-                    //std::cout &lt;&lt; &quot;zoom in&quot; &lt;&lt; std::endl;
+                     workspace-&gt;zoom_in(event.button.x - Framebuffer::get_width()/2,
+                                        event.button.y - Framebuffer::get_height()/2,
+                                        1.1f);
+                     loader.clear();
+                   }
+               }
++            else if (event.button.button == 1)
++              {
++                zoom_in_pressed = (event.button.state == SDL_PRESSED);
++              }
++            else if (event.button.button == 3)
++              {
++                zoom_out_pressed = (event.button.state == SDL_PRESSED);
++              }
+             else if (event.button.button == 2)
+               {
+                 drag_n_drop = event.button.state;
+@@ -114,6 +122,23 @@
+             break;
+         }
+     } 
++
++  float zoom_speed = 3.0f;
++
++  if (zoom_out_pressed &amp;&amp; !zoom_in_pressed)
++    {
++      workspace-&gt;zoom_out(mouse_x - Framebuffer::get_width()/2,
++                          mouse_y - Framebuffer::get_height()/2,
++                          1.0f + zoom_speed * delta);
++      loader.clear();
++    }
++  else if (!zoom_out_pressed &amp;&amp; zoom_in_pressed)
++    {
++      workspace-&gt;zoom_in(mouse_x - Framebuffer::get_width()/2,
++                         mouse_y - Framebuffer::get_height()/2,
++                         1.0f + zoom_speed * delta);    
++      loader.clear();
++    }
+ }
+ 
+ int
+@@ -145,30 +170,37 @@
+ 
+   loader.launch_thread();
+ 
++  Uint32 ticks = SDL_GetTicks();
+   while(true)
+     {
+-      process_events();
+-
+-      if (workspace-&gt;res != old_res ||
+-          old_x_offset != x_offset ||
+-          old_y_offset != y_offset ||
+-          (force_redraw &amp;&amp; (next_redraw &lt; SDL_GetTicks() || loader.empty())))
++      Uint32 cticks = SDL_GetTicks();
++      int delta = cticks - ticks;
++      if (delta &gt; 0)
+         {
+-          force_redraw = false;
++          ticks = cticks;
++          process_events(delta / 1000.0f);
+ 
+-          Framebuffer::clear();
+-          workspace-&gt;draw();
+-          Framebuffer::flip();
++          if (workspace-&gt;res != old_res ||
++              old_x_offset != x_offset ||
++              old_y_offset != y_offset ||
++              (force_redraw &amp;&amp; (next_redraw &lt; SDL_GetTicks() || loader.empty())))
++            {
++              force_redraw = false;
+ 
+-          old_res = workspace-&gt;res;
+-          old_x_offset = x_offset;
+-          old_y_offset = y_offset;
+-          next_redraw = SDL_GetTicks() + 1000;
++              Framebuffer::clear();
++              workspace-&gt;draw();
++              Framebuffer::flip();
++
++              old_res = workspace-&gt;res;
++              old_x_offset = x_offset;
++              old_y_offset = y_offset;
++              next_redraw = SDL_GetTicks() + 1000;
++            }
++          else
++            {
++              SDL_Delay(5);
++            }
+         }
+-      else
+-        {
+-          SDL_Delay(5);
+-        }
+     }
+ 
+   delete workspace;
+
+Modified: trunk/griv/griv.hpp
+===================================================================
+--- trunk/griv/griv.hpp	2007-11-14 14:16:17 UTC (rev 1544)
++++ trunk/griv/griv.hpp	2007-11-14 14:35:57 UTC (rev 1545)
+@@ -45,11 +45,16 @@
+   Uint32 next_redraw;
+   Workspace* workspace;
+   int zoom_mode;
++
++  bool zoom_in_pressed;
++  bool zoom_out_pressed;
++  int  mouse_x;
++  int  mouse_y;
+ public:
+   Griv();
+   ~Griv();
+   
+-  void process_events();
++  void process_events(float delta);
+   int main(int argc, char** argv);
+ };
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001194.html">[Windstille-commit] r1544 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001196.html">[Windstille-commit] r1546 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1195">[ date ]</a>
+              <a href="thread.html#1195">[ thread ]</a>
+              <a href="subject.html#1195">[ subject ]</a>
+              <a href="author.html#1195">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

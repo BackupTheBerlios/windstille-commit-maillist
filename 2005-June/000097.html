@@ -1,0 +1,182 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r440 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r440%20-%20trunk/src&In-Reply-To=%3C200506262102.j5QL2BSj030588%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000096.html">
+   <LINK REL="Next"  HREF="000098.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r440 - trunk/src</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r440%20-%20trunk/src&In-Reply-To=%3C200506262102.j5QL2BSj030588%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r440 - trunk/src">grumbel at sheep.berlios.de
+       </A><BR>
+    <I>Sun Jun 26 23:02:11 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000096.html">[Windstille-commit] r439 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000098.html">[Windstille-commit] r441 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#97">[ date ]</a>
+              <a href="thread.html#97">[ thread ]</a>
+              <a href="subject.html#97">[ subject ]</a>
+              <a href="author.html#97">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-06-26 23:02:08 +0200 (Sun, 26 Jun 2005)
+New Revision: 440
+
+Modified:
+   trunk/src/tile_map.cxx
+   trunk/src/tile_map.hxx
+Log:
+- some optimization to the tilemap drawing
+
+Modified: trunk/src/tile_map.cxx
+===================================================================
+--- trunk/src/tile_map.cxx	2005-06-26 20:43:46 UTC (rev 439)
++++ trunk/src/tile_map.cxx	2005-06-26 21:02:08 UTC (rev 440)
+@@ -24,6 +24,7 @@
+ #include &quot;tile_factory.hxx&quot;
+ #include &quot;globals.hxx&quot;
+ #include &quot;view.hxx&quot;
++#include &quot;display/drawing_request.hxx&quot;
+ 
+ extern CL_ResourceManager* resources;
+ 
+@@ -90,6 +91,50 @@
+       }*/
+ }
+ 
++class TileMapDrawingRequest : public DrawingRequest
++{
++private:
++  TileMap* tilemap;
++  bool highlight;
++  CL_Rect rect;
++public:
++  TileMapDrawingRequest(TileMap* tilemap_, bool highlight_,
++                        const CL_Rect&amp; rect_,
++                        const CL_Vector&amp; pos, const CL_Matrix4x4&amp; modelview)
++    : DrawingRequest(pos, modelview),
++      tilemap(tilemap_),
++      highlight(highlight_),
++      rect(rect_)
++  {}
++
++  void draw(CL_GraphicContext* gc)
++  {
++    Field&lt;Tile*&gt;&amp; field = tilemap-&gt;field;
++
++    gc-&gt;push_modelview();
++    gc-&gt;add_modelview(modelview);
++
++    for (int y = rect.top;   y &lt; rect.bottom; ++y)
++      for (int x = rect.left; x &lt; rect.right; ++x)
++        {
++          if (field(x,y))
++            {
++              if (!highlight)
++                {
++                  field(x,y)-&gt;get_color_sprite().draw(x * TILE_SIZE, y * TILE_SIZE);
++                }
++              else
++                {
++                  if (field(x, y)-&gt;get_highlight_sprite())
++                    field(x,y)-&gt;get_highlight_sprite().draw(x * TILE_SIZE, y * TILE_SIZE);
++                }
++            }
++        }
++
++    gc-&gt;pop_modelview();
++  }
++};
++
+ void
+ TileMap::draw (SceneContext&amp; sc)
+ {
+@@ -100,20 +145,14 @@
+   int end_x   = std::min(field.get_width(),  rect.right/TILE_SIZE + 1);
+   int end_y   = std::min(field.get_height(), rect.bottom/TILE_SIZE + 1);
+ 
+-  for (int y = start_y;   y &lt; end_y; ++y)
+-    for (int x = start_x; x &lt; end_x; ++x)
+-      {
+-	//field (x,y)-&gt;sur-&gt;setScale (2.0f, 2.0f);
+-	if (field (x,y))
+-	  {
+-	    sc.color().draw(field(x,y)-&gt;get_color_sprite(),
+-                            x * TILE_SIZE, y * TILE_SIZE, z_pos);
+-
+-            if (field(x, y)-&gt;get_highlight_sprite())
+-              sc.highlight().draw(field(x,y)-&gt;get_highlight_sprite(),
+-                                  x * TILE_SIZE, y * TILE_SIZE, z_pos);
+-	  }
+-      }
++  sc.color().draw(new TileMapDrawingRequest(this, false, CL_Rect(start_x, start_y,
++                                                                 end_x,   end_y),
++                                            CL_Vector(0,0,z_pos),
++                                            sc.color().get_modelview()));
++  sc.highlight().draw(new TileMapDrawingRequest(this, true, CL_Rect(start_x, start_y,
++                                                                    end_x,   end_y),
++                                                CL_Vector(0,0,z_pos),
++                                                sc.color().get_modelview()));
+ }
+ 
+ unsigned int
+
+Modified: trunk/src/tile_map.hxx
+===================================================================
+--- trunk/src/tile_map.hxx	2005-06-26 20:43:46 UTC (rev 439)
++++ trunk/src/tile_map.hxx	2005-06-26 21:02:08 UTC (rev 440)
+@@ -35,10 +35,12 @@
+ class TileMap : public GameObject
+ {
+ private:
++  friend class TileMapDrawingRequest;
+   Field&lt;Tile*&gt; field;
+   typedef Field&lt;Tile*&gt;::iterator FieldIter;
+   std::string name;
+   float z_pos; 
++
+ public:
+   TileMap(LispReader reader);
+   TileMap(const std::string&amp; name, int w, int h);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000096.html">[Windstille-commit] r439 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000098.html">[Windstille-commit] r441 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#97">[ date ]</a>
+              <a href="thread.html#97">[ thread ]</a>
+              <a href="subject.html#97">[ subject ]</a>
+              <a href="author.html#97">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

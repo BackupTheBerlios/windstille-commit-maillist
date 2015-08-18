@@ -1,0 +1,557 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2735 - in trunk/windstille: . src src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2735%20-%20in%20trunk/windstille%3A%20.%20src%20src/editor&In-Reply-To=%3C200903230542.n2N5gR1K020711%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001731.html">
+   <LINK REL="Next"  HREF="001733.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2735 - in trunk/windstille: . src src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2735%20-%20in%20trunk/windstille%3A%20.%20src%20src/editor&In-Reply-To=%3C200903230542.n2N5gR1K020711%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2735 - in trunk/windstille: . src src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Mar 23 06:42:27 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001731.html">[Windstille-commit] r2734 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="001733.html">[Windstille-commit] r2736 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1732">[ date ]</a>
+              <a href="thread.html#1732">[ thread ]</a>
+              <a href="subject.html#1732">[ subject ]</a>
+              <a href="author.html#1732">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-23 06:42:19 +0100 (Mon, 23 Mar 2009)
+New Revision: 2735
+
+Added:
+   trunk/windstille/src/editor/selection.cpp
+   trunk/windstille/src/editor/selection.hpp
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/src/SConscript
+   trunk/windstille/src/editor/object_model.cpp
+   trunk/windstille/src/editor/object_model.hpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+   trunk/windstille/src/editor/select_tool.cpp
+   trunk/windstille/src/editor/select_tool.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/editor/windstille_widget.hpp
+Log:
+Added support for selections
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-03-22 20:32:43 UTC (rev 2734)
++++ trunk/windstille/TODO	2009-03-23 05:42:19 UTC (rev 2735)
+@@ -481,6 +481,8 @@
+ Editor
+ ======
+ 
++* add object snapping
++
+ * add grid
+ 
+ * add a way to draw objects to DrawingContext that only does
+
+Modified: trunk/windstille/src/SConscript
+===================================================================
+--- trunk/windstille/src/SConscript	2009-03-22 20:32:43 UTC (rev 2734)
++++ trunk/windstille/src/SConscript	2009-03-23 05:42:19 UTC (rev 2735)
+@@ -241,6 +241,7 @@
+         'editor/minimap_widget.cpp',
+         'editor/scroll_tool.cpp',
+         'editor/sector_model.cpp',
++        'editor/selection.cpp',
+         'editor/object_model.cpp',
+         'editor/zoom_tool.cpp',
+         'editor/select_tool.cpp',
+
+Modified: trunk/windstille/src/editor/object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/object_model.cpp	2009-03-22 20:32:43 UTC (rev 2734)
++++ trunk/windstille/src/editor/object_model.cpp	2009-03-23 05:42:19 UTC (rev 2735)
+@@ -45,15 +45,32 @@
+ void
+ ObjectModel::draw(SceneContext&amp; sc)
+ {
+-  sc.color().draw(surface, pos.x, pos.y);
+-  sc.control().draw_rect(get_bounding_box(), Color(1,1,1,0.5f));
+-  sc.control().fill_rect(Rectf(pos - Vector2f(8, 8), Sizef(16, 16)), Color(1,0,0));
++  sc.color().draw(surface, pos.x+move_offset.x, pos.y+move_offset.y);
++  sc.control().fill_rect(Rectf(pos - Vector2f(8, 8) + move_offset, Sizef(16, 16)), Color(1,0,0));
+ }
+ 
+ Rectf
+ ObjectModel::get_bounding_box() const
+ {
+-  return Rectf(pos, Sizef(surface.get_width(), surface.get_height()));
++  return Rectf(pos+move_offset, Sizef(surface.get_width(), surface.get_height()));
+ }
++
++void
++ObjectModel::on_move_start()
++{  
++}
++
++void
++ObjectModel::on_move_update(const Vector2f&amp; offset)
++{
++  move_offset = offset;
++}
++
++void
++ObjectModel::on_move_end(const Vector2f&amp; offset)
++{
++  pos += move_offset;
++  move_offset = Vector2f(0,0);
++}
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/object_model.hpp	2009-03-22 20:32:43 UTC (rev 2734)
++++ trunk/windstille/src/editor/object_model.hpp	2009-03-23 05:42:19 UTC (rev 2735)
+@@ -39,6 +39,8 @@
+   Vector2f     pos;
+   Surface  surface;
+ 
++  Vector2f move_offset;
++
+ public:
+   ObjectModel(const std::string&amp; name, const std::string&amp; path, const Vector2f&amp; pos);
+   ~ObjectModel();
+@@ -50,6 +52,10 @@
+   void draw(SceneContext&amp; sc);
+   Rectf get_bounding_box() const;
+ 
++  void on_move_start();
++  void on_move_update(const Vector2f&amp; offset);
++  void on_move_end(const Vector2f&amp; offset);
++
+ private:
+   ObjectModel(const ObjectModel&amp;);
+   ObjectModel&amp; operator=(const ObjectModel&amp;);
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-03-22 20:32:43 UTC (rev 2734)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-03-23 05:42:19 UTC (rev 2735)
+@@ -75,6 +75,22 @@
+     }
+   return ObjectModelHandle();
+ }
++
++SelectionHandle
++SectorModel::get_selection(const Rectf&amp; rect) const
++{
++  SelectionHandle selection = Selection::create();
++
++  for(Objects::const_reverse_iterator i = objects.rbegin(); i != objects.rend(); ++i)
++    {
++      if ((*i)-&gt;get_bounding_box().is_overlapped(rect))
++        {
++          selection-&gt;add(*i);
++        }
++    }
++
++  return selection;
++}
+ 
+ void
+ SectorModel::on_row_changed(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter)
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-03-22 20:32:43 UTC (rev 2734)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-03-23 05:42:19 UTC (rev 2735)
+@@ -23,6 +23,7 @@
+ #include &lt;gtkmm/treestore.h&gt;
+ #include &lt;vector&gt;
+ 
++#include &quot;selection.hpp&quot;
+ #include &quot;object_model.hpp&quot;
+ #include &quot;math/vector2f.hpp&quot;
+ 
+@@ -80,7 +81,8 @@
+   void on_rows_reordered(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter, int* new_order);
+ 
+   ObjectModelHandle get_object_at(const Vector2f&amp; pos) const;
+-
++  SelectionHandle   get_selection(const Rectf&amp; rect) const;
++  
+ private:
+   SectorModel(const SectorModel&amp;);
+   SectorModel&amp; operator=(const SectorModel&amp;);
+
+Modified: trunk/windstille/src/editor/select_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/select_tool.cpp	2009-03-22 20:32:43 UTC (rev 2734)
++++ trunk/windstille/src/editor/select_tool.cpp	2009-03-23 05:42:19 UTC (rev 2735)
+@@ -31,11 +31,23 @@
+ SelectTool::mouse_down(GdkEventButton* event, WindstilleWidget&amp; wst)
+ {
+   click_pos = wst.get_state().screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
+-
+-  if ((object = wst.get_sector_model()-&gt;get_object_at(click_pos)).get())
++  
++  ObjectModelHandle object = wst.get_sector_model()-&gt;get_object_at(click_pos);
++  if (object.get())
+     {
++      if (wst.get_selection()-&gt;has_object(object))
++        {
++          selection = wst.get_selection();
++        }
++      else
++        {
++          selection = Selection::create();
++          selection-&gt;add(object);
++          wst.set_selection(selection);
++        }
++      
+       mode = DRAG_MODE;
+-      object_pos = object-&gt;get_pos();
++      selection-&gt;on_move_start();
+     }
+   else
+     {
+@@ -57,7 +69,7 @@
+ 
+   if (mode == DRAG_MODE)
+     {
+-      object-&gt;set_pos(object_pos - click_pos + pos);
++      selection-&gt;on_move_update(pos - click_pos);
+     }
+   else if (mode == SELECT_MODE)
+     {
+@@ -73,14 +85,18 @@
+ bool
+ SelectTool::mouse_up(GdkEventButton* event, WindstilleWidget&amp; wst)
+ {
++  Vector2f pos = wst.get_state().screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
++
+   // Select objects
+   if (mode == DRAG_MODE)
+     {
+-      
++      selection-&gt;on_move_end(pos - click_pos);
+     }
+   else if (mode == SELECT_MODE)
+     {
+       mode = NO_MODE;
++      rect.normalize();
++      wst.set_selection(wst.get_sector_model()-&gt;get_selection(rect));
+     }
+ 
+   mode = NO_MODE;
+
+Modified: trunk/windstille/src/editor/select_tool.hpp
+===================================================================
+--- trunk/windstille/src/editor/select_tool.hpp	2009-03-22 20:32:43 UTC (rev 2734)
++++ trunk/windstille/src/editor/select_tool.hpp	2009-03-23 05:42:19 UTC (rev 2735)
+@@ -28,8 +28,7 @@
+ private:
+   Vector2f click_pos;
+   Rectf    rect;
+-  ObjectModelHandle object;
+-  Vector2f object_pos;
++  SelectionHandle selection;
+   
+   enum { 
+     SELECT_MODE,
+
+Added: trunk/windstille/src/editor/selection.cpp
+===================================================================
+--- trunk/windstille/src/editor/selection.cpp	2009-03-22 20:32:43 UTC (rev 2734)
++++ trunk/windstille/src/editor/selection.cpp	2009-03-23 05:42:19 UTC (rev 2735)
+@@ -0,0 +1,87 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &quot;selection.hpp&quot;
++
++Selection::Selection()
++{
++}
++
++Selection::~Selection()
++{
++}
++
++void
++Selection::add(const ObjectModelHandle&amp; object)
++{
++  objects.push_back(object);
++}
++
++Selection::iterator
++Selection::begin()
++{
++  return objects.begin();
++}
++
++Selection::iterator
++Selection::end()
++{
++  return objects.end();
++}
++
++bool
++Selection::empty() const
++{
++  return objects.empty();
++}
++
++bool
++Selection::has_object(ObjectModelHandle object) const
++{
++  Objects::const_iterator it = std::find(objects.begin(), objects.end(), object);
++  return it != objects.end();
++}
++
++void
++Selection::on_move_start()
++{
++  for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
++    {
++      (*i)-&gt;on_move_start();
++    }
++}
++
++void
++Selection::on_move_update(const Vector2f&amp; offset)
++{
++  for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
++    {
++      (*i)-&gt;on_move_update(offset);
++    }
++}
++
++void
++Selection::on_move_end(const Vector2f&amp; offset)
++{
++  for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
++    {
++      (*i)-&gt;on_move_end(offset);
++    }
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/selection.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/editor/selection.hpp
+===================================================================
+--- trunk/windstille/src/editor/selection.hpp	2009-03-22 20:32:43 UTC (rev 2734)
++++ trunk/windstille/src/editor/selection.hpp	2009-03-23 05:42:19 UTC (rev 2735)
+@@ -0,0 +1,64 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_EDITOR_SELECTION_HPP
++#define HEADER_WINDSTILLE_EDITOR_SELECTION_HPP
++
++#include &lt;vector&gt;
++#include &lt;boost/shared_ptr.hpp&gt;
++
++#include &quot;object_model.hpp&quot;
++
++class Selection;
++typedef boost::shared_ptr&lt;Selection&gt; SelectionHandle;
++
++class Selection
++{
++private:
++  typedef std::vector&lt;ObjectModelHandle&gt; Objects;
++  Objects objects;
++
++public:
++  typedef Objects::iterator iterator;
++
++public:
++  static SelectionHandle create() { return SelectionHandle(new Selection()); }
++
++  Selection();
++  ~Selection();
++
++  void add(const ObjectModelHandle&amp; object);
++
++  iterator begin();
++  iterator end();
++  bool empty() const;
++
++  bool has_object(ObjectModelHandle object) const;
++
++  void on_move_start();
++  void on_move_update(const Vector2f&amp; offset);
++  void on_move_end(const Vector2f&amp; offset);
++  
++private:
++  Selection(const Selection&amp;);
++  Selection&amp; operator=(const Selection&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/selection.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-03-22 20:32:43 UTC (rev 2734)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-03-23 05:42:19 UTC (rev 2735)
+@@ -67,6 +67,8 @@
+   std::vector&lt;Gtk::TargetEntry&gt; targets;
+   targets.push_back(Gtk::TargetEntry(&quot;WindstilleObject&quot;));
+   drag_dest_set(targets, Gtk::DEST_DEFAULT_ALL, Gdk::ACTION_COPY);
++
++  selection = Selection::create();
+ }
+ 
+ WindstilleWidget::~WindstilleWidget()
+@@ -188,6 +190,11 @@
+ 
+       sector_model-&gt;draw(*sc);
+ 
++      for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
++        {
++          sc-&gt;control().draw_rect((*i)-&gt;get_bounding_box(), Color(0.5f, 0.5f, 1.0f, 1.0f));
++        }
++
+       if (active_tool)
+         active_tool-&gt;draw(*sc);
+ 
+@@ -347,6 +354,18 @@
+   state.set_zoom(Vector2f(get_width()/2, get_height()/2), 1.0f);
+   queue_draw();
+ }
++
++void
++WindstilleWidget::set_selection(const SelectionHandle&amp; selection_)
++{
++  selection = selection_;
++}
++
++SelectionHandle
++WindstilleWidget::get_selection() const
++{
++  return selection;
++}
+ 
+ SectorModel*
+ WindstilleWidget::get_sector_model()
+
+Modified: trunk/windstille/src/editor/windstille_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.hpp	2009-03-22 20:32:43 UTC (rev 2734)
++++ trunk/windstille/src/editor/windstille_widget.hpp	2009-03-23 05:42:19 UTC (rev 2735)
+@@ -32,6 +32,7 @@
+ #include &quot;display/graphic_context_state.hpp&quot;
+ #include &quot;display/scene_context.hpp&quot;
+ #include &quot;math/vector2f.hpp&quot;
++#include &quot;selection.hpp&quot;
+ 
+ class Tool;
+ class ScrollTool;
+@@ -50,6 +51,7 @@
+   std::auto_ptr&lt;SceneContext&gt; sc;
+   Tool* active_tool;
+   std::auto_ptr&lt;ScrollTool&gt; scroll_tool;
++  SelectionHandle selection;
+ 
+ public:
+   WindstilleWidget(const Glib::RefPtr&lt;const Gdk::GL::Config&gt;&amp; glconfig,
+@@ -84,6 +86,8 @@
+   void draw();
+ 
+   SectorModel* get_sector_model();
++  void set_selection(const SelectionHandle&amp; selection);
++  SelectionHandle get_selection() const;
+ 
+ private:
+   WindstilleWidget (const WindstilleWidget&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001731.html">[Windstille-commit] r2734 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="001733.html">[Windstille-commit] r2736 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1732">[ date ]</a>
+              <a href="thread.html#1732">[ thread ]</a>
+              <a href="subject.html#1732">[ subject ]</a>
+              <a href="author.html#1732">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

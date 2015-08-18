@@ -1,0 +1,612 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1207 - in trunk/src: . display
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1207%20-%20in%20trunk/src%3A%20.%20display&In-Reply-To=%3C200601091116.k09BGS9Y018128%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000859.html">
+   <LINK REL="Next"  HREF="000861.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1207 - in trunk/src: . display</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1207%20-%20in%20trunk/src%3A%20.%20display&In-Reply-To=%3C200601091116.k09BGS9Y018128%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1207 - in trunk/src: . display">grumbel at berlios.de
+       </A><BR>
+    <I>Mon Jan  9 12:16:28 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000859.html">[Windstille-commit] r1206 - in trunk/src: . collision display font input particles
+</A></li>
+        <LI>Next message: <A HREF="000861.html">[Windstille-commit] r1208 - in trunk/src: . display font
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#860">[ date ]</a>
+              <a href="thread.html#860">[ thread ]</a>
+              <a href="subject.html#860">[ subject ]</a>
+              <a href="author.html#860">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-01-09 12:16:27 +0100 (Mon, 09 Jan 2006)
+New Revision: 1207
+
+Added:
+   trunk/src/display/framebuffer.cpp
+   trunk/src/display/framebuffer.hpp
+Modified:
+   trunk/src/SConscript
+   trunk/src/display/display.cpp
+   trunk/src/display/opengl_state.cpp
+   trunk/src/display/opengl_state.hpp
+   trunk/src/display/scene_context.cpp
+   trunk/src/display/surface.hpp
+   trunk/src/display/surface_manager.cpp
+   trunk/src/display/texture.cpp
+   trunk/src/display/texture_manager.cpp
+Log:
+- added support for FramebufferObject- changed lightmapping code to use framebuffer
+
+Modified: trunk/src/SConscript
+===================================================================
+--- trunk/src/SConscript	2006-01-09 08:52:53 UTC (rev 1206)
++++ trunk/src/SConscript	2006-01-09 11:16:27 UTC (rev 1207)
+@@ -27,7 +27,7 @@
+ SConscript(&quot;squirrel/SConstruct&quot;)
+ 
+ env = Environment(CC = 'gcc',
+-                  CCFLAGS = ['-O2', '-Wall', '-Werror', '-g'])
++                  CCFLAGS = ['-O2', '-Wall', '-Werror', '-g', '-DDEBUG'])
+ 
+ # env.Copy(LIBS = ['a', 'b'])
+ 
+@@ -100,6 +100,7 @@
+ 'collision/stair_contact.cpp',
+ 'display/display.cpp',
+ 'display/drawing_context.cpp',
++'display/framebuffer.cpp',
+ 'display/scene_context.cpp',
+ 'display/vertex_array_drawing_request.cpp',
+ 'display/opengl_state.cpp',
+@@ -167,7 +168,7 @@
+ 'tinygettext/gettext.cpp',
+ 'tinygettext/tinygettext.cpp'
+ ],
+-LIBS    = ['GL', 'squirrel', 'physfs', 'SDL_image', 'openal'] + env['LIBS'],
++LIBS    = ['GL', 'GLU', 'squirrel', 'physfs', 'SDL_image', 'openal'] + env['LIBS'],
+ LIBPATH = ['squirrel/'],
+ CPPPATH = env['CPPPATH'] + ['.', '..', 'squirrel/include/'])
+ 
+
+Modified: trunk/src/display/display.cpp
+===================================================================
+--- trunk/src/display/display.cpp	2006-01-09 08:52:53 UTC (rev 1206)
++++ trunk/src/display/display.cpp	2006-01-09 11:16:27 UTC (rev 1207)
+@@ -30,7 +30,6 @@
+ #include &quot;display/opengl_state.hpp&quot;
+ #include &quot;display.hpp&quot;
+ #include &quot;util.hpp&quot;
+-#include &lt;GL/glext.h&gt;
+ #include &lt;assert.h&gt;
+ 
+ SDL_Surface* Display::window       = 0;
+
+Added: trunk/src/display/framebuffer.cpp
+===================================================================
+--- trunk/src/display/framebuffer.cpp	2006-01-09 08:52:53 UTC (rev 1206)
++++ trunk/src/display/framebuffer.cpp	2006-01-09 11:16:27 UTC (rev 1207)
+@@ -0,0 +1,114 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#define GL_GLEXT_PROTOTYPES 1
++#include &lt;GL/gl.h&gt;
++#include &lt;GL/glext.h&gt;
++#include &quot;util.hpp&quot;
++#include &quot;texture.hpp&quot;
++#include &quot;framebuffer.hpp&quot;
++
++class FramebufferImpl
++{
++public:
++  GLuint  handle;
++  Texture texture;
++  
++  FramebufferImpl(int width, int height)
++    : texture(width, height)
++  {
++    glGenFramebuffersEXT(1, &amp;handle);
++    assert_gl(&quot;Framebuffer1&quot;);
++    glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, handle);
++    assert_gl(&quot;Framebuffer2&quot;);
++    glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, 
++                              GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, texture.get_handle(), 0);
++    assert_gl(&quot;Framebuffer3&quot;);
++    glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
++  }
++
++  ~FramebufferImpl()
++  {
++    glDeleteRenderbuffersEXT(1, &amp;handle);
++  }
++};
++
++Framebuffer::Framebuffer()
++{
++}
++
++Framebuffer::Framebuffer(int width, int height)
++  : impl(new FramebufferImpl(width, height))
++{  
++}
++
++Framebuffer::~Framebuffer()
++{
++  
++}
++
++Texture
++Framebuffer::get_texture()
++{
++  return impl-&gt;texture;
++}
++
++int
++Framebuffer::get_width()  const
++{
++  return impl-&gt;texture.get_width();
++}
++
++int
++Framebuffer::get_height() const
++{
++  return impl-&gt;texture.get_height();
++}
++
++GLuint
++Framebuffer::get_handle() const
++{
++  return impl-&gt;handle;
++
++}
++
++Framebuffer::operator bool() const
++{
++  return !impl.is_null();
++}
++
++bool
++Framebuffer::operator==(const Framebuffer&amp; other) const
++{
++  return impl.get() == other.impl.get();
++}
++
++bool
++Framebuffer::operator!=(const Framebuffer&amp; other) const
++{
++  return impl.get() != other.impl.get();
++}
++
++/* EOF */
+
+Added: trunk/src/display/framebuffer.hpp
+===================================================================
+--- trunk/src/display/framebuffer.hpp	2006-01-09 08:52:53 UTC (rev 1206)
++++ trunk/src/display/framebuffer.hpp	2006-01-09 11:16:27 UTC (rev 1207)
+@@ -0,0 +1,61 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_FRAMEBUFFER_HPP
++#define HEADER_FRAMEBUFFER_HPP
++
++#include &quot;texture.hpp&quot;
++
++class FramebufferImpl;
++
++/** */
++class Framebuffer
++{
++public:
++  Framebuffer();
++  Framebuffer(int width, int height);
++  ~Framebuffer();
++  
++  int get_width()  const;
++  int get_height() const;
++  Texture get_texture();
++
++  GLuint get_handle() const;
++
++  /** 
++   * true if the Framebuffer is valid and usable, false if not 
++   */
++  operator bool() const;
++
++  bool operator==(const Framebuffer&amp;) const;
++  bool operator!=(const Framebuffer&amp;) const;
++
++private:
++  SharedPtr&lt;FramebufferImpl&gt; impl;
++};
++
++#endif
++
++/* EOF */
+
+Modified: trunk/src/display/opengl_state.cpp
+===================================================================
+--- trunk/src/display/opengl_state.cpp	2006-01-09 08:52:53 UTC (rev 1206)
++++ trunk/src/display/opengl_state.cpp	2006-01-09 11:16:27 UTC (rev 1207)
+@@ -23,17 +23,17 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &quot;opengl_state.hpp&quot;
++
+ #include &lt;assert.h&gt;
+ #include &lt;map&gt;
+ #include &lt;iostream&gt;
+-#include &lt;GL/gl.h&gt;
+-#include &lt;GL/glext.h&gt;
++#include &quot;framebuffer.hpp&quot;
+ #include &quot;texture.hpp&quot;
+ #include &quot;color.hpp&quot;
+ #include &quot;globals.hpp&quot;
+ #include &quot;display/display.hpp&quot;
+ #include &quot;util.hpp&quot;
+-#include &quot;opengl_state.hpp&quot;
+ 
+ class OpenGLStateImpl
+ {
+@@ -42,7 +42,8 @@
+       somebody forget the final activate() call */
+   bool was_activated;
+ 
+-  Texture texture;
++  Texture     texture;
++  Framebuffer framebuffer;
+ 
+   Color color;
+ 
+@@ -273,8 +274,30 @@
+           glBindTexture(GL_TEXTURE_2D, impl-&gt;texture.get_handle());
+           global-&gt;impl-&gt;texture = impl-&gt;texture;
+         }
++      else
++        {
++          glBindTexture(GL_TEXTURE_2D, 0);
++          global-&gt;impl-&gt;texture = impl-&gt;texture;
++        }
+     }
+ 
++  if (0)
++    {
++      if (impl-&gt;framebuffer != global-&gt;impl-&gt;framebuffer)
++        {
++          if (impl-&gt;framebuffer)
++            {
++              glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;framebuffer.get_handle());
++              global-&gt;impl-&gt;framebuffer = impl-&gt;framebuffer;
++            }
++          else
++            {
++              glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
++              global-&gt;impl-&gt;framebuffer = impl-&gt;framebuffer;
++            }
++        }
++    }
++
+   if (debug)
+     verify();
+ }
+@@ -322,4 +345,10 @@
+   assert_gl(&quot;OpenGLState::verify&quot;);
+ }
+ 
++void
++OpenGLState::bind_framebuffer(const Framebuffer&amp; framebuffer)
++{
++  impl-&gt;framebuffer = framebuffer;
++}
++
+ /* EOF */
+
+Modified: trunk/src/display/opengl_state.hpp
+===================================================================
+--- trunk/src/display/opengl_state.hpp	2006-01-09 08:52:53 UTC (rev 1206)
++++ trunk/src/display/opengl_state.hpp	2006-01-09 11:16:27 UTC (rev 1207)
+@@ -23,12 +23,15 @@
+ **  02111-1307, USA.
+ */
+ 
+-#ifndef HEADER_OPENGL_STATE_HPP
+-#define HEADER_OPENGL_STATE_HPP
++#ifndef HEADER_DISPLAY_OPENGL_STATE_HPP
++#define HEADER_DISPLAY_OPENGL_STATE_HPP
+ 
++#define GL_GLEXT_PROTOTYPES 1
++#include &lt;GL/gl.h&gt;
++#include &lt;GL/glext.h&gt;
+ #include &lt;memory&gt;
+-#include &lt;GL/gl.h&gt;
+ 
++class Framebuffer;
+ class Texture;
+ class Color;
+ class OpenGLStateImpl;
+@@ -50,6 +53,7 @@
+   void bind_texture(const Texture&amp; texture);
+   void set_blend_func(GLenum sfactor, GLenum dfactor);
+ 
++  void bind_framebuffer(const Framebuffer&amp; framebuffer);
+ 
+   void enable(GLenum cap);
+   void disable(GLenum cap);
+
+Modified: trunk/src/display/scene_context.cpp
+===================================================================
+--- trunk/src/display/scene_context.cpp	2006-01-09 08:52:53 UTC (rev 1206)
++++ trunk/src/display/scene_context.cpp	2006-01-09 11:16:27 UTC (rev 1207)
+@@ -23,9 +23,14 @@
+ **  02111-1307, USA.
+ */
+ 
++#define GL_GLEXT_PROTOTYPES 1
++#include &lt;GL/gl.h&gt;
++#include &lt;GL/glext.h&gt;
++
+ #include &quot;display/display.hpp&quot;
+ #include &quot;display/surface.hpp&quot;
+ #include &quot;display/opengl_state.hpp&quot;
++#include &quot;framebuffer.hpp&quot;
+ #include &quot;scene_context.hpp&quot;
+ #include &lt;assert.h&gt;
+ 
+@@ -40,6 +45,8 @@
+   DrawingContext highlight; 
+   unsigned int render_mask;
+ 
++  Framebuffer framebuffer;
++  
+   Surface lightmap;
+ 
+   SceneContextImpl() 
+@@ -47,7 +54,11 @@
+                   SceneContext::LIGHTMAP | 
+                   SceneContext::HIGHLIGHTMAP | 
+                   SceneContext::LIGHTMAPSCREEN),
+-      lightmap(800/LIGHTMAP_DIV, 600/LIGHTMAP_DIV)
++      framebuffer(256, 256),
++      lightmap(framebuffer.get_texture(), 
++               Rectf(0, 0, (800/LIGHTMAP_DIV)/256.0f, (600/LIGHTMAP_DIV)/256.0f),
++               800/LIGHTMAP_DIV, 600/LIGHTMAP_DIV)
++      //lightmap(800/LIGHTMAP_DIV, 600/LIGHTMAP_DIV)
+   {
+   }
+ };
+@@ -147,29 +158,45 @@
+       
+   if (impl-&gt;render_mask &amp; LIGHTMAPSCREEN)
+     {
+-      Display::push_cliprect(Rect(Point(0, 0),
+-                                  Size(impl-&gt;lightmap.get_width(), impl-&gt;lightmap.get_height())));
++      if (0)
++        { // render lightmap to screen
++          Display::push_cliprect(Rect(Point(0, 0),
++                                      Size(impl-&gt;lightmap.get_width(), impl-&gt;lightmap.get_height())));
+ 
+-      glPushMatrix();
+-      glScalef(1.0f/LIGHTMAP_DIV, 1.0f/LIGHTMAP_DIV, 1.0f);
++          glPushMatrix();
++          glScalef(1.0f/LIGHTMAP_DIV, 1.0f/LIGHTMAP_DIV, 1.0f);
+ 
+-      impl-&gt;light.render();
+-      glPopMatrix();
++          impl-&gt;light.render();
++          glPopMatrix();
+       
+-      {
+-        OpenGLState state;
++          {
++            OpenGLState state;
+         
+-        // Weird y-pos is needed since OpenGL is upside down when it comes to y-coordinate
+-        state.bind_texture(impl-&gt;lightmap.get_texture());
+-        state.activate();
++            // Weird y-pos is needed since OpenGL is upside down when it comes to y-coordinate
++            state.bind_texture(impl-&gt;lightmap.get_texture());
++            state.activate();
+ 
+-        glCopyTexSubImage2D(GL_TEXTURE_2D, 0,
+-                            0, 0, 
+-                            0, Display::get_height() - impl-&gt;lightmap.get_height(),
+-                            impl-&gt;lightmap.get_width(), impl-&gt;lightmap.get_height());
+-      }
++            glCopyTexSubImage2D(GL_TEXTURE_2D, 0,
++                                0, 0, 
++                                0, Display::get_height() - impl-&gt;lightmap.get_height(),
++                                impl-&gt;lightmap.get_width(), impl-&gt;lightmap.get_height());
++          }
+ 
+-      Display::pop_cliprect();
++          Display::pop_cliprect();
++        }
++      else
++        {
++          glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;framebuffer.get_handle());
++          glClear(GL_DEPTH_BUFFER_BIT);
++
++          glPushMatrix();
++          glTranslatef(0, 600-(600/LIGHTMAP_DIV), 0);
++          glScalef(1.0f/LIGHTMAP_DIV, 1.0f/LIGHTMAP_DIV, 1.0f);
++          impl-&gt;light.render();
++          glPopMatrix();
++
++          glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
++        }
+     }
+ 
+   if (impl-&gt;render_mask &amp; COLORMAP)
+@@ -179,6 +206,9 @@
+ 
+   if (impl-&gt;render_mask &amp; LIGHTMAP)
+     {
++      // FIXME: 2006-01-09: shouldn't use Surface and just discard the
++      // borders of a power of two texture, but instead use them and
++      // set UV accordingly
+       OpenGLState state;
+ 
+       Rectf uv = impl-&gt;lightmap.get_uv();
+@@ -199,14 +229,13 @@
+       glVertex2f(impl-&gt;lightmap.get_width() * LIGHTMAP_DIV, 0);
+ 
+       glTexCoord2f(uv.right, uv.top);
+-      glVertex2f(impl-&gt;lightmap.get_width()  * LIGHTMAP_DIV,
++      glVertex2f(impl-&gt;lightmap.get_width() * LIGHTMAP_DIV,
+                  impl-&gt;lightmap.get_height() * LIGHTMAP_DIV);
+ 
+       glTexCoord2f(uv.left, uv.top);
+       glVertex2f(0, impl-&gt;lightmap.get_height() * LIGHTMAP_DIV);
+ 
+       glEnd();
+-
+     }
+ 
+   if (impl-&gt;render_mask &amp; HIGHLIGHTMAP)
+
+Modified: trunk/src/display/surface.hpp
+===================================================================
+--- trunk/src/display/surface.hpp	2006-01-09 08:52:53 UTC (rev 1206)
++++ trunk/src/display/surface.hpp	2006-01-09 11:16:27 UTC (rev 1207)
+@@ -45,6 +45,14 @@
+ public:
+   Surface();
+   Surface(const std::string&amp; filename);
++  
++  /** 
++   * Create a new Surface object from a Texture
++   * @param texture The Texture to use
++   * @param rect The rectangle of the texture to use in (0-1) notation
++   * @param width  Width of the surface on the screen
++   * @param height Height of the surface on the screen
++   */
+   Surface(Texture texture, const Rectf&amp; rect, int width, int height);
+   Surface(int width, int height);
+   ~Surface();
+
+Modified: trunk/src/display/surface_manager.cpp
+===================================================================
+--- trunk/src/display/surface_manager.cpp	2006-01-09 08:52:53 UTC (rev 1206)
++++ trunk/src/display/surface_manager.cpp	2006-01-09 11:16:27 UTC (rev 1207)
+@@ -7,7 +7,6 @@
+ #include &lt;stdexcept&gt;
+ #include &lt;SDL_image.h&gt;
+ #include &lt;GL/gl.h&gt;
+-#include &lt;GL/glext.h&gt;
+ #include &quot;util.hpp&quot;
+ #include &quot;globals.hpp&quot;
+ #include &quot;texture.hpp&quot;
+
+Modified: trunk/src/display/texture.cpp
+===================================================================
+--- trunk/src/display/texture.cpp	2006-01-09 08:52:53 UTC (rev 1206)
++++ trunk/src/display/texture.cpp	2006-01-09 11:16:27 UTC (rev 1207)
+@@ -27,7 +27,6 @@
+ #include &lt;stdexcept&gt;
+ #include &lt;iostream&gt;
+ #include &lt;GL/gl.h&gt;
+-#include &lt;GL/glext.h&gt;
+ #include &quot;texture.hpp&quot;
+ #include &quot;display/opengl_state.hpp&quot;
+ #include &quot;texture_manager.hpp&quot;
+
+Modified: trunk/src/display/texture_manager.cpp
+===================================================================
+--- trunk/src/display/texture_manager.cpp	2006-01-09 08:52:53 UTC (rev 1206)
++++ trunk/src/display/texture_manager.cpp	2006-01-09 11:16:27 UTC (rev 1207)
+@@ -7,7 +7,6 @@
+ #include &lt;stdexcept&gt;
+ #include &lt;SDL_image.h&gt;
+ #include &lt;GL/gl.h&gt;
+-#include &lt;GL/glext.h&gt;
+ #include &quot;util.hpp&quot;
+ #include &quot;globals.hpp&quot;
+ #include &quot;texture.hpp&quot;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000859.html">[Windstille-commit] r1206 - in trunk/src: . collision display font input particles
+</A></li>
+	<LI>Next message: <A HREF="000861.html">[Windstille-commit] r1208 - in trunk/src: . display font
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#860">[ date ]</a>
+              <a href="thread.html#860">[ thread ]</a>
+              <a href="subject.html#860">[ subject ]</a>
+              <a href="author.html#860">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

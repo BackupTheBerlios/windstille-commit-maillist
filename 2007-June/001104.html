@@ -1,0 +1,413 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1452 - in trunk/windstille: . src	src/navigation
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1452%20-%20in%20trunk/windstille%3A%20.%20src%0A%09src/navigation&In-Reply-To=%3C200706170243.l5H2hBbc010114%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001103.html">
+   <LINK REL="Next"  HREF="001105.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1452 - in trunk/windstille: . src	src/navigation</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1452%20-%20in%20trunk/windstille%3A%20.%20src%0A%09src/navigation&In-Reply-To=%3C200706170243.l5H2hBbc010114%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1452 - in trunk/windstille: . src	src/navigation">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Jun 17 04:43:11 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001103.html">[Windstille-commit] r1451 - in trunk/windstille/src: . math	navigation
+</A></li>
+        <LI>Next message: <A HREF="001105.html">[Windstille-commit] r1453 - in trunk/windstille/src: . navigation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1104">[ date ]</a>
+              <a href="thread.html#1104">[ thread ]</a>
+              <a href="subject.html#1104">[ subject ]</a>
+              <a href="author.html#1104">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-06-17 04:43:10 +0200 (Sun, 17 Jun 2007)
+New Revision: 1452
+
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/src/navigation/navigation_graph.cpp
+   trunk/windstille/src/navigation/node.cpp
+   trunk/windstille/src/navigation/node.hpp
+   trunk/windstille/src/navigation/segment.cpp
+   trunk/windstille/src/navigation/segment_position.cpp
+   trunk/windstille/src/navigation/segment_position.hpp
+   trunk/windstille/src/navigation_test.cpp
+Log:
+- fixed transition handling over lines with oposing normals
+- fixed bug in node removal
+
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2007-06-16 20:04:55 UTC (rev 1451)
++++ trunk/windstille/TODO	2007-06-17 02:43:10 UTC (rev 1452)
+@@ -5,5 +5,6 @@
+ - collision detection
+ - virtual tiles in the editor
+ - animated tiles
++- add option to invert axis
+ 
+ # EOF #
+
+Modified: trunk/windstille/src/navigation/navigation_graph.cpp
+===================================================================
+--- trunk/windstille/src/navigation/navigation_graph.cpp	2007-06-16 20:04:55 UTC (rev 1451)
++++ trunk/windstille/src/navigation/navigation_graph.cpp	2007-06-17 02:43:10 UTC (rev 1452)
+@@ -56,44 +56,40 @@
+   if (i != segments.end())
+     {
+       segments.erase(i);
++      delete segment;
+     }
+ 
+-  delete segment;
++  // FIXME: Throw exception here
+ }
+ 
+-struct ContainsNode
+-{
+-  Node* node;
+-
+-  ContainsNode(Node* node_) : node(node_) {}
+-
+-  bool operator()(Segment* segment) {
+-    return 
+-      (segment-&gt;get_node1() == node ||
+-       segment-&gt;get_node2() == node);
+-  }
+-};
+-
+ void
+ NavigationGraph::remove_node(Node* node)
+ {
+   // FIXME: Slow
+-
+   // Remove all segments that would get invalid by removing the node
+-  Segments::iterator i = std::remove_if(segments.begin(), segments.end(), ContainsNode(node));
+-  if (i != segments.end())
++  for(Segments::iterator i = segments.begin(); i != segments.end(); ++i)
+     {
+-      segments.erase(i, segments.end());
++      if ((*i)-&gt;get_node1() == node ||
++          (*i)-&gt;get_node2() == node)
++        {
++          delete *i;
++          *i = 0;
++        }
+     }
++
++  Segments::iterator new_end = std::remove(segments.begin(), segments.end(), (Segment*)0);
++  if (new_end != segments.end())
++    { 
++      segments.erase(new_end, segments.end());
++    }
+   
+   // Remove the node itself 
+   Nodes::iterator j = std::find(nodes.begin(), nodes.end(), node);
+   if (j != nodes.end())
+     {
+       nodes.erase(j);
++      delete node;
+     }  
+-
+-  delete node;
+ }
+ 
+ Segment*
+
+Modified: trunk/windstille/src/navigation/node.cpp
+===================================================================
+--- trunk/windstille/src/navigation/node.cpp	2007-06-16 20:04:55 UTC (rev 1451)
++++ trunk/windstille/src/navigation/node.cpp	2007-06-17 02:43:10 UTC (rev 1452)
+@@ -23,29 +23,38 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;iostream&gt;
+ #include &lt;algorithm&gt;
+ #include &quot;node.hpp&quot;
+-
++
+ Node::Node(const Vector&amp; pos_)
+   : pos(pos_)
+     // FIXME: Do something with id
+ {
+-  
++  std::cout &lt;&lt; &quot;Creating node: &quot; &lt;&lt; this &lt;&lt; std::endl;
+ }
+ 
++Node::~Node()
++{
++  std::cout &lt;&lt; &quot;Destroying node: &quot; &lt;&lt; this &lt;&lt; std::endl;
++}
++
+ void
+-Node::add_segment(Segment* segment)
++Node::add_segment(const SegmentPosition&amp; position)
+ {
+-  segments.push_back(segment);
++  segments.push_back(position);
+ }
+ 
+ void
+ Node::remove_segment(Segment* segment)
+ {
+-  Segments::iterator i = std::find(segments.begin(), segments.end(), segment);
+-  if (i != segments.end())
++  for(Segments::iterator i = segments.begin(); i != segments.end(); ++i)
+     {
+-      segments.erase(i);
++      if (i-&gt;segment == segment)
++        {
++          segments.erase(i);
++          return;
++        }
+     }
+ }
+ 
+
+Modified: trunk/windstille/src/navigation/node.hpp
+===================================================================
+--- trunk/windstille/src/navigation/node.hpp	2007-06-16 20:04:55 UTC (rev 1451)
++++ trunk/windstille/src/navigation/node.hpp	2007-06-17 02:43:10 UTC (rev 1452)
+@@ -29,7 +29,7 @@
+ #include &lt;vector&gt;
+ #include &quot;math/vector.hpp&quot;
+ 
+-class Segment;
++#include &quot;segment_position.hpp&quot;
+ 
+ /** */
+ class Node
+@@ -40,16 +40,20 @@
+   
+ public:
+   /** Segments connected to this node */
+-  typedef std::vector&lt;Segment*&gt; Segments;
++  typedef std::vector&lt;SegmentPosition&gt; Segments;
+   Segments segments;
+ 
+ public:
+   Node(const Vector&amp; pos_);
++  ~Node();
+ 
+   Vector get_pos() const { return pos; }
+   void   set_pos(const Vector&amp; p) { pos = p; }
+-  
+-  void add_segment(Segment* segment);
++
++  /** Connect the given segment to the node, the position is used to
++      mark the end of the segment that is actually connected */
++  void add_segment(const SegmentPosition&amp; segment);
++
+   void remove_segment(Segment* segment);
+ private:
+   Node(const Node&amp;);
+
+Modified: trunk/windstille/src/navigation/segment.cpp
+===================================================================
+--- trunk/windstille/src/navigation/segment.cpp	2007-06-16 20:04:55 UTC (rev 1451)
++++ trunk/windstille/src/navigation/segment.cpp	2007-06-17 02:43:10 UTC (rev 1452)
+@@ -23,6 +23,7 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;iostream&gt;
+ #include &lt;assert.h&gt;
+ #include &quot;node.hpp&quot;
+ #include &quot;segment.hpp&quot;
+@@ -32,12 +33,16 @@
+     node2(node2_),
+     props(props_)
+ {
+-  node1-&gt;add_segment(this);
+-  node2-&gt;add_segment(this);
++  node1-&gt;add_segment(SegmentPosition(this, 0.0f));
++  node2-&gt;add_segment(SegmentPosition(this, 1.0f));
++
++  std::cout &lt;&lt; &quot;Creating segment: &quot; &lt;&lt; this &lt;&lt; &quot; with &quot; &lt;&lt; node1 &lt;&lt; &quot;, &quot; &lt;&lt; node2 &lt;&lt; std::endl;
+ }
+ 
+ Segment::~Segment()
+ {
++  std::cout &lt;&lt; &quot;Destroying segment: &quot; &lt;&lt; this &lt;&lt; &quot; with &quot; &lt;&lt; node1 &lt;&lt; &quot;, &quot; &lt;&lt; node2 &lt;&lt; std::endl;
++
+   node1-&gt;remove_segment(this);
+   node2-&gt;remove_segment(this);
+ }
+
+Modified: trunk/windstille/src/navigation/segment_position.cpp
+===================================================================
+--- trunk/windstille/src/navigation/segment_position.cpp	2007-06-16 20:04:55 UTC (rev 1451)
++++ trunk/windstille/src/navigation/segment_position.cpp	2007-06-17 02:43:10 UTC (rev 1452)
+@@ -28,6 +28,12 @@
+ #include &quot;display/display.hpp&quot;
+ #include &quot;segment_position.hpp&quot;
+ 
++SegmentPosition::SegmentPosition()
++  : segment(0),
++    pos(0.0f)
++{
++}
++
+ SegmentPosition::SegmentPosition(Segment* segment_, float pos_)
+   : segment(segment_),
+     pos(pos_)
+
+Modified: trunk/windstille/src/navigation/segment_position.hpp
+===================================================================
+--- trunk/windstille/src/navigation/segment_position.hpp	2007-06-16 20:04:55 UTC (rev 1451)
++++ trunk/windstille/src/navigation/segment_position.hpp	2007-06-17 02:43:10 UTC (rev 1452)
+@@ -43,6 +43,7 @@
+   float pos;
+ 
+ public:
++  SegmentPosition();
+   SegmentPosition(Segment* segment_, float pos_);
+ 
+   void set_pos(Segment* segment_, float pos_);
+
+Modified: trunk/windstille/src/navigation_test.cpp
+===================================================================
+--- trunk/windstille/src/navigation_test.cpp	2007-06-16 20:04:55 UTC (rev 1451)
++++ trunk/windstille/src/navigation_test.cpp	2007-06-17 02:43:10 UTC (rev 1452)
+@@ -132,7 +132,7 @@
+     }
+ 
+   if (controller.get_button_state(TERTIARY_BUTTON))
+-    {
++    { // Move node
+       if (selected_node)
+         {
+           selected_node-&gt;set_pos(cursor);
+@@ -140,12 +140,8 @@
+     }
+ 
+   if (controller.button_was_pressed(SECONDARY_BUTTON))
+-    {
+-      if (selected_segment)
+-        {
+-          delete connection;
+-          connection = new SegmentPosition(selected_segment, 0.5f);
+-        }
++    { // Set player
++      player = old_player = cursor;
+     }
+ 
+   if (connection)
+@@ -156,49 +152,47 @@
+       
+       Vector advance = delta * 512.0f * stick;
+       connection-&gt;advance(advance, next_node);
++
++      player = connection-&gt;get_pos();
+       
+       if (!advance.is_null())
+         { // FIXME: This should be a while loop, currently we are just
+           // discarding the rest movement
+-          Segment* next_segment = 0;
++          SegmentPosition next_segment;
+           for(Node::Segments::iterator i = next_node-&gt;segments.begin(); i != next_node-&gt;segments.end(); ++i)
+             {
+-              if (connection-&gt;get_segment() != *i)
++              if (connection-&gt;get_segment() != i-&gt;segment)
+                 {
+                   next_segment = *i;
+                   break;
+                 }
+             }
+               
+-          if (!next_segment)
++          if (!next_segment.segment)
+             {
+               std::cout &lt;&lt; &quot;Dead End&quot; &lt;&lt; std::endl;
++              delete connection;
++              connection = 0;
++
++              // FIXME: Voodoo to fix connection/dedaend cicles
++              player += stick;
++              old_player = player;
+             }
+           else
+             {
+               std::cout &lt;&lt; &quot;transition&quot; &lt;&lt; std::endl;
+-                           
+-              // FIXME: broken API this 0.0 or 1.0 depends on the segment
+-              if (connection-&gt;get_float_pos() == 0.0f)
+-                {
+-                  connection-&gt;set_pos(next_segment, 1.0f);
+-                }
+-              else if (connection-&gt;get_float_pos() == 1.0f)
+-                {
+-                  connection-&gt;set_pos(next_segment, 0.0f);
+-                }
+-              else
+-                {
+-                  assert(!&quot;This should never been reached! - 3124&quot;);
+-                }
++              *connection = next_segment;
+             }
+         }
+-      player = connection-&gt;get_pos();
+ 
+       if (controller.get_button_state(AIM_BUTTON))
+-        {
++        {         
+           delete connection;
+           connection = 0;
++
++          // FIXME: Voodoo to fix connection/dedaend cicles
++          player += stick;
++          old_player = player;
+         }
+     }
+   else
+@@ -214,6 +208,7 @@
+ 
+       std::vector&lt;SegmentPosition&gt; positions = graph-&gt;find_intersections(Line(old_player, player));
+       if (!positions.empty()) {
++        std::cout &lt;&lt; &quot;Doing connection&quot; &lt;&lt; std::endl;
+         connection = new SegmentPosition(positions.front());
+       }
+     }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001103.html">[Windstille-commit] r1451 - in trunk/windstille/src: . math	navigation
+</A></li>
+	<LI>Next message: <A HREF="001105.html">[Windstille-commit] r1453 - in trunk/windstille/src: . navigation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1104">[ date ]</a>
+              <a href="thread.html#1104">[ thread ]</a>
+              <a href="subject.html#1104">[ subject ]</a>
+              <a href="author.html#1104">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

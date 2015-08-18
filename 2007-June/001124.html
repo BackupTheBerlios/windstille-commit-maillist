@@ -1,0 +1,237 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1472 - in trunk/windstille/src: . input
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1472%20-%20in%20trunk/windstille/src%3A%20.%20input&In-Reply-To=%3C200706192216.l5JMGh7j016207%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001123.html">
+   <LINK REL="Next"  HREF="001125.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1472 - in trunk/windstille/src: . input</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1472%20-%20in%20trunk/windstille/src%3A%20.%20input&In-Reply-To=%3C200706192216.l5JMGh7j016207%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1472 - in trunk/windstille/src: . input">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Jun 20 00:16:43 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001123.html">[Windstille-commit] r1471 - trunk/windstille/tools/sdl-jstest
+</A></li>
+        <LI>Next message: <A HREF="001125.html">[Windstille-commit] r1473 - in trunk/windstille: . data/controller
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1124">[ date ]</a>
+              <a href="thread.html#1124">[ thread ]</a>
+              <a href="subject.html#1124">[ subject ]</a>
+              <a href="author.html#1124">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-06-20 00:16:42 +0200 (Wed, 20 Jun 2007)
+New Revision: 1472
+
+Modified:
+   trunk/windstille/src/geometry_test.cpp
+   trunk/windstille/src/input/input_configurator.cpp
+   trunk/windstille/src/input/input_manager_sdl.cpp
+   trunk/windstille/src/input/input_manager_sdl.hpp
+   trunk/windstille/src/navigation_test.cpp
+   trunk/windstille/src/view.cpp
+Log:
+- added option to invert an axis
+
+Modified: trunk/windstille/src/geometry_test.cpp
+===================================================================
+--- trunk/windstille/src/geometry_test.cpp	2007-06-19 22:15:01 UTC (rev 1471)
++++ trunk/windstille/src/geometry_test.cpp	2007-06-19 22:16:42 UTC (rev 1472)
+@@ -89,7 +89,7 @@
+   cursor.y += controller.get_axis_state(Y_AXIS) * 500.0f * delta;
+ 
+   cursor2.x += controller.get_axis_state(X2_AXIS) * 500.0f * delta;
+-  cursor2.y -= controller.get_axis_state(Y2_AXIS) * 500.0f * delta;
++  cursor2.y += controller.get_axis_state(Y2_AXIS) * 500.0f * delta;
+ 
+   if (controller.button_was_pressed(PRIMARY_BUTTON))
+     {
+
+Modified: trunk/windstille/src/input/input_configurator.cpp
+===================================================================
+--- trunk/windstille/src/input/input_configurator.cpp	2007-06-19 22:15:01 UTC (rev 1471)
++++ trunk/windstille/src/input/input_configurator.cpp	2007-06-19 22:16:42 UTC (rev 1472)
+@@ -167,8 +167,8 @@
+ 
+     case SDL_JOYAXISMOTION:
+       if (items.back().mode == ConfigureItem::CONFIGURE_AXIS &amp;&amp; (event.jaxis.value &gt; 16384 || event.jaxis.value &lt; -16384))
+-        { // FIXME: This doesn't work with analog Axis!
+-          InputManagerSDL::current()-&gt;bind_joystick_axis(items.back().event_id, event.jaxis.which, event.jaxis.axis);
++        { // FIXME: This doesn't work well with analog Axis!
++          InputManagerSDL::current()-&gt;bind_joystick_axis(items.back().event_id, event.jaxis.which, event.jaxis.axis, false);
+           out &lt;&lt; &quot;(joystick-axis (device &quot; &lt;&lt; int(event.jaxis.which) &lt;&lt; &quot;)\n&quot;
+               &lt;&lt; &quot;               (axis   &quot; &lt;&lt; int(event.jaxis.axis) &lt;&lt; &quot;))&quot; &lt;&lt; std::endl;
+           next_item();
+
+Modified: trunk/windstille/src/input/input_manager_sdl.cpp
+===================================================================
+--- trunk/windstille/src/input/input_manager_sdl.cpp	2007-06-19 22:15:01 UTC (rev 1471)
++++ trunk/windstille/src/input/input_manager_sdl.cpp	2007-06-19 22:16:42 UTC (rev 1472)
+@@ -32,7 +32,7 @@
+ 
+ InputManagerSDL* InputManagerSDL::current_ = 0;
+ 
+-#define DEAD_ZONE 4096
++const int dead_zone =  4096;
+ 
+ class InputManagerSDLImpl
+ {
+@@ -144,13 +144,15 @@
+                 {
+                   int device = 0;
+                   int axis   = 0;
++                  bool invert = false;
+ 
+                   lisp::Properties props(*dev_iter);
+                   props.get(&quot;device&quot;, device);
+                   props.get(&quot;axis&quot;,   axis);
++                  props.get(&quot;invert&quot;, invert);
+ 
+                   bind_joystick_axis(controller_description.get_definition(iter.item()).id,
+-                                     device, axis);
++                                     device, axis, invert);
+                 }
+               else if (dev_iter.item() == &quot;keyboard-axis&quot;)
+                 {
+@@ -317,13 +319,13 @@
+       if (event.which  == i-&gt;device &amp;&amp;
+           event.axis   == i-&gt;axis)
+         {
+-          if (event.value &lt; -DEAD_ZONE)
++          if (event.value &lt; -dead_zone)
+             {
+-              add_axis_event(i-&gt;event, event.value/32768.0f);
++              add_axis_event(i-&gt;event, event.value/(i-&gt;invert?-32768.0f:32768.0f));
+             }
+-          else if (event.value &gt; DEAD_ZONE)
++          else if (event.value &gt; dead_zone)
+             {
+-              add_axis_event(i-&gt;event, event.value/32767.0f);
++              add_axis_event(i-&gt;event, event.value/(i-&gt;invert?-32768.0f:32768.0f));
+             }
+           else
+             {
+@@ -416,6 +418,7 @@
+ void
+ InputManagerSDL::bind_joystick_hat_axis(int event, int device, int axis)
+ {
++  
+ }
+ 
+ void
+@@ -434,7 +437,7 @@
+ }
+ 
+ void
+-InputManagerSDL::bind_joystick_axis(int event, int device, int axis)
++InputManagerSDL::bind_joystick_axis(int event, int device, int axis, bool invert)
+ {
+   ensure_open_joystick(device);
+ 
+@@ -443,6 +446,7 @@
+   binding.event  = event;
+   binding.device = device;
+   binding.axis   = axis;
++  binding.invert = invert;
+ 
+   impl-&gt;joystick_axis_bindings.push_back(binding);
+ }
+
+Modified: trunk/windstille/src/input/input_manager_sdl.hpp
+===================================================================
+--- trunk/windstille/src/input/input_manager_sdl.hpp	2007-06-19 22:15:01 UTC (rev 1471)
++++ trunk/windstille/src/input/input_manager_sdl.hpp	2007-06-19 22:16:42 UTC (rev 1472)
+@@ -41,9 +41,10 @@
+ 
+ struct JoystickAxisBinding
+ {
+-  int event;
+-  int device;
+-  int axis;
++  int  event;
++  int  device;
++  int  axis;
++  bool invert;
+ };
+ 
+ struct JoystickButtonAxisBinding
+@@ -98,7 +99,7 @@
+ 
+   void bind_joystick_hat_axis(int event, int device, int axis);
+ 
+-  void bind_joystick_axis(int event, int device, int axis);
++  void bind_joystick_axis(int event, int device, int axis, bool invert);
+   void bind_joystick_button_axis(int event, int device, int minus, int plus);
+   void bind_joystick_button(int event, int device, int button);
+ 
+
+Modified: trunk/windstille/src/navigation_test.cpp
+===================================================================
+--- trunk/windstille/src/navigation_test.cpp	2007-06-19 22:15:01 UTC (rev 1471)
++++ trunk/windstille/src/navigation_test.cpp	2007-06-19 22:16:42 UTC (rev 1472)
+@@ -110,9 +110,8 @@
+   cursor += Vector(controller.get_axis_state(X_AXIS) * 500.0f * delta,
+                    controller.get_axis_state(Y_AXIS) * 500.0f * delta);
+ 
+-  // FIXME: xpad driver is buggy and reverses the Y2 axis
+   stick = Vector(controller.get_axis_state(X2_AXIS),
+-                 -controller.get_axis_state(Y2_AXIS));
++                 controller.get_axis_state(Y2_AXIS));
+ 
+   if (controller.button_was_pressed(PRIMARY_BUTTON))
+     {
+
+Modified: trunk/windstille/src/view.cpp
+===================================================================
+--- trunk/windstille/src/view.cpp	2007-06-19 22:15:01 UTC (rev 1471)
++++ trunk/windstille/src/view.cpp	2007-06-19 22:16:42 UTC (rev 1472)
+@@ -79,7 +79,7 @@
+   }
+ 
+   transform.x += 0.5f * controller.get_axis_state(X2_AXIS) / zoom;
+-  transform.y -= 0.5f * controller.get_axis_state(Y2_AXIS) / zoom;
++  transform.y += 0.5f * controller.get_axis_state(Y2_AXIS) / zoom;
+ }
+ 
+ Rectf
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001123.html">[Windstille-commit] r1471 - trunk/windstille/tools/sdl-jstest
+</A></li>
+	<LI>Next message: <A HREF="001125.html">[Windstille-commit] r1473 - in trunk/windstille: . data/controller
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1124">[ date ]</a>
+              <a href="thread.html#1124">[ thread ]</a>
+              <a href="subject.html#1124">[ subject ]</a>
+              <a href="author.html#1124">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

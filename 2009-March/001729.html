@@ -1,0 +1,587 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2732 - in trunk/windstille: . src src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2732%20-%20in%20trunk/windstille%3A%20.%20src%20src/editor&In-Reply-To=%3C200903221946.n2MJkmpd026948%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001728.html">
+   <LINK REL="Next"  HREF="001730.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2732 - in trunk/windstille: . src src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2732%20-%20in%20trunk/windstille%3A%20.%20src%20src/editor&In-Reply-To=%3C200903221946.n2MJkmpd026948%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2732 - in trunk/windstille: . src src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Mar 22 20:46:48 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001728.html">[Windstille-commit] r2731 - in trunk/windstille: . src/editor
+</A></li>
+        <LI>Next message: <A HREF="001730.html">[Windstille-commit] r2733 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1729">[ date ]</a>
+              <a href="thread.html#1729">[ thread ]</a>
+              <a href="subject.html#1729">[ subject ]</a>
+              <a href="author.html#1729">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-22 20:46:47 +0100 (Sun, 22 Mar 2009)
+New Revision: 2732
+
+Added:
+   trunk/windstille/src/editor/object_model.cpp
+   trunk/windstille/src/editor/object_model.hpp
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/src/SConscript
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/editor_window.hpp
+   trunk/windstille/src/editor/object_selector.cpp
+   trunk/windstille/src/editor/object_selector.hpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+   trunk/windstille/src/editor/select_tool.cpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/editor/zoom_tool.cpp
+Log:
+Added some basic drag&amp;drop of images
+
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-03-22 16:19:29 UTC (rev 2731)
++++ trunk/windstille/TODO	2009-03-22 19:46:47 UTC (rev 2732)
+@@ -185,6 +185,8 @@
+ Miscellaneous
+ =============
+ 
++* move has_suffix, has_prefix and stuff into StringUtil class
++
+ * get rid of global debug
+ 
+ * work on Object introspection, see: ~/projects/lang/c++/introspection.cpp
+
+Modified: trunk/windstille/src/SConscript
+===================================================================
+--- trunk/windstille/src/SConscript	2009-03-22 16:19:29 UTC (rev 2731)
++++ trunk/windstille/src/SConscript	2009-03-22 19:46:47 UTC (rev 2732)
+@@ -241,6 +241,7 @@
+         'editor/minimap_widget.cpp',
+         'editor/scroll_tool.cpp',
+         'editor/sector_model.cpp',
++        'editor/object_model.cpp',
+         'editor/zoom_tool.cpp',
+         'editor/select_tool.cpp',
+         'editor/editor_window.cpp'
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-03-22 16:19:29 UTC (rev 2731)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-03-22 19:46:47 UTC (rev 2732)
+@@ -190,6 +190,11 @@
+ 
+   // Window
+   add(vbox);
++
++  fill_object_selector(&quot;data/images/objects/&quot;);
++  fill_object_selector(&quot;data/images/inventory/&quot;);
++  fill_object_selector(&quot;data/images/portraits/&quot;);
++  fill_object_selector(&quot;data/images/&quot;);
+ }
+ 
+ EditorWindow::~EditorWindow()
+@@ -362,7 +367,33 @@
+     }
+ }
+ 
++static bool has_suffix(const std::string&amp; str, const std::string&amp; suffix)
++{
++  if (str.length() &gt;= suffix.length())
++    return str.compare(str.length() - suffix.length(), suffix.length(), suffix) == 0;
++  else
++    return false;
++}
++
+ void
++EditorWindow::fill_object_selector(const std::string&amp; directory)
++{
++  Glib::Dir dir(directory);
++  for(Glib::Dir::iterator i = dir.begin(); i != dir.end(); ++i)
++    {
++      if (has_suffix(*i, &quot;.png&quot;))
++        {
++          Glib::ustring path = directory;
++          path += *i;
++
++          Glib::RefPtr&lt;Gdk::Pixbuf&gt; pixbuf = Gdk::Pixbuf::create_from_file(path);
++
++          object_selector.add_object(path, pixbuf-&gt;scale_simple(32, 32, Gdk::INTERP_TILES));
++        }
++    }
++}
++
++void
+ EditorWindow::on_switch_page(GtkNotebookPage* page, guint page_num)
+ {
+   std::cout &lt;&lt; &quot;on_switch_page(&quot; &lt;&lt; page &lt;&lt; &quot;, &quot; &lt;&lt; page_num &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
+
+Modified: trunk/windstille/src/editor/editor_window.hpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.hpp	2009-03-22 16:19:29 UTC (rev 2731)
++++ trunk/windstille/src/editor/editor_window.hpp	2009-03-22 19:46:47 UTC (rev 2732)
+@@ -74,7 +74,7 @@
+   virtual ~EditorWindow();
+ 
+   void show_minimap(bool v);
+-
++  void fill_object_selector(const std::string&amp; directory);
+ public:
+   void on_new();
+   void on_open();
+
+Added: trunk/windstille/src/editor/object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/object_model.cpp	2009-03-22 16:19:29 UTC (rev 2731)
++++ trunk/windstille/src/editor/object_model.cpp	2009-03-22 19:46:47 UTC (rev 2732)
+@@ -0,0 +1,59 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &lt;iostream&gt;
++
++#include &quot;display/scene_context.hpp&quot;
++#include &quot;object_model.hpp&quot;
++
++ObjectModelHandle
++ObjectModel::create(const std::string&amp; name, const std::string&amp; path, const Vector2f&amp; pos)
++{
++  return ObjectModelHandle(new ObjectModel(name, path, pos));
++}
++
++ObjectModel::ObjectModel(const std::string&amp; name_, const std::string&amp; path, const Vector2f&amp; pos_)
++  : name(name_),
++    pos(pos_)
++{
++  std::cout &lt;&lt; &quot;Path: &quot; &lt;&lt; path &lt;&lt; std::endl;
++  surface = Surface(path.substr(5)); // cut &quot;data/&quot; part
++
++  pos.x -= surface.get_width()/2;
++  pos.y -= surface.get_height()/2;
++}
++
++ObjectModel::~ObjectModel()
++{
++}
++
++void
++ObjectModel::draw(SceneContext&amp; sc)
++{
++  sc.color().draw(surface, pos.x, pos.y);
++  sc.control().draw_rect(get_bounding_box(), Color(1,1,1,0.5f));
++  sc.control().fill_rect(Rectf(pos - Vector2f(8, 8), Sizef(16, 16)), Color(1,0,0));
++}
++
++Rectf
++ObjectModel::get_bounding_box() const
++{
++  return Rectf(pos, Sizef(surface.get_width(), surface.get_height()));
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/object_model.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/editor/object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/object_model.hpp	2009-03-22 16:19:29 UTC (rev 2731)
++++ trunk/windstille/src/editor/object_model.hpp	2009-03-22 19:46:47 UTC (rev 2732)
+@@ -0,0 +1,59 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_EDITOR_OBJECT_MODEL_HPP
++#define HEADER_WINDSTILLE_EDITOR_OBJECT_MODEL_HPP
++
++#include &lt;boost/shared_ptr.hpp&gt;
++#include &lt;string&gt;
++
++#include &quot;display/surface.hpp&quot;
++#include &quot;math/vector2f.hpp&quot;
++
++class ObjectModel;
++class SceneContext;
++typedef boost::shared_ptr&lt;ObjectModel&gt; ObjectModelHandle;
++
++class ObjectModel
++{
++public:
++  static ObjectModelHandle create(const std::string&amp; name, const std::string&amp; path, const Vector2f&amp; pos);
++
++private:
++  std::string name;
++  Vector2f     pos;
++  Surface  surface;
++
++public:
++  ObjectModel(const std::string&amp; name, const std::string&amp; path, const Vector2f&amp; pos);
++  ~ObjectModel();
++  
++  std::string get_name() const { return name; }
++  Vector2f get_pos() const { return pos; }
++  
++  void draw(SceneContext&amp; sc);
++  Rectf get_bounding_box() const;
++
++private:
++  ObjectModel(const ObjectModel&amp;);
++  ObjectModel&amp; operator=(const ObjectModel&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/object_model.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/windstille/src/editor/object_selector.cpp
+===================================================================
+--- trunk/windstille/src/editor/object_selector.cpp	2009-03-22 16:19:29 UTC (rev 2731)
++++ trunk/windstille/src/editor/object_selector.cpp	2009-03-22 19:46:47 UTC (rev 2732)
+@@ -17,42 +17,48 @@
+ */
+ 
+ #include &lt;iostream&gt;
+-#include &lt;gtkmm/liststore.h&gt;
++#include &lt;boost/function.hpp&gt;
++#include &lt;gtkmm/treeselection.h&gt;
+ #include &lt;gtkmm/treemodelcolumn.h&gt;
++
+ #include &quot;object_selector.hpp&quot;
+ 
+ class ObjectIconColumns : public Gtk::TreeModel::ColumnRecord
+ {
+ public:
+-  Gtk::TreeModelColumn&lt;Glib::ustring&gt; pathname;
+-  Gtk::TreeModelColumn&lt;Glib::RefPtr&lt;Gdk::Pixbuf&gt; &gt;   icon;
++  Gtk::TreeModelColumn&lt;std::string&gt; pathname;
++  Gtk::TreeModelColumn&lt;Glib::RefPtr&lt;Gdk::Pixbuf&gt; &gt;  icon;
+   
++  static ObjectIconColumns&amp; instance() {
++    if (instance_)
++      return *instance_;
++    else
++      return *(instance_ = new ObjectIconColumns());
++  }
++
++private:
++  static ObjectIconColumns* instance_;
++
+   ObjectIconColumns() {
+     add(pathname); 
+     add(icon);
+   }
+ };
++
++ObjectIconColumns* ObjectIconColumns::instance_ = 0;
+ 
+ ObjectSelector::ObjectSelector()
+   : label(&quot;Object Selector&quot;, Gtk::ALIGN_LEFT)
+ {
+-  ObjectIconColumns columns;
+-  Glib::RefPtr&lt;Gtk::ListStore&gt; list_store = Gtk::ListStore::create(columns);
++  list_store = Gtk::ListStore::create(ObjectIconColumns::instance());
+ 
+-  Glib::RefPtr&lt;Gdk::Pixbuf&gt; icon = Gdk::Pixbuf::create_from_file(&quot;data/editor/icon.png&quot;);
+-
+-  iconview.modify_base(Gtk::STATE_NORMAL, Gdk::Color(&quot;grey&quot;));
++  // Change background color
++  // iconview.modify_base(Gtk::STATE_NORMAL, Gdk::Color(&quot;grey&quot;));
+   
+-  for(int i = 0; i &lt; 10; ++i)
+-    {
+-      Gtk::ListStore::iterator it  = list_store-&gt;append();
+-      (*it)[columns.pathname] = Glib::ustring(&quot;Hello World&quot;);
+-      (*it)[columns.icon]     = icon;
+-    }
+   iconview.set_model(list_store);
+ 
+-  iconview.set_pixbuf_column(columns.icon);
+-  //iconview.set_text_column(columns.pathname);
++  iconview.set_pixbuf_column(ObjectIconColumns::instance().icon);
++  //iconview.set_text_column(ObjectIconColumns::instance().pathname);
+ 
+   iconview.set_model(list_store);
+ 
+@@ -78,11 +84,31 @@
+ }
+ 
+ void
++ObjectSelector::add_object(const std::string&amp; pathname,
++                           const Glib::RefPtr&lt;Gdk::Pixbuf&gt;&amp; icon)
++{
++  Gtk::ListStore::iterator it  = list_store-&gt;append();
++  (*it)[ObjectIconColumns::instance().pathname] = pathname;
++  (*it)[ObjectIconColumns::instance().icon]     = icon;
++}
++                    
++void
+ ObjectSelector::on_drag_begin(const Glib::RefPtr&lt;Gdk::DragContext&gt;&amp; context)
+ {
+-  Glib::RefPtr&lt;Gdk::Pixbuf&gt; pixbuf = Gdk::Pixbuf::create_from_file(&quot;data/editor/icon.png&quot;);
++  std::string iconpath = &quot;data/editor/icon.png&quot;;
++
++Gtk::IconView::ArrayHandle_TreePaths selection = iconview.get_selected_items();
++  for(Gtk::IconView::ArrayHandle_TreePaths::iterator i = selection.begin();
++      i != selection.end();
++      ++i)
++    {
++      Gtk::ListStore::iterator it = list_store-&gt;get_iter(*i);
++      iconpath = (*it)[ObjectIconColumns::instance().pathname];
++    }
++
++  Glib::RefPtr&lt;Gdk::Pixbuf&gt; pixbuf = Gdk::Pixbuf::create_from_file(iconpath);
+   context-&gt;set_icon(pixbuf, pixbuf-&gt;get_width()/2, pixbuf-&gt;get_height()/2);
+-}
++}     
+ 
+ void
+ ObjectSelector::on_drag_data_get(const Glib::RefPtr&lt;Gdk::DragContext&gt;&amp; context, 
+@@ -90,7 +116,20 @@
+                                  guint info, guint time)
+ {
+   std::cout &lt;&lt; &quot;ObjectSelector: on_drag_data_get&quot; &lt;&lt; std::endl;
+-  selection_data.set(&quot;raw&quot;, &quot;data&quot;);
++
++  Gtk::IconView::ArrayHandle_TreePaths selection = iconview.get_selected_items();
++
++  for(Gtk::IconView::ArrayHandle_TreePaths::iterator i = selection.begin();
++      i != selection.end();
++      ++i)
++    {
++      Gtk::ListStore::iterator it = list_store-&gt;get_iter(*i);
++
++      //if (it)
++      //  std::cout &lt;&lt; &quot;on_drag_begin: &quot; &lt;&lt; (*it)[ObjectIconColumns::instance().pathname] &lt;&lt; std::endl;
++
++      selection_data.set(&quot;data&quot;, (*it)[ObjectIconColumns::instance().pathname]);
++    }
+ }
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/object_selector.hpp
+===================================================================
+--- trunk/windstille/src/editor/object_selector.hpp	2009-03-22 16:19:29 UTC (rev 2731)
++++ trunk/windstille/src/editor/object_selector.hpp	2009-03-22 19:46:47 UTC (rev 2732)
+@@ -22,6 +22,7 @@
+ #include &lt;gtkmm/box.h&gt;
+ #include &lt;gtkmm/scrolledwindow.h&gt;
+ #include &lt;gtkmm/label.h&gt;
++#include &lt;gtkmm/liststore.h&gt;
+ #include &lt;gdkmm/dragcontext.h&gt;
+ #include &lt;gtkmm/iconview.h&gt;
+ 
+@@ -31,11 +32,15 @@
+   Gtk::Label label;
+   Gtk::ScrolledWindow scrolled;
+   Gtk::IconView iconview;
++  Glib::RefPtr&lt;Gtk::ListStore&gt; list_store;
+   
+ public:
+   ObjectSelector();
+   virtual ~ObjectSelector();
+ 
++  void add_object(const std::string&amp; pathname,
++                  const Glib::RefPtr&lt;Gdk::Pixbuf&gt;&amp; icon);
++
+ protected:
+   void on_drag_begin(const Glib::RefPtr&lt;Gdk::DragContext&gt;&amp; context);
+   void on_drag_data_get(const Glib::RefPtr&lt;Gdk::DragContext&gt;&amp; context,
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-03-22 16:19:29 UTC (rev 2731)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-03-22 19:46:47 UTC (rev 2732)
+@@ -42,24 +42,24 @@
+ }
+ 
+ void
+-SectorModel::add(const Vector2f&amp; obj)
++SectorModel::add(const std::string&amp; path, const Vector2f&amp; pos)
+ {
++  ObjectModelHandle obj = ObjectModel::create(&quot;obj:&quot; + path, path, pos);
++
+   objects.push_back(obj);
++
+   Gtk::TreeStore::iterator it = objects_tree-&gt;append(root_it-&gt;children());
+   (*it)[ObjectTreeColumns::instance().type_icon] = Gdk::Pixbuf::create_from_file(&quot;data/editor/type.png&quot;);
+-  (*it)[ObjectTreeColumns::instance().name]      = Glib::ustring(&quot;Object&quot;);
++  (*it)[ObjectTreeColumns::instance().name]      = obj-&gt;get_name();
+   (*it)[ObjectTreeColumns::instance().visible]   = false; 
+ }
+ 
+ void
+ SectorModel::draw(SceneContext&amp; sc)
+ {
+-  Surface surface(&quot;images/hedgehog.png&quot;);
+-
+-  for(std::vector&lt;Vector2f&gt;::iterator i = objects.begin(); i != objects.end(); ++i)
++  for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
+     {
+-      sc.color().draw(surface, i-&gt;x, i-&gt;y);
+-      sc.control().fill_rect(Rectf(*i - Vector2f(8, 8), Sizef(16, 16)), Color(1,0,0));
++      (*i)-&gt;draw(sc);
+     }
+ }
+ 
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-03-22 16:19:29 UTC (rev 2731)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-03-22 19:46:47 UTC (rev 2732)
+@@ -22,6 +22,8 @@
+ #include &lt;memory&gt;
+ #include &lt;gtkmm/treestore.h&gt;
+ #include &lt;vector&gt;
++
++#include &quot;object_model.hpp&quot;
+ #include &quot;math/vector2f.hpp&quot;
+ 
+ class SceneContext;
+@@ -55,14 +57,16 @@
+ class SectorModel
+ {
+ private:
++  typedef std::vector&lt;ObjectModelHandle&gt; Objects;
++
+   Gtk::TreeStore::iterator root_it;
+   Glib::RefPtr&lt;Gtk::TreeStore&gt; objects_tree;
+-  std::vector&lt;Vector2f&gt; objects;
++  Objects objects;
+ 
+ public:
+   SectorModel();
+ 
+-  void add(const Vector2f&amp; obj);
++  void add(const std::string&amp; path, const Vector2f&amp; obj);
+   void draw(SceneContext&amp; sc);
+ 
+   // void select_objects(const Rectf&amp; rect, bool replace_old_selection = true) const;
+
+Modified: trunk/windstille/src/editor/select_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/select_tool.cpp	2009-03-22 16:19:29 UTC (rev 2731)
++++ trunk/windstille/src/editor/select_tool.cpp	2009-03-22 19:46:47 UTC (rev 2732)
+@@ -58,7 +58,6 @@
+ void
+ SelectTool::draw(SceneContext&amp; sc)
+ {
+-  std::cout &lt;&lt; &quot;draw: &quot; &lt;&lt; rect_valid &lt;&lt; std::endl;
+   if (rect_valid)
+     {
+       sc.control().fill_rect(rect, Color(0.5f, 0.5f, 1.0f, 0.25));
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-03-22 16:19:29 UTC (rev 2731)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-03-22 19:46:47 UTC (rev 2732)
+@@ -318,7 +318,7 @@
+   std::cout &lt;&lt; &quot;WindstilleWidget: on_drag_data_received: &quot;
+             &lt;&lt; x &lt;&lt; &quot;, &quot; &lt;&lt; y &lt;&lt; &quot;: &quot; &lt;&lt; data.get_data_type() &lt;&lt; &quot; &quot; &lt;&lt; data.get_data_as_string() &lt;&lt; std::endl;
+ 
+-  sector_model-&gt;add(state.screen_to_world(Vector2f(x, y)));
++  sector_model-&gt;add(data.get_data_as_string(), state.screen_to_world(Vector2f(x, y)));
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/editor/zoom_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/zoom_tool.cpp	2009-03-22 16:19:29 UTC (rev 2731)
++++ trunk/windstille/src/editor/zoom_tool.cpp	2009-03-22 19:46:47 UTC (rev 2732)
+@@ -61,7 +61,6 @@
+ void
+ ZoomTool::draw(SceneContext&amp; sc)
+ {
+-  std::cout &lt;&lt; &quot;draw: &quot; &lt;&lt; rect_valid &lt;&lt; std::endl;
+   if (rect_valid)
+     {
+       sc.control().fill_rect(rect, Color(1.0f, 1.0f, 0.0f, 0.25));
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001728.html">[Windstille-commit] r2731 - in trunk/windstille: . src/editor
+</A></li>
+	<LI>Next message: <A HREF="001730.html">[Windstille-commit] r2733 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1729">[ date ]</a>
+              <a href="thread.html#1729">[ thread ]</a>
+              <a href="subject.html#1729">[ subject ]</a>
+              <a href="author.html#1729">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

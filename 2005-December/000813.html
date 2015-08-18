@@ -1,0 +1,186 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1160 - facebuilder
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-December/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1160%20-%20facebuilder&In-Reply-To=%3C200512252111.jBPLBZ4S019585%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000812.html">
+   <LINK REL="Next"  HREF="000814.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1160 - facebuilder</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1160%20-%20facebuilder&In-Reply-To=%3C200512252111.jBPLBZ4S019585%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1160 - facebuilder">grumbel at berlios.de
+       </A><BR>
+    <I>Sun Dec 25 22:11:35 CET 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000812.html">[Windstille-commit] r1159 - facebuilder
+</A></li>
+        <LI>Next message: <A HREF="000814.html">[Windstille-commit] r1161 - facebuilder
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#813">[ date ]</a>
+              <a href="thread.html#813">[ thread ]</a>
+              <a href="subject.html#813">[ subject ]</a>
+              <a href="author.html#813">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-12-25 22:11:34 +0100 (Sun, 25 Dec 2005)
+New Revision: 1160
+
+Modified:
+   facebuilder/NEWS
+   facebuilder/face.rb
+   facebuilder/facebuilder.rb
+Log:
+- some more undo/redo
+
+Modified: facebuilder/NEWS
+===================================================================
+--- facebuilder/NEWS	2005-12-25 20:48:22 UTC (rev 1159)
++++ facebuilder/NEWS	2005-12-25 21:11:34 UTC (rev 1160)
+@@ -8,6 +8,6 @@
+ * face parts are moveable with the mouse
+ * plenty of more faceparts
+ * faceparts are now all shaded
++* simple undo/redo
+ 
+-
+ # EOF #
+
+Modified: facebuilder/face.rb
+===================================================================
+--- facebuilder/face.rb	2005-12-25 20:48:22 UTC (rev 1159)
++++ facebuilder/face.rb	2005-12-25 21:11:34 UTC (rev 1160)
+@@ -65,6 +65,7 @@
+ 
+         @parent.undo_stack &lt;&lt; FaceCommand.new(proc{ @parent.get_part(@type).offset = old_offset },
+                                               proc{ @parent.get_part(@type).offset = offset     })
++        $facebuilder.update_undo() if $facebuilder
+       end
+     end
+   end
+@@ -158,8 +159,6 @@
+   end
+ 
+   def update_items()
+-    $facebuilder.update_undo() if $facebuilder
+-
+     if @canvas_items.length == 1 then
+       @canvas_items[0].affine_absolute(Art::Affine.translate(@offset.x, @offset.y) *
+                                        Art::Affine.rotate(@rotation) *
+@@ -188,6 +187,16 @@
+   end
+ 
+   def filename=(filename)
++    if @parent.use_undo() then
++      old_filename = @filename.clone()
++      new_filename = filename.clone()
++      @parent.undo_stack &lt;&lt; FaceCommand.new(proc{ @parent.without_undo {
++                                                @parent.get_part(@type).filename=(old_filename) }},
++                                            proc{ @parent.without_undo {
++                                                @parent.get_part(@type).filename=(new_filename) }})
++      $facebuilder.update_undo() if $facebuilder
++    end
++
+     @filename = filename    
+     pixbuf = Gdk::Pixbuf.new(@filename)
+     @canvas_items.each {|item|
+@@ -216,10 +225,12 @@
+ 
+ class Face
+   attr_accessor :undo_stack, :redo_stack, :parts
++  attr_reader   :use_undo
+ 
+   def initialize(root, filename = nil)
+     @undo_stack = []
+     @redo_stack = []
++    @use_undo   = true
+ 
+     @root = root
+     @parts  = {
+@@ -238,6 +249,20 @@
+     }
+   end
+ 
++  def without_undo()
++    disable_undo()
++    yield()
++    enable_undo()
++  end
++
++  def disable_undo()
++    @use_undo = false
++  end
++
++  def enable_undo()
++    @use_undo = true
++  end
++
+   def get_part(type)
+     return @parts[type]
+   end 
+
+Modified: facebuilder/facebuilder.rb
+===================================================================
+--- facebuilder/facebuilder.rb	2005-12-25 20:48:22 UTC (rev 1159)
++++ facebuilder/facebuilder.rb	2005-12-25 21:11:34 UTC (rev 1160)
+@@ -58,6 +58,9 @@
+ 
+     @glade['toolbutton_open_file'].signal_connect(&quot;clicked&quot;) { |*params| on_open1_activate(nil) }
+     @glade['toolbutton_save_file'].signal_connect(&quot;clicked&quot;) { |*params| on_save_as1_activate(nil) }
++
++    @glade['toolbutton_undo'].set_sensitive(false)
++    @glade['toolbutton_redo'].set_sensitive(false)
+   end
+ 
+   def initialize(path_or_data, root = nil, domain = nil, localedir = nil, flag = GladeXML::FILE)
+@@ -161,10 +164,12 @@
+ 
+   def on_undo()
+     @face.do_undo()
++    update_undo()
+   end
+ 
+   def on_redo()
+     @face.do_redo()
++    update_undo()
+   end
+   
+   def on_open1_activate(widget)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000812.html">[Windstille-commit] r1159 - facebuilder
+</A></li>
+	<LI>Next message: <A HREF="000814.html">[Windstille-commit] r1161 - facebuilder
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#813">[ date ]</a>
+              <a href="thread.html#813">[ thread ]</a>
+              <a href="subject.html#813">[ subject ]</a>
+              <a href="author.html#813">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

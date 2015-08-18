@@ -1,0 +1,802 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2718 - in trunk/windstille: . src src/app	src/display src/editor src/screen
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2718%20-%20in%20trunk/windstille%3A%20.%20src%20src/app%0A%09src/display%20src/editor%20src/screen&In-Reply-To=%3C200903210348.n2L3mUX4015461%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001714.html">
+   <LINK REL="Next"  HREF="001716.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2718 - in trunk/windstille: . src src/app	src/display src/editor src/screen</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2718%20-%20in%20trunk/windstille%3A%20.%20src%20src/app%0A%09src/display%20src/editor%20src/screen&In-Reply-To=%3C200903210348.n2L3mUX4015461%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2718 - in trunk/windstille: . src src/app	src/display src/editor src/screen">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Mar 21 04:48:30 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001714.html">[Windstille-commit] r2717 - trunk/windstille/src/display
+</A></li>
+        <LI>Next message: <A HREF="001716.html">[Windstille-commit] r2719 - in trunk/windstille: . src src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1715">[ date ]</a>
+              <a href="thread.html#1715">[ thread ]</a>
+              <a href="subject.html#1715">[ subject ]</a>
+              <a href="author.html#1715">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-21 04:48:28 +0100 (Sat, 21 Mar 2009)
+New Revision: 2718
+
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/src/SConscript
+   trunk/windstille/src/app/menu_manager.cpp
+   trunk/windstille/src/app/windstille_main.cpp
+   trunk/windstille/src/app/windstille_main.hpp
+   trunk/windstille/src/display/blitter.hpp
+   trunk/windstille/src/display/display.cpp
+   trunk/windstille/src/display/display.hpp
+   trunk/windstille/src/display/opengl_state.cpp
+   trunk/windstille/src/display/surface_manager.cpp
+   trunk/windstille/src/display/texture_manager.cpp
+   trunk/windstille/src/editor/windstille_widget.hpp
+   trunk/windstille/src/screen/screen_manager.cpp
+Log:
+Splitted build process into a few different libraries, for easier reuse
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-03-21 02:56:15 UTC (rev 2717)
++++ trunk/windstille/TODO	2009-03-21 03:48:28 UTC (rev 2718)
+@@ -185,6 +185,8 @@
+ Miscellaneous
+ =============
+ 
++* get rid of global debug
++
+ * work on Object introspection, see: ~/projects/lang/c++/introspection.cpp
+ 
+   class GameObject {
+
+Modified: trunk/windstille/src/SConscript
+===================================================================
+--- trunk/windstille/src/SConscript	2009-03-21 02:56:15 UTC (rev 2717)
++++ trunk/windstille/src/SConscript	2009-03-21 03:48:28 UTC (rev 2718)
+@@ -18,9 +18,85 @@
+ Import('conf_env', 'features')
+ 
+ SConscript('scripting/SConscript')
++
++util_env = conf_env.Clone()
++util_env['CPPPATH'] = ['.', '..']
++util_lib = util_env.StaticLibrary('util', [
++        'lisp/getters.cpp',
++        'lisp/lexer.cpp',
++        'lisp/lisp.cpp',
++        'lisp/parser.cpp',
++        'lisp/properties.cpp',
++        'lisp/writer.cpp',
++        'util/baby_xml.cpp',
++        'util/command_line.cpp',
++        'util/command_line_generic.cpp',
++        'util/file_reader.cpp',
++        'util/getter.cpp',
++        'util/response_curve.cpp',
++        'util/sexpr_file_reader.cpp',
++        'util/util.cpp',
++        ])
++
++physfs_env = conf_env.Clone()
++physfs_env['CPPPATH'] = ['.', '..']
++physfs_env.ParseConfig('sdl-config --cflags --libs')
++physfs_lib = physfs_env.StaticLibrary('physfs', [
++        'physfs/physfs_sdl.cpp',
++        'physfs/physfs_stream.cpp'])
++
++math_env = conf_env.Clone()
++math_env['CPPPATH'] = ['.']
++math_lib = math_env.StaticLibrary('math', [
++        'math/line.cpp',
++        'math/matrix.cpp',
++        'math/origin.cpp',
++        'math/quaternion.cpp',
++        'math/random.cpp',
++        'math/rect.cpp',
++        'math/vector2f.cpp',
++        ])
++
++display_env = Environment(CPPPATH=['.'],
++                          CXXFLAGS=['-Wall', '-Werror', '-O2', '-g'])
++display_env.ParseConfig('sdl-config --cflags --libs')
++display_env.ParseConfig('freetype-config --libs --cflags')
+ 
++display_lib = display_env.StaticLibrary('display', [
++        'font/border_font_effect.cpp',
++        'font/no_font_effect.cpp',
++        'font/fonts.cpp',
++        'font/ttf_font.cpp',
++
++        'display/blitter.cpp',
++        'display/display.cpp',
++        'display/drawing_context.cpp',
++        'display/framebuffer.cpp',
++        'display/graphic_context_state.cpp',
++        'display/opengl_state.cpp',
++        'display/render_buffer.cpp',
++        'display/scene_context.cpp',
++        'display/shader_object.cpp',
++        'display/shader_program.cpp',
++        'display/software_surface.cpp',
++        'display/surface.cpp',
++        'display/surface_manager.cpp',
++        'display/text_area.cpp',
++        'display/texture.cpp',
++        'display/texture_manager.cpp',
++        'display/vertex_array_drawing_request.cpp',
++        
++        'sprite2d/data.cpp',
++        'sprite2d/manager.cpp',
++        'sprite2d/sprite.cpp',
++        'sprite3d/data.cpp',
++        'sprite3d/manager.cpp',
++        'sprite3d/sprite3d.cpp',
++        ])
++
+ env = conf_env.Clone()
+-env.Append(LIBS    = ['GL', 'GLU', 'GLEW', 'squirrel', 'physfs', 'SDL_image', 'openal', 'ogg', 'vorbis', 'vorbisfile', 'png', 'boost_signals'])
++env.Append(LIBS    = [display_lib, physfs_lib, util_lib, math_lib,
++                      'GL', 'GLU', 'GLEW', 'squirrel', 'physfs', 'SDL_image', 'openal', 'ogg', 'vorbis', 'vorbisfile', 'png', 'boost_signals'])
+ env.Append(LIBPATH = ['../external/'] )
+ env.Append(CPPPATH = ['.', '..', '../external/SQUIRREL2/include/'])
+ 
+@@ -51,23 +127,6 @@
+         'collision/collision_object.cpp',
+         'collision/collision_test.cpp',
+         'collision/stair_contact.cpp',
+-        'display/blitter.cpp',
+-        'display/display.cpp',
+-        'display/drawing_context.cpp',
+-        'display/framebuffer.cpp',
+-        'display/graphic_context_state.cpp',
+-        'display/opengl_state.cpp',
+-        'display/render_buffer.cpp',
+-        'display/scene_context.cpp',
+-        'display/shader_object.cpp',
+-        'display/shader_program.cpp',
+-        'display/software_surface.cpp',
+-        'display/surface.cpp',
+-        'display/surface_manager.cpp',
+-        'display/text_area.cpp',
+-        'display/texture.cpp',
+-        'display/texture_manager.cpp',
+-        'display/vertex_array_drawing_request.cpp',
+         'engine/camera.cpp',
+         'engine/entity.cpp',
+         'engine/game_object.cpp',
+@@ -75,10 +134,6 @@
+         'engine/script_manager.cpp',
+         'engine/squirrel_thread.cpp',
+         'engine/sector.cpp',
+-        'font/border_font_effect.cpp',
+-        'font/no_font_effect.cpp',
+-        'font/fonts.cpp',
+-        'font/ttf_font.cpp',
+         'gui/automap.cpp',
+         'gui/button.cpp',
+         'gui/component.cpp',
+@@ -107,19 +162,6 @@
+         'input/input_manager_impl.cpp',
+         'input/input_manager_sdl.cpp',
+         'input/wiimote.cpp',
+-        'lisp/getters.cpp',
+-        'lisp/lexer.cpp',
+-        'lisp/lisp.cpp',
+-        'lisp/parser.cpp',
+-        'lisp/properties.cpp',
+-        'lisp/writer.cpp',
+-        'math/line.cpp',
+-        'math/matrix.cpp',
+-        'math/origin.cpp',
+-        'math/quaternion.cpp',
+-        'math/random.cpp',
+-        'math/rect.cpp',
+-        'math/vector2f.cpp',
+         'navigation/navigation_graph.cpp',
+         'navigation/node.cpp',
+         'navigation/properties.cpp',
+@@ -148,8 +190,6 @@
+         'particles/particle_system.cpp',
+         'particles/spark_drawer.cpp',
+         'particles/surface_drawer.cpp',
+-        'physfs/physfs_sdl.cpp',
+-        'physfs/physfs_stream.cpp',
+         'properties/property.cpp',
+         'properties/property_set.cpp',
+         'properties/properties.cpp',
+@@ -174,31 +214,17 @@
+         'sound/sound_manager.cpp',
+         'sound/sound_source.cpp',
+         'sound/stream_sound_source.cpp',
+-        'sprite2d/data.cpp',
+-        'sprite2d/manager.cpp',
+-        'sprite2d/sprite.cpp',
+-        'sprite3d/data.cpp',
+-        'sprite3d/manager.cpp',
+-        'sprite3d/sprite3d.cpp',
+         'tile/tile.cpp',
+         'tile/tile_description.cpp',
+         'tile/tile_factory.cpp',
+         'tile/tile_map.cpp',
+         'tile/tile_packer.cpp',
+-        'util/baby_xml.cpp',
+-        'util/command_line.cpp',
+-        'util/command_line_generic.cpp',
+-        'util/file_reader.cpp',
+-        'util/getter.cpp',
+-        'util/response_curve.cpp',
+-        'util/sexpr_file_reader.cpp',
+-        'util/util.cpp',
+         'screen/view.cpp',
+         ])
+ 
+ editor_env = Environment(CPPPATH=['.'],
+                          CXXFLAGS=['-Wall', '-Werror', '-O2', '-g'],
+-                         LIBS = ['GL', 'GLEW'])
++                         LIBS = [display_lib, physfs_lib, util_lib, math_lib, 'GL', 'GLEW', 'SDL_image', 'physfs'])
+ 
+ editor_env.ParseConfig('pkg-config libpng --libs --cflags')
+ editor_env.ParseConfig('sdl-config --cflags --libs')
+
+Modified: trunk/windstille/src/app/menu_manager.cpp
+===================================================================
+--- trunk/windstille/src/app/menu_manager.cpp	2009-03-21 02:56:15 UTC (rev 2717)
++++ trunk/windstille/src/app/menu_manager.cpp	2009-03-21 03:48:28 UTC (rev 2718)
+@@ -23,6 +23,7 @@
+ #include &quot;console.hpp&quot;
+ #include &quot;display/display.hpp&quot;
+ #include &quot;font/fonts.hpp&quot;
++#include &quot;app/windstille_main.hpp&quot;
+ #include &quot;screen/game_session.hpp&quot;
+ #include &quot;gui/group_component.hpp&quot;
+ #include &quot;gui/gui_manager.hpp&quot;
+@@ -436,7 +437,7 @@
+ MenuManager::menu_fullscreen(int i)
+ {
+   config.set_bool(&quot;fullscreen&quot;, i);
+-  Display::set_fullscreen(config.get_bool(&quot;fullscreen&quot;));
++  WindstilleMain::current()-&gt;set_fullscreen(config.get_bool(&quot;fullscreen&quot;));
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/app/windstille_main.cpp
+===================================================================
+--- trunk/windstille/src/app/windstille_main.cpp	2009-03-21 02:56:15 UTC (rev 2717)
++++ trunk/windstille/src/app/windstille_main.cpp	2009-03-21 03:48:28 UTC (rev 2718)
+@@ -16,47 +16,54 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
++#include &quot;SDL.h&quot;
++
+ #include &quot;windstille.hpp&quot;
+ 
+ #include &lt;boost/scoped_array.hpp&gt;
+ #include &lt;stdio.h&gt;
+ #include &lt;physfs.h&gt;
+ 
+-#include &quot;globals.hpp&quot;
+-#include &quot;screen/screen.hpp&quot;
+-#include &quot;windstille_main.hpp&quot;
+-#include &quot;font/fonts.hpp&quot;
+-#include &quot;screen/game_session.hpp&quot;
+-#include &quot;screen/title_screen.hpp&quot;
+-#include &quot;engine/sector.hpp&quot;
+-#include &quot;input/input_manager.hpp&quot;
+-#include &quot;sound/sound_manager.hpp&quot;
+-#include &quot;tile/tile_factory.hpp&quot;
+-#include &quot;engine/script_manager.hpp&quot;
+ #include &quot;config.hpp&quot;
+-#include &quot;util/util.hpp&quot;
+-#include &quot;font/ttf_font.hpp&quot;
+ #include &quot;display/display.hpp&quot;
++#include &quot;display/opengl_state.hpp&quot;
+ #include &quot;display/surface_manager.hpp&quot;
+ #include &quot;display/texture_manager.hpp&quot;
+-#include &quot;sprite3d/manager.hpp&quot;
++#include &quot;engine/script_manager.hpp&quot;
++#include &quot;engine/sector.hpp&quot;
++#include &quot;font/fonts.hpp&quot;
++#include &quot;font/ttf_font.hpp&quot;
++#include &quot;globals.hpp&quot;
++#include &quot;input/input_manager.hpp&quot;
++#include &quot;screen/game_session.hpp&quot;
++#include &quot;screen/particle_viewer.hpp&quot;
++#include &quot;screen/screen.hpp&quot;
+ #include &quot;screen/screen_manager.hpp&quot;
++#include &quot;screen/sprite2dview.hpp&quot;
+ #include &quot;screen/sprite3dview.hpp&quot;
+-#include &quot;screen/sprite2dview.hpp&quot;
+-#include &quot;screen/particle_viewer.hpp&quot;
++#include &quot;screen/title_screen.hpp&quot;
++#include &quot;sound/sound_manager.hpp&quot;
+ #include &quot;sprite2d/manager.hpp&quot;
++#include &quot;sprite3d/manager.hpp&quot;
++#include &quot;tile/tile_factory.hpp&quot;
++#include &quot;util/util.hpp&quot;
++#include &quot;windstille_main.hpp&quot;
+ 
+ #ifdef WIN32
+ #include &quot;shlwapi.h&quot;
+ #define strcasecmp lstrcmpiA 
+ #endif
+ 
++WindstilleMain* WindstilleMain::current_ = 0;
++
+ WindstilleMain::WindstilleMain()
+ {
++  current_ = this;
+ }
+ 
+ WindstilleMain::~WindstilleMain()
+ {
++  current_ = 0;
+ }
+ 
+ int 
+@@ -150,13 +157,95 @@
+ }
+ 
+ void
++WindstilleMain::set_fullscreen(bool fullscreen)
++{ 
++  Uint32 flags = SDL_OPENGL;
++  if (fullscreen)
++    flags |= SDL_FULLSCREEN;
++
++  SDL_Surface* window = SDL_SetVideoMode(config.get_int(&quot;screen-width&quot;), config.get_int(&quot;screen-height&quot;),
++                                         0, flags);
++  if (!window)
++    {
++      throw std::runtime_error(&quot;Display:: Couldn't create window&quot;);
++    }
++}
++
++void
++WindstilleMain::init_display()
++{
++  SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1); 
++  SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 5);
++  SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 5);
++  SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 5);
++
++  if (config.get_int(&quot;anti-aliasing&quot;))
++    {
++      SDL_GL_SetAttribute( SDL_GL_MULTISAMPLEBUFFERS, 1 ); // boolean value, either it's enabled or not
++      SDL_GL_SetAttribute( SDL_GL_MULTISAMPLESAMPLES, config.get_int(&quot;anti-aliasing&quot;) ); // 0, 2, or 4 for number of samples
++    }
++
++  SDL_Surface* window = SDL_SetVideoMode(config.get_int(&quot;screen-width&quot;), config.get_int(&quot;screen-height&quot;),
++                                        0, SDL_OPENGL | (config.get_bool(&quot;fullscreen&quot;) ? SDL_FULLSCREEN : 0));
++
++  if (!window)
++    {
++      throw std::runtime_error(&quot;Display:: Couldn't create window&quot;);
++    }
++  else
++    {
++      SDL_WM_SetCaption(&quot;Windstille&quot;, 0 /* icon */);
++
++      GLenum err = glewInit();
++      if(err != GLEW_OK) {
++        std::ostringstream msg;
++        msg &lt;&lt; &quot;Display:: Couldn't initialize glew: &quot; &lt;&lt; glewGetString(err);
++        throw std::runtime_error(msg.str());
++      }
++      /*
++        if(!GLEW_EXT_framebuffer_object) {
++        std::ostringstream msg;
++        msg &lt;&lt; &quot;Display:: Framebuffer opengl extension not supported&quot;;
++        throw std::runtime_error(msg.str());
++        }
++      */
++
++      glViewport(0, 0, window-&gt;w, window-&gt;h);
++      glMatrixMode(GL_PROJECTION);
++      glLoadIdentity();
++
++      static const float cl_pixelcenter_constant = 0.375;
++
++      //glOrtho(0.0, window-&gt;w, window-&gt;h, 0.0, -1000.0, 1000.0);
++  
++      // glOrtho(0.0, 800, 0.0, 600.0, 1000.0, -1000.0); // proper right-hand CO
++      Display::aspect_size = Size(config.get_int(&quot;aspect-width&quot;), 
++                                  config.get_int(&quot;aspect-height&quot;));
++
++      glOrtho(0.0, 
++              Display::get_width(), Display::get_height(),
++              0.0, 1000.0, -1000.0);
++      glMatrixMode(GL_MODELVIEW);
++      glLoadIdentity();
++      glTranslated(cl_pixelcenter_constant, cl_pixelcenter_constant, 0.0);
++
++      if (config.get_int(&quot;anti-aliasing&quot;))
++        glEnable(GL_MULTISAMPLE_ARB); 
++
++      assert_gl(&quot;setup projection&quot;);
++
++      OpenGLState::init();
++    }
++}
++
++void
+ WindstilleMain::init_modules()
+ {
+   if (debug) std::cout &lt;&lt; &quot;Initialising Freetype2&quot; &lt;&lt; std::endl;
+     
+   TTFFont::init();
+   
+-  Display::init();
++  init_display();
+ 
+   if (debug) std::cout &lt;&lt; &quot;Initialising Fonts&quot; &lt;&lt; std::endl;
+   Fonts::init(); 
+
+Modified: trunk/windstille/src/app/windstille_main.hpp
+===================================================================
+--- trunk/windstille/src/app/windstille_main.hpp	2009-03-21 02:56:15 UTC (rev 2717)
++++ trunk/windstille/src/app/windstille_main.hpp	2009-03-21 03:48:28 UTC (rev 2718)
+@@ -50,14 +50,21 @@
+ #include &quot;screen/screen.hpp&quot;
+ 
+ class WindstilleMain
+-{  
++{ 
++private:
++  static WindstilleMain* current_;
+ public:
++  static WindstilleMain* current() { return current_; }
++
++public:
+   WindstilleMain();
+   ~WindstilleMain();
+ 
+   int main(int argc, char** argv);
++  void set_fullscreen(bool fullscreen);
+ 
+ private:
++  void init_display();
+   void init_sdl();
+   void init_physfs(const char* argv0);
+   void init_modules();
+
+Modified: trunk/windstille/src/display/blitter.hpp
+===================================================================
+--- trunk/windstille/src/display/blitter.hpp	2009-03-21 02:56:15 UTC (rev 2717)
++++ trunk/windstille/src/display/blitter.hpp	2009-03-21 03:48:28 UTC (rev 2718)
+@@ -17,10 +17,6 @@
+ 
+ #ifndef HEADER_BLITTER_HPP
+ #define HEADER_BLITTER_HPP
+-
+-#include &lt;ft2build.h&gt;
+-#include FT_FREETYPE_H
+-#include FT_GLYPH_H
+ 
+ class SoftwareSurface;
+ 
+
+Modified: trunk/windstille/src/display/display.cpp
+===================================================================
+--- trunk/windstille/src/display/display.cpp	2009-03-21 02:56:15 UTC (rev 2717)
++++ trunk/windstille/src/display/display.cpp	2009-03-21 03:48:28 UTC (rev 2718)
+@@ -23,7 +23,6 @@
+ #include &lt;fstream&gt;
+ #include &lt;stdexcept&gt;
+ #include &lt;SDL.h&gt;
+-#include &quot;app/console.hpp&quot;
+ #include &quot;app/config.hpp&quot;
+ #include &quot;math/math.hpp&quot;
+ #include &quot;display/opengl_state.hpp&quot;
+@@ -32,7 +31,6 @@
+ #include &lt;assert.h&gt;
+ 
+ Size              Display::aspect_size;
+-SDL_Surface*      Display::window = 0;
+ std::vector&lt;Rect&gt; Display::cliprects;
+ std::vector&lt;Framebuffer&gt; framebuffers;
+ 
+@@ -225,87 +223,6 @@
+ }
+ 
+ void
+-Display::init()
+-{
+-  SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1); 
+-  SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 5);
+-  SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 5);
+-  SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 5);
+-
+-  if (config.get_int(&quot;anti-aliasing&quot;))
+-    {
+-      SDL_GL_SetAttribute( SDL_GL_MULTISAMPLEBUFFERS, 1 ); // boolean value, either it's enabled or not
+-      SDL_GL_SetAttribute( SDL_GL_MULTISAMPLESAMPLES, config.get_int(&quot;anti-aliasing&quot;) ); // 0, 2, or 4 for number of samples
+-    }
+-
+-  window = SDL_SetVideoMode(config.get_int(&quot;screen-width&quot;), config.get_int(&quot;screen-height&quot;),
+-                            0, SDL_OPENGL | (config.get_bool(&quot;fullscreen&quot;) ? SDL_FULLSCREEN : 0));
+-  if (!window)
+-    {
+-      throw std::runtime_error(&quot;Display:: Couldn't create window&quot;);
+-    }
+-  else
+-    {
+-      SDL_WM_SetCaption(&quot;Windstille&quot;, 0 /* icon */);
+-
+-      GLenum err = glewInit();
+-      if(err != GLEW_OK) {
+-        std::ostringstream msg;
+-        msg &lt;&lt; &quot;Display:: Couldn't initialize glew: &quot; &lt;&lt; glewGetString(err);
+-        throw std::runtime_error(msg.str());
+-      }
+-      /*
+-        if(!GLEW_EXT_framebuffer_object) {
+-        std::ostringstream msg;
+-        msg &lt;&lt; &quot;Display:: Framebuffer opengl extension not supported&quot;;
+-        throw std::runtime_error(msg.str());
+-        }
+-      */
+-
+-      glViewport(0, 0, window-&gt;w, window-&gt;h);
+-      glMatrixMode(GL_PROJECTION);
+-      glLoadIdentity();
+-
+-      static const float cl_pixelcenter_constant = 0.375;
+-
+-      //glOrtho(0.0, window-&gt;w, window-&gt;h, 0.0, -1000.0, 1000.0);
+-  
+-      // glOrtho(0.0, 800, 0.0, 600.0, 1000.0, -1000.0); // proper right-hand CO
+-      Display::aspect_size = Size(config.get_int(&quot;aspect-width&quot;), 
+-                                  config.get_int(&quot;aspect-height&quot;));
+-
+-      glOrtho(0.0, 
+-              aspect_size.width, aspect_size.height,
+-              0.0, 1000.0, -1000.0);
+-      glMatrixMode(GL_MODELVIEW);
+-      glLoadIdentity();
+-      glTranslated(cl_pixelcenter_constant, cl_pixelcenter_constant, 0.0);
+-
+-      if (config.get_int(&quot;anti-aliasing&quot;))
+-        glEnable(GL_MULTISAMPLE_ARB); 
+-
+-      assert_gl(&quot;setup projection&quot;);
+-
+-      OpenGLState::init();
+-    }
+-}
+-
+-void
+-Display::set_fullscreen(bool fullscreen)
+-{ 
+-  Uint32 flags = SDL_OPENGL;
+-  if (fullscreen)
+-    flags |= SDL_FULLSCREEN;
+-
+-  window = SDL_SetVideoMode(config.get_int(&quot;screen-width&quot;), config.get_int(&quot;screen-height&quot;),
+-                            0, flags);
+-  if (!window)
+-    {
+-      throw std::runtime_error(&quot;Display:: Couldn't create window&quot;);
+-    }
+-}
+-
+-void
+ Display::draw_circle(const Vector2f&amp; pos, float radius, const Color&amp; color, int segments)
+ {
+   assert(segments &gt;= 0);
+@@ -492,6 +409,8 @@
+ void
+ Display::save_screenshot(const std::string&amp; filename)
+ {
++  SDL_Surface* window = SDL_GetVideoSurface();
++
+   const int width  = window-&gt;w;
+   const int height = window-&gt;h;
+ 
+@@ -536,7 +455,7 @@
+ 
+       if (!fp)
+         {
+-          console &lt;&lt; &quot;Error: Couldn't save screenshot: &quot; &lt;&lt; strerror(errno) &lt;&lt; std::endl;
++          std::cout &lt;&lt; &quot;Error: Couldn't save screenshot: &quot; &lt;&lt; strerror(errno) &lt;&lt; std::endl;
+           return;
+         }
+       else
+
+Modified: trunk/windstille/src/display/display.hpp
+===================================================================
+--- trunk/windstille/src/display/display.hpp	2009-03-21 02:56:15 UTC (rev 2717)
++++ trunk/windstille/src/display/display.hpp	2009-03-21 03:48:28 UTC (rev 2718)
+@@ -30,11 +30,12 @@
+ class Display
+ {
+ private:
+-  static Size aspect_size;
+   static std::vector&lt;Rect&gt; cliprects;
+-  static SDL_Surface* window;
+ 
+ public:
++  static Size aspect_size;
++  
++public:
+   static void fill_rect(const Rectf&amp; rect, const Color&amp; color);
+   static void draw_rect(const Rectf&amp; rect, const Color&amp; color);
+ 
+@@ -56,8 +57,6 @@
+   static int  get_width();
+   static int  get_height();
+ 
+-  static void set_fullscreen(bool fullscreen);
+-
+   static void push_cliprect(const Rect&amp; rect);
+   static void pop_cliprect();
+ 
+
+Modified: trunk/windstille/src/display/opengl_state.cpp
+===================================================================
+--- trunk/windstille/src/display/opengl_state.cpp	2009-03-21 02:56:15 UTC (rev 2717)
++++ trunk/windstille/src/display/opengl_state.cpp	2009-03-21 03:48:28 UTC (rev 2718)
+@@ -75,8 +75,10 @@
+ 
+   global_ = new OpenGLState();
+ 
++#if 0
+   if (debug)
+     global_-&gt;verify();
++#endif
+ }
+ 
+ OpenGLState*
+@@ -313,8 +315,10 @@
+         }
+     }
+ 
++#if 0
+   if (debug)
+     verify();
++#endif
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/display/surface_manager.cpp
+===================================================================
+--- trunk/windstille/src/display/surface_manager.cpp	2009-03-21 02:56:15 UTC (rev 2717)
++++ trunk/windstille/src/display/surface_manager.cpp	2009-03-21 03:48:28 UTC (rev 2718)
+@@ -42,7 +42,8 @@
+ 
+ SurfaceManager::~SurfaceManager()
+ {
+-  if(debug)
++#if 0 
++  if (debug)
+     {
+       for(Surfaces::iterator i = surfaces.begin(); i != surfaces.end(); ++i)
+         {
+@@ -50,6 +51,7 @@
+           std::cerr &lt;&lt; &quot;Warning: Surface '&quot; &lt;&lt; i-&gt;first &lt;&lt; &quot;' not released.\n&quot;;
+         }
+     }
++#endif
+ 
+   current_ = 0;
+ }
+
+Modified: trunk/windstille/src/display/texture_manager.cpp
+===================================================================
+--- trunk/windstille/src/display/texture_manager.cpp	2009-03-21 02:56:15 UTC (rev 2717)
++++ trunk/windstille/src/display/texture_manager.cpp	2009-03-21 03:48:28 UTC (rev 2718)
+@@ -37,12 +37,14 @@
+ 
+ TextureManager::~TextureManager()
+ {
++#if 0
+   if(debug)
+   {
+     for(Textures::iterator i = textures.begin(); i != textures.end(); ++i) {
+       std::cerr &lt;&lt; &quot;Warning: Texture '&quot; &lt;&lt; i-&gt;first &lt;&lt; &quot;' not released.\n&quot;;
+     }
+   }
++#endif
+ }
+ 
+ Texture
+
+Modified: trunk/windstille/src/editor/windstille_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.hpp	2009-03-21 02:56:15 UTC (rev 2717)
++++ trunk/windstille/src/editor/windstille_widget.hpp	2009-03-21 03:48:28 UTC (rev 2718)
+@@ -19,12 +19,16 @@
+ #ifndef HEADER_WINDSTILLE_EDITOR_WINDSTILLE_WIDGET_HPP
+ #define HEADER_WINDSTILLE_EDITOR_WINDSTILLE_WIDGET_HPP
+ 
++#include &lt;GL/glew.h&gt;
++#include &lt;GL/gl.h&gt;
++
+ #include &lt;vector&gt;
+ #include &lt;iostream&gt;
+ #include &lt;gtkglmm.h&gt;
+ #include &lt;gdkmm/dragcontext.h&gt;
+ #include &lt;gtkmm/gl/widget.h&gt;
+ 
++#include &quot;display/scene_context.hpp&quot;
+ #include &quot;math/vector2f.hpp&quot;
+ 
+ /** OpenGL drawing area into which the Windstille game will be
+@@ -35,6 +39,7 @@
+ {
+ private:
+   std::vector&lt;Vector2f&gt; objects;
++    SceneContext sc;
+   
+ public:
+   WindstilleWidget();
+
+Modified: trunk/windstille/src/screen/screen_manager.cpp
+===================================================================
+--- trunk/windstille/src/screen/screen_manager.cpp	2009-03-21 02:56:15 UTC (rev 2717)
++++ trunk/windstille/src/screen/screen_manager.cpp	2009-03-21 03:48:28 UTC (rev 2718)
+@@ -28,6 +28,7 @@
+ #include &quot;screen.hpp&quot;
+ #include &quot;font/fonts.hpp&quot;
+ #include &quot;app/config.hpp&quot;
++#include &quot;app/windstille_main.hpp&quot;
+ #include &quot;input/input_manager.hpp&quot;
+ #include &quot;input/input_configurator.hpp&quot;
+ #include &quot;sound/sound_manager.hpp&quot;
+@@ -253,7 +254,7 @@
+               
+                     case SDLK_F11:
+                       config.set_bool(&quot;fullscreen&quot;, !config.get_bool(&quot;fullscreen&quot;));
+-                      Display::set_fullscreen(config.get_bool(&quot;fullscreen&quot;));
++                      WindstilleMain::current()-&gt;set_fullscreen(config.get_bool(&quot;fullscreen&quot;));
+                       break;
+               
+ #ifndef WIN32
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001714.html">[Windstille-commit] r2717 - trunk/windstille/src/display
+</A></li>
+	<LI>Next message: <A HREF="001716.html">[Windstille-commit] r2719 - in trunk/windstille: . src src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1715">[ date ]</a>
+              <a href="thread.html#1715">[ thread ]</a>
+              <a href="subject.html#1715">[ subject ]</a>
+              <a href="author.html#1715">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

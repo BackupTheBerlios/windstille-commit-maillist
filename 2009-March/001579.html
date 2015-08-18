@@ -1,0 +1,161 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2582 - trunk/windstille/src/engine
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2582%20-%20trunk/windstille/src/engine&In-Reply-To=%3C200903082253.n28MrwXI002449%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001578.html">
+   <LINK REL="Next"  HREF="001580.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2582 - trunk/windstille/src/engine</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2582%20-%20trunk/windstille/src/engine&In-Reply-To=%3C200903082253.n28MrwXI002449%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2582 - trunk/windstille/src/engine">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Mar  8 23:53:58 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001578.html">[Windstille-commit] r2581 - trunk/windstille
+</A></li>
+        <LI>Next message: <A HREF="001580.html">[Windstille-commit] r2583 - trunk/windstille/src/app
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1579">[ date ]</a>
+              <a href="thread.html#1579">[ thread ]</a>
+              <a href="subject.html#1579">[ subject ]</a>
+              <a href="author.html#1579">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-08 23:53:58 +0100 (Sun, 08 Mar 2009)
+New Revision: 2582
+
+Modified:
+   trunk/windstille/src/engine/script_manager.cpp
+   trunk/windstille/src/engine/squirrel_vm.cpp
+   trunk/windstille/src/engine/squirrel_vm.hpp
+Log:
+Removed SquirrelVM::run(), now done via call(&quot;init&quot;) and call(&quot;run&quot;)
+
+Modified: trunk/windstille/src/engine/script_manager.cpp
+===================================================================
+--- trunk/windstille/src/engine/script_manager.cpp	2009-03-08 22:41:56 UTC (rev 2581)
++++ trunk/windstille/src/engine/script_manager.cpp	2009-03-08 22:53:58 UTC (rev 2582)
+@@ -195,7 +195,8 @@
+       else
+         { // Add VM to the list of VMs
+           squirrel_vms.push_back(boost::shared_ptr&lt;SquirrelVM&gt;(new SquirrelVM(in, sourcename, vm)));     
+-          squirrel_vms.back()-&gt;run();
++          squirrel_vms.back()-&gt;call(&quot;init&quot;);
++          squirrel_vms.back()-&gt;call(&quot;run&quot;);
+         }
+     }
+ }
+
+Modified: trunk/windstille/src/engine/squirrel_vm.cpp
+===================================================================
+--- trunk/windstille/src/engine/squirrel_vm.cpp	2009-03-08 22:41:56 UTC (rev 2581)
++++ trunk/windstille/src/engine/squirrel_vm.cpp	2009-03-08 22:53:58 UTC (rev 2582)
+@@ -85,6 +85,12 @@
+       // Compile the script and push it on the stack
+       if(sq_compile(vm, squirrel_read_char, &amp;in, name.c_str(), true) &lt; 0)
+         throw SquirrelError(vm, name, &quot;Couldn't parse script&quot;);
++
++      sq_pushroottable(vm);
++
++      // Start the script that was previously compiled
++      if (SQ_FAILED(sq_call(vm, 1, false, true)))
++        throw SquirrelError(vm, name, &quot;SquirrelVM::run(): Couldn't start script&quot;);
+     }
+ }
+ 
+@@ -93,28 +99,6 @@
+   sq_release(vm, &amp;vm_obj);  
+ }
+ 
+-void 
+-SquirrelVM::run()
+-{
+-  sq_pushroottable(vm);
+-  
+-  std::cout &lt;&lt; &quot;################\nRootTable:\n{{{&quot; &lt;&lt; Scripting::squirrel2string(vm, -1) &lt;&lt; &quot;\n}}}&quot; &lt;&lt; std::endl;
+-
+-  // Start the script that was previously compiled
+-  if (SQ_FAILED(sq_call(vm, 1, false, true)))
+-    throw SquirrelError(vm, name, &quot;SquirrelVM::run(): Couldn't start script&quot;);
+-
+-  if (sq_getvmstate(vm) == SQ_VMSTATE_IDLE)
+-    {
+-      call(&quot;init&quot;);
+-    }
+-
+-  if (sq_getvmstate(vm) == SQ_VMSTATE_IDLE)
+-    {
+-      call(&quot;run&quot;);
+-    }
+-}
+-
+ void
+ SquirrelVM::set_wakeup_event(const ScriptManager::WakeupData&amp; event, float timeout)
+ {
+@@ -209,9 +193,9 @@
+ {
+   sq_pushroottable(vm);
+ 
+-  std::cout &lt;&lt; &quot;################\nRootTable:\n{{{&quot; &lt;&lt; Scripting::squirrel2string(vm, -1) &lt;&lt; &quot;\n}}}&quot; &lt;&lt; std::endl;
++  //std::cout &lt;&lt; &quot;################\nRootTable:\n{{{&quot; &lt;&lt; Scripting::squirrel2string(vm, -1) &lt;&lt; &quot;\n}}}&quot; &lt;&lt; std::endl;
+   sq_getdelegate(vm, -1);
+-  std::cout &lt;&lt; &quot;################\nDelegate:\n{{{&quot; &lt;&lt; Scripting::squirrel2string(vm, -1) &lt;&lt; &quot;\n}}}&quot; &lt;&lt; std::endl;
++  //std::cout &lt;&lt; &quot;################\nDelegate:\n{{{&quot; &lt;&lt; Scripting::squirrel2string(vm, -1) &lt;&lt; &quot;\n}}}&quot; &lt;&lt; std::endl;
+   sq_pop(vm, 1);
+ 
+   // Lookup the function in the roottable and put it on the stack
+
+Modified: trunk/windstille/src/engine/squirrel_vm.hpp
+===================================================================
+--- trunk/windstille/src/engine/squirrel_vm.hpp	2009-03-08 22:41:56 UTC (rev 2581)
++++ trunk/windstille/src/engine/squirrel_vm.hpp	2009-03-08 22:53:58 UTC (rev 2582)
+@@ -42,9 +42,6 @@
+   void set_wakeup_event(const ScriptManager::WakeupData&amp; event, float timeout);
+   void fire_wakeup_event(const ScriptManager::WakeupData&amp; event);
+ 
+-  /** Evaluates the scripts */
+-  void run();
+-
+   /** Resumes the evaluation of the VM if a wakeup has happened.
+       \return false when the VM is done and can be removed */
+   void update();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001578.html">[Windstille-commit] r2581 - trunk/windstille
+</A></li>
+	<LI>Next message: <A HREF="001580.html">[Windstille-commit] r2583 - trunk/windstille/src/app
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1579">[ date ]</a>
+              <a href="thread.html#1579">[ thread ]</a>
+              <a href="subject.html#1579">[ subject ]</a>
+              <a href="author.html#1579">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

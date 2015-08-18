@@ -1,0 +1,698 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3319 - in trunk/windstille/src: sound sprite3d	util
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3319%20-%20in%20trunk/windstille/src%3A%20sound%20sprite3d%0A%09util&In-Reply-To=%3C20100720114337.72340480CBA%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002315.html">
+   <LINK REL="Next"  HREF="002317.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3319 - in trunk/windstille/src: sound sprite3d	util</H1>
+    <B>grumbel at mail.berlios.de</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3319%20-%20in%20trunk/windstille/src%3A%20sound%20sprite3d%0A%09util&In-Reply-To=%3C20100720114337.72340480CBA%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3319 - in trunk/windstille/src: sound sprite3d	util">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Jul 20 13:43:37 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002315.html">[Windstille-commit] r3318 - trunk/windstille/src/sound
+</A></li>
+        <LI>Next message: <A HREF="002317.html">[Windstille-commit] r3320 - trunk/windstille/src/sound
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2316">[ date ]</a>
+              <a href="thread.html#2316">[ thread ]</a>
+              <a href="subject.html#2316">[ subject ]</a>
+              <a href="author.html#2316">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2010-07-20 13:43:37 +0200 (Tue, 20 Jul 2010)
+New Revision: 3319
+
+Modified:
+   trunk/windstille/src/sound/ogg_sound_file.cpp
+   trunk/windstille/src/sound/ogg_sound_file.hpp
+   trunk/windstille/src/sound/wav_sound_file.cpp
+   trunk/windstille/src/sound/wav_sound_file.hpp
+   trunk/windstille/src/sprite3d/data.cpp
+   trunk/windstille/src/util/util.cpp
+   trunk/windstille/src/util/util.hpp
+Log:
+Moved file reading helper functions into util/util.?pp
+Removed PhysFS dependency in OggSoundFile
+
+
+Modified: trunk/windstille/src/sound/ogg_sound_file.cpp
+===================================================================
+--- trunk/windstille/src/sound/ogg_sound_file.cpp	2010-07-20 01:39:13 UTC (rev 3318)
++++ trunk/windstille/src/sound/ogg_sound_file.cpp	2010-07-20 11:43:37 UTC (rev 3319)
+@@ -18,15 +18,65 @@
+ 
+ #include &quot;sound/ogg_sound_file.hpp&quot;
+ 
++#include &lt;stdexcept&gt;
++#include &lt;sstream&gt;
++
+ #include &quot;util/pathname.hpp&quot;
+ 
+ OggSoundFile::OggSoundFile(const Pathname&amp; filename) :
+   m_in(filename.get_sys_path().c_str(), std::ios::binary),
+   vorbis_file()
+ {
++  if (!m_in)
++  {
++    std::ostringstream str;
++    str &lt;&lt; &quot;OggSoundFile: Couldn't open: &quot; &lt;&lt; filename;
++    throw std::runtime_error(str.str());
++  }
++
++  // get the file size
++  m_in.seekg(0, std::ios::end);
++  m_file_size = m_in.tellg();
++  m_in.seekg(0, std::ios::beg);
++
+   ov_callbacks callbacks = { cb_read, cb_seek, cb_close, cb_tell };
+-  ov_open_callbacks(&amp;m_in, &amp;vorbis_file, 0, 0, callbacks);
+ 
++  int ret = ov_open_callbacks(this, &amp;vorbis_file, 0, 0, callbacks);
++
++  if (ret != 0)
++  {
++    std::ostringstream str;
++
++    switch(ret)
++    {
++      case OV_EREAD:
++        str &lt;&lt; &quot;OV_EREAD error while opening ogg&quot;;
++        break;
++
++      case OV_ENOTVORBIS:
++        str &lt;&lt; &quot;OV_ENOTVORBIS error while opening ogg&quot;;
++        break;
++
++      case OV_EVERSION:
++        str &lt;&lt; &quot;OV_EVERSION error while opening ogg&quot;;
++        break;
++
++      case OV_EBADHEADER:
++        str &lt;&lt; &quot;OV_EBADHEADER error while opening ogg&quot;;
++        break;
++
++      case OV_EFAULT:
++        str &lt;&lt; &quot;OV_EFAULT error while opening ogg&quot;;
++        break;
++
++      default:
++        str &lt;&lt; &quot;Unknown error while opening ogg: &quot; &lt;&lt; ret;
++        break;
++    }
++
++    throw std::runtime_error(str.str());
++  }
++
+   vorbis_info* vi = ov_info(&amp;vorbis_file, -1);
+   channels = vi-&gt;channels;
+   rate = vi-&gt;rate;
+@@ -68,36 +118,43 @@
+ }
+ 
+ size_t
+-OggSoundFile::cb_read(void* ptr, size_t size, size_t nmemb, void* source)
++OggSoundFile::cb_read(void* ptr, size_t size, size_t nmemb, void* userdata)
+ {
+-  std::ifstream&amp; in = *reinterpret_cast&lt;std::ifstream*&gt;(source);
+-  if (!in.read(static_cast&lt;char*&gt;(ptr), size * nmemb))
+-  {
+-    return -1;
+-  }
+-  else
+-  {
+-    return in.gcount();
+-  }
++  //std::cout &lt;&lt; &quot;OggSoundFile::cb_read: &quot; &lt;&lt; size * nmemb &lt;&lt; std::endl;
++  OggSoundFile&amp; ogg = *reinterpret_cast&lt;OggSoundFile*&gt;(userdata);
++
++  size_t read_len = size * nmemb;
++
++  // prevent std::istream from hitting eof(), needed as tellg() will
++  // return -1 in that case instead of the from cb_tell expected filesize
++  read_len = std::min(read_len, static_cast&lt;size_t&gt;(ogg.m_file_size - ogg.m_in.tellg()));
++
++  size_t len = ogg.m_in.read(static_cast&lt;char*&gt;(ptr), read_len).gcount();
++  return len;
+ }
+ 
+ int
+-OggSoundFile::cb_seek(void* source, ogg_int64_t offset, int whence)
++OggSoundFile::cb_seek(void* userdata, ogg_int64_t offset, int whence)
+ {
++  OggSoundFile&amp; ogg = *reinterpret_cast&lt;OggSoundFile*&gt;(userdata);
++
+   switch(whence) 
+   {
+     case SEEK_SET:
+-      if (!reinterpret_cast&lt;std::ifstream*&gt;(source)-&gt;seekg(offset, std::ios::beg))
++      //std::cout &lt;&lt; &quot;OggSoundFile::cb_seek: &quot; &lt;&lt; offset &lt;&lt; &quot; BEG&quot; &lt;&lt; std::endl; 
++      if (!ogg.m_in.seekg(offset, std::ios::beg))
+         return -1;
+       break;
+ 
+     case SEEK_CUR:
+-      if (!reinterpret_cast&lt;std::ifstream*&gt;(source)-&gt;seekg(offset, std::ios::cur))
++      //std::cout &lt;&lt; &quot;OggSoundFile::cb_seek: &quot; &lt;&lt; offset &lt;&lt; &quot; CUR&quot; &lt;&lt; std::endl; 
++      if (!ogg.m_in.seekg(offset, std::ios::cur))
+         return -1;
+       break;
+ 
+     case SEEK_END:
+-      if (!reinterpret_cast&lt;std::ifstream*&gt;(source)-&gt;seekg(offset, std::ios::end))
++      //std::cout &lt;&lt; &quot;OggSoundFile::cb_seek: &quot; &lt;&lt; offset &lt;&lt; &quot; END&quot; &lt;&lt; std::endl; 
++      if (!ogg.m_in.seekg(offset, std::ios::end))
+         return -1;
+       break;
+ 
+@@ -108,16 +165,21 @@
+ }
+   
+ int
+-OggSoundFile::cb_close(void* source)
++OggSoundFile::cb_close(void* userdata)
+ {
+-  reinterpret_cast&lt;std::ifstream*&gt;(source)-&gt;close();
++  //std::cout &lt;&lt; &quot;OggSoundFile::cb_close&quot; &lt;&lt; std::endl;
++  OggSoundFile&amp; ogg = *reinterpret_cast&lt;OggSoundFile*&gt;(userdata);
++
++  ogg.m_in.close();
+   return 0;
+ }
+ 
+ long
+-OggSoundFile::cb_tell(void* source)
++OggSoundFile::cb_tell(void* userdata)
+ {
+-  return reinterpret_cast&lt;std::ifstream*&gt;(source)-&gt;tellg();
++  //std::cout &lt;&lt; &quot;OggSoundFile::cb_tell&quot; &lt;&lt; std::endl;
++  OggSoundFile&amp; ogg = *reinterpret_cast&lt;OggSoundFile*&gt;(userdata);
++  return ogg.m_in.tellg();
+ }
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/sound/ogg_sound_file.hpp
+===================================================================
+--- trunk/windstille/src/sound/ogg_sound_file.hpp	2010-07-20 01:39:13 UTC (rev 3318)
++++ trunk/windstille/src/sound/ogg_sound_file.hpp	2010-07-20 11:43:37 UTC (rev 3319)
+@@ -47,6 +47,7 @@
+   static long   cb_tell(void* source);
+   
+   std::ifstream  m_in;
++  size_t m_file_size;
+   OggVorbis_File vorbis_file;
+ 
+   int channels;
+
+Modified: trunk/windstille/src/sound/wav_sound_file.cpp
+===================================================================
+--- trunk/windstille/src/sound/wav_sound_file.cpp	2010-07-20 01:39:13 UTC (rev 3318)
++++ trunk/windstille/src/sound/wav_sound_file.cpp	2010-07-20 11:43:37 UTC (rev 3319)
+@@ -23,128 +23,129 @@
+ 
+ #include &quot;sound/wav_sound_file.hpp&quot;
+ #include &quot;util/pathname.hpp&quot;
++#include &quot;util/util.hpp&quot;
+ 
+-static inline uint32_t read32LE(PHYSFS_file* file)
+-{
+-  uint32_t result;
+-  if(PHYSFS_readULE32(file, &amp;result) == 0)
+-    throw std::runtime_error(&quot;file too short&quot;);
+-
+-  return result;
+-}
+-
+-static inline uint16_t read16LE(PHYSFS_file* file)
+-{
+-  uint16_t result;
+-  if(PHYSFS_readULE16(file, &amp;result) == 0)
+-    throw std::runtime_error(&quot;file too short&quot;);
+-
+-  return result;
+-}
+-
+ WavSoundFile::WavSoundFile(const Pathname&amp; filename) :
+-  file(PHYSFS_openRead(filename.get_physfs_path().c_str())),
++  file(filename.get_sys_path().c_str(), std::ios::binary),
+   datastart()
+-{
+-  char magic[4];
+-  if(PHYSFS_read(file, magic, sizeof(magic), 1) != 1)
+-    throw std::runtime_error(&quot;Couldn't read file magic (not a wave file)&quot;);
+-  if(strncmp(magic, &quot;RIFF&quot;, 4) != 0) {
+-    printf(&quot;MAGIC: %4s.\n&quot;, magic);
+-    throw std::runtime_error(&quot;file is not a RIFF wav file&quot;);
+-  }
++  {
++    char magic[4];
++    if (!file.read(magic, sizeof(magic)))
++    {
++      throw std::runtime_error(&quot;Couldn't read file magic (not a wave file)&quot;);
++    }
+ 
+-  uint32_t wavelen = read32LE(file);
+-  (void) wavelen;
++    if(strncmp(magic, &quot;RIFF&quot;, 4) != 0) 
++    {
++      printf(&quot;MAGIC: %4s.\n&quot;, magic);
++      throw std::runtime_error(&quot;file is not a RIFF wav file&quot;);
++    }
++
++    uint32_t wavelen = read_uint32_t(file);
+   
+-  if(PHYSFS_read(file, magic, sizeof(magic), 1) != 1)
+-    throw std::runtime_error(&quot;Couldn't read chunk header (not a wav file?)&quot;);
+-  if(strncmp(magic, &quot;WAVE&quot;, 4) != 0)
+-    throw std::runtime_error(&quot;file is not a valid RIFF/WAVE file&quot;);
++    if (!file.read( magic, sizeof(magic)))
++    {
++      throw std::runtime_error(&quot;Couldn't read chunk header (not a wav file?)&quot;);
++    }
+ 
+-  char chunkmagic[4];
+-  uint32_t chunklen;
++    if(strncmp(magic, &quot;WAVE&quot;, 4) != 0)
++    {
++      throw std::runtime_error(&quot;file is not a valid RIFF/WAVE file&quot;);
++    }
+ 
+-  // search audio data format chunk
+-  do {
+-    if(PHYSFS_read(file, chunkmagic, sizeof(chunkmagic), 1) != 1)
+-      throw std::runtime_error(&quot;EOF while searching format chunk&quot;);    
+-    chunklen = read32LE(file);
++    char chunkmagic[4];
++    uint32_t chunklen;
++
++    // search audio data format chunk
++    do {
++      if (!file.read(chunkmagic, sizeof(chunkmagic)))
++      {
++        throw std::runtime_error(&quot;EOF while searching format chunk&quot;);    
++      }
++      chunklen = read_uint16_t(file);
+     
+-    if(strncmp(chunkmagic, &quot;fmt &quot;, 4) == 0)
+-      break;
++      if (strncmp(chunkmagic, &quot;fmt &quot;, 4) == 0)
++        break;
+ 
+-    if(strncmp(chunkmagic, &quot;fact&quot;, 4) == 0
+-       || strncmp(chunkmagic, &quot;LIST&quot;, 4) == 0) {
+-      // skip chunk
+-      if(PHYSFS_seek(file, PHYSFS_tell(file) + chunklen) == 0)
+-        throw std::runtime_error(&quot;EOF while searching fmt chunk&quot;);
+-    } else {
+-      throw std::runtime_error(&quot;complex WAVE files not supported&quot;);
+-    }
+-  } while(true); 
++      if (strncmp(chunkmagic, &quot;fact&quot;, 4) == 0 ||
++          strncmp(chunkmagic, &quot;LIST&quot;, 4) == 0) 
++      {
++        // skip chunk
+ 
+-  if(chunklen &lt; 16)
+-    throw std::runtime_error(&quot;Format chunk too short&quot;);
++        if (!file.seekg(chunklen, std::ios::cur))
++        {
++          throw std::runtime_error(&quot;EOF while searching fmt chunk&quot;);
++        }
++      } 
++      else 
++      {
++        throw std::runtime_error(&quot;complex WAVE files not supported&quot;);
++      }
++    } while(true); 
++
++    if(chunklen &lt; 16)
++      throw std::runtime_error(&quot;Format chunk too short&quot;);
+  
+-  // parse format
+-  uint16_t encoding = read16LE(file);
+-  if(encoding != 1)
+-    throw std::runtime_error(&quot;only PCM encoding supported&quot;);
+-  channels = read16LE(file);
+-  rate = read32LE(file);
+-  uint32_t byterate = read32LE(file);
+-  (void) byterate;
+-  uint16_t blockalign = read16LE(file);
+-  (void) blockalign;
+-  bits_per_sample = read16LE(file);
++    // parse format
++    uint16_t encoding = read_uint16_t(file);
++    if(encoding != 1)
++      throw std::runtime_error(&quot;only PCM encoding supported&quot;);
++    channels = read_uint16_t(file);
++    rate = read_uint32_t(file);
++    uint32_t byterate = read_uint32_t(file);
++    uint16_t blockalign = read_uint16_t(file);
++    bits_per_sample = read_uint16_t(file);
+ 
+-  if(chunklen &gt; 16) {
+-    if(PHYSFS_seek(file, PHYSFS_tell(file) + (chunklen-16)) == 0)
+-      throw std::runtime_error(&quot;EOF while reading reast of format chunk&quot;);
+-  }
++    if(chunklen &gt; 16) 
++    {
++      if(file.seekg(chunklen-16, std::ios::cur) == 0)
++        throw std::runtime_error(&quot;EOF while reading reast of format chunk&quot;);
++    }
+ 
+-  // set file offset to DATA chunk data
+-  do {
+-    if(PHYSFS_read(file, chunkmagic, sizeof(chunkmagic), 1) != 1)
+-      throw std::runtime_error(&quot;EOF while searching data chunk&quot;);    
+-    chunklen = read32LE(file);
++    // set file offset to DATA chunk data
++    do {
++      if (!file.read(chunkmagic, sizeof(chunkmagic)))
++        throw std::runtime_error(&quot;EOF while searching data chunk&quot;);    
++      chunklen = read_uint32_t(file);
+ 
+-    if(strncmp(chunkmagic, &quot;data&quot;, 4) == 0)
+-      break;
++      if(strncmp(chunkmagic, &quot;data&quot;, 4) == 0)
++        break;
+ 
+-    // skip chunk
+-    if(PHYSFS_seek(file, PHYSFS_tell(file) + chunklen) == 0)
+-      throw std::runtime_error(&quot;EOF while searching fmt chunk&quot;);
+-  } while(true);
++      // skip chunk
++      if(file.seekg(chunklen, std::ios::cur) == 0)
++        throw std::runtime_error(&quot;EOF while searching fmt chunk&quot;);
++    } while(true);
+ 
+-  datastart = PHYSFS_tell(file);
+-  size = static_cast&lt;size_t&gt; (chunklen);
+-}
++    datastart = file.tellg();
++    size = static_cast&lt;size_t&gt; (chunklen);
++  }
+ 
+ WavSoundFile::~WavSoundFile()
+ {
+-  PHYSFS_close(file);
+ }
+ 
+ void
+ WavSoundFile::reset()
+ {
+-  if(PHYSFS_seek(file, datastart) == 0)
++  if (!file.seekg(datastart))
+     throw std::runtime_error(&quot;Couldn't seek to data start&quot;);
+ }
+ 
+ size_t
+ WavSoundFile::read(void* buffer, size_t buffer_size)
+ {
+-  PHYSFS_sint64 end = datastart + size;
+-  PHYSFS_sint64 cur = PHYSFS_tell(file);
+-  if(cur &gt;= end)
++  size_t end = datastart + size;
++  size_t cur = file.tellg();
++
++  if (cur &gt;= end)
+     return 0;
+   
+   size_t readsize = std::min(static_cast&lt;size_t&gt; (end - cur), buffer_size);
+-  if(PHYSFS_read(file, buffer, readsize, 1) != 1)
++
++  if (!file.read(static_cast&lt;char*&gt;(buffer), readsize))
++  {
+     throw std::runtime_error(&quot;read error while reading samples&quot;);
++  }
+ 
+   return readsize;
+ }
+
+Modified: trunk/windstille/src/sound/wav_sound_file.hpp
+===================================================================
+--- trunk/windstille/src/sound/wav_sound_file.hpp	2010-07-20 01:39:13 UTC (rev 3318)
++++ trunk/windstille/src/sound/wav_sound_file.hpp	2010-07-20 11:43:37 UTC (rev 3319)
+@@ -19,7 +19,7 @@
+ #ifndef HEADER_WINDSTILLE_SOUND_WAV_SOUND_FILE_HPP
+ #define HEADER_WINDSTILLE_SOUND_WAV_SOUND_FILE_HPP
+ 
+-#include &lt;physfs.h&gt;
++#include &lt;fstream&gt;
+ 
+ #include &quot;sound/sound_file.hpp&quot;
+ 
+@@ -33,8 +33,8 @@
+   void reset();
+ 
+ private:
+-  PHYSFS_file* file; 
+-  PHYSFS_sint64 datastart;
++  std::ifstream file; 
++  size_t datastart;
+ 
+ public:
+   int    get_bits_per_sample() const { return bits_per_sample; }
+
+Modified: trunk/windstille/src/sprite3d/data.cpp
+===================================================================
+--- trunk/windstille/src/sprite3d/data.cpp	2010-07-20 01:39:13 UTC (rev 3318)
++++ trunk/windstille/src/sprite3d/data.cpp	2010-07-20 11:43:37 UTC (rev 3319)
+@@ -31,59 +31,11 @@
+ 
+ static const int FORMAT_VERSION = 2;
+ 
+-static inline float read_float(std::istream&amp; in)
++Data::Data(const Pathname&amp; filename) :
++  meshs(),
++  attachment_points(),
++  actions()
+ {
+-  float result;
+-  
+-  if (!in.read(reinterpret_cast&lt;char*&gt;(&amp;result), sizeof(result)))
+-  {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Problem reading float value: &quot; &lt;&lt; strerror(errno);
+-    throw std::runtime_error(msg.str());
+-  }
+-  else
+-  {
+-    return result;
+-  }
+-}
+-
+-static inline uint16_t read_uint16_t(std::istream&amp; in)
+-{
+-  uint16_t result;
+-
+-  if (!in.read(reinterpret_cast&lt;char*&gt;(&amp;result), sizeof(result)))
+-  {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Problem reading uint16 value: &quot; &lt;&lt; strerror(errno);
+-    throw std::runtime_error(msg.str());
+-  }
+-  {
+-    return result;
+-  }
+-}
+-
+-static inline std::string read_string(std::istream&amp; in, size_t size)
+-{
+-  boost::scoped_array&lt;char&gt; buffer(new char[size+1]);
+-
+-  if (!in.read(reinterpret_cast&lt;char*&gt;(buffer.get()), size))
+-  {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Problem reading string value: &quot; &lt;&lt; strerror(errno);
+-    throw std::runtime_error(msg.str());
+-  }
+-  else
+-  {
+-    buffer[size] = '\0';
+-    return std::string(buffer.get());
+-  }
+-}
+-
+-Data::Data(const Pathname&amp; filename)
+-  : meshs(),
+-    attachment_points(),
+-    actions()
+-{
+   std::ifstream in(filename.get_sys_path().c_str(), std::ios::binary);
+ 
+   if (!in) 
+
+Modified: trunk/windstille/src/util/util.cpp
+===================================================================
+--- trunk/windstille/src/util/util.cpp	2010-07-20 01:39:13 UTC (rev 3318)
++++ trunk/windstille/src/util/util.cpp	2010-07-20 11:43:37 UTC (rev 3319)
+@@ -16,7 +16,14 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
++#include &quot;util/util.hpp&quot;
++
+ #include &lt;fstream&gt;
++#include &lt;sstream&gt;
++#include &lt;errno.h&gt;
++#include &lt;string.h&gt;
++#include &lt;stdexcept&gt;
++#include &lt;boost/scoped_array.hpp&gt;
+ 
+ std::string dirname(const std::string&amp; filename)
+ {
+@@ -40,12 +47,12 @@
+ {
+   std::ifstream in(filename.c_str());
+   while (true)
+-    {
+-      char c = static_cast&lt;char&gt;(in.get());
+-      if (!in.good())
+-        break;
+-      str += c;
+-    }
++  {
++    char c = static_cast&lt;char&gt;(in.get());
++    if (!in.good())
++      break;
++    str += c;
++  }
+ }
+ 
+ bool has_suffix(const std::string&amp; str, const std::string&amp; suffix)
+@@ -64,4 +71,69 @@
+   return out;
+ }
+ 
++float read_float(std::istream&amp; in)
++{
++  float result;
++  
++  if (!in.read(reinterpret_cast&lt;char*&gt;(&amp;result), sizeof(result)))
++  {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Problem reading float value: &quot; &lt;&lt; strerror(errno);
++    throw std::runtime_error(msg.str());
++  }
++  else
++  {
++    return result;
++  }
++}
++
++uint16_t read_uint16_t(std::istream&amp; in)
++{
++  uint16_t result;
++
++  if (!in.read(reinterpret_cast&lt;char*&gt;(&amp;result), sizeof(result)))
++  {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Problem reading uint16 value: &quot; &lt;&lt; strerror(errno);
++    throw std::runtime_error(msg.str());
++  }
++  else
++  {
++    return result;
++  }
++}
++
++uint32_t read_uint32_t(std::istream&amp; in)
++{
++  uint32_t result;
++
++  if (!in.read(reinterpret_cast&lt;char*&gt;(&amp;result), sizeof(result)))
++  {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Problem reading uint32 value: &quot; &lt;&lt; strerror(errno);
++    throw std::runtime_error(msg.str());
++  }
++  else
++  {
++    return result;
++  }
++}
++
++std::string read_string(std::istream&amp; in, size_t size)
++{
++  boost::scoped_array&lt;char&gt; buffer(new char[size+1]);
++
++  if (!in.read(reinterpret_cast&lt;char*&gt;(buffer.get()), size))
++  {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Problem reading string value: &quot; &lt;&lt; strerror(errno);
++    throw std::runtime_error(msg.str());
++  }
++  else
++  {
++    buffer[size] = '\0';
++    return std::string(buffer.get());
++  }
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/util/util.hpp
+===================================================================
+--- trunk/windstille/src/util/util.hpp	2010-07-20 01:39:13 UTC (rev 3318)
++++ trunk/windstille/src/util/util.hpp	2010-07-20 11:43:37 UTC (rev 3319)
+@@ -20,6 +20,7 @@
+ #define HEADER_WINDSTILLE_UTIL_UTIL_HPP
+ 
+ #include &lt;sstream&gt;
++#include &lt;stdint.h&gt;
+ 
+ std::string dirname(const std::string&amp; filename);
+ std::string basename(const std::string&amp; filename);
+@@ -39,6 +40,11 @@
+   return os.str();
+ }
+ 
++float       read_float(std::istream&amp; in);
++uint16_t    read_uint16_t(std::istream&amp; in);
++uint32_t    read_uint32_t(std::istream&amp; in);
++std::string read_string(std::istream&amp; in, size_t size);
++
+ #endif
+ 
+ /* EOF */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002315.html">[Windstille-commit] r3318 - trunk/windstille/src/sound
+</A></li>
+	<LI>Next message: <A HREF="002317.html">[Windstille-commit] r3320 - trunk/windstille/src/sound
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2316">[ date ]</a>
+              <a href="thread.html#2316">[ thread ]</a>
+              <a href="subject.html#2316">[ subject ]</a>
+              <a href="author.html#2316">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

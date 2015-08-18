@@ -1,0 +1,199 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r474 - in trunk: data/levels src src/scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r474%20-%20in%20trunk%3A%20data/levels%20src%20src/scripting&In-Reply-To=%3C200506290107.j5T17sZL002165%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000130.html">
+   <LINK REL="Next"  HREF="000132.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r474 - in trunk: data/levels src src/scripting</H1>
+    <B>Matthias Braun at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r474%20-%20in%20trunk%3A%20data/levels%20src%20src/scripting&In-Reply-To=%3C200506290107.j5T17sZL002165%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r474 - in trunk: data/levels src src/scripting">matzebraun at sheep.berlios.de
+       </A><BR>
+    <I>Wed Jun 29 03:07:54 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000130.html">[Windstille-commit] r473 - in trunk/src: . scripting
+</A></li>
+        <LI>Next message: <A HREF="000132.html">[Windstille-commit] r475 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#131">[ date ]</a>
+              <a href="thread.html#131">[ thread ]</a>
+              <a href="subject.html#131">[ subject ]</a>
+              <a href="author.html#131">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: matzebraun
+Date: 2005-06-29 03:07:15 +0200 (Wed, 29 Jun 2005)
+New Revision: 474
+
+Modified:
+   trunk/data/levels/newformat2.wst
+   trunk/src/script_manager.cpp
+   trunk/src/scripting/interface.cpp
+   trunk/src/scripting/interface.hpp
+   trunk/src/scripting/wrapper.cpp
+Log:
+more fixes, direct support for wait function
+
+Modified: trunk/data/levels/newformat2.wst
+===================================================================
+--- trunk/data/levels/newformat2.wst	2005-06-29 00:30:50 UTC (rev 473)
++++ trunk/data/levels/newformat2.wst	2005-06-29 01:07:15 UTC (rev 474)
+@@ -12,14 +12,11 @@
+       (height 200)
+       (script &quot;
+ print(\&quot;Script was here\&quot;);
+-set_wakeup_time(2);
+-suspend();
++wait(2);
+ print(\&quot;1\&quot;);
+-set_wakeup_time(2);
+-suspend();
++wait(2);
+ print(\&quot;2\&quot;);
+-set_wakeup_time(2);
+-suspend();
++wait(2);
+ print(\&quot;3\&quot;);
+ play_music(\&quot;music/jingle.ogg\&quot;);
+ &quot;)
+
+Modified: trunk/src/script_manager.cpp
+===================================================================
+--- trunk/src/script_manager.cpp	2005-06-29 00:30:50 UTC (rev 473)
++++ trunk/src/script_manager.cpp	2005-06-29 01:07:15 UTC (rev 474)
+@@ -61,6 +61,10 @@
+ ScriptManager::~ScriptManager()
+ {
+   sq_close(v);
++  for(WaitingVMs::iterator i = waiting_vms.begin();
++      i != waiting_vms.end(); ++i) {
++    sq_release(v, &amp;(i-&gt;vm_obj));
++  }
+ }
+ 
+ static SQInteger squirrel_read_char(SQUserPointer file)
+@@ -153,10 +157,10 @@
+     }
+     if(!found) {
+       std::cerr &lt;&lt; &quot;Warning: Script suspended but not in wakeup list!\n&quot;;
+-      sq_release(vm, &amp;vm_obj);
++      sq_release(v, &amp;vm_obj);
+     }  
+   } else {
+-    sq_release(vm, &amp;vm_obj);
++    sq_release(v, &amp;vm_obj);
+   }
+ }
+ 
+@@ -172,7 +176,7 @@
+           throw SquirrelError(waiting_vm.vm, &quot;Couldn't resume script&quot;);
+         }
+       } catch(std::exception&amp; e) {
+-        sq_release(waiting_vm.vm, &amp;waiting_vm.vm_obj);
++        sq_release(v, &amp;waiting_vm.vm_obj);
+         std::cerr &lt;&lt; &quot;Problem executing script: &quot; &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
+         i = waiting_vms.erase(i);
+         continue;
+
+Modified: trunk/src/scripting/interface.cpp
+===================================================================
+--- trunk/src/scripting/interface.cpp	2005-06-29 00:30:50 UTC (rev 473)
++++ trunk/src/scripting/interface.cpp	2005-06-29 01:07:15 UTC (rev 474)
+@@ -29,7 +29,7 @@
+   GameSession::current()-&gt;set_game_state();
+ }
+ 
+-void set_wakeup_time(HSQUIRRELVM vm, float time)
++void wait(HSQUIRRELVM vm, float time)
+ {
+   script_manager-&gt;set_wakeup_time(vm, time);
+ }
+
+Modified: trunk/src/scripting/interface.hpp
+===================================================================
+--- trunk/src/scripting/interface.hpp	2005-06-29 00:30:50 UTC (rev 473)
++++ trunk/src/scripting/interface.hpp	2005-06-29 01:07:15 UTC (rev 474)
+@@ -17,7 +17,10 @@
+ 
+ void clear_dialog();
+ 
+-void set_wakeup_time(HSQUIRRELVM vm, float time);
++/** @SUSPEND@
++ * Waits the specified time in seconds.
++ */
++void wait(HSQUIRRELVM vm, float time);
+ 
+ }
+ 
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2005-06-29 00:30:50 UTC (rev 473)
++++ trunk/src/scripting/wrapper.cpp	2005-06-29 01:07:15 UTC (rev 474)
+@@ -55,15 +55,15 @@
+   return 0;
+ }
+ 
+-static int set_wakeup_time_wrapper(HSQUIRRELVM v)
++static int wait_wrapper(HSQUIRRELVM v)
+ {
+   HSQUIRRELVM arg0 = v;
+   float arg1;
+   sq_getfloat(v, 2, &amp;arg1);
+   
+-  Scripting::set_wakeup_time(arg0, arg1);
++  Scripting::wait(arg0, arg1);
+   
+-  return 0;
++  return sq_suspendvm(v);
+ }
+ 
+ WrappedFunction windstille_global_functions[] = {
+@@ -71,7 +71,7 @@
+   { &quot;play_sound&quot;, &amp;play_sound_wrapper },
+   { &quot;create_dialog&quot;, &amp;create_dialog_wrapper },
+   { &quot;clear_dialog&quot;, &amp;clear_dialog_wrapper },
+-  { &quot;set_wakeup_time&quot;, &amp;set_wakeup_time_wrapper },
++  { &quot;wait&quot;, &amp;wait_wrapper },
+   { 0, 0 }
+ };
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000130.html">[Windstille-commit] r473 - in trunk/src: . scripting
+</A></li>
+	<LI>Next message: <A HREF="000132.html">[Windstille-commit] r475 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#131">[ date ]</a>
+              <a href="thread.html#131">[ thread ]</a>
+              <a href="subject.html#131">[ subject ]</a>
+              <a href="author.html#131">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,748 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1208 - in trunk/src: . display font
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1208%20-%20in%20trunk/src%3A%20.%20display%20font&In-Reply-To=%3C200601091500.k09F0dkY009741%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000860.html">
+   <LINK REL="Next"  HREF="000862.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1208 - in trunk/src: . display font</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1208%20-%20in%20trunk/src%3A%20.%20display%20font&In-Reply-To=%3C200601091500.k09F0dkY009741%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1208 - in trunk/src: . display font">grumbel at berlios.de
+       </A><BR>
+    <I>Mon Jan  9 16:00:39 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000860.html">[Windstille-commit] r1207 - in trunk/src: . display
+</A></li>
+        <LI>Next message: <A HREF="000862.html">[Windstille-commit] r1209 - in trunk: data data/shader src src/display src/font src/sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#861">[ date ]</a>
+              <a href="thread.html#861">[ thread ]</a>
+              <a href="subject.html#861">[ subject ]</a>
+              <a href="author.html#861">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-01-09 16:00:38 +0100 (Mon, 09 Jan 2006)
+New Revision: 1208
+
+Added:
+   trunk/src/display/shader_object.cpp
+   trunk/src/display/shader_object.hpp
+   trunk/src/display/shader_program.cpp
+   trunk/src/display/shader_program.hpp
+Modified:
+   trunk/src/SConscript
+   trunk/src/display/opengl_state.cpp
+   trunk/src/display/opengl_state.hpp
+   trunk/src/display/scene_context.cpp
+   trunk/src/display/scene_context.hpp
+   trunk/src/font/ttf_font.cpp
+Log:
+- added shader support
+
+Modified: trunk/src/SConscript
+===================================================================
+--- trunk/src/SConscript	2006-01-09 11:16:27 UTC (rev 1207)
++++ trunk/src/SConscript	2006-01-09 15:00:38 UTC (rev 1208)
+@@ -108,6 +108,8 @@
+ 'display/surface_manager.cpp',
+ 'display/texture.cpp',
+ 'display/texture_manager.cpp',
++'display/shader_program.cpp',
++'display/shader_object.cpp',
+ 'font/border_font_effect.cpp',
+ 'font/fonts.cpp',
+ 'font/ttf_font.cpp',
+
+Modified: trunk/src/display/opengl_state.cpp
+===================================================================
+--- trunk/src/display/opengl_state.cpp	2006-01-09 11:16:27 UTC (rev 1207)
++++ trunk/src/display/opengl_state.cpp	2006-01-09 15:00:38 UTC (rev 1208)
+@@ -35,6 +35,8 @@
+ #include &quot;display/display.hpp&quot;
+ #include &quot;util.hpp&quot;
+ 
++#define MAX_TEXTURE_UNITS 4
++
+ class OpenGLStateImpl
+ {
+ public:
+@@ -42,7 +44,7 @@
+       somebody forget the final activate() call */
+   bool was_activated;
+ 
+-  Texture     texture;
++  Texture     texture[MAX_TEXTURE_UNITS];
+   Framebuffer framebuffer;
+ 
+   Color color;
+@@ -96,7 +98,7 @@
+ OpenGLState::OpenGLState()
+   : impl(new OpenGLStateImpl())
+ {
+-  impl-&gt;state[GL_TEXTURE_2D]  = false;
++  //impl-&gt;state[GL_TEXTURE_2D]  = false;
+   impl-&gt;state[GL_DEPTH_TEST]  = false;
+   impl-&gt;state[GL_BLEND]       = false;
+   impl-&gt;state[GL_LINE_SMOOTH] = false;
+@@ -118,9 +120,10 @@
+ }
+ 
+ void
+-OpenGLState::bind_texture(const Texture&amp; texture)
++OpenGLState::bind_texture(const Texture&amp; texture, int unit)
+ {
+-  impl-&gt;texture = texture;
++  assert(unit &gt;= 0 &amp;&amp; unit &lt; MAX_TEXTURE_UNITS);
++  impl-&gt;texture[unit] = texture;
+ }
+ 
+ void
+@@ -162,12 +165,16 @@
+ void
+ OpenGLState::enable(GLenum cap)
+ {
++  if (cap == GL_TEXTURE_2D)// FIXME: HACK
++    return;
+   set_state(cap, true);
+ }
+ 
+ void
+ OpenGLState::disable(GLenum cap)
+ {  
++  if (cap == GL_TEXTURE_2D)// FIXME: HACK
++    return;
+   set_state(cap, false);
+ }
+ 
+@@ -267,18 +274,24 @@
+       global-&gt;impl-&gt;blend_dfactor = impl-&gt;blend_dfactor;
+     }
+ 
+-  if (impl-&gt;texture != global-&gt;impl-&gt;texture)
++  for(int i = 0; i &lt; MAX_TEXTURE_UNITS; ++i)
+     {
+-      if (impl-&gt;texture)
+-        {
+-          glBindTexture(GL_TEXTURE_2D, impl-&gt;texture.get_handle());
+-          global-&gt;impl-&gt;texture = impl-&gt;texture;
++      if (impl-&gt;texture[i] != global-&gt;impl-&gt;texture[i])
++        { 
++          glActiveTexture(GL_TEXTURE0 + i);
++          if (impl-&gt;texture[i])
++            {
++              glBindTexture(GL_TEXTURE_2D, impl-&gt;texture[i].get_handle());
++              glEnable(GL_TEXTURE_2D);
++              global-&gt;impl-&gt;texture[i] = impl-&gt;texture[i];
++            }
++          else
++            {
++              glBindTexture(GL_TEXTURE_2D, 0);
++              glDisable(GL_TEXTURE_2D);
++              global-&gt;impl-&gt;texture[i] = impl-&gt;texture[i];
++            }
+         }
+-      else
+-        {
+-          glBindTexture(GL_TEXTURE_2D, 0);
+-          global-&gt;impl-&gt;texture = impl-&gt;texture;
+-        }
+     }
+ 
+   if (0)
+@@ -335,13 +348,17 @@
+       std::cout &lt;&lt; &quot;OpenGLState: dst blendfunc is out of sync&quot; &lt;&lt; std::endl;
+     }
+ 
+-  GLint texture_handle;
+-  glGetIntegerv(GL_TEXTURE_2D_BINDING_EXT, &amp;texture_handle);
+-  if (impl-&gt;texture &amp;&amp; static_cast&lt;GLuint&gt;(texture_handle) != impl-&gt;texture.get_handle())
++  if (1)
+     {
+-      std::cout &lt;&lt; &quot;OpenGLState: texture handle is out of sync: &quot; &lt;&lt; impl-&gt;texture.get_handle() &lt;&lt; std::endl;
++      // FIXME: Add multitexture support here
++      GLint texture_handle;
++      glActiveTexture(GL_TEXTURE0);
++      glGetIntegerv(GL_TEXTURE_2D_BINDING_EXT, &amp;texture_handle);
++      if (impl-&gt;texture[0] &amp;&amp; static_cast&lt;GLuint&gt;(texture_handle) != impl-&gt;texture[0].get_handle())
++        {
++          std::cout &lt;&lt; &quot;OpenGLState: texture handle is out of sync: &quot; &lt;&lt; impl-&gt;texture[0].get_handle() &lt;&lt; std::endl;
++        }
+     }
+-
+   assert_gl(&quot;OpenGLState::verify&quot;);
+ }
+ 
+
+Modified: trunk/src/display/opengl_state.hpp
+===================================================================
+--- trunk/src/display/opengl_state.hpp	2006-01-09 11:16:27 UTC (rev 1207)
++++ trunk/src/display/opengl_state.hpp	2006-01-09 15:00:38 UTC (rev 1208)
+@@ -50,7 +50,7 @@
+   OpenGLState();
+   ~OpenGLState();
+ 
+-  void bind_texture(const Texture&amp; texture);
++  void bind_texture(const Texture&amp; texture, int unit = 0);
+   void set_blend_func(GLenum sfactor, GLenum dfactor);
+ 
+   void bind_framebuffer(const Framebuffer&amp; framebuffer);
+
+Modified: trunk/src/display/scene_context.cpp
+===================================================================
+--- trunk/src/display/scene_context.cpp	2006-01-09 11:16:27 UTC (rev 1207)
++++ trunk/src/display/scene_context.cpp	2006-01-09 15:00:38 UTC (rev 1208)
+@@ -27,15 +27,21 @@
+ #include &lt;GL/gl.h&gt;
+ #include &lt;GL/glext.h&gt;
+ 
++#include &lt;iostream&gt;
++
+ #include &quot;display/display.hpp&quot;
+ #include &quot;display/surface.hpp&quot;
+ #include &quot;display/opengl_state.hpp&quot;
++
++#include &quot;shader_program.hpp&quot;
++#include &quot;shader_object.hpp&quot;
+ #include &quot;framebuffer.hpp&quot;
+ #include &quot;scene_context.hpp&quot;
+ #include &lt;assert.h&gt;
+ 
+ // The lightmap has a resolution of screen.w/LIGHTMAP, screen.h/LIGHTMAP
+ #define LIGHTMAP_DIV 4
++#define BLURMAP_DIV 1
+ 
+ class SceneContextImpl
+ {
+@@ -46,20 +52,38 @@
+   unsigned int render_mask;
+ 
+   Framebuffer framebuffer;
+-  
+   Surface lightmap;
+ 
++  Framebuffer blur_framebuffer;
++  Surface     blur_surface;
++  ShaderProgram shader_program;
++
++  Texture noise;
++
+   SceneContextImpl() 
+     : render_mask(SceneContext::COLORMAP |
+                   SceneContext::LIGHTMAP | 
+                   SceneContext::HIGHLIGHTMAP | 
+-                  SceneContext::LIGHTMAPSCREEN),
++                  SceneContext::LIGHTMAPSCREEN |
++                  SceneContext::BLURMAP
++                  ),
+       framebuffer(256, 256),
+       lightmap(framebuffer.get_texture(), 
+                Rectf(0, 0, (800/LIGHTMAP_DIV)/256.0f, (600/LIGHTMAP_DIV)/256.0f),
+-               800/LIGHTMAP_DIV, 600/LIGHTMAP_DIV)
++               800/LIGHTMAP_DIV, 600/LIGHTMAP_DIV),
+       //lightmap(800/LIGHTMAP_DIV, 600/LIGHTMAP_DIV)
++      blur_framebuffer(1024, 1024),
++      blur_surface(blur_framebuffer.get_texture(),
++               Rectf(0, 0, (800/BLURMAP_DIV)/1024.0f, (600/BLURMAP_DIV)/1024.0f),
++               800/BLURMAP_DIV, 600/BLURMAP_DIV)
+   {
++    shader_program.attach(ShaderObject(GL_FRAGMENT_SHADER_ARB, &quot;/tmp/shader.frag&quot;));
++    shader_program.link();
++    blur_surface.get_texture().set_wrap(GL_REPEAT);
++    blur_surface.get_texture().set_filter(GL_LINEAR);
++    noise = Texture(&quot;images/noise3.png&quot;);
++    noise.set_wrap(GL_REPEAT);
++    noise.set_filter(GL_LINEAR);
+   }
+ };
+ 
+@@ -243,6 +267,56 @@
+       impl-&gt;highlight.render();
+     }
+ 
++  if (impl-&gt;render_mask &amp; BLURMAP)
++    {
++      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;blur_framebuffer.get_handle());
++      glClear(GL_DEPTH_BUFFER_BIT);
++
++      glPushMatrix();
++      glTranslatef(0, 600-(600/BLURMAP_DIV), 0);
++      glScalef(1.0f/BLURMAP_DIV, 1.0f/BLURMAP_DIV, 1.0f);
++      impl-&gt;color.render();
++      glPopMatrix();
++
++      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);     
++
++      OpenGLState state;
++
++      Rectf uv = impl-&gt;blur_surface.get_uv();
++
++      state.enable(GL_TEXTURE_2D);
++      state.bind_texture(impl-&gt;blur_surface.get_texture(), 0);
++      state.bind_texture(impl-&gt;noise, 1);
++
++      //state.enable(GL_BLEND);
++      //state.set_blend_func(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++      //state.set_blend_func(GL_SRC_ALPHA, GL_ONE);
++      state.activate();
++
++      glUseProgramObjectARB(impl-&gt;shader_program.get_handle());
++      glUniform1iARB(impl-&gt;shader_program.get_uniform_location(&quot;texture&quot;), 0);
++      glUniform1iARB(impl-&gt;shader_program.get_uniform_location(&quot;noise&quot;), 1);
++
++      glBegin(GL_QUADS);
++
++      glTexCoord2f(uv.left, uv.bottom);
++      glVertex2f(0, 0);
++
++      glTexCoord2f(uv.right, uv.bottom);
++      glVertex2f(impl-&gt;blur_surface.get_width() * BLURMAP_DIV, 0);
++
++      glTexCoord2f(uv.right, uv.top);
++      glVertex2f(impl-&gt;blur_surface.get_width() * BLURMAP_DIV,
++                 impl-&gt;blur_surface.get_height() * BLURMAP_DIV);
++
++      glTexCoord2f(uv.left, uv.top);
++      glVertex2f(0, impl-&gt;blur_surface.get_height() * BLURMAP_DIV);
++
++      glEnd();
++
++      glUseProgramObjectARB(0);
++    }
++
+   // Clear all DrawingContexts
+   impl-&gt;color.clear();
+   impl-&gt;light.clear();
+
+Modified: trunk/src/display/scene_context.hpp
+===================================================================
+--- trunk/src/display/scene_context.hpp	2006-01-09 11:16:27 UTC (rev 1207)
++++ trunk/src/display/scene_context.hpp	2006-01-09 15:00:38 UTC (rev 1208)
+@@ -79,10 +79,11 @@
+       that will be shown on the screen */
+   void render();
+ 
+-  enum { COLORMAP     = 1&lt;&lt;0,
+-         LIGHTMAP     = 1&lt;&lt;1,
+-         HIGHLIGHTMAP = 1&lt;&lt;2,
+-         LIGHTMAPSCREEN     = 1&lt;&lt;3
++  enum { COLORMAP       = 1&lt;&lt;0,
++         LIGHTMAP       = 1&lt;&lt;1,
++         HIGHLIGHTMAP   = 1&lt;&lt;2,
++         LIGHTMAPSCREEN = 1&lt;&lt;3,
++         BLURMAP        = 1&lt;&lt;4
+   };
+ 
+   void set_render_mask(unsigned int mask);
+
+Added: trunk/src/display/shader_object.cpp
+===================================================================
+--- trunk/src/display/shader_object.cpp	2006-01-09 11:16:27 UTC (rev 1207)
++++ trunk/src/display/shader_object.cpp	2006-01-09 15:00:38 UTC (rev 1208)
+@@ -0,0 +1,138 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &quot;shader_object.hpp&quot;
++#include &lt;iostream&gt;
++#include &lt;stdio.h&gt;
++#include &quot;util.hpp&quot;
++
++/** Read a file, user must free() the returned pointer */
++static GLchar* load_file(const char* filename)
++{
++  size_t block_size = 4096;
++  size_t size = block_size;
++  size_t true_size = 0;
++  GLchar* str = (char*)(malloc(size));
++  FILE* f = fopen(filename, &quot;r&quot;);
++  if (!f)
++    {
++      perror(filename);
++      exit(EXIT_FAILURE);
++    }
++  else
++    {
++      while ((true_size += fread(str, sizeof(GLchar), 4096, f)) == 4096)
++        {
++          size += block_size;
++          str = (GLchar*)realloc(str, size);
++        }
++      str = (GLchar*)realloc(str, true_size+1);
++      str[true_size] = '\0';
++    }
++
++  fclose(f);
++  return str;
++}
++
++class ShaderObjectImpl
++{
++public:
++  GLhandleARB handle;
++
++  ShaderObjectImpl(GLenum type)
++  {
++    handle = glCreateShaderObjectARB(type);
++  }
++
++  ~ShaderObjectImpl()
++  {
++    glDeleteObjectARB(handle);
++  }
++};
++
++ShaderObject::ShaderObject(GLenum type, const std::string&amp; filename)
++  : impl(new ShaderObjectImpl(type))
++{
++  load(filename);
++  compile();
++  print_log();
++}
++
++ShaderObject::~ShaderObject()
++{
++}
++
++void
++ShaderObject::load(const std::string&amp; filename)
++{
++  GLchar* buf = load_file(filename.c_str());
++  glShaderSourceARB(impl-&gt;handle, 1, const_cast&lt;const GLchar**&gt;(&amp;buf), NULL);
++  assert_gl(&quot;load_source&quot;);
++
++  std::cout &lt;&lt; &quot;Source:\n&quot; &lt;&lt; buf &lt;&lt; std::endl;
++  free(buf);
++}
++
++GLhandleARB 
++ShaderObject::get_handle() const
++{
++  return impl-&gt;handle;
++}
++
++void
++ShaderObject::compile()
++{
++  glCompileShaderARB(impl-&gt;handle);
++}
++
++void
++ShaderObject::print_log()
++{
++  int infologLength = 0;
++  int charsWritten  = 0;
++  GLcharARB *infoLog;
++
++  assert_gl(&quot;print_log1&quot;);
++
++  glGetObjectParameterivARB(impl-&gt;handle, GL_OBJECT_INFO_LOG_LENGTH_ARB,
++                            &amp;infologLength);
++  assert_gl(&quot;print_log2&quot;);
++
++  if (infologLength &gt; 0)
++    {
++      infoLog = (GLcharARB*)malloc(infologLength);
++      if (infoLog == NULL)
++        {
++          printf(&quot;ERROR: Could not allocate InfoLog buffer\n&quot;);
++          exit(1);
++        }
++      glGetInfoLogARB(impl-&gt;handle, infologLength, &amp;charsWritten, infoLog);
++      printf(&quot;InfoLog:\n%s\n\n&quot;, infoLog);
++      free(infoLog);
++    }
++  assert_gl(&quot;print_log3&quot;);
++}
++
++/* EOF */
+
+Added: trunk/src/display/shader_object.hpp
+===================================================================
+--- trunk/src/display/shader_object.hpp	2006-01-09 11:16:27 UTC (rev 1207)
++++ trunk/src/display/shader_object.hpp	2006-01-09 15:00:38 UTC (rev 1208)
+@@ -0,0 +1,54 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_SHADER_OBJECT_HPP
++#define HEADER_SHADER_OBJECT_HPP
++
++#define GL_GLEXT_PROTOTYPES 1
++#include &lt;GL/gl.h&gt;
++#include &lt;GL/glext.h&gt;
++#include &lt;string&gt;
++#include &quot;sharedptr.hpp&quot;
++
++class ShaderObjectImpl;
++
++/** */
++class ShaderObject
++{
++public:
++  ShaderObject(GLenum type, const std::string&amp; filename);
++  ~ShaderObject();
++
++  GLhandleARB get_handle() const;
++  void load(const std::string&amp; filename);
++  void compile();
++  void print_log();
++private:
++  SharedPtr&lt;ShaderObjectImpl&gt; impl;
++};
++
++#endif
++
++/* EOF */
+
+Added: trunk/src/display/shader_program.cpp
+===================================================================
+--- trunk/src/display/shader_program.cpp	2006-01-09 11:16:27 UTC (rev 1207)
++++ trunk/src/display/shader_program.cpp	2006-01-09 15:00:38 UTC (rev 1208)
+@@ -0,0 +1,85 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &quot;shader_program.hpp&quot;
++#include &quot;shader_object.hpp&quot;
++
++class ShaderProgramImpl
++{
++public:
++  GLhandleARB handle;
++
++  ShaderProgramImpl() {
++    handle = glCreateProgramObjectARB();
++  }
++
++  ~ShaderProgramImpl() {
++    glDeleteObjectARB(handle);
++  }
++};
++
++ShaderProgram::ShaderProgram()
++  : impl(new ShaderProgramImpl())
++{
++}
++
++ShaderProgram::~ShaderProgram()
++{
++}
++
++void
++ShaderProgram::attach(const ShaderObject&amp; obj)
++{
++  glAttachObjectARB(impl-&gt;handle, obj.get_handle());
++}
++
++void
++ShaderProgram::link()
++{
++  glLinkProgramARB(impl-&gt;handle);
++}
++
++GLint
++ShaderProgram::get_uniform_location(const char* name)
++{
++  GLint loc;
++
++  loc = glGetUniformLocationARB(impl-&gt;handle, name);
++
++  if (loc == -1)
++    printf(&quot;No such uniform named \&quot;%s\&quot;\n&quot;, name);
++
++  //printOpenGLError();  // Check for OpenGL errors
++
++  return loc;
++}
++
++GLhandleARB 
++ShaderProgram::get_handle() const
++{
++  return impl-&gt;handle;
++}
++
++/* EOF */
+
+Added: trunk/src/display/shader_program.hpp
+===================================================================
+--- trunk/src/display/shader_program.hpp	2006-01-09 11:16:27 UTC (rev 1207)
++++ trunk/src/display/shader_program.hpp	2006-01-09 15:00:38 UTC (rev 1208)
+@@ -0,0 +1,56 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_SHADER_PROGRAM_HPP
++#define HEADER_SHADER_PROGRAM_HPP
++
++#define GL_GLEXT_PROTOTYPES 1
++#include &lt;GL/gl.h&gt;
++#include &lt;GL/glext.h&gt;
++#include &quot;sharedptr.hpp&quot;
++
++class ShaderProgramImpl;
++class ShaderObject;
++
++/** */
++class ShaderProgram
++{
++private:
++public:
++  ShaderProgram();
++  ~ShaderProgram();
++
++  void attach(const ShaderObject&amp; obj);
++  void link();
++
++  GLint get_uniform_location(const char* name);
++  GLhandleARB get_handle() const;
++private:
++  SharedPtr&lt;ShaderProgramImpl&gt; impl;
++};
++
++#endif
++
++/* EOF */
+
+Modified: trunk/src/font/ttf_font.cpp
+===================================================================
+--- trunk/src/font/ttf_font.cpp	2006-01-09 11:16:27 UTC (rev 1207)
++++ trunk/src/font/ttf_font.cpp	2006-01-09 15:00:38 UTC (rev 1208)
+@@ -184,6 +184,10 @@
+ void
+ TTFFont::draw(float x_pos, float y_pos, const std::string&amp; str, const Color&amp; color)
+ {
++  // FIXME: Little bit hacky to throw it just in
++  x_pos = static_cast&lt;int&gt;(x_pos);
++  y_pos = static_cast&lt;int&gt;(y_pos);
++
+   OpenGLState state;
+ 
+   state.enable(GL_BLEND);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000860.html">[Windstille-commit] r1207 - in trunk/src: . display
+</A></li>
+	<LI>Next message: <A HREF="000862.html">[Windstille-commit] r1209 - in trunk: data data/shader src src/display src/font src/sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#861">[ date ]</a>
+              <a href="thread.html#861">[ thread ]</a>
+              <a href="subject.html#861">[ subject ]</a>
+              <a href="author.html#861">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

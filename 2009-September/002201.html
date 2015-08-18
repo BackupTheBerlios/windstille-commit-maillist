@@ -1,0 +1,394 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3204 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3204%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909072317.n87NHkPm010999%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002200.html">
+   <LINK REL="Next"  HREF="002202.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3204 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3204%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909072317.n87NHkPm010999%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3204 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Sep  8 01:17:46 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002200.html">[Windstille-commit] r3203 - trunk/windstille/src/navigation
+</A></li>
+        <LI>Next message: <A HREF="002202.html">[Windstille-commit] r3205 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2201">[ date ]</a>
+              <a href="thread.html#2201">[ thread ]</a>
+              <a href="subject.html#2201">[ subject ]</a>
+              <a href="author.html#2201">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-08 01:17:45 +0200 (Tue, 08 Sep 2009)
+New Revision: 3204
+
+Modified:
+   trunk/windstille/src/editor/navgraph_edge_object_model.cpp
+   trunk/windstille/src/editor/navgraph_edge_object_model.hpp
+   trunk/windstille/src/editor/navgraph_insert_tool.cpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+Log:
+Basic select and drag&amp;drop works now with both Nodes and Edges
+
+Modified: trunk/windstille/src/editor/navgraph_edge_object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_edge_object_model.cpp	2009-09-07 23:15:22 UTC (rev 3203)
++++ trunk/windstille/src/editor/navgraph_edge_object_model.cpp	2009-09-07 23:17:45 UTC (rev 3204)
+@@ -19,16 +19,22 @@
+ #include &quot;editor/navgraph_edge_object_model.hpp&quot;
+ 
+ #include &quot;editor/navgraph_node_object_model.hpp&quot;
++#include &quot;editor/sector_model.hpp&quot;
++#include &quot;scenegraph/scene_graph.hpp&quot;
+ #include &quot;scenegraph/vertex_array_drawable.hpp&quot;
+-#include &quot;scenegraph/scene_graph.hpp&quot;
+ 
+ NavGraphEdgeObjectModel::NavGraphEdgeObjectModel(boost::weak_ptr&lt;NavGraphNodeObjectModel&gt; lhs,
+-                                                 boost::weak_ptr&lt;NavGraphNodeObjectModel&gt; rhs)
++                                                 boost::weak_ptr&lt;NavGraphNodeObjectModel&gt; rhs,
++                                                 SectorModel&amp; sector)
+   : ObjectModel(&quot;NavGraphEdgeObjectModel&quot;, Vector2f()),
+     m_lhs(lhs),
+     m_rhs(rhs),
+-    m_drawable()
++    m_drawable(),
++    m_edge()
+ {
++  std::cout &lt;&lt; &quot;Adding edge&quot; &lt;&lt; std::endl;
++  m_edge = sector.get_nav_graph()-&gt;add_edge(lhs.lock()-&gt;get_node(),
++                                            rhs.lock()-&gt;get_node());
+ }
+ 
+ void
+@@ -42,7 +48,7 @@
+     if (lhs &amp;&amp; rhs)
+     {
+       m_drawable-&gt;clear();
+-
++      m_drawable-&gt;set_mode(GL_LINES);
+       m_drawable-&gt;color(Color(0.0f, 1.0f, 1.0f));
+       m_drawable-&gt;vertex(lhs-&gt;get_world_pos());
+ 
+@@ -60,4 +66,27 @@
+   sg.add_drawable(m_drawable);
+ }
+ 
++Rectf
++NavGraphEdgeObjectModel::get_bounding_box() const
++{
++  boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; lhs = m_lhs.lock();
++  boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; rhs = m_rhs.lock();
++
++  Rectf rect(lhs-&gt;get_world_pos(),
++             rhs-&gt;get_world_pos());
++  rect.normalize();
++  return rect;
++}
++
++ObjectModelHandle
++NavGraphEdgeObjectModel::clone() const
++{
++  return ObjectModelHandle();
++}
++
++void
++NavGraphEdgeObjectModel::write(FileWriter&amp; writer) const
++{
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/navgraph_edge_object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_edge_object_model.hpp	2009-09-07 23:15:22 UTC (rev 3203)
++++ trunk/windstille/src/editor/navgraph_edge_object_model.hpp	2009-09-07 23:17:45 UTC (rev 3204)
+@@ -21,6 +21,7 @@
+ 
+ #include &lt;boost/weak_ptr.hpp&gt;
+ 
++#include &quot;navigation/navigation_graph.hpp&quot;
+ #include &quot;editor/object_model.hpp&quot;
+ 
+ class NavGraphNodeObjectModel;
+@@ -32,14 +33,22 @@
+   boost::weak_ptr&lt;NavGraphNodeObjectModel&gt; m_lhs;
+   boost::weak_ptr&lt;NavGraphNodeObjectModel&gt; m_rhs;
+   boost::shared_ptr&lt;VertexArrayDrawable&gt; m_drawable;
+-  
++  EdgeHandle m_edge;
++
+ public:
+   NavGraphEdgeObjectModel(boost::weak_ptr&lt;NavGraphNodeObjectModel&gt; lhs,
+-                          boost::weak_ptr&lt;NavGraphNodeObjectModel&gt; rhs);
++                          boost::weak_ptr&lt;NavGraphNodeObjectModel&gt; rhs,
++                          SectorModel&amp; sector);
+ 
+   void add_to_scenegraph(SceneGraph&amp; sg);
+   void update(float delta);
+ 
++  Rectf get_bounding_box() const;
++  ObjectModelHandle clone() const;
++  void write(FileWriter&amp; writer) const;
++
++  EdgeHandle get_edge() const { return m_edge; }
++
+ private:
+   NavGraphEdgeObjectModel(const NavGraphEdgeObjectModel&amp;);
+   NavGraphEdgeObjectModel&amp; operator=(const NavGraphEdgeObjectModel&amp;);
+
+Modified: trunk/windstille/src/editor/navgraph_insert_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_insert_tool.cpp	2009-09-07 23:15:22 UTC (rev 3203)
++++ trunk/windstille/src/editor/navgraph_insert_tool.cpp	2009-09-07 23:17:45 UTC (rev 3204)
+@@ -25,6 +25,7 @@
+ #include &quot;editor/windstille_widget.hpp&quot;
+ #include &quot;editor/editor_window.hpp&quot;
+ #include &quot;editor/navgraph_node_object_model.hpp&quot;
++#include &quot;editor/navgraph_edge_object_model.hpp&quot;
+ #include &quot;editor/object_commands.hpp&quot;
+ 
+ NavgraphInsertTool::NavgraphInsertTool()
+@@ -48,51 +49,60 @@
+   EdgeHandle edge = navgraph.find_closest_edge(mouse_pos, 16.0f);
+ 
+   switch(mode)
++  {
++    case EDGE_MODE:
+     {
+-      case EDGE_MODE:
+-        {
+-          if (node)
+-            { // connect last node with existing node
+-              navgraph.add_edge(last_node, node);
+-              last_node = NodeHandle();
+-              connection_node = NodeHandle();
+-            }
+-          else
+-            { // connect last node with newly created node
+-              NavGraphNodeObjectModel* obj = new NavGraphNodeObjectModel(mouse_pos, *sector);
+-              node = obj-&gt;get_node();
+-              wst.execute(CommandHandle(new ObjectAddCommand(wst.get_current_layer(), ObjectModelHandle(obj))));
++      if (node)
++      { // connect last node with existing node
++        NavGraphEdgeObjectModel* edge_obj = new NavGraphEdgeObjectModel(sector-&gt;find_navgraph_node(last_node),
++                                                                        sector-&gt;find_navgraph_node(node),
++                                                                        *sector);
++        wst.execute(CommandHandle(new ObjectAddCommand(wst.get_current_layer(), ObjectModelHandle(edge_obj))));
+ 
+-              navgraph.add_edge(last_node, node);
+-              last_node = NodeHandle();
+-            }
+-          mode = NO_MODE;        
+-        }
+-        break;
++        last_node = NodeHandle();
++        connection_node = NodeHandle();
++      }
++      else
++      { // connect last node with newly created node
++        // FIXME: Make this a GroupCommand
++        NavGraphNodeObjectModel* obj = new NavGraphNodeObjectModel(mouse_pos, *sector);
++        node = obj-&gt;get_node();
++        wst.execute(CommandHandle(new ObjectAddCommand(wst.get_current_layer(), ObjectModelHandle(obj))));
+ 
+-      case NO_MODE:
+-        {
+-          if (node)
+-            {
+-              last_node = node;
+-              mode = EDGE_MODE;
+-            }
+-          else if (edge)
+-            {
+-              navgraph.remove_edge(edge);
+-              mode = NO_MODE;
+-            }
+-          else
+-            {
+-              NavGraphNodeObjectModel* obj = new NavGraphNodeObjectModel(mouse_pos, *sector);
+-              last_node = obj-&gt;get_node();
+-              wst.execute(CommandHandle(new ObjectAddCommand(wst.get_current_layer(), ObjectModelHandle(obj))));
++        NavGraphEdgeObjectModel* edge_obj = new NavGraphEdgeObjectModel(sector-&gt;find_navgraph_node(last_node),
++                                                                        sector-&gt;find_navgraph_node(node), 
++                                                                        *sector);
++        wst.execute(CommandHandle(new ObjectAddCommand(wst.get_current_layer(), ObjectModelHandle(edge_obj))));
++
++        last_node = NodeHandle();
++      }
++      mode = NO_MODE;
++    }
++    break;
++
++    case NO_MODE:
++    {
++      if (node)
++      {
++        last_node = node;
++        mode = EDGE_MODE;
++      }
++      else if (edge)
++      {
++        navgraph.remove_edge(edge);
++        mode = NO_MODE;
++      }
++      else
++      {
++        NavGraphNodeObjectModel* obj = new NavGraphNodeObjectModel(mouse_pos, *sector);
++        last_node = obj-&gt;get_node();
++        wst.execute(CommandHandle(new ObjectAddCommand(wst.get_current_layer(), ObjectModelHandle(obj))));
+               
+-              mode = EDGE_MODE;
+-            }
+-        }
+-        break;
++        mode = EDGE_MODE;
++      }
+     }
++    break;
++  }
+ 
+   wst.queue_draw();
+ }
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-09-07 23:15:22 UTC (rev 3203)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-09-07 23:17:45 UTC (rev 3204)
+@@ -28,6 +28,8 @@
+ #include &quot;navigation/node.hpp&quot;
+ #include &quot;editor/editor_window.hpp&quot;
+ #include &quot;editor/windstille_widget.hpp&quot;
++#include &quot;editor/navgraph_node_object_model.hpp&quot;
++#include &quot;editor/navgraph_edge_object_model.hpp&quot;
+ #include &quot;util/file_reader.hpp&quot;
+ #include &quot;display/scene_context.hpp&quot;
+ #include &quot;display/surface.hpp&quot;
+@@ -614,4 +616,54 @@
+   rebuild_scene_graph();
+ }
+ 
++boost::shared_ptr&lt;NavGraphNodeObjectModel&gt;
++SectorModel::find_navgraph_node(NodeHandle node) const
++{
++  const Layers&amp; layers = get_layers();
++  for(Layers::const_reverse_iterator layer = layers.rbegin(); layer != layers.rend(); ++layer)
++  {
++    if (*layer)
++    {
++      for(Layer::const_iterator obj = (*layer)-&gt;begin(); obj != (*layer)-&gt;end(); ++obj)
++      {
++        boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; test_node = boost::dynamic_pointer_cast&lt;NavGraphNodeObjectModel&gt;(*obj);
++        if (test_node)
++        {
++          if (test_node-&gt;get_node() == node)
++          {
++            return test_node;
++          }
++        }
++      }
++    } 
++  }
++  
++  return boost::shared_ptr&lt;NavGraphNodeObjectModel&gt;();
++}
++
++boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt;
++SectorModel::find_navgraph_edge(EdgeHandle edge) const
++{
++  const Layers&amp; layers = get_layers();
++  for(Layers::const_reverse_iterator layer = layers.rbegin(); layer != layers.rend(); ++layer)
++  {
++    if (*layer)
++    {
++      for(Layer::const_iterator obj = (*layer)-&gt;begin(); obj != (*layer)-&gt;end(); ++obj)
++      {
++        boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; test_edge = boost::dynamic_pointer_cast&lt;NavGraphEdgeObjectModel&gt;(*obj);
++        if (test_edge)
++        {
++          if (test_edge-&gt;get_edge() == edge)
++          {
++            return test_edge;
++          }
++        }
++      }
++    } 
++  }
++  
++  return boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt;(); 
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-09-07 23:15:22 UTC (rev 3203)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-09-07 23:17:45 UTC (rev 3204)
+@@ -27,11 +27,14 @@
+ 
+ #include &quot;display/color.hpp&quot;
+ #include &quot;editor/layer.hpp&quot;
++#include &quot;editor/object_model.hpp&quot;
+ #include &quot;editor/selection.hpp&quot;
+-#include &quot;editor/object_model.hpp&quot;
+ #include &quot;math/vector2f.hpp&quot;
++#include &quot;navigation/navigation_graph.hpp&quot;
+ 
+ class NavigationGraph;
++class NavGraphNodeObjectModel;
++class NavGraphEdgeObjectModel;
+ class SceneGraph;
+ class SceneContext;
+ class LayerManagerColumns;
+@@ -135,6 +138,9 @@
+   NavigationGraph* get_nav_graph() const { return nav_graph.get(); }
+   SceneGraph*      get_scene_graph() const { return scene_graph.get(); }
+ 
++  boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; find_navgraph_node(NodeHandle node) const;
++  boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; find_navgraph_edge(EdgeHandle edge) const;
++
+   void queue_draw();
+ 
+   void rebuild_scene_graph();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002200.html">[Windstille-commit] r3203 - trunk/windstille/src/navigation
+</A></li>
+	<LI>Next message: <A HREF="002202.html">[Windstille-commit] r3205 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2201">[ date ]</a>
+              <a href="thread.html#2201">[ thread ]</a>
+              <a href="subject.html#2201">[ subject ]</a>
+              <a href="author.html#2201">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,311 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2285 - trunk/griv/new
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2285%20-%20trunk/griv/new&In-Reply-To=%3C200808072111.m77LBYUj017410%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001304.html">
+   <LINK REL="Next"  HREF="001306.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2285 - trunk/griv/new</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2285%20-%20trunk/griv/new&In-Reply-To=%3C200808072111.m77LBYUj017410%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2285 - trunk/griv/new">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Aug  7 23:11:34 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001304.html">[Windstille-commit] r2284 - trunk/griv/new
+</A></li>
+        <LI>Next message: <A HREF="001306.html">[Windstille-commit] r2286 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1305">[ date ]</a>
+              <a href="thread.html#1305">[ thread ]</a>
+              <a href="subject.html#1305">[ subject ]</a>
+              <a href="author.html#1305">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-07 23:11:34 +0200 (Thu, 07 Aug 2008)
+New Revision: 2285
+
+Modified:
+   trunk/griv/new/SConstruct
+   trunk/griv/new/math.hpp
+   trunk/griv/new/software_surface.hpp
+   trunk/griv/new/surface.cpp
+   trunk/griv/new/surface.hpp
+   trunk/griv/new/texture.cpp
+   trunk/griv/new/texture.hpp
+Log:
+Make new classes compilable
+
+Modified: trunk/griv/new/SConstruct
+===================================================================
+--- trunk/griv/new/SConstruct	2008-08-07 21:05:23 UTC (rev 2284)
++++ trunk/griv/new/SConstruct	2008-08-07 21:11:34 UTC (rev 2285)
+@@ -16,6 +16,8 @@
+         'url.cpp',
+         'md5.cpp',
+         'sqlite.cpp',
++        'surface.cpp',
++        'texture.cpp',
+         'framebuffer.cpp',
+         'filesystem.cpp',
+         'file_database.cpp',
+
+Modified: trunk/griv/new/math.hpp
+===================================================================
+--- trunk/griv/new/math.hpp	2008-08-07 21:05:23 UTC (rev 2284)
++++ trunk/griv/new/math.hpp	2008-08-07 21:11:34 UTC (rev 2285)
+@@ -98,6 +98,26 @@
+ /** Restore the raw bits of a float from a string */
+ float string2float(const std::string&amp; str);
+ 
++inline int round_to_power_of_two(int n)
++{
++  n = n - 1;
++
++  n = n | (n &gt;&gt; 1);
++  n = n | (n &gt;&gt; 2);
++  n = n | (n &gt;&gt; 4);
++  n = n | (n &gt;&gt; 8);
++  n = n | (n &gt;&gt; 16);
++  
++  n = n + 1;
++  
++  return n;
++}
++
++inline bool is_power_of_two(int n)
++{
++  return (n &gt; 0) &amp;&amp; ((n &amp; (n - 1)) == 0);
++}
++
+ } // namespace Math
+ 
+ #endif
+
+Modified: trunk/griv/new/software_surface.hpp
+===================================================================
+--- trunk/griv/new/software_surface.hpp	2008-08-07 21:05:23 UTC (rev 2284)
++++ trunk/griv/new/software_surface.hpp	2008-08-07 21:11:34 UTC (rev 2285)
+@@ -57,6 +57,7 @@
+   static SoftwareSurface from_data(const Blob&amp; blob);
+   static void get_size(const std::string&amp; filename, Size&amp; size);
+ 
++  operator bool() const { return impl.get(); }
+ private:
+   boost::shared_ptr&lt;SoftwareSurfaceImpl&gt; impl;
+ };
+
+Modified: trunk/griv/new/surface.cpp
+===================================================================
+--- trunk/griv/new/surface.cpp	2008-08-07 21:05:23 UTC (rev 2284)
++++ trunk/griv/new/surface.cpp	2008-08-07 21:11:34 UTC (rev 2285)
+@@ -25,14 +25,13 @@
+ 
+ #include &lt;iostream&gt;
+ #include &lt;assert.h&gt;
+-#include &quot;display.hpp&quot;
++#include &quot;framebuffer.hpp&quot;
+ #include &quot;math.hpp&quot;
+ #include &quot;software_surface.hpp&quot;
+ #include &quot;surface.hpp&quot;
+ 
+-Surface::Surface(SWSurfaceHandle surface, int x, int y, int w, int h)
+-  : surface(surface),
+-    texture(0)
++Surface::Surface(const SoftwareSurface&amp; surface, int x, int y, int w, int h)
++  : texture(0)
+ {
+   assert(surface);
+ 
+@@ -42,7 +41,7 @@
+   if (tex_w &lt;= 1024 &amp;&amp; tex_h &lt;= 1024)
+     {
+       texture = new Texture(tex_w, tex_h, 
+-                            surface-&gt;get_surface(), 
++                            surface,
+                             x, y, w, h);
+     
+       u = float(w) / tex_w;
+@@ -56,7 +55,7 @@
+   else
+     {
+       std::cout &lt;&lt; &quot;Image violates maximum texture size: &quot;
+-                &lt;&lt; surface-&gt;get_width() &lt;&lt; &quot;x&quot; &lt;&lt; surface-&gt;get_height() &lt;&lt; std::endl;
++                &lt;&lt; surface.get_width() &lt;&lt; &quot;x&quot; &lt;&lt; surface.get_height() &lt;&lt; std::endl;
+     }
+ }
+ 
+
+Modified: trunk/griv/new/surface.hpp
+===================================================================
+--- trunk/griv/new/surface.hpp	2008-08-07 21:05:23 UTC (rev 2284)
++++ trunk/griv/new/surface.hpp	2008-08-07 21:11:34 UTC (rev 2285)
+@@ -34,10 +34,7 @@
+ /** */
+ class Surface
+ {
+-private:
+-  /** Software backstore for the image */
+-  SWSurfaceHandle surface;
+-  
++private: 
+   Texture* texture;
+   int tex_w;
+   int tex_h;
+@@ -51,7 +48,7 @@
+   int height;
+   
+ public:
+-  Surface(SWSurfaceHandle surface, int x, int y, int w, int h);
++  Surface(const SoftwareSurface&amp; surface, int x, int y, int w, int h);
+   ~Surface();
+ 
+   void draw(float x, float y, float w, float h);
+
+Modified: trunk/griv/new/texture.cpp
+===================================================================
+--- trunk/griv/new/texture.cpp	2008-08-07 21:05:23 UTC (rev 2284)
++++ trunk/griv/new/texture.cpp	2008-08-07 21:11:34 UTC (rev 2285)
+@@ -28,48 +28,18 @@
+ #include &lt;stdexcept&gt;
+ #include &lt;boost/format.hpp&gt;
+ #include &lt;string.h&gt;
+-#include &quot;display.hpp&quot;
++#include &quot;framebuffer.hpp&quot;
+ #include &quot;texture.hpp&quot;
+ 
+ Texture::Texture(int width, int height, 
+-                 SDL_Surface* surface, int s_x, int s_y, int s_w, int s_h)
++                 const SoftwareSurface&amp; surface, int s_x, int s_y, int s_w, int s_h)
+   : handle(0),
+     width(width),
+     height(height)
+ {
++#if 0
+   assert(surface);
+ 
+-  if (0)
+-    std::cout &lt;&lt; boost::format(&quot;,----------------------------\n&quot;
+-                               &quot;| Pointer: 0x%p\n&quot;
+-                               &quot;| Size:    %dx%d\n&quot;
+-                               &quot;| Pitch:   %d vs %d\n&quot;
+-                               &quot;| Rmask:   0x%08x\n&quot;
+-                               &quot;| Gmask:   0x%08x\n&quot;
+-                               &quot;| Bmask:   0x%08x\n&quot;
+-                               &quot;| Amask:   0x%08x\n&quot;
+-                               &quot;| Flags:   0x%08x -&gt; %s%s%s%s\n&quot;
+-                               &quot;| Palette: 0x%08x\n&quot;
+-                               &quot;| BitsPerPixel: %d\n&quot;
+-                               &quot;`----------------------------\n&quot;
+-                               )
+-      % surface
+-      % surface-&gt;w
+-      % surface-&gt;h
+-      % surface-&gt;pitch
+-      % (surface-&gt;w*3)
+-      % surface-&gt;format-&gt;Rmask
+-      % surface-&gt;format-&gt;Gmask
+-      % surface-&gt;format-&gt;Bmask
+-      % surface-&gt;format-&gt;Amask
+-      % surface-&gt;flags
+-      % ((surface-&gt;flags &amp; SDL_HWSURFACE) ? &quot;HWSURFACE &quot; : &quot;&quot;)
+-      % ((surface-&gt;flags &amp; SDL_SWSURFACE) ? &quot;SWSURFACE &quot; : &quot;&quot;)
+-      % ((surface-&gt;flags &amp; SDL_SRCCOLORKEY) ? &quot;SRCCOLORKEY &quot; : &quot;&quot;)
+-      % ((surface-&gt;flags &amp; SDL_SRCALPHA) ? &quot;SRCALPHA &quot; : &quot;&quot;)
+-      % surface-&gt;format-&gt;palette
+-      % static_cast&lt;int&gt;(surface-&gt;format-&gt;BitsPerPixel);
+-
+   glGenTextures(1, &amp;handle);
+ 
+   const SDL_PixelFormat* format = surface-&gt;format;
+@@ -118,10 +88,6 @@
+ 
+   assert_gl(&quot;packing image texture&quot;);
+ 
+-  // if (surface-&gt;pitch != (surface-&gt;w * surface-&gt;format-&gt;BytesPerPixel))
+-  //   std::cout  &lt;&lt; surface-&gt;pitch &lt;&lt; &quot; &quot; &lt;&lt; (surface-&gt;w * surface-&gt;format-&gt;BytesPerPixel) &lt;&lt; std::endl;
+-
+-  //std::cout &lt;&lt; surface-&gt;pitch &lt;&lt; &quot; &quot; &lt;&lt; s_w &lt;&lt; &quot; &quot; &lt;&lt; s_h &lt;&lt; std::endl;
+   glPixelStorei(GL_UNPACK_ROW_LENGTH, surface-&gt;w);
+   glPixelStorei(GL_UNPACK_ALIGNMENT,  4); // FIXME: This alignment is
+                                           // guessed, we better should
+@@ -144,6 +110,7 @@
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP);
+ 
+   assert_gl(&quot;setting texture parameters&quot;);
++#endif
+ }
+ 
+ Texture::~Texture()
+
+Modified: trunk/griv/new/texture.hpp
+===================================================================
+--- trunk/griv/new/texture.hpp	2008-08-07 21:05:23 UTC (rev 2284)
++++ trunk/griv/new/texture.hpp	2008-08-07 21:11:34 UTC (rev 2285)
+@@ -30,7 +30,8 @@
+ #include &lt;GL/glu.h&gt;
+ #include &quot;SDL.h&quot;
+ 
+-/** */
++class SoftwareSurface;
++
+ class Texture
+ {
+ private:
+@@ -40,7 +41,7 @@
+   int height;
+ 
+ public:
+-  Texture(int w, int h, SDL_Surface* surface, int s_x, int s_y, int s_w, int s_h);
++  Texture(int w, int h, const SoftwareSurface&amp; surface, int s_x, int s_y, int s_w, int s_h);
+   ~Texture();
+ 
+   int get_width() const;
+@@ -51,7 +52,7 @@
+   Texture (const Texture&amp;);
+   Texture&amp; operator= (const Texture&amp;);
+ };
+-
++
+ #endif
+ 
+ /* EOF */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001304.html">[Windstille-commit] r2284 - trunk/griv/new
+</A></li>
+	<LI>Next message: <A HREF="001306.html">[Windstille-commit] r2286 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1305">[ date ]</a>
+              <a href="thread.html#1305">[ thread ]</a>
+              <a href="subject.html#1305">[ subject ]</a>
+              <a href="author.html#1305">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

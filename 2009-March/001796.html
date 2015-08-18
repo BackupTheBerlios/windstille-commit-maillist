@@ -1,0 +1,286 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2799 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2799%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200903282033.n2SKXNu8014746%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001795.html">
+   <LINK REL="Next"  HREF="001797.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2799 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2799%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200903282033.n2SKXNu8014746%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2799 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Mar 28 21:33:23 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001795.html">[Windstille-commit] r2798 - in trunk/windstille/src: editor util
+</A></li>
+        <LI>Next message: <A HREF="001797.html">[Windstille-commit] r2800 - in trunk/windstille: . src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1796">[ date ]</a>
+              <a href="thread.html#1796">[ thread ]</a>
+              <a href="subject.html#1796">[ subject ]</a>
+              <a href="author.html#1796">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-28 21:33:23 +0100 (Sat, 28 Mar 2009)
+New Revision: 2799
+
+Modified:
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/editor_window.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/editor/windstille_widget.hpp
+Log:
+Implemented proper Open/Save/SaveAs
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-03-28 19:15:28 UTC (rev 2798)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-03-28 20:33:23 UTC (rev 2799)
+@@ -18,6 +18,7 @@
+ 
+ #include &lt;fstream&gt;
+ #include &lt;iostream&gt;
++#include &lt;glibmm/miscutils.h&gt;
+ #include &lt;gtkmm/filechooserdialog.h&gt;
+ #include &lt;gtkmm/actiongroup.h&gt;
+ #include &lt;gtkmm/radioaction.h&gt;
+@@ -57,9 +58,11 @@
+     &quot;    &lt;menu action='MenuFile'&gt;&quot;
+     &quot;      &lt;menuitem action='New'/&gt;&quot;
+     &quot;      &lt;menuitem action='Open'/&gt;&quot;
++    &quot;      &lt;separator/&gt;&quot;
+     &quot;      &lt;menuitem action='Save'/&gt;&quot;
++    &quot;      &lt;menuitem action='SaveAs'/&gt;&quot;
++    &quot;      &lt;separator/&gt;&quot;
+     &quot;      &lt;menuitem action='Close'/&gt;&quot;
+-    &quot;      &lt;separator/&gt;&quot;
+     &quot;      &lt;menuitem action='Quit'/&gt;&quot;
+     &quot;    &lt;/menu&gt;&quot;
+     &quot;    &lt;menu action='MenuEdit'&gt;&quot;
+@@ -110,6 +113,7 @@
+     &quot;    &lt;toolitem action='New'/&gt;&quot;
+     &quot;    &lt;toolitem action='Open'/&gt;&quot;
+     &quot;    &lt;toolitem action='Save'/&gt;&quot;
++    &quot;    &lt;toolitem action='SaveAs'/&gt;&quot;
+     &quot;    &lt;separator/&gt;&quot;
+     &quot;    &lt;toolitem action='Undo'/&gt;&quot;
+     &quot;    &lt;toolitem action='Redo'/&gt;&quot;
+@@ -163,6 +167,8 @@
+                     sigc::mem_fun(*this, &amp;EditorWindow::on_open));
+   action_group-&gt;add(Gtk::Action::create(&quot;Save&quot;,        Gtk::Stock::SAVE),
+                     sigc::mem_fun(*this, &amp;EditorWindow::on_save));
++  action_group-&gt;add(Gtk::Action::create(&quot;SaveAs&quot;,        Gtk::Stock::SAVE_AS),
++                    sigc::mem_fun(*this, &amp;EditorWindow::on_save_as));
+   action_group-&gt;add(Gtk::Action::create(&quot;Close&quot;,       Gtk::Stock::CLOSE),
+                     sigc::mem_fun(*this, &amp;EditorWindow::on_close));
+   action_group-&gt;add(Gtk::Action::create(&quot;Quit&quot;,        Gtk::Stock::QUIT),
+@@ -347,7 +353,7 @@
+   // FIXME: We abuse the minimap as our root GLContext
+   WindstilleWidget* wst = Gtk::manage(new WindstilleWidget(glconfig, minimap_widget.get_gl_context()));
+ 
+-  Glib::ustring title = Glib::ustring::compose(&quot;Sector %1&quot;, notebook.get_n_pages());
++  Glib::ustring title = Glib::ustring::compose(&quot;Unsaved Sector %1&quot;, notebook.get_n_pages()+1);
+   int new_page = notebook.append_page(*wst, title);
+   wst-&gt;show();
+   notebook.set_current_page(new_page);
+@@ -362,6 +368,8 @@
+   on_new();
+   WindstilleWidget* wst = get_windstille_widget();
+   wst-&gt;load_file(filename);
++  wst-&gt;set_filename(filename);
++  notebook.set_tab_label_text(*notebook.get_nth_page(notebook.get_current_page()), Glib::path_get_basename(filename));
+ }
+ 
+ void
+@@ -373,6 +381,7 @@
+ 
+   dialog.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_CANCEL);
+   dialog.add_button(Gtk::Stock::OPEN,   Gtk::RESPONSE_OK);
++  dialog.set_current_folder(&quot;data/sectors/&quot;);
+ 
+   switch(dialog.run())
+     {
+@@ -397,34 +406,70 @@
+ void
+ EditorWindow::on_save()
+ {
+-  Gtk::FileChooserDialog dialog(&quot;Save File&quot;,
+-                                Gtk::FILE_CHOOSER_ACTION_SAVE);
+-  dialog.set_transient_for(*this);
++  if (WindstilleWidget* wst = get_windstille_widget())
++    {
++      if (wst-&gt;get_filename().empty())
++        {
++          on_save_as();
++        }
++      else
++        {
++          std::ofstream out(wst-&gt;get_filename().c_str());
++          FileWriter writer(out);
++          wst-&gt;get_sector_model()-&gt;write(writer);
++        }
++    }
++}
+ 
+-  dialog.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_CANCEL);
+-  dialog.add_button(Gtk::Stock::SAVE,   Gtk::RESPONSE_OK);
++void
++EditorWindow::on_save_as()
++{
++  int page = notebook.get_current_page();
++  if (page == -1)
++    {
++      // do nothing;
++    }
++  else
++    {
++      Gtk::FileChooserDialog dialog(&quot;Save File&quot;,
++                                    Gtk::FILE_CHOOSER_ACTION_SAVE);
++      dialog.set_transient_for(*this);
++      
++      dialog.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_CANCEL);
++      dialog.add_button(Gtk::Stock::SAVE,   Gtk::RESPONSE_OK);
+ 
+-  switch(dialog.run())
+-    {
+-      case(Gtk::RESPONSE_OK):
++      WindstilleWidget* wst = static_cast&lt;WindstilleWidget*&gt;(notebook.get_nth_page(page));
++ 
++      if (wst-&gt;get_filename().empty())
++        dialog.set_current_folder(&quot;data/sectors/&quot;);
++      else
++        dialog.set_current_folder(Glib::path_get_dirname(wst-&gt;get_filename()));
++
++      switch(dialog.run())
+         {
+-          std::cout &lt;&lt; &quot;Select clicked.&quot; &lt;&lt; std::endl;
+-          std::cout &lt;&lt; &quot;Folder selected: &quot; &lt;&lt; dialog.get_filename()
+-                    &lt;&lt; std::endl;
++          case(Gtk::RESPONSE_OK):
++            {
++              std::cout &lt;&lt; &quot;Select clicked.&quot; &lt;&lt; std::endl;
++              std::cout &lt;&lt; &quot;Folder selected: &quot; &lt;&lt; dialog.get_filename()
++                        &lt;&lt; std::endl;
+ 
+-          std::ofstream out(dialog.get_filename().c_str());
+-          FileWriter writer(out);
+-          if (WindstilleWidget* wst = get_windstille_widget())
+-            {
++              std::string filename = dialog.get_filename();
++              std::ofstream out(filename.c_str());
++              FileWriter writer(out);
++
+               wst-&gt;get_sector_model()-&gt;write(writer);
++              wst-&gt;set_filename(filename);
++
++              notebook.set_tab_label_text(*notebook.get_nth_page(page), Glib::path_get_basename(filename));
++
++              break;
+             }
+-          break;
+-        }
+ 
+-      case(Gtk::RESPONSE_CANCEL):
+-        {
+-          std::cout &lt;&lt; &quot;Cancel clicked.&quot; &lt;&lt; std::endl;
+-          break;
++          case(Gtk::RESPONSE_CANCEL):
++            {
++              std::cout &lt;&lt; &quot;Cancel clicked.&quot; &lt;&lt; std::endl;
++              break;
++            }
+         }
+     }
+ }
+
+Modified: trunk/windstille/src/editor/editor_window.hpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.hpp	2009-03-28 19:15:28 UTC (rev 2798)
++++ trunk/windstille/src/editor/editor_window.hpp	2009-03-28 20:33:23 UTC (rev 2799)
+@@ -99,6 +99,7 @@
+   void on_new();
+   void on_open();
+   void on_save();
++  void on_save_as();
+   void on_close();
+ 
+   bool on_timeout();
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-03-28 19:15:28 UTC (rev 2798)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-03-28 20:33:23 UTC (rev 2799)
+@@ -571,8 +571,9 @@
+ }
+ 
+ void
+-WindstilleWidget::load_file(const std::string&amp; filename)
++WindstilleWidget::load_file(const std::string&amp; filename_)
+ {
++  filename = filename_;
+   sector_model-&gt;load(filename);
+   queue_draw();
+ }
+
+Modified: trunk/windstille/src/editor/windstille_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.hpp	2009-03-28 19:15:28 UTC (rev 2798)
++++ trunk/windstille/src/editor/windstille_widget.hpp	2009-03-28 20:33:23 UTC (rev 2799)
+@@ -51,6 +51,7 @@
+     public Gtk::GL::Widget&lt;WindstilleWidget&gt;
+ {
+ private:
++  std::string filename;
+   std::auto_ptr&lt;SectorModel&gt; sector_model;
+   std::vector&lt;ControlPointHandle&gt; control_points;
+ 
+@@ -132,6 +133,9 @@
+   HardLayerHandle get_current_layer();
+   Gtk::TreeModel::Path get_current_layer_path();
+ 
++  std::string get_filename() const { return filename; }
++  void set_filename(const std::string&amp; filename_) { filename = filename_; }
++
+ private:
+   WindstilleWidget (const WindstilleWidget&amp;);
+   WindstilleWidget&amp; operator= (const WindstilleWidget&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001795.html">[Windstille-commit] r2798 - in trunk/windstille/src: editor util
+</A></li>
+	<LI>Next message: <A HREF="001797.html">[Windstille-commit] r2800 - in trunk/windstille: . src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1796">[ date ]</a>
+              <a href="thread.html#1796">[ thread ]</a>
+              <a href="subject.html#1796">[ subject ]</a>
+              <a href="author.html#1796">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

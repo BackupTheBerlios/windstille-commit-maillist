@@ -1,0 +1,657 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1559 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1559%20-%20trunk/griv&In-Reply-To=%3C200711182348.lAINmYmk030763%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001209.html">
+   <LINK REL="Next"  HREF="001211.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1559 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1559%20-%20trunk/griv&In-Reply-To=%3C200711182348.lAINmYmk030763%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1559 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Nov 19 00:48:34 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001209.html">[Windstille-commit] r1558 - in trunk/griv: . obsolete
+</A></li>
+        <LI>Next message: <A HREF="001211.html">[Windstille-commit] r1560 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1210">[ date ]</a>
+              <a href="thread.html#1210">[ thread ]</a>
+              <a href="subject.html#1210">[ subject ]</a>
+              <a href="author.html#1210">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-19 00:48:33 +0100 (Mon, 19 Nov 2007)
+New Revision: 1559
+
+Modified:
+   trunk/griv/SConstruct
+   trunk/griv/TODO
+   trunk/griv/griv.cpp
+   trunk/griv/image.cpp
+   trunk/griv/image.hpp
+   trunk/griv/loader.cpp
+   trunk/griv/surface.cpp
+   trunk/griv/surface.hpp
+   trunk/griv/texture.cpp
+   trunk/griv/texture.hpp
+   trunk/griv/thumbgen.cpp
+Log:
+- moved some code into seperate surface class
+
+Modified: trunk/griv/SConstruct
+===================================================================
+--- trunk/griv/SConstruct	2007-11-17 18:17:34 UTC (rev 1558)
++++ trunk/griv/SConstruct	2007-11-18 23:48:33 UTC (rev 1559)
+@@ -14,6 +14,7 @@
+ griv_env.Program('griv', ['griv.cpp',
+                           'loader.cpp',
+                           'image.cpp',
++                          'surface.cpp',
+                           'thumbnail_store.cpp',
+                           'display.cpp', 
+                           'texture.cpp', 
+
+Modified: trunk/griv/TODO
+===================================================================
+--- trunk/griv/TODO	2007-11-17 18:17:34 UTC (rev 1558)
++++ trunk/griv/TODO	2007-11-18 23:48:33 UTC (rev 1559)
+@@ -1,3 +1,24 @@
++ToDo:
++=====
++
++- store 16x16 thumbnails in a container format, simple uncompressed
++  RGB, store filenames in a simple linear list, stuff them into a
++  map/hash on load
++
++- implement Surface class that handles images larger then the maximum
++  texture size
++
++- added support for ~/.thumbnails/ to get the smaller mipmaps faster
++
++- create a two OpenGL context to allow better multithreading use (any
++  way to do it portable?)
++
++- move over input code from Pingus to support Spacenavigator and such
++
++
++Misc Stuff:
++===========
++
+ 1920x1080: (64x64) 30x17=510, (32x32) 60x34=2040, (16x16) 120x68=8160, (4x4) 480x270=129600
+ ~100MB for fullscreen 16x16 Thumbs
+ 4096 images on 1024x1024 texture at 16x16
+@@ -3,14 +24,7 @@
+ ~32 textures for 129600 thumbs
+ 
+-Ideas:
+-======
+-- store 16x16 thumbnails in a single 1024x1024 jpeg image (easy to use as texture)
+-- store filenames in a simple linear list, stuff them into a map/hash on load
+-- maybe do the same for 32x32, but that needs benchmarking first
+-
+ Problems:
+ =========
+ - initial load is very slow
+-- initial thumbnailing is *extremly* slow
+ 
+ 4096 pictures packed in a single JPEG:
+@@ -35,10 +49,8 @@
+ user    0m0.876s
+ sys     0m0.128s
+ 
+-Short Term:
+-===========
+-- add broken-image image or kick them out of the Workspace
+-- use epeg for thumb generation
++Getting pictures for testing from Flickr:
++=========================================
+ 
+ cvs -z3 -d :pserver:<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">anonymous at anoncvs.enlightenment.org</A>:/var/cvs/e export e17/libs/epeg
+ # Flickr Download:
+@@ -58,10 +70,4 @@
+ 
+ - store by md5 and use hardlinks, thus avoid duplicates when files are moved
+ 
+-Long Term:
+-==========
+-- move position into Image
+-- handle object placement elsewhere
+-- added support for ~/.thumbnails/ to get the smaller mipmaps faster
+-
+ # EOF #
+
+Modified: trunk/griv/griv.cpp
+===================================================================
+--- trunk/griv/griv.cpp	2007-11-17 18:17:34 UTC (rev 1558)
++++ trunk/griv/griv.cpp	2007-11-18 23:48:33 UTC (rev 1559)
+@@ -217,8 +217,7 @@
+ {
+   Filesystem::init();
+   Framebuffer::init();
+-  Image::init();
+-
++  
+   workspace = new Workspace();
+ 
+   for(int i = 1; i &lt; argc; ++i)
+@@ -281,7 +280,6 @@
+ 
+   delete workspace;
+ 
+-  Image::deinit();
+   Framebuffer::deinit();
+   Filesystem::deinit();
+ 
+
+Modified: trunk/griv/image.cpp
+===================================================================
+--- trunk/griv/image.cpp	2007-11-17 18:17:34 UTC (rev 1558)
++++ trunk/griv/image.cpp	2007-11-18 23:48:33 UTC (rev 1559)
+@@ -28,37 +28,18 @@
+ #include &quot;SDL_image.h&quot;
+ #include &quot;texture.hpp&quot;
+ #include &quot;image.hpp&quot;
++#include &quot;surface.hpp&quot;
+ 
+-SDL_Surface* Image::loading_16;
+-SDL_Surface* Image::loading_32;
+-SDL_Surface* Image::loading_64;
+-SDL_Surface* Image::loading_128;
+-SDL_Surface* Image::loading_256;
+-SDL_Surface* Image::loading_512;
+-SDL_Surface* Image::loading_1024;
+-
+-void 
+-Image::init()
+-{
+-  std::cout &lt;&lt; &quot;Image&quot; &lt;&lt; std::endl;
+-
+-  loading_1024 = IMG_Load(&quot;loading_1024.jpg&quot;);
+-  loading_512  = IMG_Load(&quot;loading_512.jpg&quot;);
+-  loading_256  = IMG_Load(&quot;loading_256.jpg&quot;);
+-  loading_128  = IMG_Load(&quot;loading_128.jpg&quot;);
+-  loading_64   = IMG_Load(&quot;loading_64.jpg&quot;);
+-  loading_32   = IMG_Load(&quot;loading_32.jpg&quot;);
+-  loading_16   = IMG_Load(&quot;loading_16.jpg&quot;);
+-}
+-
+ Image::Image(const std::string&amp; url)
+   : url(url), 
++    requested_res(0),
++
++    received_surface(0),
++    received_surface_res(0),
++
+     surface(0),
+-    texture(0),
+-    texture_16x16(0),
+-    res(0),
+-    want_res(0),
+-    image_requested(false),
++    surface_16x16(0),
++
+     x_pos(0),
+     y_pos(0),
+     last_x_pos(0),
+@@ -76,24 +57,15 @@
+ Image::receive(SDL_Surface* new_surface, int r)
+ { 
+   SDL_LockMutex(mutex);
++  
+   if (new_surface)
+     {
+-      if (surface)
+-        {
+-          SDL_Surface* old_surface = surface;
+-          surface = new_surface;
+-          SDL_FreeSurface(old_surface); 
+-        }
+-      else
+-        {
+-          surface = new_surface;
+-        }
+-      
+-      res = r;
+-
+-      force_redraw = true;
++      received_surface     = new_surface;
++      received_surface_res = r;
++      force_redraw         = true;
+     }
+-  image_requested = false;
++  requested_res        = 0; 
++ 
+   SDL_UnlockMutex(mutex);
+ }
+ 
+@@ -109,69 +81,49 @@
+       x &lt; -res || 
+       y &lt; -res)
+     { // Image out of screen
+-      if (res &gt;= 512)
+-        if (surface)
+-          {
+-            SDL_FreeSurface(surface);
+-            surface = 0;
+-
+-            delete texture;
+-            texture = 0;
+-
+-            want_res  = 0;
+-            this-&gt;res = 0;
+-          }
++      if (surface &amp;&amp; surface-&gt;get_resolution() &gt;= 512) // keep small images around a while longer
++        {
++          delete surface;
++          surface = 0;
++        }
+     }
+   else
+     { // image on screen
+-      //std::cout &lt;&lt; round_res(res) &lt;&lt; &quot; &quot; &lt;&lt; this-&gt;res &lt;&lt; std::endl;
+ 
+-      if (!image_requested)
+-        if (surface == 0 || round_res(int(res)) != int(this-&gt;res))
+-          {
+-            loader.request(this);
+-            want_res = round_res(int(res));
+-            image_requested = true;
+-          }
+-
+-      if (surface)
++      // Handle loading when resolution changed
++      if (surface == 0 || 
++          round_res(int(res)) != surface-&gt;get_resolution())
+         {
+-          if (!texture || texture-&gt;surface != surface)
+-            {
+-              if (!texture_16x16)
+-                {
+-                  texture_16x16 = new Texture(surface);
+-                }
+-              else
+-                {
+-                  delete texture;
+-                  texture = new Texture(surface);
+-                }
++          if (round_res(int(res)) != requested_res)
++            {    
++              loader.request(this);
++              requested_res = round_res(int(res));
+             }
+         }
+-
+-      if (texture || texture_16x16)
++      
++      // Handle OpenGL Texture creation when new surface was received
++      if (received_surface)
+         {
+-          if (texture)
+-            texture-&gt;bind();
+-          else if (texture_16x16)
+-            texture_16x16-&gt;bind();
++          if (!surface_16x16)
++            { // Use surface as the smallest possible surface
++              // FIXME: When somebody is fast this could mean a non 16x16 surface
++              surface_16x16 = new Surface(received_surface, received_surface_res);
++            }
++          else
++            { // Replace the current surface
++              delete surface;
++              surface = new Surface(received_surface, received_surface_res);
++            }
+ 
+-          glColor3f(1.0f, 1.0f, 1.0f);
+-          glBegin(GL_QUADS);
+-          glTexCoord2f(0,0);
+-          glVertex2f(x, y);
+-
+-          glTexCoord2f(1,0);
+-          glVertex2f(x + res, y);
+-
+-          glTexCoord2f(1,1);
+-          glVertex2f(x + res, y + res);
+-
+-          glTexCoord2f(0,1);
+-          glVertex2f(x, y + res);
+-          glEnd();
++          received_surface     = 0;
++          received_surface_res = 0;
+         }
++
++      // Handle drawing
++      if (surface)
++        surface-&gt;draw(x, y, res, res);
++      else if (surface_16x16)
++        surface_16x16-&gt;draw(x, y, res, res);
+     }
+   SDL_UnlockMutex(mutex);
+ }
+
+Modified: trunk/griv/image.hpp
+===================================================================
+--- trunk/griv/image.hpp	2007-11-17 18:17:34 UTC (rev 1558)
++++ trunk/griv/image.hpp	2007-11-18 23:48:33 UTC (rev 1559)
+@@ -31,52 +31,21 @@
+ #include &quot;loader.hpp&quot;
+ #include &quot;griv.hpp&quot;
+ 
+-class Texture;
++class Surface;
+ 
+ class Image
+ {
+ public:
+-  // Place holder images when no other is available
+-  static SDL_Surface* loading_16;
+-  static SDL_Surface* loading_32;
+-  static SDL_Surface* loading_64;
+-  static SDL_Surface* loading_128;
+-  static SDL_Surface* loading_256;
+-  static SDL_Surface* loading_512;
+-  static SDL_Surface* loading_1024;
++  std::string url;
+ 
+-  static void init();
+-  static void deinit() {}
++  int  requested_res;
+ 
+-  static SDL_Surface* placeholder(int res)
+-  {
+-    if (res &lt; 16)
+-      return loading_16;
+-    else if (res &lt; 32)
+-      return loading_32;
+-    else if (res &lt; 64)
+-      return loading_64;
+-    else if (res &lt; 128)
+-      return loading_128;
+-    else if (res &lt; 256)
+-      return loading_256;
+-    else if (res &lt; 512)
+-      return loading_512;
+-    else if (res &lt; 1024)
+-      return loading_1024;
+-    else 
+-      return loading_1024;
+-  }
+-
+-public:
+-  std::string url;
++  /** Newly received surface */
++  SDL_Surface* received_surface;
++  int          received_surface_res;
+   
+-  SDL_Surface* surface;
+-  Texture*     texture;
+-  Texture*     texture_16x16;
+-  int res;
+-  int want_res;
+-  bool image_requested;
++  Surface*     surface;
++  Surface*     surface_16x16;
+ 
+   SDL_mutex* mutex;
+ 
+
+Modified: trunk/griv/loader.cpp
+===================================================================
+--- trunk/griv/loader.cpp	2007-11-17 18:17:34 UTC (rev 1558)
++++ trunk/griv/loader.cpp	2007-11-18 23:48:33 UTC (rev 1559)
+@@ -31,6 +31,7 @@
+ #include &quot;SDL_image.h&quot;
+ #include &quot;image.hpp&quot;
+ #include &quot;loader.hpp&quot;
++#include &quot;surface.hpp&quot;
+ #include &quot;thumbnail_store.hpp&quot;
+ 
+ Loader loader;
+@@ -84,18 +85,18 @@
+   SDL_LockMutex(mutex);
+   if (!jobs.empty())
+     {
++      std::cout &lt;&lt; &quot;process_job: &quot; &lt;&lt; jobs.size() &lt;&lt; std::endl;
+       // Lock
+       Job job = jobs.back();
+       jobs.pop_back();
+ 
+-      int res = job.image-&gt;want_res;
+-
+-      if (job.image-&gt;res != res &amp;&amp; res != 0)
++      if (!job.image-&gt;surface ||
++          job.image-&gt;surface-&gt;get_resolution() != job.image-&gt;requested_res)
+         {
+-          SDL_Surface* img = store-&gt;get_by_url(job.image-&gt;url, res);
++          SDL_Surface* img = store-&gt;get_by_url(job.image-&gt;url, job.image-&gt;requested_res);
+           if (img)
+             {
+-              job.image-&gt;receive(img, res);
++              job.image-&gt;receive(img, job.image-&gt;requested_res);
+             }
+           else
+             {
+@@ -103,10 +104,10 @@
+               if (0)
+                 { // FIXME: Wonky, gets super slow for some reason
+                   img = IMG_Load(job.image-&gt;url.substr(7).c_str()); // cut <A HREF="file://">file://</A> part
+-                  std::cout &lt;&lt; &quot;Loading: &quot; &lt;&lt; res &lt;&lt; &quot; &quot; &lt;&lt; img &lt;&lt; &quot; &quot; 
++                  std::cout &lt;&lt; &quot;Loading: &quot; &lt;&lt; job.image-&gt;requested_res &lt;&lt; &quot; &quot; &lt;&lt; img &lt;&lt; &quot; &quot; 
+                             &lt;&lt; img-&gt;w &lt;&lt; &quot;x&quot; &lt;&lt; img-&gt;h &lt;&lt; &quot; &quot;
+                             &lt;&lt; job.image-&gt;url.substr(7) &lt;&lt; std::endl;
+-                  job.image-&gt;receive(img, res);
++                  job.image-&gt;receive(img, job.image-&gt;requested_res);
+                 }
+             }
+         }
+
+Modified: trunk/griv/surface.cpp
+===================================================================
+--- trunk/griv/surface.cpp	2007-11-17 18:17:34 UTC (rev 1558)
++++ trunk/griv/surface.cpp	2007-11-18 23:48:33 UTC (rev 1559)
+@@ -23,28 +23,45 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;assert.h&gt;
+ #include &quot;display.hpp&quot;
+ #include &quot;surface.hpp&quot;
+ 
+-Surface::Surface()
+-  : surface(0)
++Surface::Surface(SDL_Surface* surface, int res)
++  : surface(surface),
++    res(res)
+ {
++  assert(surface);
++  texture = new Texture(surface);
+ }
+ 
+ Surface::~Surface()
+ {
++  SDL_FreeSurface(surface);
+ }
+ 
+ void
+-Surface::draw(int x, int y)
++Surface::draw(float x, float y, float w, float h)
+ {
+   if (surface)
+     {
+-      SDL_Rect dstrect;
+-      dstrect.x = x;
+-      dstrect.y = y;
++      texture-&gt;bind();
+       
+-      SDL_BlitSurface(surface, NULL, Display::get_screen(), &amp;dstrect);
++      glColor3f(1.0f, 1.0f, 1.0f);
++
++      glBegin(GL_QUADS);
++      glTexCoord2f(0,0);
++      glVertex2f(x, y);
++
++      glTexCoord2f(1,0);
++      glVertex2f(x + w, y);
++
++      glTexCoord2f(1,1);
++      glVertex2f(x + w, y + h);
++
++      glTexCoord2f(0,1);
++      glVertex2f(x, y + h);
++      glEnd();
+     }
+ }
+ 
+
+Modified: trunk/griv/surface.hpp
+===================================================================
+--- trunk/griv/surface.hpp	2007-11-17 18:17:34 UTC (rev 1558)
++++ trunk/griv/surface.hpp	2007-11-18 23:48:33 UTC (rev 1559)
+@@ -26,17 +26,26 @@
+ #ifndef HEADER_SURFACE_HPP
+ #define HEADER_SURFACE_HPP
+ 
++#include &quot;SDL.h&quot;
++#include &quot;texture.hpp&quot;
++
+ /** */
+ class Surface
+ {
+ private:
++  /** Software backstore for the image */
+   SDL_Surface* surface;
++  int res;
++  
++  Texture* texture;
+ 
+ public:
+-  Surface();
++  Surface(SDL_Surface* surface, int res);
+   ~Surface();
+ 
+-  void draw(int x, int y);
++  void draw(float x, float y, float w, float h);
++
++  int get_resolution() const { return res; }
+ private:
+   Surface (const Surface&amp;);
+   Surface&amp; operator= (const Surface&amp;);
+
+Modified: trunk/griv/texture.cpp
+===================================================================
+--- trunk/griv/texture.cpp	2007-11-17 18:17:34 UTC (rev 1558)
++++ trunk/griv/texture.cpp	2007-11-18 23:48:33 UTC (rev 1559)
+@@ -23,6 +23,7 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;assert.h&gt;
+ #include &lt;iostream&gt;
+ #include &lt;stdexcept&gt;
+ #include &lt;boost/format.hpp&gt;
+@@ -31,9 +32,10 @@
+ #include &quot;texture.hpp&quot;
+ 
+ Texture::Texture(SDL_Surface* surface)
+-  : surface(surface),
+-    handle(0)
++ : handle(0)
+ {
++  assert(surface);
++
+   if (0)
+   std::cout &lt;&lt; boost::format(&quot;,----------------------------\n&quot;
+                              &quot;| Pointer: 0x%p\n&quot;
+
+Modified: trunk/griv/texture.hpp
+===================================================================
+--- trunk/griv/texture.hpp	2007-11-17 18:17:34 UTC (rev 1558)
++++ trunk/griv/texture.hpp	2007-11-18 23:48:33 UTC (rev 1559)
+@@ -33,8 +33,6 @@
+ /** */
+ class Texture
+ {
+-public:
+-  SDL_Surface* surface;
+ private:
+   GLuint handle;
+ 
+
+Modified: trunk/griv/thumbgen.cpp
+===================================================================
+--- trunk/griv/thumbgen.cpp	2007-11-17 18:17:34 UTC (rev 1558)
++++ trunk/griv/thumbgen.cpp	2007-11-18 23:48:33 UTC (rev 1559)
+@@ -123,6 +123,7 @@
+     argp.add_usage(&quot;[OPTION]... [FILE]...&quot;);
+     argp.add_doc(&quot;A offline thumbnail generator for griv\n&quot;);
+     argp.add_option('s', &quot;size&quot;, &quot;NUM,...&quot;, &quot;Generate thumbnails for the given sizes (default: 16)&quot;);
++    argp.add_option('a', &quot;all&quot;, &quot;&quot;, &quot;Generate thumbnails for all sizes&quot;);
+     argp.add_option('v', &quot;verbose&quot;, &quot;&quot;, &quot;Print more detailed output on generation&quot;);
+     argp.add_option('q', &quot;quality&quot;, &quot;NUM&quot;, &quot;JPEG quality used for thumbnailing, range 1-100 (default: 80)&quot;);
+     argp.add_option('h', &quot;help&quot;, &quot;&quot;, &quot;Print this help&quot;);
+@@ -153,6 +154,16 @@
+               verbose = true;
+               break;
+ 
++            case 'a':
++              sizes.push_back(16);
++              sizes.push_back(32);
++              sizes.push_back(64);
++              sizes.push_back(128);
++              sizes.push_back(256);
++              sizes.push_back(512);
++              sizes.push_back(1024);
++              break;
++
+             case 'h':
+               argp.print_help();
+               exit(EXIT_SUCCESS);
+@@ -184,7 +195,7 @@
+         std::vector&lt;std::string&gt; file_list;
+         for(std::vector&lt;std::string&gt;::iterator i = pathnames.begin(); i != pathnames.end(); ++i)
+           generate_file_list(*i, file_list);
+-        std::cout &lt;&lt; &quot;done&quot; &lt;&lt; std::endl;;
++        std::cout &lt;&lt; file_list.size() &lt;&lt; &quot; files found&quot; &lt;&lt; std::endl;;
+ 
+         int progress_scale = 70;
+         int progress = 0;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001209.html">[Windstille-commit] r1558 - in trunk/griv: . obsolete
+</A></li>
+	<LI>Next message: <A HREF="001211.html">[Windstille-commit] r1560 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1210">[ date ]</a>
+              <a href="thread.html#1210">[ thread ]</a>
+              <a href="subject.html#1210">[ subject ]</a>
+              <a href="author.html#1210">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

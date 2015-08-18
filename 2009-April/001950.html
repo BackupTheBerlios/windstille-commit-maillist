@@ -1,0 +1,308 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2953 - in trunk/windstille/src: display editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2953%20-%20in%20trunk/windstille/src%3A%20display%20editor&In-Reply-To=%3C200904252200.n3PM0tiI006032%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001949.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2953 - in trunk/windstille/src: display editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2953%20-%20in%20trunk/windstille/src%3A%20display%20editor&In-Reply-To=%3C200904252200.n3PM0tiI006032%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2953 - in trunk/windstille/src: display editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Apr 26 00:00:55 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001949.html">[Windstille-commit] r2952 - trunk/windstille/src/editor
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1950">[ date ]</a>
+              <a href="thread.html#1950">[ thread ]</a>
+              <a href="subject.html#1950">[ subject ]</a>
+              <a href="author.html#1950">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-04-26 00:00:55 +0200 (Sun, 26 Apr 2009)
+New Revision: 2953
+
+Modified:
+   trunk/windstille/src/display/display.cpp
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/editor_window.hpp
+   trunk/windstille/src/editor/main.cpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/editor/windstille_widget.hpp
+Log:
+Added screenshot support to the editor, kind of buggy, but somewhat working
+
+Modified: trunk/windstille/src/display/display.cpp
+===================================================================
+--- trunk/windstille/src/display/display.cpp	2009-04-25 22:00:10 UTC (rev 2952)
++++ trunk/windstille/src/display/display.cpp	2009-04-25 22:00:55 UTC (rev 2953)
+@@ -473,29 +473,33 @@
+ void
+ Display::save_screenshot(const std::string&amp; filename)
+ {
+-  SDL_Surface* window = SDL_GetVideoSurface();
++  GLint viewport[4];
++  glGetIntegerv(GL_VIEWPORT, viewport);
++  Size size(viewport[2], viewport[3]);
+ 
+-  const int width  = window-&gt;w;
+-  const int height = window-&gt;h;
++  std::cout &lt;&lt; &quot;Viewpoint: &quot; &lt;&lt; size &lt;&lt; std::endl;
+ 
+-  int len = width * height * 3;
++  size.width /= 4;
++  size.width *= 4;
+ 
++  int len = size.width * size.height * 3;
++  
+   boost::scoped_array&lt;GLbyte&gt; pixels(new GLbyte[len]);
+ 
+-  glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels.get());
++  glReadPixels(0, 0, size.width, size.height, GL_RGB, GL_UNSIGNED_BYTE, pixels.get());
+ 
+   if (0)
+     {
+-      int pitch = width * 3;
++      int pitch = size.width * 3;
+ 
+       // save to ppm
+       std::ofstream out(filename.c_str());
+       out &lt;&lt; &quot;P6\n&quot;
+           &lt;&lt; &quot;# Windstille Screenshot\n&quot;
+-          &lt;&lt; width &lt;&lt; &quot; &quot; &lt;&lt; height &lt;&lt; &quot;\n&quot;
++          &lt;&lt; size.width &lt;&lt; &quot; &quot; &lt;&lt; size.height &lt;&lt; &quot;\n&quot;
+           &lt;&lt; &quot;255\n&quot;;
+       
+-      for(int y = height-1; y &gt;= 0; --y)
++      for(int y = size.height-1; y &gt;= 0; --y)
+         out.write(reinterpret_cast&lt;const char*&gt;(pixels.get() + y*pitch), pitch);
+ 
+       out.close();
+@@ -503,10 +507,10 @@
+   else if (0) // BMP saving
+     {
+ #if SDL_BYTEORDER == SDL_BIG_ENDIAN
+-      SDL_Surface* surface = SDL_CreateRGBSurfaceFrom(pixels.get(), width, height, 24, width*3,
++      SDL_Surface* surface = SDL_CreateRGBSurfaceFrom(pixels.get(), size.width, size.height, 24, size.width*3,
+                                                       0xff000000, 0x00ff0000, 0x0000ff00, 0x000000ff);
+ #else
+-      SDL_Surface* surface = SDL_CreateRGBSurfaceFrom(pixels.get(), width, height, 24, width*3,
++      SDL_Surface* surface = SDL_CreateRGBSurfaceFrom(pixels.get(), size.width, size.height, 24, size.width*3,
+                                                       0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000);
+ #endif
+ 
+@@ -524,7 +528,7 @@
+         }
+       else
+         {
+-          int pitch   = width * 3;
++          int pitch   = size.width * 3;
+           png_structp png_ptr;
+           png_infop   info_ptr;
+ 
+@@ -534,7 +538,7 @@
+           png_init_io(png_ptr, fp);
+ 
+           png_set_IHDR(png_ptr, info_ptr, 
+-                       width, height, 8 /* bitdepth */,
++                       size.width, size.height, 8 /* bitdepth */,
+                        PNG_COLOR_TYPE_RGB,
+                        PNG_INTERLACE_NONE, 
+                        PNG_COMPRESSION_TYPE_BASE, 
+@@ -543,11 +547,11 @@
+           png_set_compression_level(png_ptr, 6);
+           png_write_info(png_ptr, info_ptr);
+ 
+-          boost::scoped_array&lt;png_bytep&gt; row_pointers(new png_bytep[height]);
++          boost::scoped_array&lt;png_bytep&gt; row_pointers(new png_bytep[size.height]);
+    
+           // generate row pointers
+-          for (int k = 0; k &lt; height; k++)
+-            row_pointers[k] = reinterpret_cast&lt;png_byte*&gt;(pixels.get() + ((height - k - 1) * pitch));
++          for (int k = 0; k &lt; size.height; k++)
++            row_pointers[k] = reinterpret_cast&lt;png_byte*&gt;(pixels.get() + ((size.height - k - 1) * pitch));
+ 
+           png_write_image(png_ptr, row_pointers.get());
+ 
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-04-25 22:00:10 UTC (rev 2952)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-04-25 22:00:55 UTC (rev 2953)
+@@ -80,6 +80,8 @@
+     &quot;      &lt;menuitem action='Save'/&gt;&quot;
+     &quot;      &lt;menuitem action='SaveAs'/&gt;&quot;
+     &quot;      &lt;separator/&gt;&quot;
++    &quot;      &lt;menuitem action='SaveScreenshot'/&gt;&quot;
++    &quot;      &lt;separator/&gt;&quot;
+     &quot;      &lt;menuitem action='Close'/&gt;&quot;
+     &quot;      &lt;menuitem action='Quit'/&gt;&quot;
+     &quot;    &lt;/menu&gt;&quot;
+@@ -212,6 +214,10 @@
+   action_group-&gt;add(Gtk::Action::create(&quot;Quit&quot;,        Gtk::Stock::QUIT),
+                     sigc::mem_fun(*this, &amp;EditorWindow::on_quit));
+ 
++  action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;SaveScreenshot&quot;, &quot;saveas&quot;, &quot;Save Screenshot&quot;, &quot;Save Screenshot&quot;),
++                    Gtk::AccelKey(GDK_F12, Gdk::CONTROL_MASK),
++                    sigc::mem_fun(*this, &amp;EditorWindow::on_save_screenshot));
++
+   {
+     Glib::RefPtr&lt;Gtk::RecentAction&gt; recent_action = Gtk::RecentAction::create(&quot;FileRecentFiles&quot;, Gtk::Stock::OPEN);
+ 
+@@ -566,6 +572,50 @@
+ }
+ 
+ void
++EditorWindow::on_save_screenshot()
++{
++  int page = notebook.get_current_page();
++  if (page == -1)
++    {
++      // do nothing;
++    }
++  else
++    {
++      if (WindstilleWidget* wst = static_cast&lt;WindstilleWidget*&gt;(notebook.get_nth_page(page)))
++        {
++          Gtk::FileChooserDialog dialog(&quot;Save Screenshot&quot;,
++                                        Gtk::FILE_CHOOSER_ACTION_SAVE);
++          dialog.set_transient_for(*this);
++          dialog.set_do_overwrite_confirmation(true);
++
++          dialog.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_CANCEL);
++          dialog.add_button(Gtk::Stock::SAVE,   Gtk::RESPONSE_OK);
++
++
++ 
++          dialog.set_current_folder(&quot;/tmp/&quot;);
++
++          switch(dialog.run())
++            {
++              case(Gtk::RESPONSE_OK):
++                {
++                  std::string filename = dialog.get_filename();
++                  std::cout &lt;&lt; &quot;unimplemented screenshot: &quot; &lt;&lt; filename &lt;&lt; std::endl;
++                  wst-&gt;save_screenshot(filename);
++                  break;
++                }
++
++              case(Gtk::RESPONSE_CANCEL):
++                {
++                  //std::cout &lt;&lt; &quot;Cancel clicked.&quot; &lt;&lt; std::endl;
++                  break;
++                }
++            }
++        }
++    }
++}
++
++void
+ EditorWindow::on_close()
+ {
+   int page = notebook.get_current_page();
+
+Modified: trunk/windstille/src/editor/editor_window.hpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.hpp	2009-04-25 22:00:10 UTC (rev 2952)
++++ trunk/windstille/src/editor/editor_window.hpp	2009-04-25 22:00:55 UTC (rev 2953)
+@@ -105,6 +105,7 @@
+   void on_open();
+   void on_save();
+   void on_save_as();
++  void on_save_screenshot();
+   void on_close();
+ 
+   bool on_timeout();
+
+Modified: trunk/windstille/src/editor/main.cpp
+===================================================================
+--- trunk/windstille/src/editor/main.cpp	2009-04-25 22:00:10 UTC (rev 2952)
++++ trunk/windstille/src/editor/main.cpp	2009-04-25 22:00:55 UTC (rev 2953)
+@@ -49,7 +49,8 @@
+       PHYSFS_addToSearchPath(&quot;data/&quot;, 0);
+       
+       Glib::RefPtr&lt;const Gdk::GL::Config&gt; 
+-        glconfig = Gdk::GL::Config::create(Gdk::GL::MODE_RGB |
++        glconfig = Gdk::GL::Config::create(/* FIXME: Using RGBA instead of RGB to make Display::save_screenshot work*/
++                                           Gdk::GL::MODE_RGBA | 
+                                            //Gdk::GL::MODE_DEPTH);
+                                            Gdk::GL::MODE_DOUBLE);
+       if (!glconfig)
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-04-25 22:00:10 UTC (rev 2952)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-04-25 22:00:55 UTC (rev 2953)
+@@ -868,6 +868,18 @@
+   control_points.clear();
+   selection-&gt;add_control_points(control_points);
+ }
++
++void
++WindstilleWidget::save_screenshot(const std::string&amp; filename)
++{
++  Glib::RefPtr&lt;Gdk::GL::Window&gt; glwindow = get_gl_window();
++
++  if (glwindow-&gt;gl_begin(get_gl_context()))
++    {
++      Display::save_screenshot(filename);
++      glwindow-&gt;gl_end();
++    }
++}
+ 
+ SectorModel*
+ WindstilleWidget::get_sector_model()
+
+Modified: trunk/windstille/src/editor/windstille_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.hpp	2009-04-25 22:00:10 UTC (rev 2952)
++++ trunk/windstille/src/editor/windstille_widget.hpp	2009-04-25 22:00:55 UTC (rev 2953)
+@@ -164,6 +164,8 @@
+ 
+   void on_selection_change();
+ 
++  void save_screenshot(const std::string&amp; filename);
++
+ private:
+   WindstilleWidget (const WindstilleWidget&amp;);
+   WindstilleWidget&amp; operator= (const WindstilleWidget&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001949.html">[Windstille-commit] r2952 - trunk/windstille/src/editor
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1950">[ date ]</a>
+              <a href="thread.html#1950">[ thread ]</a>
+              <a href="subject.html#1950">[ subject ]</a>
+              <a href="author.html#1950">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,255 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1525 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1525%20-%20trunk/griv&In-Reply-To=%3C200711120331.lAC3VtpS003745%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001202.html">
+   <LINK REL="Next"  HREF="001176.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1525 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1525%20-%20trunk/griv&In-Reply-To=%3C200711120331.lAC3VtpS003745%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1525 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Nov 12 04:31:55 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001202.html">[Windstille-commit] r1524 - in trunk: . griv media/images/gui	media/images/tiles media/models/objects/barrobot	media/models/vehicles/jsf test windstille	windstille/data/armature windstille/data/levels	windstille/data/scripts windstille/data/scripts/apartment	windstille/lib windstille/src windstille/src/input windstille/tools
+</A></li>
+        <LI>Next message: <A HREF="001176.html">[Windstille-commit] r1526 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1175">[ date ]</a>
+              <a href="thread.html#1175">[ thread ]</a>
+              <a href="subject.html#1175">[ subject ]</a>
+              <a href="author.html#1175">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-12 04:31:54 +0100 (Mon, 12 Nov 2007)
+New Revision: 1525
+
+Modified:
+   trunk/griv/griv.cpp
+   trunk/griv/thumbnail.py
+Log:
+- added directory handling
+
+Modified: trunk/griv/griv.cpp
+===================================================================
+--- trunk/griv/griv.cpp	2007-11-12 02:28:15 UTC (rev 1524)
++++ trunk/griv/griv.cpp	2007-11-12 03:31:54 UTC (rev 1525)
+@@ -1,3 +1,8 @@
++#include &lt;dirent.h&gt;
++#include &lt;sys/stat.h&gt;
++#include &lt;sys/types.h&gt;
++#include &lt;sys/types.h&gt;
++#include &lt;unistd.h&gt;
+ #include &lt;vector&gt;
+ #include &lt;math.h&gt;
+ #include &lt;sstream&gt;
+@@ -12,6 +17,42 @@
+ int x_offset = 0;
+ int y_offset = 0;
+ 
++bool is_directory(const std::string&amp; pathname)
++{
++  struct stat buf;
++  stat(pathname.c_str(), &amp;buf);
++  return S_ISDIR(buf.st_mode);
++}
++
++std::vector&lt;std::string&gt;
++open_directory(const std::string&amp; pathname)
++{
++  std::vector&lt;std::string&gt; dir_list;
++
++  DIR* dp    = 0;
++  dirent* de = 0;
++
++  dp = ::opendir(pathname.c_str());
++
++  if (dp == 0)
++    {
++      std::cout &lt;&lt; &quot;System: Couldn't open: &quot; &lt;&lt; pathname &lt;&lt; std::endl;
++    }
++  else
++    {
++      while ((de = ::readdir(dp)) != 0)
++        {
++          if (strcmp(de-&gt;d_name, &quot;.&quot;)  != 0 &amp;&amp;
++              strcmp(de-&gt;d_name, &quot;..&quot;) != 0)
++            dir_list.push_back(pathname + &quot;/&quot; + de-&gt;d_name);
++        }
++
++      closedir(dp);
++    }
++
++  return dir_list;
++}
++
+ std::string getxattr(const std::string&amp; pathname)
+ {
+   char buf[2048];
+@@ -103,22 +144,34 @@
+ 
+   void add(const std::string&amp; filename)
+   {
+-    std::string md5 = getxattr(filename);
+-    if (!md5.empty())
++    // if directory, do recursion
++    if (is_directory(filename))
+       {
+-        images.push_back(Image(md5));
++        std::vector&lt;std::string&gt; dir_list = open_directory(filename);
++        for(std::vector&lt;std::string&gt;::iterator i = dir_list.begin(); i != dir_list.end(); ++i)
++          {
++            add(*i);
++          }
+       }
+     else
+       {
+-        std::cout &lt;&lt; &quot;Ignoring: &quot; &lt;&lt; filename &lt;&lt; std::endl;
++        std::string md5 = getxattr(filename);
++        if (!md5.empty())
++          {
++            images.push_back(Image(md5));
++          }
++        else
++          {
++            std::cout &lt;&lt; &quot;Ignoring: &quot; &lt;&lt; filename &lt;&lt; std::endl;
++          }
+       }
+   }
+ 
+   void zoom_in()
+   {
+     res *= 2;
+-    if (res &gt; 1024)
+-      res = 1024;
++    if (res &gt; 2048)
++      res = 2048;
+     else
+       { //300,200 ~ 212, 134 ~ 64, 0
+         x_offset *= 2;
+@@ -147,24 +200,24 @@
+   }
+   atexit(SDL_Quit); 
+   
+-    Uint32 flags = 0;
++  Uint32 flags = 0;
+   
+-    if (1)
+-      {
+-        flags |= SDL_FULLSCREEN;
+-        screen = SDL_SetVideoMode(1152, 864, 0, flags);
+-      }
+-    else
+-      {
+-        flags |= SDL_RESIZABLE;
+-        screen = SDL_SetVideoMode(800, 600, 0, flags);
+-      }
++  if (1)
++    {
++      flags |= SDL_FULLSCREEN;
++      screen = SDL_SetVideoMode(1152, 864, 0, flags);
++    }
++  else
++    {
++      flags |= SDL_RESIZABLE;
++      screen = SDL_SetVideoMode(800, 600, 0, flags);
++    }
+     
+-    if (screen == NULL) 
+-      {
+-        std::cout &lt;&lt; &quot;Unable to set video mode: &quot; &lt;&lt; SDL_GetError() &lt;&lt; std::endl;
+-        exit(1);
+-      }
++  if (screen == NULL) 
++    {
++      std::cout &lt;&lt; &quot;Unable to set video mode: &quot; &lt;&lt; SDL_GetError() &lt;&lt; std::endl;
++      exit(1);
++    }
+ 
+   SDL_WM_SetCaption(&quot;Griv 0.0.1&quot;, 0 /* icon */);
+ 
+@@ -173,7 +226,9 @@
+   Workspace workspace;
+ 
+   for(int i = 1; i &lt; argc; ++i)
+-    workspace.add(argv[i]);
++    {
++      workspace.add(argv[i]);
++    }
+ 
+   bool drag_n_drop = false;
+   int old_res = -1;
+@@ -227,7 +282,8 @@
+               case SDL_MOUSEBUTTONDOWN:
+               case SDL_MOUSEBUTTONUP:
+                 
+-                if (event.button.button == 3)
++                if (event.button.button == 3 ||
++                    event.button.button == 5)
+                   {
+                     if (event.button.state == SDL_PRESSED)
+                       {
+@@ -235,7 +291,8 @@
+                         workspace.zoom_out();
+                       }
+                   }
+-                else if (event.button.button == 1)
++                else if (event.button.button == 1 ||
++                         event.button.button == 4)
+                   {
+                     if (event.button.state == SDL_PRESSED)
+                       {
+
+Modified: trunk/griv/thumbnail.py
+===================================================================
+--- trunk/griv/thumbnail.py	2007-11-12 02:28:15 UTC (rev 1524)
++++ trunk/griv/thumbnail.py	2007-11-12 03:31:54 UTC (rev 1525)
+@@ -51,7 +51,7 @@
+             md5 = get_md5(pathname)
+ 
+             orig_img = Image.open(pathname)
+-            for res in [16, 32, 64, 128, 256, 512, 1024]:
++            for res in [16, 32, 64, 128, 256, 512, 1024, 2048]:
+                 genthumb(pathname, md5, orig_img, res)
+ 
+         except IOError, err:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001202.html">[Windstille-commit] r1524 - in trunk: . griv media/images/gui	media/images/tiles media/models/objects/barrobot	media/models/vehicles/jsf test windstille	windstille/data/armature windstille/data/levels	windstille/data/scripts windstille/data/scripts/apartment	windstille/lib windstille/src windstille/src/input windstille/tools
+</A></li>
+	<LI>Next message: <A HREF="001176.html">[Windstille-commit] r1526 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1175">[ date ]</a>
+              <a href="thread.html#1175">[ thread ]</a>
+              <a href="subject.html#1175">[ subject ]</a>
+              <a href="author.html#1175">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

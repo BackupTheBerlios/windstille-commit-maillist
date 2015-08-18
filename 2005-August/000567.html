@@ -1,0 +1,777 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r914 - in trunk/src: . display glutil lisp scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r914%20-%20in%20trunk/src%3A%20.%20display%20glutil%20lisp%20scripting&In-Reply-To=%3C200508061326.j76DQr5D000999%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000566.html">
+   <LINK REL="Next"  HREF="000568.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r914 - in trunk/src: . display glutil lisp scripting</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r914%20-%20in%20trunk/src%3A%20.%20display%20glutil%20lisp%20scripting&In-Reply-To=%3C200508061326.j76DQr5D000999%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r914 - in trunk/src: . display glutil lisp scripting">grumbel at berlios.de
+       </A><BR>
+    <I>Sat Aug  6 15:26:53 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000566.html">[Windstille-commit] r913 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000568.html">[Windstille-commit] r915 - trunk/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#567">[ date ]</a>
+              <a href="thread.html#567">[ thread ]</a>
+              <a href="subject.html#567">[ subject ]</a>
+              <a href="author.html#567">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-08-06 15:26:51 +0200 (Sat, 06 Aug 2005)
+New Revision: 914
+
+Modified:
+   trunk/src/display/display.cpp
+   trunk/src/display/vertex_array_drawing_request.cpp
+   trunk/src/glutil/opengl_state.cpp
+   trunk/src/glutil/opengl_state.hpp
+   trunk/src/glutil/surface.cpp
+   trunk/src/glutil/texture.cpp
+   trunk/src/glutil/texture.hpp
+   trunk/src/lisp/properties.hpp
+   trunk/src/player.cpp
+   trunk/src/screen.cpp
+   trunk/src/scripting/game_objects.cpp
+   trunk/src/text_area.cpp
+   trunk/src/tile_factory.cpp
+   trunk/src/windstille_main.cpp
+Log:
+- optimized OpenGL state a bit
+
+Modified: trunk/src/display/display.cpp
+===================================================================
+--- trunk/src/display/display.cpp	2005-08-06 12:54:13 UTC (rev 913)
++++ trunk/src/display/display.cpp	2005-08-06 13:26:51 UTC (rev 914)
+@@ -30,7 +30,7 @@
+ #include &quot;glutil/opengl_state.hpp&quot;
+ #include &quot;display.hpp&quot;
+ 
+-SDL_Surface* window;
++SDL_Surface* window       = 0;
+ 
+ void
+ Display::draw_line(const Vector&amp; pos1, const Vector&amp; pos2, const Color&amp; color)
+@@ -224,6 +224,8 @@
+   glMatrixMode(GL_MODELVIEW);
+   glLoadIdentity();
+   glTranslated(cl_pixelcenter_constant, cl_pixelcenter_constant, 0.0);
++
++  OpenGLState::init();
+ }
+ 
+ void
+
+Modified: trunk/src/display/vertex_array_drawing_request.cpp
+===================================================================
+--- trunk/src/display/vertex_array_drawing_request.cpp	2005-08-06 12:54:13 UTC (rev 913)
++++ trunk/src/display/vertex_array_drawing_request.cpp	2005-08-06 13:26:51 UTC (rev 914)
+@@ -64,6 +64,16 @@
+   state.disable(GL_DEPTH_TEST);
+   state.enable(GL_BLEND);
+   state.set_blend_func(blend_sfactor, blend_dfactor);
++  
++  if (texture)
++    {
++      state.enable(GL_TEXTURE_2D);
++      state.bind_texture(texture);
++    }
++  else
++    {
++      state.disable(GL_TEXTURE_2D);
++    }
+ 
+   if (!colors.empty())
+     {
+@@ -91,16 +101,6 @@
+   state.enable_client_state(GL_VERTEX_ARRAY);
+ 
+   glVertexPointer  (3, GL_FLOAT, 0, &amp;*vertices.begin());
+-  
+-  if (texture)
+-    {
+-      state.enable(GL_TEXTURE_2D);
+-      state.bind_texture(texture);
+-    }
+-  else
+-    {
+-      state.disable(GL_TEXTURE_2D);
+-    }
+ 
+   state.activate();
+ 
+
+Modified: trunk/src/glutil/opengl_state.cpp
+===================================================================
+--- trunk/src/glutil/opengl_state.cpp	2005-08-06 12:54:13 UTC (rev 913)
++++ trunk/src/glutil/opengl_state.cpp	2005-08-06 13:26:51 UTC (rev 914)
+@@ -23,38 +23,93 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;assert.h&gt;
++#include &lt;map&gt;
++#include &lt;iostream&gt;
++#include &lt;GL/gl.h&gt;
++#include &lt;GL/glext.h&gt;
+ #include &quot;texture.hpp&quot;
+ #include &quot;color.hpp&quot;
++#include &quot;globals.hpp&quot;
++#include &quot;display/display.hpp&quot;
++#include &quot;util.hpp&quot;
+ #include &quot;opengl_state.hpp&quot;
+ 
+ class OpenGLStateImpl
+ {
+ public:
++  /** Used to check if the OpenGLState was properly used or if
++      somebody forget the final activate() call */
+   bool was_activated;
+ 
++  Texture texture;
++
++  Color color;
++
++  GLenum blend_sfactor;
++  GLenum blend_dfactor;
++
++  /** glEnable/glDisable */
++  std::map&lt;GLenum, bool&gt; state;
++
++  /** glEnableClientState/glDisableClientState */
++  std::map&lt;GLenum, bool&gt; client_state;
++
+   OpenGLStateImpl()
+     : was_activated(false)
+   {}
+-
+ };
+ 
+-// The code here is just as placeholder for the moment, should be
+-// replaced with something more optimized later
+-OpenGLState::OpenGLState()
+-  : impl(new OpenGLStateImpl())
++OpenGLState* OpenGLState::global_ = 0;
++
++void
++OpenGLState::init()
+ {
+-  // init some defaults
++  // Init the default settings
+   glDisable(GL_TEXTURE_2D);
+   glDisable(GL_DEPTH_TEST);
+   glDisable(GL_BLEND);
+-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+-  glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+ 
+   glDisableClientState(GL_COLOR_ARRAY);
+   glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+   glDisableClientState(GL_VERTEX_ARRAY);
++  glDisableClientState(GL_NORMAL_ARRAY);
++
++  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++  glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
++
++  global_ = new OpenGLState();
++
++  if (debug)
++    global_-&gt;verify();
+ }
+ 
++OpenGLState*
++OpenGLState::global()
++{
++  return global_;
++}
++
++// The code here is just as placeholder for the moment, should be
++// replaced with something more optimized later
++OpenGLState::OpenGLState()
++  : impl(new OpenGLStateImpl())
++{
++  impl-&gt;state[GL_TEXTURE_2D] = false;
++  impl-&gt;state[GL_DEPTH_TEST] = false;
++  impl-&gt;state[GL_BLEND]      = false;
++
++  impl-&gt;client_state[GL_VERTEX_ARRAY]        = false;
++  impl-&gt;client_state[GL_COLOR_ARRAY]         = false;
++  impl-&gt;client_state[GL_TEXTURE_COORD_ARRAY] = false;
++  impl-&gt;client_state[GL_NORMAL_ARRAY]        = false;
++  
++  impl-&gt;blend_sfactor      = GL_SRC_ALPHA;
++  impl-&gt;blend_dfactor      = GL_ONE_MINUS_SRC_ALPHA;
++  
++  impl-&gt;color              = Color(1.0f, 1.0f, 1.0f);
++}
++
+ OpenGLState::~OpenGLState()
+ {
+   assert(impl-&gt;was_activated);
+@@ -63,43 +118,102 @@
+ void
+ OpenGLState::bind_texture(const Texture&amp; texture)
+ {
+-  glBindTexture(GL_TEXTURE_2D, texture.get_handle());
++  impl-&gt;texture = texture;
+ }
+ 
+ void
+ OpenGLState::set_blend_func(GLenum sfactor, GLenum dfactor)
+ {
+-  glBlendFunc(sfactor, dfactor);
++  impl-&gt;blend_sfactor = sfactor;
++  impl-&gt;blend_dfactor = dfactor;
+ }
+ 
++bool
++OpenGLState::get_state(GLenum cap) const
++{
++  std::map&lt;GLenum, bool&gt;::const_iterator i = impl-&gt;state.find(cap);
++  if (i == impl-&gt;state.end())
++    {
++      std::cout &lt;&lt; &quot;OpenGLState: Unknown state requested: &quot; &lt;&lt; cap &lt;&lt; std::endl;
++      return false;
++    }
++  else
++    {
++      return i-&gt;second;
++    }
++}
++
++void 
++OpenGLState::set_state(GLenum cap, bool value)
++{
++  std::map&lt;GLenum, bool&gt;::iterator i = impl-&gt;state.find(cap);
++  if (i == impl-&gt;state.end())
++    {
++      std::cout &lt;&lt; &quot;OpenGLState: Unknown state set: &quot; &lt;&lt; cap &lt;&lt; std::endl;
++    }
++  else
++    {
++      i-&gt;second = value;
++    } 
++}
++
+ void
+ OpenGLState::enable(GLenum cap)
+ {
+-  glEnable(cap);
++  set_state(cap, true);
+ }
+ 
+ void
+ OpenGLState::disable(GLenum cap)
+ {  
+-  glDisable(cap);
++  set_state(cap, false);
+ }
++
++bool
++OpenGLState::get_client_state(GLenum array) const
++{
++  std::map&lt;GLenum, bool&gt;::const_iterator i = impl-&gt;client_state.find(array);
++  if (i == impl-&gt;client_state.end())
++    {
++      std::cout &lt;&lt; &quot;OpenGLState: Unknown client state requested: &quot; &lt;&lt; array &lt;&lt; std::endl;
++      return false;
++    }
++  else
++    {
++      return i-&gt;second;
++    }
++}
++
++void
++OpenGLState::set_client_state(GLenum array, bool value)
++{
++  std::map&lt;GLenum, bool&gt;::iterator i = impl-&gt;client_state.find(array);
++  if (i == impl-&gt;client_state.end())
++    {
++      std::cout &lt;&lt; &quot;OpenGLState: Unknown client state set: &quot; &lt;&lt; array &lt;&lt; std::endl;
++    }
++  else
++    {
++      i-&gt;second = value;
++    }
++}
+   
+ void
+ OpenGLState::enable_client_state(GLenum array)
+ {
+-  glEnableClientState(array);
++  set_client_state(array, true);
+ }
+ 
+ void
+ OpenGLState::disable_client_state(GLenum array)
+ {
+-  glDisableClientState(array);
++  set_client_state(array, false);
+ }
+ 
+ void
+ OpenGLState::color(const Color&amp; color)
+ {
+-  glColor4f(color.r, color.g, color.b, color.a);
++  impl-&gt;color = color;
+ }
+ 
+ void
+@@ -107,6 +221,104 @@
+ {
+   // do nothing for now, should be implemented later on
+   impl-&gt;was_activated = true;
++
++  OpenGLState* global = OpenGLState::global();;
++  assert(global);
++
++  // always apply color since it might have got changed between a glBegin/glEnd
++  glColor4f(impl-&gt;color.r, impl-&gt;color.g, impl-&gt;color.b, impl-&gt;color.a);
++
++  for(std::map&lt;GLenum, bool&gt;::iterator i = impl-&gt;state.begin();
++      i != impl-&gt;state.end(); ++i)
++    {
++      if (global-&gt;get_state(i-&gt;first) != i-&gt;second)
++        {
++          if (i-&gt;second)
++            glEnable(i-&gt;first);
++          else
++            glDisable(i-&gt;first);
++
++          global-&gt;set_state(i-&gt;first, i-&gt;second);
++        }
++    }
++
++  for(std::map&lt;GLenum, bool&gt;::iterator i = impl-&gt;client_state.begin();
++      i != impl-&gt;client_state.end(); ++i)
++    {
++      if (global-&gt;get_client_state(i-&gt;first) != i-&gt;second)
++        {
++          if (i-&gt;second)
++            glEnableClientState(i-&gt;first);
++          else
++            glDisableClientState(i-&gt;first);
++
++          global-&gt;set_client_state(i-&gt;first, i-&gt;second);
++        }
++    }
++
++  if (impl-&gt;blend_sfactor != global-&gt;impl-&gt;blend_sfactor ||
++      impl-&gt;blend_dfactor != global-&gt;impl-&gt;blend_dfactor)
++    {
++      glBlendFunc(impl-&gt;blend_sfactor, impl-&gt;blend_dfactor);
++
++      global-&gt;impl-&gt;blend_sfactor = impl-&gt;blend_sfactor;
++      global-&gt;impl-&gt;blend_dfactor = impl-&gt;blend_dfactor;
++    }
++
++  if (impl-&gt;texture != global-&gt;impl-&gt;texture)
++    {
++      if (impl-&gt;texture)
++        {
++          glBindTexture(GL_TEXTURE_2D, impl-&gt;texture.get_handle());
++          global-&gt;impl-&gt;texture = impl-&gt;texture;
++        }
++    }
++
++  if (debug)
++    verify();
+ }
+ 
++void
++OpenGLState::verify()
++{
++  for(std::map&lt;GLenum, bool&gt;::iterator i = impl-&gt;client_state.begin();
++      i != impl-&gt;client_state.end(); ++i)
++    {
++      if (glIsEnabled(i-&gt;first) != i-&gt;second)
++        {
++          std::cout &lt;&lt; &quot;OpenGLState: client_state &quot; &lt;&lt; i-&gt;first &lt;&lt; &quot; is out of sync&quot; &lt;&lt; std::endl;
++        }
++    }  
++
++  for(std::map&lt;GLenum, bool&gt;::iterator i = impl-&gt;state.begin();
++      i != impl-&gt;state.end(); ++i)
++    {
++      if (glIsEnabled(i-&gt;first) != i-&gt;second)
++        {
++          std::cout &lt;&lt; &quot;OpenGLState: state &quot; &lt;&lt; i-&gt;first &lt;&lt; &quot; is out of sync&quot; &lt;&lt; std::endl;
++        }
++    }
++
++  GLint sfactor; glGetIntegerv(GL_BLEND_SRC, &amp;sfactor);
++  if (sfactor != int(impl-&gt;blend_sfactor))
++    {
++      std::cout &lt;&lt; &quot;OpenGLState: src blendfunc is out of sync&quot; &lt;&lt; std::endl;
++    }
++
++  GLint dfactor; glGetIntegerv(GL_BLEND_DST, &amp;dfactor);
++  if (dfactor != int(impl-&gt;blend_dfactor))
++    {
++      std::cout &lt;&lt; &quot;OpenGLState: dst blendfunc is out of sync&quot; &lt;&lt; std::endl;
++    }
++
++  GLint texture_handle;
++  glGetIntegerv(GL_TEXTURE_2D_BINDING_EXT, &amp;texture_handle);
++  if (impl-&gt;texture &amp;&amp; static_cast&lt;GLuint&gt;(texture_handle) != impl-&gt;texture.get_handle())
++    {
++      std::cout &lt;&lt; &quot;OpenGLState: texture handle is out of sync: &quot; &lt;&lt; impl-&gt;texture.get_handle() &lt;&lt; std::endl;
++    }
++
++  assert_gl(&quot;OpenGLState::verify&quot;);
++}
++
+ /* EOF */
+
+Modified: trunk/src/glutil/opengl_state.hpp
+===================================================================
+--- trunk/src/glutil/opengl_state.hpp	2005-08-06 12:54:13 UTC (rev 913)
++++ trunk/src/glutil/opengl_state.hpp	2005-08-06 13:26:51 UTC (rev 914)
+@@ -38,25 +38,40 @@
+     default defined state to begin with. */
+ class OpenGLState
+ {
++private:
++  static OpenGLState* global_;
+ public:
++  static void init();
++  static OpenGLState* global();
++
+   OpenGLState();
+   ~OpenGLState();
+ 
+   void bind_texture(const Texture&amp; texture);
+   void set_blend_func(GLenum sfactor, GLenum dfactor);
+ 
++
+   void enable(GLenum cap);
+   void disable(GLenum cap);
++
++  void set_state(GLenum array, bool value);
++  bool get_state(GLenum array) const;
+   
++
+   void enable_client_state(GLenum array);
+   void disable_client_state(GLenum array);
+ 
++  void set_client_state(GLenum array, bool value);
++  bool get_client_state(GLenum array) const;
++
+   void color(const Color&amp; color);
+ 
+   /** Activates the given state, you *must* call this before you issue
+       gl commands that depend on the given state */
+   void activate();
+-
++  
++  /** Verify that all states got set as planed, for debugging purpose only */
++  void verify();
+ private:
+   std::auto_ptr&lt;OpenGLStateImpl&gt; impl;
+ 
+
+Modified: trunk/src/glutil/surface.cpp
+===================================================================
+--- trunk/src/glutil/surface.cpp	2005-08-06 12:54:13 UTC (rev 913)
++++ trunk/src/glutil/surface.cpp	2005-08-06 13:26:51 UTC (rev 914)
+@@ -143,6 +143,8 @@
+ Surface::draw(const Vector&amp; pos) const
+ {
+   OpenGLState state;
++  state.enable(GL_BLEND);
++  state.set_blend_func(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+   state.enable(GL_TEXTURE_2D);
+   state.bind_texture(impl-&gt;texture);
+   state.activate();
+
+Modified: trunk/src/glutil/texture.cpp
+===================================================================
+--- trunk/src/glutil/texture.cpp	2005-08-06 12:54:13 UTC (rev 913)
++++ trunk/src/glutil/texture.cpp	2005-08-06 13:26:51 UTC (rev 914)
+@@ -232,4 +232,16 @@
+   return !impl.is_null();
+ }
+ 
++bool
++Texture::operator==(const Texture&amp; other) const
++{
++  return impl.get() == other.impl.get();
++}
++
++bool
++Texture::operator!=(const Texture&amp; other) const
++{
++  return impl.get() != other.impl.get();
++}
++
+ /* EOF */
+
+Modified: trunk/src/glutil/texture.hpp
+===================================================================
+--- trunk/src/glutil/texture.hpp	2005-08-06 12:54:13 UTC (rev 913)
++++ trunk/src/glutil/texture.hpp	2005-08-06 13:26:51 UTC (rev 914)
+@@ -57,6 +57,9 @@
+ 
+   ~Texture();
+ 
++  bool operator==(const Texture&amp;) const;
++  bool operator!=(const Texture&amp;) const;
++
+   int get_width() const;
+   int get_height() const;
+ 
+
+Modified: trunk/src/lisp/properties.hpp
+===================================================================
+--- trunk/src/lisp/properties.hpp	2005-08-06 12:54:13 UTC (rev 913)
++++ trunk/src/lisp/properties.hpp	2005-08-06 13:26:51 UTC (rev 914)
+@@ -32,6 +32,18 @@
+     return true;
+   }
+ 
++  /** 
++   * Ignore a property so that it doesn't give a warning, usefull for
++   * example if some tags are only used by the editor but not by the
++   * game.
++   */
++  void ignore(const std::string&amp; name)
++  {
++    PropertyMap::iterator i = properties.find(name);
++    if(i != properties.end())
++      i-&gt;second.used = true;
++  }
++
+   /**
+    * returns an iterator over all properties with a certain name
+    */
+
+Modified: trunk/src/player.cpp
+===================================================================
+--- trunk/src/player.cpp	2005-08-06 12:54:13 UTC (rev 913)
++++ trunk/src/player.cpp	2005-08-06 13:26:51 UTC (rev 914)
+@@ -166,7 +166,6 @@
+   try_set_action(&quot;Stand&quot;);
+   velocity = Vector(0, 0);
+   state = STAND;
+-  printf(&quot;stand.\n&quot;);
+ }
+ 
+ void
+@@ -237,7 +236,6 @@
+     velocity.x = WALK_SPEED;
+   else
+     velocity.x = -WALK_SPEED;
+-  printf(&quot;walk.\n&quot;);
+ }
+ 
+ void
+@@ -267,7 +265,6 @@
+   sprite.set_next_action(&quot;Ducking&quot;);
+   state = DUCKING;
+   velocity.x = 0;
+-  printf(&quot;ducking.\n&quot;);
+ }
+ 
+ void
+@@ -275,7 +272,6 @@
+ {
+   // ducking
+   if(sprite.switched_actions()) {
+-    printf(&quot;finished.\n&quot;);
+     if(sprite.get_action() == &quot;Ducking&quot;)
+       set_ducked();
+     else
+@@ -284,12 +280,10 @@
+   }
+   
+   if(!(controller.get_axis_state(VERTICAL_AXIS) &gt; 0) &amp;&amp; sprite.get_speed() &gt; 0) {
+-    printf(&quot;Changespeed1.\n&quot;);
+     sprite.set_speed(-1.0);
+     sprite.set_next_action(&quot;Stand&quot;);
+     state = STAND;
+   } else if(controller.get_axis_state(VERTICAL_AXIS) &gt; 0 &amp;&amp; sprite.get_speed() &lt; 0) {
+-    printf(&quot;Changespeed2.\n&quot;);
+     sprite.set_speed(1.0);
+     sprite.set_next_action(&quot;Ducking&quot;);
+   }
+@@ -299,7 +293,6 @@
+ Player::set_ducked()
+ {
+   assert(sprite.get_action() == &quot;Ducking&quot;);
+-  printf(&quot;ducked.\n&quot;);
+   state = DUCKED;
+ }
+ 
+@@ -307,7 +300,6 @@
+ Player::update_ducked()
+ {
+   if(!controller.get_axis_state(VERTICAL_AXIS) &gt; 0) {
+-    printf(&quot;ducking.\n&quot;);
+     state = DUCKING;
+     sprite.set_action(&quot;StandToDuck&quot;, -1.0);
+     sprite.set_next_action(&quot;Stand&quot;);
+@@ -322,7 +314,6 @@
+   sprite.set_next_action(&quot;Walk&quot;);
+   sprite.set_next_rot(! sprite.get_rot());
+   state = TURNAROUND;
+-  printf(&quot;turn.\n&quot;);
+ }
+ 
+ void
+@@ -410,17 +401,14 @@
+   if(sprite.before_marker(&quot;RightFoot&quot;)) {
+     sprite.set_next_action(&quot;JumpRightFoot&quot;);
+     sprite.abort_at_marker(&quot;RightFoot&quot;);
+-    printf(&quot;jumpright.\n&quot;);
+     jump_foot = LEFT_FOOT;
+   } else if(sprite.before_marker(&quot;LeftFoot&quot;)) {
+     sprite.set_next_action(&quot;JumpLeftFoot&quot;);
+     sprite.abort_at_marker(&quot;LeftFoot&quot;);
+-    printf(&quot;jumpleft.\n&quot;);
+     jump_foot = RIGHT_FOOT;
+   } else {
+     sprite.set_next_action(&quot;JumpRightFoot&quot;);
+     sprite.abort_at_marker(&quot;RightFoot&quot;);
+-    printf(&quot;jumpright.\n&quot;);
+     jump_foot = LEFT_FOOT;
+   }
+   state = JUMP_BEGIN;
+
+Modified: trunk/src/screen.cpp
+===================================================================
+--- trunk/src/screen.cpp	2005-08-06 12:54:13 UTC (rev 913)
++++ trunk/src/screen.cpp	2005-08-06 13:26:51 UTC (rev 914)
+@@ -26,7 +26,6 @@
+ #include &quot;globals.hpp&quot;
+ #include &quot;console.hpp&quot;
+ #include &quot;gameconfig.hpp&quot;
+-#include &quot;event_manager.hpp&quot;
+ #include &quot;input/input_manager.hpp&quot;
+ #include &quot;input/input_manager_sdl.hpp&quot;
+ #include &quot;sound/sound_manager.hpp&quot;
+
+Modified: trunk/src/scripting/game_objects.cpp
+===================================================================
+--- trunk/src/scripting/game_objects.cpp	2005-08-06 12:54:13 UTC (rev 913)
++++ trunk/src/scripting/game_objects.cpp	2005-08-06 13:26:51 UTC (rev 914)
+@@ -27,13 +27,10 @@
+ void
+ GameObject::set_parent(const std::string&amp; name)
+ {
+-  std::cout &lt;&lt; &quot;Trying to set parent&quot; &lt;&lt; std::endl;
+   if (::Entity* entity = dynamic_cast&lt;Entity*&gt;(object.get()))
+     {
+-      std::cout &lt;&lt; &quot;Have Entity: &quot; &lt;&lt; name &lt;&lt; std::endl;
+       if (::GameObject* obj = Sector::current()-&gt;get_object(name))
+         {
+-          std::cout &lt;&lt; &quot;Setting parent: &quot; &lt;&lt; name &lt;&lt; std::endl;
+           entity-&gt;set_parent(dynamic_cast&lt;Entity*&gt;(obj));
+         }
+     }
+
+Modified: trunk/src/text_area.cpp
+===================================================================
+--- trunk/src/text_area.cpp	2005-08-06 12:54:13 UTC (rev 913)
++++ trunk/src/text_area.cpp	2005-08-06 13:26:51 UTC (rev 914)
+@@ -23,6 +23,7 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &quot;glutil/opengl_state.hpp&quot;
+ #include &quot;ttf_font.hpp&quot;
+ #include &quot;text_area.hpp&quot;
+ #include &quot;baby_xml.hpp&quot;
+@@ -121,12 +122,14 @@
+ void
+ TextArea::draw()
+ {
+-  glDisable(GL_DEPTH_TEST);
+-  glEnable(GL_TEXTURE_2D);
+-  glEnable(GL_BLEND);
+-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++  OpenGLState state;
++  
++  state.enable(GL_TEXTURE_2D);
++  state.bind_texture(impl-&gt;font-&gt;get_texture());
+ 
+-  glBindTexture(GL_TEXTURE_2D, impl-&gt;font-&gt;get_texture().get_handle());
++  state.enable(GL_BLEND);
++  state.set_blend_func(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++  state.activate();
+ 
+   glPushMatrix();
+   glTranslatef(impl-&gt;rect.left, impl-&gt;rect.top + impl-&gt;font-&gt;get_height(), 0);
+
+Modified: trunk/src/tile_factory.cpp
+===================================================================
+--- trunk/src/tile_factory.cpp	2005-08-06 12:54:13 UTC (rev 913)
++++ trunk/src/tile_factory.cpp	2005-08-06 13:26:51 UTC (rev 914)
+@@ -120,7 +120,10 @@
+ 
+   if(filename == &quot;&quot;)
+     throw std::runtime_error(&quot;Missing color-image&quot;);
+- 
++
++  if (debug)
++    std::cout &lt;&lt; &quot;Loading tiles: &quot; &lt;&lt; filename &lt;&lt; std::endl;
++
+   SDL_Surface* image = IMG_Load_RW(get_physfs_SDLRWops(filename), 1);
+   if(!image) 
+     {
+
+Modified: trunk/src/windstille_main.cpp
+===================================================================
+--- trunk/src/windstille_main.cpp	2005-08-06 12:54:13 UTC (rev 913)
++++ trunk/src/windstille_main.cpp	2005-08-06 13:26:51 UTC (rev 914)
+@@ -182,8 +182,6 @@
+     parse_command_line(argc, argv);
+     init_modules();
+ 
+-    std::cout &lt;&lt; &quot;Modules inited&quot; &lt;&lt; std::endl;
+-
+     if (playback_file.empty())
+       {
+         if (!controller_file.empty())
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000566.html">[Windstille-commit] r913 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000568.html">[Windstille-commit] r915 - trunk/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#567">[ date ]</a>
+              <a href="thread.html#567">[ thread ]</a>
+              <a href="subject.html#567">[ subject ]</a>
+              <a href="author.html#567">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

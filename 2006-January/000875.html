@@ -1,0 +1,742 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1222 - in trunk/src: . display particles
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1222%20-%20in%20trunk/src%3A%20.%20display%20particles&In-Reply-To=%3C200601171859.k0HIxxki003540%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000874.html">
+   <LINK REL="Next"  HREF="000876.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1222 - in trunk/src: . display particles</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1222%20-%20in%20trunk/src%3A%20.%20display%20particles&In-Reply-To=%3C200601171859.k0HIxxki003540%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1222 - in trunk/src: . display particles">grumbel at berlios.de
+       </A><BR>
+    <I>Tue Jan 17 19:59:59 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000874.html">[Windstille-commit] r1221 - in trunk/src: . display particles
+</A></li>
+        <LI>Next message: <A HREF="000876.html">[Windstille-commit] r1223 - in trunk/src: collision font scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#875">[ date ]</a>
+              <a href="thread.html#875">[ thread ]</a>
+              <a href="subject.html#875">[ subject ]</a>
+              <a href="author.html#875">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-01-17 19:59:55 +0100 (Tue, 17 Jan 2006)
+New Revision: 1222
+
+Added:
+   trunk/src/tile_description.cpp
+   trunk/src/tile_description.hpp
+Modified:
+   trunk/src/SConscript
+   trunk/src/display/display.cpp
+   trunk/src/display/display.hpp
+   trunk/src/display/framebuffer.cpp
+   trunk/src/display/scene_context.cpp
+   trunk/src/particles/deform_drawer.cpp
+   trunk/src/tile_factory.cpp
+   trunk/src/tile_factory.hpp
+Log:
+- no code change, just moved class into different file
+
+Modified: trunk/src/SConscript
+===================================================================
+--- trunk/src/SConscript	2006-01-13 17:03:08 UTC (rev 1221)
++++ trunk/src/SConscript	2006-01-17 18:59:55 UTC (rev 1222)
+@@ -77,6 +77,7 @@
+ 'tile_factory.cpp',
+ 'tile_map.cpp',
+ 'tile_packer.cpp',
++'tile_description.cpp',
+ 'timer.cpp',
+ 'trigger.cpp',
+ 'util.cpp',
+
+Modified: trunk/src/display/display.cpp
+===================================================================
+--- trunk/src/display/display.cpp	2006-01-13 17:03:08 UTC (rev 1221)
++++ trunk/src/display/display.cpp	2006-01-17 18:59:55 UTC (rev 1222)
+@@ -36,8 +36,11 @@
+ #include &quot;util.hpp&quot;
+ #include &lt;assert.h&gt;
+ 
++namespace {
+ SDL_Surface* Display::window       = 0;
+ std::vector&lt;Rect&gt; Display::cliprects;
++std::vector&lt;Framebuffer&gt; framebuffers;
++}
+ 
+ void
+ Display::draw_line(const Vector&amp; pos1, const Vector&amp; pos2, const Color&amp; color)
+@@ -446,4 +449,37 @@
+     }
+ }
+ 
++void
++Display::push_framebuffer(Framebuffer&amp; framebuffer)
++{
++  framebuffers.push_back(framebuffer);
++  // FIXME: How expensive is it to switch framebuffers? might be worth
++  // to optimze some switches away
++  glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebuffers.back().get_handle());
++}
++
++void
++Display::pop_framebuffer()
++{
++  framebuffers.pop_back();
++
++  if (framebuffers.empty())
++    {
++      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebuffers.back().get_handle());
++    }
++  else
++    {
++      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
++    }
++}
++
++Framebuffer
++Display::get_framebuffer()
++{
++  if (framebuffers.empty())
++    return Framebuffer();
++  else
++    return framebuffers.back();
++}
++
+ /* EOF */
+
+Modified: trunk/src/display/display.hpp
+===================================================================
+--- trunk/src/display/display.hpp	2006-01-13 17:03:08 UTC (rev 1221)
++++ trunk/src/display/display.hpp	2006-01-17 18:59:55 UTC (rev 1222)
+@@ -30,6 +30,7 @@
+ #include &lt;SDL.h&gt;
+ #include &quot;math/rect.hpp&quot;
+ #include &quot;color.hpp&quot;
++#include &quot;display/framebuffer.hpp&quot;
+ 
+ class Display
+ {
+@@ -57,6 +58,10 @@
+   static void push_cliprect(const Rect&amp; rect);
+   static void pop_cliprect();
+ 
++  static void push_framebuffer(Framebuffer&amp; framebuffer);
++  static void pop_framebuffer();
++  static Framebuffer get_framebuffer();
++
+   static void set_gamma(float r, float g, float b);
+ 
+   static void save_screenshot(const std::string&amp; filename);
+
+Modified: trunk/src/display/framebuffer.cpp
+===================================================================
+--- trunk/src/display/framebuffer.cpp	2006-01-13 17:03:08 UTC (rev 1221)
++++ trunk/src/display/framebuffer.cpp	2006-01-17 18:59:55 UTC (rev 1222)
+@@ -41,6 +41,9 @@
+   {
+     glGenFramebuffersEXT(1, &amp;handle);
+     assert_gl(&quot;Framebuffer1&quot;);
++
++    // FIXME: Should use push/pop_framebuffer instead, but don't have
++    // pointer to Framebuffer here
+     glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, handle);
+     assert_gl(&quot;Framebuffer2&quot;);
+     glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, 
+
+Modified: trunk/src/display/scene_context.cpp
+===================================================================
+--- trunk/src/display/scene_context.cpp	2006-01-13 17:03:08 UTC (rev 1221)
++++ trunk/src/display/scene_context.cpp	2006-01-17 18:59:55 UTC (rev 1222)
+@@ -44,10 +44,6 @@
+ #define LIGHTMAP_DIV 4
+ #define BLURMAP_DIV 1
+ 
+-GLuint current_framebuffer;
+-
+-
+-
+ class SceneContextImpl
+ {
+ public:
+@@ -258,9 +254,8 @@
+   if (impl-&gt;render_mask &amp; LIGHTMAPSCREEN)
+     {
+       // Render the lightmap to the lightmap_framebuffer
+-      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;lightmap_framebuffer.get_handle());
+-      current_framebuffer = impl-&gt;lightmap_framebuffer.get_handle();
+-
++      Display::push_framebuffer(impl-&gt;lightmap_framebuffer);
++      
+       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+ 
+       glPushMatrix();
+@@ -269,33 +264,30 @@
+       impl-&gt;light.render(*this);
+       glPopMatrix();
+ 
+-      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
++      Display::pop_framebuffer();
+     }
+ 
+   if (impl-&gt;render_mask &amp; COLORMAP)
+     {
+       // Render the colormap to the screen_framebuffer
+-      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;screen_framebuffer.get_handle());
+-      current_framebuffer = impl-&gt;screen_framebuffer.get_handle();
++      Display::push_framebuffer(impl-&gt;screen_framebuffer);
+       impl-&gt;color.render(*this);
+-      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
++      Display::pop_framebuffer();
+     }
+ 
+ 
+   if (impl-&gt;render_mask &amp; LIGHTMAP)
+     { // Renders the lightmap to the screen
+-      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;screen_framebuffer.get_handle());
+-      current_framebuffer = impl-&gt;screen_framebuffer.get_handle();
++      Display::push_framebuffer(impl-&gt;screen_framebuffer);
+       render_lightmap();
+-      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
++      Display::pop_framebuffer();
+     }
+ 
+   if (impl-&gt;render_mask &amp; HIGHLIGHTMAP)
+     {
+-      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;screen_framebuffer.get_handle());
+-      current_framebuffer = impl-&gt;screen_framebuffer.get_handle();
++      Display::push_framebuffer(impl-&gt;screen_framebuffer);
+       impl-&gt;highlight.render(*this);
+-      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
++      Display::pop_framebuffer();
+     }
+ 
+   if (1) 
+@@ -373,12 +365,13 @@
+ {
+   if (request-&gt;needs_prepare())
+     {
+-      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;tmp_framebuffer.get_handle());
+-      current_framebuffer = impl-&gt;tmp_framebuffer.get_handle();
++      Display::push_framebuffer(impl-&gt;tmp_framebuffer);
+       request-&gt;prepare(impl-&gt;screen_framebuffer.get_texture());
+-      glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;screen_framebuffer.get_handle());
+-      current_framebuffer = impl-&gt;screen_framebuffer.get_handle();
++      Display::pop_framebuffer();
++      
++      Display::push_framebuffer(impl-&gt;screen_framebuffer);
+       request-&gt;draw(impl-&gt;tmp_framebuffer.get_texture());
++      Display::pop_framebuffer();
+     }
+   else
+     {
+
+Modified: trunk/src/particles/deform_drawer.cpp
+===================================================================
+--- trunk/src/particles/deform_drawer.cpp	2006-01-13 17:03:08 UTC (rev 1221)
++++ trunk/src/particles/deform_drawer.cpp	2006-01-17 18:59:55 UTC (rev 1222)
+@@ -27,15 +27,13 @@
+ #include &lt;GL/gl.h&gt;
+ #include &lt;GL/glext.h&gt;
+ 
++#include &quot;display/display.hpp&quot;
+ #include &quot;display/shader_object.hpp&quot;
+ #include &quot;particle_system.hpp&quot;
+ #include &quot;display/drawing_request.hpp&quot;
+ #include &quot;display/opengl_state.hpp&quot;
+ #include &quot;deform_drawer.hpp&quot;
+ 
+-// FIXME: HACK
+-extern GLuint current_framebuffer;
+-
+ class DeformDrawerRequest : public DrawingRequest
+ {
+ public:
+@@ -56,10 +54,10 @@
+   
+   void draw(const Texture&amp; tmp_texture) 
+   {
+-    glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, framebuffer.get_handle());
++    Display::push_framebuffer(framebuffer);
+     glClear(GL_COLOR_BUFFER_BIT);
+     draw_particles();
+-    glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, current_framebuffer);
++    Display::pop_framebuffer();
+ 
+     if (1) {
+       OpenGLState state;
+
+Added: trunk/src/tile_description.cpp
+===================================================================
+--- trunk/src/tile_description.cpp	2006-01-13 17:03:08 UTC (rev 1221)
++++ trunk/src/tile_description.cpp	2006-01-17 18:59:55 UTC (rev 1222)
+@@ -0,0 +1,152 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &lt;SDL.h&gt;
++#include &lt;SDL_image.h&gt;
++#include &quot;physfs/physfs_sdl.hpp&quot;
++#include &quot;globals.hpp&quot;
++#include &quot;tile.hpp&quot;
++#include &quot;tile_packer.hpp&quot;
++#include &quot;tile_factory.hpp&quot;
++#include &quot;tile_description.hpp&quot;
++
++/** Check if the given region of the given image is fully transparent */
++static bool surface_empty(SDL_Surface* image, int sx, int sy, int w, int h)
++{
++  SDL_LockSurface(image);
++  
++  unsigned char* data = static_cast&lt;unsigned char*&gt;(image-&gt;pixels);
++  
++  for(int y = sy; y &lt; sy + h; ++y)
++    for(int x = sx; x &lt; sx + w; ++x)
++      {
++        if (data[y * image-&gt;pitch + 4*x + 3] != 0)
++          { 
++            SDL_UnlockSurface(image);
++            return false;
++          }
++      }
++
++  SDL_UnlockSurface(image);
++  return true;
++}
++
++TileDescription::TileDescription(FileReader&amp; props)
++  : width(0), height(0)
++{
++  props.get(&quot;ids&quot;,    ids);
++  props.get(&quot;image&quot;,  filename);
++  props.get(&quot;colmap&quot;, colmap);
++  props.get(&quot;width&quot;,  width);
++  props.get(&quot;height&quot;, height);
++    
++  props.print_unused_warnings(&quot;tiles&quot;);
++
++  if(filename == &quot;&quot;)
++    throw std::runtime_error(&quot;Missing color-image&quot;);
++}
++
++void
++TileDescription::load(TileFactory* factory)
++{
++  if (debug)
++    std::cout &lt;&lt; &quot;Loading tiles: &quot; &lt;&lt; filename &lt;&lt; std::endl;
++
++  SDL_Surface* image = IMG_Load_RW(get_physfs_SDLRWops(filename), 1);
++  if(!image) 
++    {
++      std::ostringstream msg;
++      msg &lt;&lt; &quot;Couldn't load image '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot; &lt;&lt; SDL_GetError();
++      throw std::runtime_error(msg.str());
++    }
++ 
++  try {
++    int num_tiles = width * height; //(image-&gt;w/TILE_RESOLUTION) * (image-&gt;h/TILE_RESOLUTION);
++    if (int(colmap.size()) != num_tiles)
++      {
++        std::ostringstream str;
++        str &lt;&lt; &quot;'colmap' information and num_tiles mismatch (&quot; 
++            &lt;&lt; colmap.size() &lt;&lt; &quot; != &quot; &lt;&lt; num_tiles &lt;&lt; &quot;) for image '&quot; &lt;&lt; filename &lt;&lt; &quot;'&quot;;
++        throw std::runtime_error(str.str());
++      }
++
++    if (int(ids.size()) != num_tiles)
++      {
++        std::ostringstream str;
++        str &lt;&lt; &quot;'ids' information and num_tiles mismatch (&quot; 
++            &lt;&lt; ids.size() &lt;&lt; &quot; != &quot; &lt;&lt; num_tiles &lt;&lt; &quot;) for image '&quot; &lt;&lt; filename &lt;&lt; &quot;'&quot;;
++        throw std::runtime_error(str.str());
++      }
++    
++    int i = 0;
++    for (int y = 0; y &lt; height*TILE_RESOLUTION; y += TILE_RESOLUTION)
++      {
++        for (int x = 0; x &lt; width*TILE_RESOLUTION; x += TILE_RESOLUTION)
++          {
++            int id = ids[i];
++            int collider = colmap[i];
++            i++;
++
++            if(id == -1)
++              continue;
++
++            if(id &lt; (int) factory-&gt;tiles.size() &amp;&amp; factory-&gt;tiles[id] != 0)
++              {
++                std::ostringstream msg;
++                msg &lt;&lt; &quot;Duplicate tile id: &quot; &lt;&lt; filename &lt;&lt; &quot; &quot; &lt;&lt; id;
++                throw std::runtime_error(msg.str());
++              } 
++
++            if (id &gt;= int(factory-&gt;tiles.size()))
++              factory-&gt;tiles.resize(id + 1, 0);
++
++            factory-&gt;tiles[id] = new Tile(collider); 
++            Tile&amp; tile = *(factory-&gt;tiles[id]);
++            tile.id = id;
++
++            if (surface_empty(image, x, y, TILE_RESOLUTION, TILE_RESOLUTION))
++              continue;
++            
++            if(factory-&gt;packers[factory-&gt;color_packer]-&gt;is_full())
++              {
++                factory-&gt;packers.push_back(new TilePacker(1024, 1024));
++                factory-&gt;color_packer = factory-&gt;packers.size() - 1;
++              }
++
++            Rectf rect = factory-&gt;packers[factory-&gt;color_packer]-&gt;pack(image, x, y,
++                                                                       TILE_RESOLUTION, TILE_RESOLUTION);
++            tile.color_rect   = rect;
++            tile.color_packer = factory-&gt;color_packer;
++            tile.texture      = factory-&gt;packers[factory-&gt;color_packer]-&gt;get_texture();
++          }
++      }
++  } catch(...) {
++    SDL_FreeSurface(image);
++    throw;
++  }
++  SDL_FreeSurface(image);
++}
++
++/* EOF */
+
+Added: trunk/src/tile_description.hpp
+===================================================================
+--- trunk/src/tile_description.hpp	2006-01-13 17:03:08 UTC (rev 1221)
++++ trunk/src/tile_description.hpp	2006-01-17 18:59:55 UTC (rev 1222)
+@@ -0,0 +1,57 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_TILE_DESCRIPTION_HPP
++#define HEADER_TILE_DESCRIPTION_HPP
++
++#include &lt;vector&gt;
++#include &lt;string&gt;
++#include &quot;file_reader.hpp&quot;
++
++class TileFactory;
++
++/**
++ * The TileDescription descriptes a set of tiles
++ */
++class TileDescription
++{
++public:
++  std::vector&lt;int&gt; ids;
++  std::vector&lt;int&gt; colmap;
++  std::string filename;
++  int width;
++  int height;
++
++  TileDescription(FileReader&amp; props);
++
++  /**
++   * Load the TileDescription into the give TileFactory
++   */
++  void load(TileFactory* factory);
++};
++
++#endif
++
++/* EOF */
+
+Modified: trunk/src/tile_factory.cpp
+===================================================================
+--- trunk/src/tile_factory.cpp	2006-01-13 17:03:08 UTC (rev 1221)
++++ trunk/src/tile_factory.cpp	2006-01-17 18:59:55 UTC (rev 1222)
+@@ -30,6 +30,7 @@
+ #include &quot;tile.hpp&quot;
+ #include &quot;tile_packer.hpp&quot;
+ #include &quot;tile_factory.hpp&quot;
++#include &quot;tile_description.hpp&quot;
+ #include &quot;lisp/lisp.hpp&quot;
+ #include &quot;lisp/parser.hpp&quot;
+ #include &quot;lisp/properties.hpp&quot;
+@@ -41,138 +42,6 @@
+ 
+ std::string TileFactory::tile_def_file = &quot;tiles.scm&quot;;
+ 
+-/** Check if the given region of the given image is fully transparent */
+-static bool surface_empty(SDL_Surface* image, int sx, int sy, int w, int h)
+-{
+-  SDL_LockSurface(image);
+-  
+-  unsigned char* data = static_cast&lt;unsigned char*&gt;(image-&gt;pixels);
+-  
+-  for(int y = sy; y &lt; sy + h; ++y)
+-    for(int x = sx; x &lt; sx + w; ++x)
+-      {
+-        if (data[y * image-&gt;pitch + 4*x + 3] != 0)
+-          { 
+-            SDL_UnlockSurface(image);
+-            return false;
+-          }
+-      }
+-
+-  SDL_UnlockSurface(image);
+-  return true;
+-}
+-
+-class TileDescription
+-{
+-public:
+-  TileFactory* factory;
+-
+-  std::vector&lt;int&gt; ids;
+-  std::vector&lt;int&gt; colmap;
+-  std::string filename;
+-  int width;
+-  int height;
+-
+-
+-  TileDescription(TileFactory* factory_, const lisp::Lisp* data)
+-    : factory(factory_), width(0), height(0)
+-  {
+-    assert(data);
+-    lisp::Properties props(data);
+-
+-    props.get(&quot;ids&quot;,    ids);
+-    props.get(&quot;image&quot;,  filename);
+-    props.get(&quot;colmap&quot;, colmap);
+-    props.get(&quot;width&quot;,  width);
+-    props.get(&quot;height&quot;, height);
+-    
+-    props.print_unused_warnings(&quot;tiles&quot;);
+-
+-    if(filename == &quot;&quot;)
+-      throw std::runtime_error(&quot;Missing color-image&quot;);
+-  }
+-
+-  void load()
+-  {
+-    if (debug)
+-      std::cout &lt;&lt; &quot;Loading tiles: &quot; &lt;&lt; filename &lt;&lt; std::endl;
+-
+-    SDL_Surface* image = IMG_Load_RW(get_physfs_SDLRWops(filename), 1);
+-    if(!image) 
+-      {
+-        std::ostringstream msg;
+-        msg &lt;&lt; &quot;Couldn't load image '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot; &lt;&lt; SDL_GetError();
+-        throw std::runtime_error(msg.str());
+-      }
+- 
+-    try {
+-      int num_tiles = width * height; //(image-&gt;w/TILE_RESOLUTION) * (image-&gt;h/TILE_RESOLUTION);
+-      if (int(colmap.size()) != num_tiles)
+-        {
+-          std::ostringstream str;
+-          str &lt;&lt; &quot;'colmap' information and num_tiles mismatch (&quot; 
+-              &lt;&lt; colmap.size() &lt;&lt; &quot; != &quot; &lt;&lt; num_tiles &lt;&lt; &quot;) for image '&quot; &lt;&lt; filename &lt;&lt; &quot;'&quot;;
+-          throw std::runtime_error(str.str());
+-        }
+-
+-      if (int(ids.size()) != num_tiles)
+-        {
+-          std::ostringstream str;
+-          str &lt;&lt; &quot;'ids' information and num_tiles mismatch (&quot; 
+-              &lt;&lt; ids.size() &lt;&lt; &quot; != &quot; &lt;&lt; num_tiles &lt;&lt; &quot;) for image '&quot; &lt;&lt; filename &lt;&lt; &quot;'&quot;;
+-          throw std::runtime_error(str.str());
+-        }
+-    
+-      int i = 0;
+-      for (int y = 0; y &lt; height*TILE_RESOLUTION; y += TILE_RESOLUTION)
+-        {
+-          for (int x = 0; x &lt; width*TILE_RESOLUTION; x += TILE_RESOLUTION)
+-            {
+-              int id = ids[i];
+-              int collider = colmap[i];
+-              i++;
+-
+-              if(id == -1)
+-                continue;
+-
+-              if(id &lt; (int) factory-&gt;tiles.size() &amp;&amp; factory-&gt;tiles[id] != 0)
+-                {
+-                  std::ostringstream msg;
+-                  msg &lt;&lt; &quot;Duplicate tile id: &quot; &lt;&lt; filename &lt;&lt; &quot; &quot; &lt;&lt; id;
+-                  throw std::runtime_error(msg.str());
+-                } 
+-
+-              if (id &gt;= int(factory-&gt;tiles.size()))
+-                factory-&gt;tiles.resize(id + 1, 0);
+-
+-              factory-&gt;tiles[id] = new Tile(collider); 
+-              Tile&amp; tile = *(factory-&gt;tiles[id]);
+-              tile.id = id;
+-
+-              if (surface_empty(image, x, y, TILE_RESOLUTION, TILE_RESOLUTION))
+-                continue;
+-            
+-              if(factory-&gt;packers[factory-&gt;color_packer]-&gt;is_full())
+-                {
+-                  factory-&gt;packers.push_back(new TilePacker(1024, 1024));
+-                  factory-&gt;color_packer = factory-&gt;packers.size() - 1;
+-                }
+-
+-              Rectf rect = factory-&gt;packers[factory-&gt;color_packer]-&gt;pack(image, x, y,
+-                                                                         TILE_RESOLUTION, TILE_RESOLUTION);
+-              tile.color_rect   = rect;
+-              tile.color_packer = factory-&gt;color_packer;
+-              tile.texture      = factory-&gt;packers[factory-&gt;color_packer]-&gt;get_texture();
+-            }
+-        }
+-    } catch(...) {
+-      SDL_FreeSurface(image);
+-      throw;
+-    }
+-    SDL_FreeSurface(image);
+-  }
+-};
+-
+ TileFactory::TileFactory (const std::string&amp; filename)
+ {
+   using namespace lisp;
+@@ -215,17 +84,22 @@
+   using namespace lisp;
+   assert(data);
+ 
+-  TileDescription desc(this, data);
+-
+-  desc.load();
++  lisp::Properties props(data);
++  TileDescription desc(props);
++  desc.load(this);
+ }
+ 
+ Tile*
+ TileFactory::create(int id)
+ {
+   if(id &lt; 0 || id &gt;= (int) tiles.size())
+-    return 0;
+-  return tiles[id];
++    {
++      return 0;
++    }
++  else
++    {
++      return tiles[id];
++    }
+ }
+ 
+ void
+@@ -235,7 +109,7 @@
+   current_ = new TileFactory(tile_def_file);
+ }
+ 
+-/** Destroy the default TileFactor*/
++/** Destroy the default TileFactor */
+ void
+ TileFactory::deinit()
+ {
+
+Modified: trunk/src/tile_factory.hpp
+===================================================================
+--- trunk/src/tile_factory.hpp	2006-01-13 17:03:08 UTC (rev 1221)
++++ trunk/src/tile_factory.hpp	2006-01-17 18:59:55 UTC (rev 1222)
+@@ -52,13 +52,12 @@
+   TileFactory(const std::string&amp; filename);
+   ~TileFactory();
+ 
+-  /** Create a new tile, or loads&amp;creates it if it is not already available */
++  /**
++   * Create a new tile, or loads&amp;create it if it is not already
++   * available
++   */
+   Tile* create(int tile_id);
+ 
+-  Texture get_texture(int tile_id);
+-
+-  void add(int id, Tile* tile);
+-
+   /** Create the default TileFactor*/
+   static void init();
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000874.html">[Windstille-commit] r1221 - in trunk/src: . display particles
+</A></li>
+	<LI>Next message: <A HREF="000876.html">[Windstille-commit] r1223 - in trunk/src: collision font scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#875">[ date ]</a>
+              <a href="thread.html#875">[ thread ]</a>
+              <a href="subject.html#875">[ subject ]</a>
+              <a href="author.html#875">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

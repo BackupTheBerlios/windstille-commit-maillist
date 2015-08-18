@@ -1,0 +1,314 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1243 - trunk/src/display
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1243%20-%20trunk/src/display&In-Reply-To=%3C200603111340.k2BDek9m017387%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000895.html">
+   <LINK REL="Next"  HREF="000915.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1243 - trunk/src/display</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1243%20-%20trunk/src/display&In-Reply-To=%3C200603111340.k2BDek9m017387%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1243 - trunk/src/display">grumbel at berlios.de
+       </A><BR>
+    <I>Sat Mar 11 14:40:46 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000895.html">[Windstille-commit] r1242 - in trunk/src: . display particles
+</A></li>
+        <LI>Next message: <A HREF="000915.html">[Windstille-commit] r1244 - in trunk: . lib lib/glew lib/glew/GL src src/display src/font src/particles src/sprite2d src/sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#896">[ date ]</a>
+              <a href="thread.html#896">[ thread ]</a>
+              <a href="subject.html#896">[ subject ]</a>
+              <a href="author.html#896">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-03-11 14:40:37 +0100 (Sat, 11 Mar 2006)
+New Revision: 1243
+
+Modified:
+   trunk/src/display/scene_context.cpp
+   trunk/src/display/scene_context.hpp
+Log:
+- made framebuffer stuff optional
+
+Modified: trunk/src/display/scene_context.cpp
+===================================================================
+--- trunk/src/display/scene_context.cpp	2006-03-11 12:35:10 UTC (rev 1242)
++++ trunk/src/display/scene_context.cpp	2006-03-11 13:40:37 UTC (rev 1243)
+@@ -51,23 +51,37 @@
+   DrawingContext light;
+   DrawingContext highlight; 
+   unsigned int   render_mask;
++  
++  struct Framebuffers 
++  {
++    Framebuffer screen;
++    Framebuffer tmp;
++    Framebuffer lightmap;   
+ 
+-  Framebuffer screen_framebuffer;
+-  Framebuffer tmp_framebuffer;
+-  Framebuffer lightmap_framebuffer;
++    Framebuffers() 
++      : screen  (GL_TEXTURE_RECTANGLE_ARB, 800, 600),
++        tmp     (GL_TEXTURE_RECTANGLE_ARB, 800, 600),
++        lightmap(GL_TEXTURE_RECTANGLE_ARB, 800/LIGHTMAP_DIV, 600/LIGHTMAP_DIV)
++    {
++    }
++  };
+   
++  Framebuffers* framebuffers;
++
+   SceneContextImpl() 
+     : render_mask(SceneContext::COLORMAP |
+                   SceneContext::LIGHTMAP | 
+                   SceneContext::HIGHLIGHTMAP | 
+                   SceneContext::LIGHTMAPSCREEN |
+-                  SceneContext::BLURMAP
+-                  ),
+-      screen_framebuffer(GL_TEXTURE_RECTANGLE_ARB, 800, 600),
+-      tmp_framebuffer(GL_TEXTURE_RECTANGLE_ARB, 800, 600),
+-      lightmap_framebuffer(GL_TEXTURE_RECTANGLE_ARB, 800/LIGHTMAP_DIV, 600/LIGHTMAP_DIV)
++                  SceneContext::BLURMAP),
++      framebuffers(0) //new Framebuffers())
+   {
+   }
++
++  ~SceneContextImpl()
++  {
++    delete framebuffers;
++  }
+ };
+ 
+ SceneContext::SceneContext()
+@@ -206,11 +220,11 @@
+ void
+ SceneContext::render_lightmap()
+ {
+-  Rect uv(0, 0, impl-&gt;lightmap_framebuffer.get_width(), impl-&gt;lightmap_framebuffer.get_height());
++  Rect uv(0, 0, impl-&gt;framebuffers-&gt;lightmap.get_width(), impl-&gt;framebuffers-&gt;lightmap.get_height());
+ 
+   OpenGLState state;
+ 
+-  state.bind_texture(impl-&gt;lightmap_framebuffer.get_texture());
++  state.bind_texture(impl-&gt;framebuffers-&gt;lightmap.get_texture());
+       
+   state.enable(GL_BLEND);
+   state.set_blend_func(GL_DST_COLOR, GL_ZERO); // multiple the lightmap with the screen
+@@ -222,14 +236,14 @@
+   glVertex2f(0, 0);
+ 
+   glTexCoord2f(uv.right, uv.bottom);
+-  glVertex2f(impl-&gt;lightmap_framebuffer.get_width() * LIGHTMAP_DIV, 0);
++  glVertex2f(impl-&gt;framebuffers-&gt;lightmap.get_width() * LIGHTMAP_DIV, 0);
+ 
+   glTexCoord2f(uv.right, uv.top);
+-  glVertex2f(impl-&gt;lightmap_framebuffer.get_width() * LIGHTMAP_DIV,
+-             impl-&gt;lightmap_framebuffer.get_height() * LIGHTMAP_DIV);
++  glVertex2f(impl-&gt;framebuffers-&gt;lightmap.get_width() * LIGHTMAP_DIV,
++             impl-&gt;framebuffers-&gt;lightmap.get_height() * LIGHTMAP_DIV);
+ 
+   glTexCoord2f(uv.left, uv.top);
+-  glVertex2f(0, impl-&gt;lightmap_framebuffer.get_height() * LIGHTMAP_DIV);
++  glVertex2f(0, impl-&gt;framebuffers-&gt;lightmap.get_height() * LIGHTMAP_DIV);
+ 
+   glEnd();
+ }
+@@ -247,14 +261,14 @@
+ }
+ 
+ void
+-SceneContext::render()
++SceneContext::render_with_framebuffers()
+ {
+   glClear(GL_DEPTH_BUFFER_BIT);
+       
+   if (impl-&gt;render_mask &amp; LIGHTMAPSCREEN)
+     {
+-      // Render the lightmap to the lightmap_framebuffer
+-      Display::push_framebuffer(impl-&gt;lightmap_framebuffer);
++      // Render the lightmap to the framebuffers-&gt;lightmap
++      Display::push_framebuffer(impl-&gt;framebuffers-&gt;lightmap);
+       
+       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+ 
+@@ -269,8 +283,9 @@
+ 
+   if (impl-&gt;render_mask &amp; COLORMAP)
+     {
+-      // Render the colormap to the screen_framebuffer
+-      Display::push_framebuffer(impl-&gt;screen_framebuffer);
++      // Render the colormap to the framebuffers-&gt;screen
++      Display::push_framebuffer(impl-&gt;framebuffers-&gt;screen);
++      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+       impl-&gt;color.render(*this);
+       Display::pop_framebuffer();
+     }
+@@ -278,14 +293,14 @@
+ 
+   if (impl-&gt;render_mask &amp; LIGHTMAP)
+     { // Renders the lightmap to the screen
+-      Display::push_framebuffer(impl-&gt;screen_framebuffer);
++      Display::push_framebuffer(impl-&gt;framebuffers-&gt;screen);
+       render_lightmap();
+       Display::pop_framebuffer();
+     }
+ 
+   if (impl-&gt;render_mask &amp; HIGHLIGHTMAP)
+     {
+-      Display::push_framebuffer(impl-&gt;screen_framebuffer);
++      Display::push_framebuffer(impl-&gt;framebuffers-&gt;screen);
+       impl-&gt;highlight.render(*this);
+       Display::pop_framebuffer();
+     }
+@@ -296,13 +311,13 @@
+       OpenGLState state;
+ 
+       Rectf uv(0.375, 0.375, 
+-               impl-&gt;screen_framebuffer.get_width()  + 0.375,
+-               impl-&gt;screen_framebuffer.get_height() + 0.375);
++               impl-&gt;framebuffers-&gt;screen.get_width()  + 0.375,
++               impl-&gt;framebuffers-&gt;screen.get_height() + 0.375);
+ 
+       if (impl-&gt;render_mask &amp; BLURMAP)
+-        state.bind_texture(impl-&gt;screen_framebuffer.get_texture(), 0);
++        state.bind_texture(impl-&gt;framebuffers-&gt;screen.get_texture(), 0);
+       else
+-        state.bind_texture(impl-&gt;tmp_framebuffer.get_texture(), 0);
++        state.bind_texture(impl-&gt;framebuffers-&gt;tmp.get_texture(), 0);
+ 
+       state.activate();
+ 
+@@ -330,6 +345,58 @@
+ }
+ 
+ void
++SceneContext::render_without_framebuffers()
++{
++  if (impl-&gt;render_mask &amp; LIGHTMAPSCREEN)
++    {
++      // Render the lightmap to the framebuffers-&gt;lightmap
++      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
++
++      glPushMatrix();
++      glTranslatef(0, 600-(600/LIGHTMAP_DIV), 0);
++      glScalef(1.0f/LIGHTMAP_DIV, 1.0f/LIGHTMAP_DIV, 1.0f);
++      impl-&gt;light.render(*this);
++      glPopMatrix();
++    }
++
++  if (impl-&gt;render_mask &amp; COLORMAP)
++    {
++      // Render the colormap to the framebuffers-&gt;screen
++      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
++      impl-&gt;color.render(*this);
++    }
++
++
++  if (impl-&gt;render_mask &amp; LIGHTMAP)
++    { // Renders the lightmap to the screen
++      //render_lightmap();
++    }
++
++  if (impl-&gt;render_mask &amp; HIGHLIGHTMAP)
++    {
++      impl-&gt;highlight.render(*this);
++    }  
++
++  // Clear all DrawingContexts
++  impl-&gt;color.clear();
++  impl-&gt;light.clear();
++  impl-&gt;highlight.clear();
++}
++
++void
++SceneContext::render()
++{
++  if (impl-&gt;framebuffers)
++    {
++      render_with_framebuffers();
++    }
++  else
++    {
++      render_without_framebuffers();
++    }
++}
++
++void
+ SceneContext::set_render_mask(unsigned int mask)
+ {
+   impl-&gt;render_mask = mask;
+@@ -363,14 +430,14 @@
+ void
+ SceneContext::eval(DrawingRequest* request)
+ {
+-  if (request-&gt;needs_prepare())
++  if (impl-&gt;framebuffers &amp;&amp; request-&gt;needs_prepare())
+     {
+-      Display::push_framebuffer(impl-&gt;tmp_framebuffer);
+-      request-&gt;prepare(impl-&gt;screen_framebuffer.get_texture());
++      Display::push_framebuffer(impl-&gt;framebuffers-&gt;tmp);
++      request-&gt;prepare(impl-&gt;framebuffers-&gt;screen.get_texture());
+       Display::pop_framebuffer();
+       
+-      Display::push_framebuffer(impl-&gt;screen_framebuffer);
+-      request-&gt;draw(impl-&gt;tmp_framebuffer.get_texture());
++      Display::push_framebuffer(impl-&gt;framebuffers-&gt;screen);
++      request-&gt;draw(impl-&gt;framebuffers-&gt;tmp.get_texture());
+       Display::pop_framebuffer();
+     }
+   else
+
+Modified: trunk/src/display/scene_context.hpp
+===================================================================
+--- trunk/src/display/scene_context.hpp	2006-03-11 12:35:10 UTC (rev 1242)
++++ trunk/src/display/scene_context.hpp	2006-03-11 13:40:37 UTC (rev 1243)
+@@ -91,6 +91,9 @@
+ 
+   DrawingContext&amp; get_layer(unsigned int t);
+ 
++  void render_with_framebuffers();
++  void render_without_framebuffers();
++
+   void render_lightmap();
+   void render_colormap();
+   void render_highlightmap();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000895.html">[Windstille-commit] r1242 - in trunk/src: . display particles
+</A></li>
+	<LI>Next message: <A HREF="000915.html">[Windstille-commit] r1244 - in trunk: . lib lib/glew lib/glew/GL src src/display src/font src/particles src/sprite2d src/sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#896">[ date ]</a>
+              <a href="thread.html#896">[ thread ]</a>
+              <a href="subject.html#896">[ subject ]</a>
+              <a href="author.html#896">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

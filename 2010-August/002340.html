@@ -1,0 +1,603 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3343 - trunk/windstille/extra/slideshow
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2010-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3343%20-%20trunk/windstille/extra/slideshow&In-Reply-To=%3C20100830154637.26A9B480FE3%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002339.html">
+   <LINK REL="Next"  HREF="002341.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3343 - trunk/windstille/extra/slideshow</H1>
+    <B>grumbel at mail.berlios.de</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3343%20-%20trunk/windstille/extra/slideshow&In-Reply-To=%3C20100830154637.26A9B480FE3%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3343 - trunk/windstille/extra/slideshow">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Aug 30 17:46:37 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002339.html">[Windstille-commit] r3342 - trunk/windstille/extra/slideshow
+</A></li>
+        <LI>Next message: <A HREF="002341.html">[Windstille-commit] r3344 - trunk/windstille/extra/slideshow
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2340">[ date ]</a>
+              <a href="thread.html#2340">[ thread ]</a>
+              <a href="subject.html#2340">[ subject ]</a>
+              <a href="author.html#2340">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2010-08-30 17:46:36 +0200 (Mon, 30 Aug 2010)
+New Revision: 3343
+
+Modified:
+   trunk/windstille/extra/slideshow/slide_builder.cpp
+   trunk/windstille/extra/slideshow/slide_builder.hpp
+   trunk/windstille/extra/slideshow/slide_show.cpp
+   trunk/windstille/extra/slideshow/slide_show.hpp
+   trunk/windstille/extra/slideshow/slideshow.cpp
+   trunk/windstille/extra/slideshow/slideshow.hpp
+Log:
+slideshow: implemented default values
+
+
+Modified: trunk/windstille/extra/slideshow/slide_builder.cpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slide_builder.cpp	2010-08-30 15:06:35 UTC (rev 3342)
++++ trunk/windstille/extra/slideshow/slide_builder.cpp	2010-08-30 15:46:36 UTC (rev 3343)
+@@ -30,7 +30,7 @@
+ #include &quot;slideshow/slide_show.hpp&quot;
+ 
+ float
+-NodePosX::get(const Sizef&amp; scr, const Sizef&amp; img) const
++NodePosX::get(const Sizef&amp; scr, const Sizef&amp; img, float zoom) const
+ {
+   switch(m_type)
+   {
+@@ -44,14 +44,17 @@
+       return scr.width/2;
+ 
+     case kNodePosXFloat:
+-      return m_value;
++      {
++        float x = m_value * zoom;
++        return img.width/2.0f - x + scr.width/2.0f;
++      }
+   }
+ 
+   assert(!&quot;never reached&quot;);
+ }
+ 
+ float
+-NodePosY::get(const Sizef&amp; scr, const Sizef&amp; img) const
++NodePosY::get(const Sizef&amp; scr, const Sizef&amp; img, float zoom) const
+ {
+   switch(m_type)
+   {
+@@ -65,7 +68,10 @@
+       return scr.height/2;
+       
+     case kNodePosYFloat:
+-      return m_value;
++      {
++        float y = m_value * zoom;
++        return img.height/2.0f - y + scr.height/2.0f;
++      }
+   }
+ 
+   assert(!&quot;never reached&quot;);
+@@ -95,10 +101,10 @@
+ 
+     case kNodeZoomFloat:
+       {
+-      // 1.0f means &quot;fit&quot;, so recalculate values relative to that
+-      float fit = std::min(scr.width / img.width,
+-                           scr.height / img.height);
+-      return fit * m_value;
++        // 1.0f means &quot;fit&quot;, so recalculate values relative to that
++        float fit = std::min(scr.width / img.width,
++                             scr.height / img.height);
++        return fit * m_value;
+       }
+   }
+ 
+@@ -117,7 +123,7 @@
+   m_last_image(),
+   m_node_has_pos(false),
+   m_node_has_zoom(false),
+-  m_path_node(),
++  //m_path_node(),
+   m_node()
+ {
+ }
+@@ -249,6 +255,10 @@
+   else
+   {
+     m_state = kImage;
++
++    // reset pan/zoom pos
++    m_node = Node();
++
+     std::cout &lt;&lt; &quot;;; time = &quot; &lt;&lt; m_time &lt;&lt; std::endl;
+     std::cout &lt;&lt; &quot;(image \&quot;&quot; &lt;&lt; args[1] &lt;&lt; &quot;\&quot;)&quot; &lt;&lt; std::endl;
+     m_image = SlideObjectPtr(new SlideObject(Pathname(args[1], Pathname::kSysPath)));
+@@ -279,57 +289,70 @@
+   {
+     error(&quot;pos already given&quot;);
+   }
+-  else if (!m_node_has_zoom)
+-  {
+-    error(&quot;zoom must come before pos&quot;);
+-  }
+   else
+   {
+     m_node_has_pos = true;
+ 
+-    float img_w = m_image-&gt;get_width()  * m_path_node.zoom;
+-    float img_h = m_image-&gt;get_height() * m_path_node.zoom;
++    //float img_w = m_image-&gt;get_width()  * m_path_node.zoom;
++    //float img_h = m_image-&gt;get_height() * m_path_node.zoom;
+ 
+-    float scr_w = m_screen_size.width;
+-    float scr_h = m_screen_size.height;
++    //float scr_w = m_screen_size.width;
++    //float scr_h = m_screen_size.height;
+ 
+     if (args[1] == &quot;left&quot;)
+     {
+-      m_path_node.pos.x = img_w/2.0f - scr_w/2.0f + scr_w/2.0f;
++      //m_path_node.pos.x = img_w/2.0f - scr_w/2.0f + scr_w/2.0f;
++      m_node.pos_x = NodePosX(NodePosX::kNodePosXLeft);
+     }
+     else if (args[1] == &quot;right&quot;)
+     {
+-      m_path_node.pos.x = -img_w/2.0f + scr_w/2.0f + scr_w/2.0f;
++      //m_path_node.pos.x = -img_w/2.0f + scr_w/2.0f + scr_w/2.0f;
++      m_node.pos_x = NodePosX(NodePosX::kNodePosXRight);
+     }
+     else if (args[1] == &quot;center&quot;)
+     {
+-      m_path_node.pos.x = scr_w/2;
++      //m_path_node.pos.x = scr_w/2;
++      m_node.pos_x = NodePosX(NodePosX::kNodePosXCenter);
+     }
++    else if (args[1] == &quot;prev&quot;)
++    {
++      // reuse previous value      
++    }
+     else
+     {
+-      float x = boost::lexical_cast&lt;float&gt;(args[1]) * m_path_node.zoom;
+-      m_path_node.pos.x = img_w/2.0f - x + scr_w/2.0f;
++      //float x = boost::lexical_cast&lt;float&gt;(args[1]) * m_path_node.zoom;
++      //m_path_node.pos.x = img_w/2.0f - x + scr_w/2.0f;
++
++      m_node.pos_x = NodePosX(NodePosX::kNodePosXFloat, boost::lexical_cast&lt;float&gt;(args[1]));
+     }
+ 
+     if (args[2] == &quot;top&quot;)
+     {
+-      m_path_node.pos.y = img_h/2.0f - scr_h/2.0f + scr_h/2.0f;
++      //m_path_node.pos.y = img_h/2.0f - scr_h/2.0f + scr_h/2.0f;
++      m_node.pos_y = NodePosY(NodePosY::kNodePosYTop);
+     }
+     else if (args[2] == &quot;bottom&quot;)
+     {
+-      m_path_node.pos.y = -img_h/2.0f + scr_h/2.0f + scr_h/2.0f;
++      //m_path_node.pos.y = -img_h/2.0f + scr_h/2.0f + scr_h/2.0f;
++      m_node.pos_y = NodePosY(NodePosY::kNodePosYBottom);
+     }
+     else if (args[2] == &quot;center&quot;)
+     {
+-      m_path_node.pos.y = scr_h/2;
++      //m_path_node.pos.y = scr_h/2;
++      m_node.pos_y = NodePosY(NodePosY::kNodePosYCenter);
+     }
++    else if (args[2] == &quot;prev&quot;)
++    {
++      // reuse previous value
++    }
+     else
+     {
+-      float y = boost::lexical_cast&lt;float&gt;(args[2]) * m_path_node.zoom;
+-      m_path_node.pos.y = img_h/2.0f - y + scr_h/2.0f;
++      //float y = boost::lexical_cast&lt;float&gt;(args[2]) * m_path_node.zoom;
++      //m_path_node.pos.y = img_h/2.0f - y + scr_h/2.0f;
++      m_node.pos_y = NodePosY(NodePosY::kNodePosYFloat, boost::lexical_cast&lt;float&gt;(args[2]));
+     }
+ 
+-    std::cout &lt;&lt; &quot;  (pos &quot; &lt;&lt; m_path_node.pos.x &lt;&lt; &quot; &quot; &lt;&lt; m_path_node.pos.y &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
++    //std::cout &lt;&lt; &quot;  (pos &quot; &lt;&lt; m_path_node.pos.x &lt;&lt; &quot; &quot; &lt;&lt; m_path_node.pos.y &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
+   }
+ }
+ 
+@@ -352,28 +375,38 @@
+   {
+     if (args[1] == &quot;fit&quot;)
+     {
+-      m_path_node.zoom = std::min(m_screen_size.width / m_image-&gt;get_width(),
+-                                  m_screen_size.height / m_image-&gt;get_height());
++      //m_path_node.zoom = std::min(m_screen_size.width / m_image-&gt;get_width(),
++      //                            m_screen_size.height / m_image-&gt;get_height());
++      m_node.zoom = NodeZoom(NodeZoom::kNodeZoomFit);
+     }
+     else if (args[1] == &quot;fill&quot;)
+     {
+-      m_path_node.zoom = std::max(m_screen_size.width / m_image-&gt;get_width(),
+-                                  m_screen_size.height / m_image-&gt;get_height());
++      //m_path_node.zoom = std::max(m_screen_size.width / m_image-&gt;get_width(),
++      //m_screen_size.height / m_image-&gt;get_height());
++      m_node.zoom = NodeZoom(NodeZoom::kNodeZoomFill);
+     }
+     else if (args[1] == &quot;width&quot;)
+     {
+-      m_path_node.zoom = m_screen_size.width / m_image-&gt;get_width();
++      //m_path_node.zoom = m_screen_size.width / m_image-&gt;get_width();
++      m_node.zoom = NodeZoom(NodeZoom::kNodeZoomWidth);
+     }
+     else if (args[1] == &quot;height&quot;)
+     {
+-      m_path_node.zoom = m_screen_size.height / m_image-&gt;get_height();
++      //m_path_node.zoom = m_screen_size.height / m_image-&gt;get_height();
++      m_node.zoom = NodeZoom(NodeZoom::kNodeZoomHeight);
+     }
+     else if (args[1] == &quot;original&quot;)
+     {
+-      m_path_node.zoom = 1.0f;
++      //m_path_node.zoom = 1.0f;
++      m_node.zoom = NodeZoom(NodeZoom::kNodeZoomOriginal);
+     }
++    else if (args[1] == &quot;prev&quot;)
++    {
++      // reuse previous value      
++    }
+     else
+     {
++      /*
+       m_path_node.zoom = boost::lexical_cast&lt;float&gt;(args[1]);
+       
+       // 1.0f means &quot;fit&quot;, so recalculate values relative to that
+@@ -382,6 +415,8 @@
+       m_path_node.zoom = fit * m_path_node.zoom;
+ 
+       std::cout &lt;&lt; &quot;  (zoom &quot; &lt;&lt; m_path_node.zoom &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
++      */
++      m_node.zoom = NodeZoom(NodeZoom::kNodeZoomFloat, boost::lexical_cast&lt;float&gt;(args[1]));
+     }
+ 
+     m_node_has_zoom = true;
+@@ -413,24 +448,16 @@
+ void
+ SlideBuilder::add_node()
+ {
+-  if (!m_node_has_pos)
+-  {
+-    error(&quot;getting default pos not implemented&quot;);
+-  }
++  Sizef image_size(m_image-&gt;get_width(), m_image-&gt;get_height());
++  float zoom = m_node.zoom.get(m_screen_size, image_size);
++  Sizef image_size_zoom(zoom * m_image-&gt;get_width(), 
++                        zoom * m_image-&gt;get_height());
++  
++  //m_image-&gt;get_path().add_node(m_path_node.pos, m_path_node.zoom);
++  m_image-&gt;get_path().add_node(Vector2f(m_node.pos_x.get(m_screen_size, image_size_zoom, zoom),
++                                        m_node.pos_y.get(m_screen_size, image_size_zoom, zoom)),
++                               zoom);
+ 
+-  if (!m_node_has_zoom)
+-  {
+-    error(&quot;getting default zoom not implemented&quot;);
+-  }
+-
+-  Sizef m_image_size(m_image-&gt;get_width(),
+-                     m_image-&gt;get_height());
+-
+-  m_image-&gt;get_path().add_node(m_path_node.pos, m_path_node.zoom);
+-  //m_image-&gt;get_path().add_node(Vector2f(m_node.pos_x.get(m_screen_size, m_image_size),
+-  //                                     m_node.pos_y.get(m_screen_size, m_image_size)),
+-  //                           m_node.zoom.get(m_screen_size, m_image_size));
+-
+   m_node_has_zoom = false;
+   m_node_has_pos  = false;
+ }
+
+Modified: trunk/windstille/extra/slideshow/slide_builder.hpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slide_builder.hpp	2010-08-30 15:06:35 UTC (rev 3342)
++++ trunk/windstille/extra/slideshow/slide_builder.hpp	2010-08-30 15:46:36 UTC (rev 3343)
+@@ -45,12 +45,12 @@
+     m_value(0.0f)
+   {}
+ 
+-  NodePosX(NodePosXType type, float value) :
++  NodePosX(NodePosXType type, float value = 0.0f) :
+     m_type(type),
+     m_value(value)
+   {}
+ 
+-  float get(const Sizef&amp; screen_size, const Sizef&amp; image_size) const;
++  float get(const Sizef&amp; screen_size, const Sizef&amp; image_size, float zoom) const;
+ 
+ private:
+   NodePosXType m_type;  
+@@ -74,12 +74,12 @@
+     m_value(0.0f)
+   {}
+ 
+-  NodePosY(NodePosYType type, float value) :
++  NodePosY(NodePosYType type, float value = 0.0f) :
+     m_type(type),
+     m_value(value)
+   {}
+ 
+-  float get(const Sizef&amp; screen_size, const Sizef&amp; image_size) const;
++  float get(const Sizef&amp; screen_size, const Sizef&amp; image_size, float zoom) const;
+ 
+ private:
+   NodePosYType m_type;
+@@ -105,7 +105,7 @@
+     m_value(0.0f)
+   {}
+ 
+-  NodeZoom(NodeZoomType type, float value = 0.0f) :
++  NodeZoom(NodeZoomType type, float value = 1.0f) :
+     m_type(type),
+     m_value(value)
+   {}
+@@ -154,7 +154,7 @@
+ 
+   bool m_node_has_pos;
+   bool m_node_has_zoom;
+-  SlidePathNode m_path_node;
++  //SlidePathNode m_path_node;
+   Node m_node;
+ 
+ public:
+
+Modified: trunk/windstille/extra/slideshow/slide_show.cpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slide_show.cpp	2010-08-30 15:06:35 UTC (rev 3342)
++++ trunk/windstille/extra/slideshow/slide_show.cpp	2010-08-30 15:46:36 UTC (rev 3343)
+@@ -22,32 +22,25 @@
+ 
+ SlideShow::SlideShow() :
+   m_objects(),
+-  m_time(0.0f),
+   m_length(0.0f)
+ {
+ }
+ 
+ void
+-SlideShow::update(float delta)
++SlideShow::draw(float time)
+ {
+-  m_time += delta;
+-}
+-
+-void
+-SlideShow::draw()
+-{
+   for(std::vector&lt;SlideObjectPtr&gt;::iterator i = m_objects.begin(); i != m_objects.end(); ++i)
+   {
+     SlideObjectPtr&amp; obj = *i;
+ 
+     //std::cout &lt;&lt; obj.get() &lt;&lt; &quot;: &quot; &lt;&lt; obj-&gt;begin() &lt;&lt; &quot; &quot; &lt;&lt; obj-&gt;length() &lt;&lt; std::endl;
+ 
+-    if (obj-&gt;begin() &lt;= m_time &amp;&amp; m_time &lt; (obj-&gt;begin() + obj-&gt;length()))
++    if (obj-&gt;begin() &lt;= time &amp;&amp; time &lt; (obj-&gt;begin() + obj-&gt;length()))
+     {
+       //std::cout &lt;&lt; &quot;draw&quot; &lt;&lt; std::endl;
+       // active object
+-      float relative_time = m_time - obj-&gt;begin();
+-      //std::cout &lt;&lt; m_time &lt;&lt; &quot; &quot; &lt;&lt; relative_time &lt;&lt; std::endl;
++      float relative_time = time - obj-&gt;begin();
++      //std::cout &lt;&lt; time &lt;&lt; &quot; &quot; &lt;&lt; relative_time &lt;&lt; std::endl;
+       obj-&gt;draw(relative_time);
+     }
+   }
+@@ -61,9 +54,9 @@
+ }
+ 
+ bool
+-SlideShow::done() const
++SlideShow::done(float time) const
+ {
+-  return (m_time &gt;= m_length);
++  return (time &gt;= m_length);
+ }
+ 
+ int
+@@ -76,7 +69,6 @@
+ SlideShow::clear()
+ {
+   m_objects.clear();
+-  //FIXMEm_time = 0.0f;
+   m_length = 0.0f;
+ }
+ 
+
+Modified: trunk/windstille/extra/slideshow/slide_show.hpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slide_show.hpp	2010-08-30 15:06:35 UTC (rev 3342)
++++ trunk/windstille/extra/slideshow/slide_show.hpp	2010-08-30 15:46:36 UTC (rev 3343)
+@@ -27,16 +27,14 @@
+ {
+ private:
+   std::vector&lt;SlideObjectPtr&gt; m_objects;
+-  float m_time;
+   float m_length;
+   
+ public:
+   SlideShow();
+ 
+-  void update(float delta);
+-  void draw();
++  void draw(float time);
+ 
+-  bool done() const;
++  bool done(float time) const;
+ 
+   int size() const;
+ 
+
+Modified: trunk/windstille/extra/slideshow/slideshow.cpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slideshow.cpp	2010-08-30 15:06:35 UTC (rev 3342)
++++ trunk/windstille/extra/slideshow/slideshow.cpp	2010-08-30 15:46:36 UTC (rev 3343)
+@@ -42,7 +42,8 @@
+   m_fullscreen(false),
+   m_files(),
+   m_output_dir(),
+-  m_fps(25.0f)
++  m_fps(25.0f),
++  m_edit_mode(false)
+ {
+ }
+ 
+@@ -73,6 +74,7 @@
+ 
+   argp.add_group(&quot;Options:&quot;);
+   argp.add_option('f', &quot;fullscreen&quot;, &quot;&quot;, &quot;Use fullscreen mode&quot;);
++  argp.add_option('e', &quot;edit&quot;, &quot;&quot;, &quot;Edit mode&quot;);
+   argp.add_option('g', &quot;geometry&quot;, &quot;WxH&quot;, &quot;Use given geometry&quot;);
+   argp.add_option('a', &quot;aspect&quot;, &quot;WxH&quot;, &quot;Use given aspect ratio&quot;);
+   argp.add_option('b', &quot;breakpoint&quot;, &quot;POINT&quot;, &quot;Start at POINT&quot;);
+@@ -90,6 +92,10 @@
+         m_fullscreen = true;
+         break;
+ 
++      case 'e':
++        m_edit_mode = true;
++        break;
++
+       case 'g':
+         if (sscanf(argp.get_argument().c_str(), &quot;%dx%d&quot;, &amp;m_window_size.width, &amp;m_window_size.height) != 2)
+         {
+@@ -162,7 +168,8 @@
+ 
+   int frame_number = 0;
+   Uint32 last_ticks = SDL_GetTicks();
+-  while(loop &amp;&amp; !slide_show.done())
++  float time = 0.0f;
++  while(loop &amp;&amp; !slide_show.done(time))
+   {
+     SDL_Event event;
+     while(SDL_PollEvent(&amp;event))
+@@ -196,20 +203,20 @@
+                 break;
+ 
+               case SDLK_LEFT:
+-                slide_show.update(-1.0f);
++                time -= 1.0f;
+                 break;
+ 
+               case SDLK_RIGHT:
+-                slide_show.update(1.0f);
++                time += 1.0f;
+                 break;
+ 
+ 
+               case SDLK_UP:
+-                slide_show.update(10.0f);
++                time += 10.0f;
+                 break;
+ 
+               case SDLK_DOWN:
+-                slide_show.update(-10.0f);
++                time -= 10.0f;
+                 break;
+ 
+               case SDLK_SPACE:
+@@ -229,13 +236,15 @@
+       Uint32 ticks = SDL_GetTicks();
+ 
+       if (!pause)
+-        slide_show.update(static_cast&lt;float&gt;(ticks - last_ticks) / 1000.0f);
++      {
++        time += static_cast&lt;float&gt;(ticks - last_ticks) / 1000.0f;
++      }
+       last_ticks = ticks;
+ 
+       glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+ 
+-      slide_show.draw();
++      slide_show.draw(time);
+ 
+       SDL_GL_SwapBuffers();
+ 
+@@ -243,13 +252,13 @@
+     }
+     else
+     {
+-      slide_show.update(1.0f/m_fps);
++      time += 1.0f/m_fps;
+ 
+       // rendering to output dir
+       Display::push_framebuffer(framebuffer);
+       glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+-      slide_show.draw();
++      slide_show.draw(time);
+ 
+       char out[1024];
+       sprintf(out, &quot;%s/%08d.jpg&quot;, m_output_dir.c_str(), frame_number);
+@@ -258,6 +267,11 @@
+       frame_number += 1;
+       Display::pop_framebuffer();
+     }
++
++    if (m_edit_mode)
++    {
++      std::cout &lt;&lt; &quot;Time: &quot; &lt;&lt; time &lt;&lt; std::endl;
++    }
+   }
+   return 0;
+ }
+
+Modified: trunk/windstille/extra/slideshow/slideshow.hpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slideshow.hpp	2010-08-30 15:06:35 UTC (rev 3342)
++++ trunk/windstille/extra/slideshow/slideshow.hpp	2010-08-30 15:46:36 UTC (rev 3343)
+@@ -32,6 +32,7 @@
+   std::vector&lt;std::string&gt; m_files;
+   std::string m_output_dir;
+   float m_fps;
++  bool m_edit_mode;
+ 
+ public:
+   App();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002339.html">[Windstille-commit] r3342 - trunk/windstille/extra/slideshow
+</A></li>
+	<LI>Next message: <A HREF="002341.html">[Windstille-commit] r3344 - trunk/windstille/extra/slideshow
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2340">[ date ]</a>
+              <a href="thread.html#2340">[ thread ]</a>
+              <a href="subject.html#2340">[ subject ]</a>
+              <a href="author.html#2340">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

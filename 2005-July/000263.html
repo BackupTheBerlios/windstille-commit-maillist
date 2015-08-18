@@ -1,0 +1,460 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r610 - in trunk/src: . scripting sprite3d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r610%20-%20in%20trunk/src%3A%20.%20scripting%20sprite3d&In-Reply-To=%3C200507131029.j6DATT3m001549%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000262.html">
+   <LINK REL="Next"  HREF="000264.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r610 - in trunk/src: . scripting sprite3d</H1>
+    <B>Matthias Braun at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r610%20-%20in%20trunk/src%3A%20.%20scripting%20sprite3d&In-Reply-To=%3C200507131029.j6DATT3m001549%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r610 - in trunk/src: . scripting sprite3d">matzebraun at berlios.de
+       </A><BR>
+    <I>Wed Jul 13 12:29:29 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000262.html">[Windstille-commit] r609 - in trunk/src: . collision math scripting sprite3d
+</A></li>
+        <LI>Next message: <A HREF="000264.html">[Windstille-commit] r611 - trunk/src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#263">[ date ]</a>
+              <a href="thread.html#263">[ thread ]</a>
+              <a href="subject.html#263">[ subject ]</a>
+              <a href="author.html#263">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: matzebraun
+Date: 2005-07-13 12:29:26 +0200 (Wed, 13 Jul 2005)
+New Revision: 610
+
+Added:
+   trunk/src/scripting/serialize.cpp
+   trunk/src/scripting/serialize.hpp
+Modified:
+   trunk/src/character.cpp
+   trunk/src/door.cpp
+   trunk/src/player.cpp
+   trunk/src/scripting/interface.cpp
+   trunk/src/scripting/interface.hpp
+   trunk/src/scripting/spawn_object.cpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/sprite3d/sprite3d.cpp
+   trunk/src/view.cpp
+Log:
+added proof of concept serialization code for squirrel tables
+
+Modified: trunk/src/character.cpp
+===================================================================
+--- trunk/src/character.cpp	2005-07-13 09:10:43 UTC (rev 609)
++++ trunk/src/character.cpp	2005-07-13 10:29:26 UTC (rev 610)
+@@ -35,6 +35,7 @@
+ Character::Character(const lisp::Lisp* lisp)
+   : already_talked(false)
+ {
++  pos.z = 100;
+   lisp::ListIterator iter(lisp);
+   while(iter.next()) {
+     if(iter.item() == &quot;name&quot;) {
+
+Modified: trunk/src/door.cpp
+===================================================================
+--- trunk/src/door.cpp	2005-07-13 09:10:43 UTC (rev 609)
++++ trunk/src/door.cpp	2005-07-13 10:29:26 UTC (rev 610)
+@@ -25,6 +25,7 @@
+   : highlight(&quot;vrdoor/highlight&quot;, resources),
+     color(&quot;vrdoor/color&quot;, resources)
+ {
++  pos.z = 0;
+   lisp::ListIterator iter(lisp);
+   while(iter.next()) {
+     if(iter.item() == &quot;x&quot;) {
+@@ -42,8 +43,8 @@
+ Door::draw (SceneContext&amp; sc)
+ {
+   sc.color().draw(color, pos.x, pos.y, 1);
+-  sc.color().draw(highlight, pos.x, pos.y, 1);
+-  sc.light().draw(highlight, pos.x, pos.y, 2);
++  sc.color().draw(highlight, pos.x, pos.y, 2);
++  sc.light().draw(highlight, pos.x, pos.y, 1);
+ }
+ 
+ void
+
+Modified: trunk/src/player.cpp
+===================================================================
+--- trunk/src/player.cpp	2005-07-13 09:10:43 UTC (rev 609)
++++ trunk/src/player.cpp	2005-07-13 10:29:26 UTC (rev 610)
+@@ -36,7 +36,7 @@
+ Player* Player::current_ = 0;
+ 
+ Player::Player () :
+-  pos (320, 200),
++  pos (320, 200, 100),
+   velocity (0, 0),
+   light    (&quot;hero/light&quot;, resources),
+   state (STAND)
+@@ -64,8 +64,7 @@
+ void
+ Player::draw (SceneContext&amp; gc)
+ {
+-  gc.light().draw(light, pos.x, pos.y, 0);
+-  
++  gc.light().draw(light, pos.x, pos.y, 100);
+   sprite-&gt;draw(gc, pos);
+ }
+ 
+
+Modified: trunk/src/scripting/interface.cpp
+===================================================================
+--- trunk/src/scripting/interface.cpp	2005-07-13 09:10:43 UTC (rev 609)
++++ trunk/src/scripting/interface.cpp	2005-07-13 10:29:26 UTC (rev 610)
+@@ -5,6 +5,7 @@
+ #include &quot;dialog_manager.hpp&quot;
+ #include &quot;script_manager.hpp&quot;
+ #include &quot;sector.hpp&quot;
++#include &quot;serialize.hpp&quot;
+ 
+ namespace Scripting
+ {
+@@ -81,4 +82,18 @@
+   return script_manager-&gt;run_before(vm);
+ }
+ 
++void load_state(HSQUIRRELVM v, const std::string&amp; filename)
++{
++  sq_pushroottable(v);
++  load_squirrel_table(v, -1, filename);
++  sq_pop(v, 1);
+ }
++
++void save_state(HSQUIRRELVM v, const std::string&amp; filename)
++{
++  sq_pushroottable(v);
++  save_squirrel_table(v, -1, filename);
++  sq_pop(v, 1);
++}
++
++}
+
+Modified: trunk/src/scripting/interface.hpp
+===================================================================
+--- trunk/src/scripting/interface.hpp	2005-07-13 09:10:43 UTC (rev 609)
++++ trunk/src/scripting/interface.hpp	2005-07-13 10:29:26 UTC (rev 610)
+@@ -35,6 +35,10 @@
+ 
+ bool run_before(HSQUIRRELVM vm);
+ 
++// for testing
++void save_state(HSQUIRRELVM v, const std::string&amp; filename);
++void load_state(HSQUIRRELVM v, const std::string&amp; filename);
++
+ //Waits the specified time in seconds.
+ void wait(HSQUIRRELVM vm, float time) __suspend;
+ }
+
+Added: trunk/src/scripting/serialize.cpp
+===================================================================
+--- trunk/src/scripting/serialize.cpp	2005-07-13 09:10:43 UTC (rev 609)
++++ trunk/src/scripting/serialize.cpp	2005-07-13 10:29:26 UTC (rev 610)
+@@ -0,0 +1,128 @@
++#include &quot;serialize.hpp&quot;
++
++#include &lt;memory&gt;
++#include &quot;lisp/lisp.hpp&quot;
++#include &quot;lisp/parser.hpp&quot;
++#include &quot;lisp/list_iterator.hpp&quot;
++#include &quot;lisp/writer.hpp&quot;
++
++void load_squirrel_table(HSQUIRRELVM v, int table_idx, const lisp::Lisp* lisp)
++{
++  using namespace lisp;
++  
++  ListIterator iter(lisp);
++  while(iter.next()) {
++    sq_pushstring(v, iter.item().c_str(), iter.item().size());
++    switch(iter.value().get_type()) {
++      case Lisp::TYPE_CONS:
++        sq_newtable(v);
++        load_squirrel_table(v, sq_gettop(v), iter.lisp());
++        break;
++      case Lisp::TYPE_INTEGER:
++        sq_pushinteger(v, iter.value().get_int());
++        break;
++      case Lisp::TYPE_REAL:
++        sq_pushfloat(v, iter.value().get_float());
++        break;
++      case Lisp::TYPE_STRING:
++        sq_pushstring(v, iter.value().get_string().c_str(), -1);
++        break;
++      case Lisp::TYPE_BOOLEAN:
++        sq_pushbool(v, iter.value().get_bool());
++        break;
++      case Lisp::TYPE_SYMBOL:
++        std::cerr &lt;&lt; &quot;Unexpected symbol in lisp file...&quot;;
++        sq_pushnull(v);
++        break;
++      default:
++        assert(false);
++        break;
++    }
++    printf(&quot;Set: %s.\n&quot;, iter.item().c_str());
++    if(table_idx &lt; 0) {
++      sq_createslot(v, table_idx - 2);
++    } else {
++      sq_createslot(v, table_idx);
++    }
++  }
++}
++
++void load_squirrel_table(HSQUIRRELVM v, int table_idx, const std::string&amp; file)
++{
++  using namespace lisp;
++  std::auto_ptr&lt;Lisp&gt; root (Parser::parse(file));
++
++  const lisp::Lisp* table = root-&gt;get_lisp(&quot;squirrel-state&quot;);
++  if(!table)
++    throw std::runtime_error(&quot;Not a squirrel-state file&quot;);
++  load_squirrel_table(v, table_idx, table);
++}
++
++void save_squirrel_table(HSQUIRRELVM v, int table_idx, lisp::Writer&amp; writer)
++{
++  // offset because of sq_pushnull
++  if(table_idx &lt; 0)
++    table_idx--;
++  
++  //iterator table
++  sq_pushnull(v);
++  while(SQ_SUCCEEDED(sq_next(v, table_idx))) {
++    if(sq_gettype(v, -2) != OT_STRING) {
++      std::cerr &lt;&lt; &quot;Table contains non-string key\n&quot;;
++      continue;
++    }
++    const char* key;
++    sq_getstring(v, -2, &amp;key);
++
++    switch(sq_gettype(v, -1)) {
++      case OT_INTEGER: {
++        int val;
++        sq_getinteger(v, -1, &amp;val);
++        writer.write_int(key, val);
++        break;
++      }
++      case OT_FLOAT: {
++        float val;
++        sq_getfloat(v, -1, &amp;val);
++        writer.write_float(key, val);
++        break;
++      }
++      case OT_BOOL: {
++        SQBool val;
++        sq_getbool(v, -1, &amp;val);
++        writer.write_bool(key, val);
++        break;
++      }
++      case OT_STRING: {
++        const char* str;
++        sq_getstring(v, -1, &amp;str);
++        writer.write_string(key, str);
++        break;
++      }
++      case OT_TABLE: {
++        writer.start_list(key);
++        save_squirrel_table(v, -1, writer);
++        writer.end_list(key);
++        break;
++      }
++      case OT_CLOSURE:
++        break; // ignore
++      case OT_NATIVECLOSURE:
++        break;
++      default:
++        std::cerr &lt;&lt; &quot;Can't serialize key '&quot; &lt;&lt; key &lt;&lt; &quot;' in table.\n&quot;;
++        break;
++    }
++    sq_pop(v, 2);
++  }
++  sq_pop(v, 1);
++}
++
++void save_squirrel_table(HSQUIRRELVM v, int table_idx, const std::string&amp; file)
++{
++  lisp::Writer writer(file);
++
++  writer.start_list(&quot;squirrel-state&quot;);
++  save_squirrel_table(v, table_idx, writer);
++  writer.end_list(&quot;squirrel-state&quot;);
++}
+
+Added: trunk/src/scripting/serialize.hpp
+===================================================================
+--- trunk/src/scripting/serialize.hpp	2005-07-13 09:10:43 UTC (rev 609)
++++ trunk/src/scripting/serialize.hpp	2005-07-13 10:29:26 UTC (rev 610)
+@@ -0,0 +1,12 @@
++#ifndef __SERIALIZE_HPP__
++#define __SERIALIZE_HPP__
++
++#include &lt;squirrel.h&gt;
++#include &lt;string&gt;
++
++void save_squirrel_table(HSQUIRRELVM v, int table_idx, const std::string&amp; file);
++void load_squirrel_table(HSQUIRRELVM v, int table_idx, const std::string&amp; file);
++
++#endif
++
++
+
+Modified: trunk/src/scripting/spawn_object.cpp
+===================================================================
+--- trunk/src/scripting/spawn_object.cpp	2005-07-13 09:10:43 UTC (rev 609)
++++ trunk/src/scripting/spawn_object.cpp	2005-07-13 10:29:26 UTC (rev 610)
+@@ -50,11 +50,18 @@
+         val = new Lisp(Lisp::TYPE_REAL);
+         sq_getfloat(v, -1, &amp;val-&gt;v.real);
+         break;
+-      case OT_STRING:
++      case OT_STRING: {
+         const char* str;
+         sq_getstring(v, -1, &amp;str);
+         val = new Lisp(Lisp::TYPE_STRING, str);
+         break;
++      }
++      case OT_BOOL: {
++        SQBool boolean;
++        sq_getbool(v, -1, &amp;boolean);
++        val = new Lisp(Lisp::TYPE_BOOLEAN);
++        val-&gt;v.boolean = boolean;
++      }
+       case OT_TABLE:
+         val = table_to_lisp(v, -1);
+         break;
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2005-07-13 09:10:43 UTC (rev 609)
++++ trunk/src/scripting/wrapper.cpp	2005-07-13 10:29:26 UTC (rev 610)
+@@ -359,6 +359,28 @@
+   return 1;
+ }
+ 
++static int save_state_wrapper(HSQUIRRELVM v)
++{
++  HSQUIRRELVM arg0 = v;
++  const char* arg1;
++  sq_getstring(v, 2, &amp;arg1);
++  
++  Scripting::save_state(arg0, arg1);
++  
++  return 0;
++}
++
++static int load_state_wrapper(HSQUIRRELVM v)
++{
++  HSQUIRRELVM arg0 = v;
++  const char* arg1;
++  sq_getstring(v, 2, &amp;arg1);
++  
++  Scripting::load_state(arg0, arg1);
++  
++  return 0;
++}
++
+ static int wait_wrapper(HSQUIRRELVM v)
+ {
+   HSQUIRRELVM arg0 = v;
+@@ -522,6 +544,22 @@
+     throw SquirrelError(v, msg.str());
+   }
+ 
++  sq_pushstring(v, &quot;save_state&quot;, -1);
++  sq_newclosure(v, &amp;save_state_wrapper, 0);
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'save_state'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  sq_pushstring(v, &quot;load_state&quot;, -1);
++  sq_newclosure(v, &amp;load_state_wrapper, 0);
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'load_state'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
+   sq_pushstring(v, &quot;wait&quot;, -1);
+   sq_newclosure(v, &amp;wait_wrapper, 0);
+   if(sq_createslot(v, -3) &lt; 0) {
+
+Modified: trunk/src/sprite3d/sprite3d.cpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d.cpp	2005-07-13 09:10:43 UTC (rev 609)
++++ trunk/src/sprite3d/sprite3d.cpp	2005-07-13 10:29:26 UTC (rev 610)
+@@ -323,7 +323,7 @@
+ 
+   glPushMatrix();
+   glMultMatrixd(modelview);
+-  glTranslatef(pos.x, pos.y, pos.z);
++  glTranslatef(pos.x, pos.y, 0);
+   if(frame1.rot) {
+     glRotatef(180, 0, 1.0, 0);
+   }                           
+
+Modified: trunk/src/view.cpp
+===================================================================
+--- trunk/src/view.cpp	2005-07-13 09:10:43 UTC (rev 609)
++++ trunk/src/view.cpp	2005-07-13 10:29:26 UTC (rev 610)
+@@ -34,16 +34,6 @@
+ View::draw (SceneContext&amp; sc)
+ {
+   state.set_pos(camera.get_pos());
+-
+-#if 0
+-  static float zoom = 1.0f;
+-
+-  if (CL_Keyboard::get_keycode(CL_KEY_A))
+-    zoom *= 1.01f/1.0f;
+-  if (CL_Keyboard::get_keycode(CL_KEY_O))
+-    zoom *= 1.0f/1.01f;
+-#endif
+-  
+   state.set_zoom(zoom);
+   state.set_pos(state.get_pos() + CL_Pointf(transform.x, transform.y));
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000262.html">[Windstille-commit] r609 - in trunk/src: . collision math scripting sprite3d
+</A></li>
+	<LI>Next message: <A HREF="000264.html">[Windstille-commit] r611 - trunk/src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#263">[ date ]</a>
+              <a href="thread.html#263">[ thread ]</a>
+              <a href="subject.html#263">[ subject ]</a>
+              <a href="author.html#263">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

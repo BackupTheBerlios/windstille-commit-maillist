@@ -1,0 +1,845 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1532 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1532%20-%20trunk/griv&In-Reply-To=%3C200711130931.lAD9VbAH027099%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001181.html">
+   <LINK REL="Next"  HREF="001183.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1532 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1532%20-%20trunk/griv&In-Reply-To=%3C200711130931.lAD9VbAH027099%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1532 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Nov 13 10:31:37 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001181.html">[Windstille-commit] r1531 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001183.html">[Windstille-commit] r1533 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1182">[ date ]</a>
+              <a href="thread.html#1182">[ thread ]</a>
+              <a href="subject.html#1182">[ subject ]</a>
+              <a href="author.html#1182">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-13 10:31:36 +0100 (Tue, 13 Nov 2007)
+New Revision: 1532
+
+Added:
+   trunk/griv/display.cpp
+   trunk/griv/display.hpp
+Modified:
+   trunk/griv/
+   trunk/griv/SConstruct
+   trunk/griv/filesystem.cpp
+   trunk/griv/filesystem.hpp
+   trunk/griv/griv.cpp
+   trunk/griv/griv.hpp
+   trunk/griv/image.hpp
+   trunk/griv/loader.cpp
+   trunk/griv/thumbnail.py
+   trunk/griv/workspace.hpp
+Log:
+- some more source code splitting
+
+
+Property changes on: trunk/griv
+___________________________________________________________________
+Name: svn:ignore
+   + griv
+.sconsign.dblite
+
+
+Modified: trunk/griv/SConstruct
+===================================================================
+--- trunk/griv/SConstruct	2007-11-12 22:54:14 UTC (rev 1531)
++++ trunk/griv/SConstruct	2007-11-13 09:31:36 UTC (rev 1532)
+@@ -3,6 +3,6 @@
+ env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O0&quot;, &quot;-g&quot;], LIBS=['SDL_image'])
+ env.ParseConfig(&quot;sdl-config --libs --cflags&quot;)
+ 
+-env.Program('griv', ['griv.cpp', 'loader.cpp', 'image.cpp', 'filesystem.cpp'])
++env.Program('griv', ['griv.cpp', 'loader.cpp', 'image.cpp', 'filesystem.cpp', 'display.cpp'])
+ 
+ # EOF #
+
+Added: trunk/griv/display.cpp
+===================================================================
+--- trunk/griv/display.cpp	2007-11-12 22:54:14 UTC (rev 1531)
++++ trunk/griv/display.cpp	2007-11-13 09:31:36 UTC (rev 1532)
+@@ -0,0 +1,86 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &lt;iostream&gt;
++#include &quot;display.hpp&quot;
++
++SDL_Surface* Display::screen = 0;
++Uint32 Display::flags = 0;
++
++void
++Display::init()
++{
++  if (SDL_Init(SDL_INIT_VIDEO) != 0)
++    {
++      std::cout &lt;&lt; &quot;Unable to initialize SDL: &quot; &lt;&lt; SDL_GetError() &lt;&lt; std::endl;
++      exit(1);
++    }
++  atexit(SDL_Quit); 
++ 
++  flags = SDL_RESIZABLE;
++  screen = SDL_SetVideoMode(1024, 768, 0, flags);
++    
++  if (screen == NULL) 
++    {
++      std::cout &lt;&lt; &quot;Unable to set video mode: &quot; &lt;&lt; SDL_GetError() &lt;&lt; std::endl;
++      exit(1);
++    }
++
++  SDL_WM_SetCaption(&quot;Griv 0.0.1&quot;, 0 /* icon */);
++
++  SDL_EnableUNICODE(1);
++}
++
++void
++Display::toggle_fullscreen()
++{
++  if (flags &amp; SDL_FULLSCREEN)
++    flags = SDL_RESIZABLE;
++  else
++    flags |= SDL_FULLSCREEN;
++ 
++  // Should use desktop resolution for this instead, but how?
++  screen = SDL_SetVideoMode(1152, 864, 0, flags); 
++}
++
++void
++Display::resize(int w, int h)
++{
++  screen = SDL_SetVideoMode(w, h, 0, SDL_RESIZABLE);
++}
++
++void
++Display::flip()
++{
++  SDL_Flip(screen);  
++}
++
++void
++Display::clear()
++{
++  SDL_FillRect(Display::get_screen(), NULL, SDL_MapRGB(Display::get_screen()-&gt;format, 0, 0, 0));
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/display.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/display.hpp
+===================================================================
+--- trunk/griv/display.hpp	2007-11-12 22:54:14 UTC (rev 1531)
++++ trunk/griv/display.hpp	2007-11-13 09:31:36 UTC (rev 1532)
+@@ -0,0 +1,57 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_DISPLAY_HPP
++#define HEADER_DISPLAY_HPP
++
++#include &quot;SDL.h&quot;
++
++/** */
++class Display
++{
++private:
++  static SDL_Surface* screen;
++  static Uint32 flags;
++
++public:
++  static void init();
++  static void deinit();
++
++  static void toggle_fullscreen();
++
++  static int get_width()  { return screen-&gt;w; }
++  static int get_height() { return screen-&gt;h; }
++  static SDL_Surface* get_screen() { return screen; }
++  static void resize(int w, int h);
++  static void flip();
++  static void clear();
++private:
++  Display (const Display&amp;);
++  Display&amp; operator= (const Display&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/display.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/griv/filesystem.cpp
+===================================================================
+--- trunk/griv/filesystem.cpp	2007-11-12 22:54:14 UTC (rev 1531)
++++ trunk/griv/filesystem.cpp	2007-11-13 09:31:36 UTC (rev 1532)
+@@ -33,7 +33,10 @@
+ 
+ #include &quot;filesystem.hpp&quot;
+ 
+-bool is_directory(const std::string&amp; pathname)
++std::string Filesystem::home_directory;
++
++bool
++Filesystem::is_directory(const std::string&amp; pathname)
+ {
+   struct stat buf;
+   stat(pathname.c_str(), &amp;buf);
+@@ -41,7 +44,7 @@
+ }
+ 
+ std::vector&lt;std::string&gt;
+-open_directory(const std::string&amp; pathname)
++Filesystem::open_directory(const std::string&amp; pathname)
+ {
+   std::vector&lt;std::string&gt; dir_list;
+ 
+@@ -69,11 +72,12 @@
+   return dir_list;
+ }
+ 
+-std::string getxattr(const std::string&amp; pathname)
++std::string
++Filesystem::getxattr(const std::string&amp; pathname)
+ {
+   char buf[2048];
+   int len;
+-  if ((len = getxattr (pathname.c_str(), &quot;user.griv.md5&quot;, buf, 2048)) &lt; 0)
++  if ((len = ::getxattr(pathname.c_str(), &quot;user.griv.md5&quot;, buf, 2048)) &lt; 0)
+     {
+       if (errno == ENOATTR)
+         return &quot;&quot;;
+@@ -84,4 +88,23 @@
+   return std::string(buf, len);
+ }
+ 
++void
++Filesystem::init()
++{
++  char* home;
++  if ((home = getenv(&quot;HOME&quot;)))
++    {
++      home_directory = home;
++    }
++  else
++    {
++      throw std::runtime_error(&quot;Couldn't get HOME environment variable&quot;);
++    }
++}
++
++void
++Filesystem::deinit()
++{
++}
++
+ /* EOF */
+
+Modified: trunk/griv/filesystem.hpp
+===================================================================
+--- trunk/griv/filesystem.hpp	2007-11-12 22:54:14 UTC (rev 1531)
++++ trunk/griv/filesystem.hpp	2007-11-13 09:31:36 UTC (rev 1532)
+@@ -29,10 +29,20 @@
+ #include &lt;string&gt;
+ #include &lt;vector&gt;
+ 
+-bool is_directory(const std::string&amp; pathname);
+-std::vector&lt;std::string&gt; open_directory(const std::string&amp; pathname);
+-std::string getxattr(const std::string&amp; pathname);
++class Filesystem
++{
++private:
++  static std::string home_directory;
+ 
++public:
++  static bool is_directory(const std::string&amp; pathname);
++  static std::vector&lt;std::string&gt; open_directory(const std::string&amp; pathname);
++  static std::string getxattr(const std::string&amp; pathname);
++  static std::string get_home() { return home_directory; }
++  static void init();
++  static void deinit();
++};
++
+ #endif
+ 
+ /* EOF */
+
+Modified: trunk/griv/griv.cpp
+===================================================================
+--- trunk/griv/griv.cpp	2007-11-12 22:54:14 UTC (rev 1531)
++++ trunk/griv/griv.cpp	2007-11-13 09:31:36 UTC (rev 1532)
+@@ -7,170 +7,145 @@
+ #include &quot;SDL.h&quot;
+ #include &quot;SDL_image.h&quot;
+ 
++#include &quot;display.hpp&quot;
+ #include &quot;workspace.hpp&quot;
+ #include &quot;loader.hpp&quot;
+ #include &quot;image.hpp&quot;
+ 
+-SDL_Surface* screen = 0;
+ int x_offset = 0;
+ int y_offset = 0;
+ std::string config_home;
+ bool force_redraw = true;
+ 
+-int main(int argc, char** argv)
++Griv::Griv()
+ {
+-  char* home;
+-  if ((home = getenv(&quot;HOME&quot;)))
+-    {
+-      config_home = home;
+-    }
+-  else
+-    {
+-      std::cout &lt;&lt; &quot;Couldn't get HOME environment variable&quot; &lt;&lt; std::endl;
+-      return 0;
+-    }
++}
+ 
+-  if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK) != 0) {
+-    std::cout &lt;&lt; &quot;Unable to initialize SDL: &quot; &lt;&lt; SDL_GetError() &lt;&lt; std::endl;
+-    exit(1);
+-  }
+-  atexit(SDL_Quit); 
+-  
+-  Uint32 flags = 0;
+-  
+-  if (0)
+-    {
+-      //flags |= SDL_FULLSCREEN;
+-      screen = SDL_SetVideoMode(1152, 864, 0, flags);
+-    }
+-  else
+-    {
+-      flags |= SDL_RESIZABLE;
+-      screen = SDL_SetVideoMode(800, 600, 0, flags);
+-    }
+-    
+-  if (screen == NULL) 
+-    {
+-      std::cout &lt;&lt; &quot;Unable to set video mode: &quot; &lt;&lt; SDL_GetError() &lt;&lt; std::endl;
+-      exit(1);
+-    }
++Griv::~Griv()
++{
++}
+ 
+-  SDL_WM_SetCaption(&quot;Griv 0.0.1&quot;, 0 /* icon */);
+-
+-  SDL_EnableUNICODE(1);
+-
+-  Image::init();
+-
+-  Workspace workspace;
+-
+-  for(int i = 1; i &lt; argc; ++i)
++void
++Griv::process_events()
++{
++  SDL_Event event;
++  while (SDL_PollEvent(&amp;event))
+     {
+-      workspace.add(argv[i]);
+-    }
+-
+-  bool drag_n_drop = false;
+-  int old_res = -1;
+-  int old_x_offset = -1;
+-  int old_y_offset = -1;
+-  Uint32 next_redraw = 0;
+-  loader.launch_thread();
+-  while(true)
+-    {
+-      SDL_Event event;
+-      while (SDL_PollEvent(&amp;event))
++      switch(event.type)
+         {
+-          switch(event.type)
+-            {
+-              case SDL_QUIT: // FIXME: make this into a GameEvent
+-                exit(1);
+-                break;
++          case SDL_QUIT: // FIXME: make this into a GameEvent
++            exit(1);
++            break;
+ 
+-              case SDL_VIDEORESIZE:
+-                screen = SDL_SetVideoMode(event.resize.w, event.resize.h, 0, SDL_RESIZABLE);
++          case SDL_VIDEORESIZE:
++            Display::resize(event.resize.w, event.resize.h);
++            force_redraw = true;
++            break;
++
++          case SDL_KEYDOWN:
++            if (event.key.keysym.sym == SDLK_ESCAPE)
++              {
++                exit(1);
++              }
++            else if (event.key.keysym.sym == SDLK_RETURN)
++              {
++                loader.process_job();
++              }
++            else if (event.key.keysym.sym == SDLK_F11)
++              {
++                Display::toggle_fullscreen();
+                 force_redraw = true;
+-                break;
++              }
++            else if (event.key.keysym.sym == SDLK_SPACE)
++              {
++                x_offset = 0;
++                y_offset = 0;
++              }
++            else if (event.key.keysym.sym == SDLK_b)
++              {
++                std::cout &lt;&lt; x_offset &lt;&lt; &quot;, &quot; &lt;&lt; y_offset &lt;&lt; std::endl;
++              }
++            break;
+ 
+-              case SDL_KEYDOWN:
+-                if (event.key.keysym.sym == SDLK_ESCAPE)
+-                  {
+-                    exit(1);
+-                  }
+-                else if (event.key.keysym.sym == SDLK_RETURN)
+-                  {
+-                    loader.process_job();
+-                  }
+-                else if (event.key.keysym.sym == SDLK_F11)
+-                  {
+-                    if (flags &amp; SDL_FULLSCREEN)
+-                      flags = 0;
+-                    else
+-                      flags |= SDL_FULLSCREEN;
+-                    
+-                    screen = SDL_SetVideoMode(1152, 864, 0, flags);
+-                    force_redraw = true;
+-                  }
+-                else if (event.key.keysym.sym == SDLK_SPACE)
+-                  {
+-                    x_offset = 0;
+-                    y_offset = 0;
+-                  }
+-                else if (event.key.keysym.sym == SDLK_b)
+-                  {
+-                    std::cout &lt;&lt; x_offset &lt;&lt; &quot;, &quot; &lt;&lt; y_offset &lt;&lt; std::endl;
+-                  }
+-                break;
+ 
++          case SDL_MOUSEMOTION:
++            if (drag_n_drop)
++              {
++                x_offset += event.motion.xrel*4;
++                y_offset += event.motion.yrel*4;
++              }
++            break;
+ 
+-              case SDL_MOUSEMOTION:
+-                if (drag_n_drop)
+-                  {
+-                    x_offset += event.motion.xrel*4;
+-                    y_offset += event.motion.yrel*4;
+-                  }
+-                break;
+-
+-              case SDL_MOUSEBUTTONDOWN:
+-              case SDL_MOUSEBUTTONUP:
++          case SDL_MOUSEBUTTONDOWN:
++          case SDL_MOUSEBUTTONUP:
+                 
+-                if (event.button.button == 3 ||
+-                    event.button.button == 5)
++            if (event.button.button == 3 ||
++                event.button.button == 5)
++              {
++                if (event.button.state == SDL_PRESSED)
+                   {
+-                    if (event.button.state == SDL_PRESSED)
+-                      {
+-                        //std::cout &lt;&lt; &quot;zoom out&quot; &lt;&lt; std::endl;
+-                        workspace.zoom_out();
+-                        loader.clear();
+-                      }
++                    //std::cout &lt;&lt; &quot;zoom out&quot; &lt;&lt; std::endl;
++                    workspace-&gt;zoom_out();
++                    loader.clear();
+                   }
+-                else if (event.button.button == 1 ||
+-                         event.button.button == 4)
++              }
++            else if (event.button.button == 1 ||
++                     event.button.button == 4)
++              {
++                if (event.button.state == SDL_PRESSED)
+                   {
+-                    if (event.button.state == SDL_PRESSED)
+-                      {
+-                        //std::cout &lt;&lt; &quot;zoom in&quot; &lt;&lt; std::endl;
+-                        workspace.zoom_in();
+-                        loader.clear();
+-                      }
++                    //std::cout &lt;&lt; &quot;zoom in&quot; &lt;&lt; std::endl;
++                    workspace-&gt;zoom_in();
++                    loader.clear();
+                   }
+-                else if (event.button.button == 2)
+-                  {
+-                    drag_n_drop = event.button.state;
+-                  }
+-                break;
+-            }
++              }
++            else if (event.button.button == 2)
++              {
++                drag_n_drop = event.button.state;
++              }
++            break;
+         }
++    } 
++}
+ 
+-      if (workspace.res != old_res ||
++int
++Griv::main(int argc, char** argv)
++{
++  Filesystem::init();
++  Display::init();
++  Image::init();
++
++  workspace = new Workspace();
++
++  for(int i = 1; i &lt; argc; ++i)
++    {
++      workspace-&gt;add(argv[i]);
++    }
++
++  drag_n_drop = false;
++  old_res = -1;
++  old_x_offset = -1;
++  old_y_offset = -1;
++  next_redraw = 0;
++
++  loader.launch_thread();
++
++  while(true)
++    {
++      process_events();
++
++      if (workspace-&gt;res != old_res ||
+           old_x_offset != x_offset ||
+           old_y_offset != y_offset ||
+           (force_redraw &amp;&amp; (next_redraw &lt; SDL_GetTicks() || loader.empty())))
+         {
+           force_redraw = false;
+-          SDL_FillRect(screen, NULL, SDL_MapRGB(screen-&gt;format, 0, 0, 0));
+-          workspace.draw();
+-          SDL_Flip(screen);
+ 
+-          old_res = workspace.res;
++          Display::clear();
++          workspace-&gt;draw();
++          Display::flip();
++
++          old_res = workspace-&gt;res;
+           old_x_offset = x_offset;
+           old_y_offset = y_offset;
+           next_redraw = SDL_GetTicks() + 500;
+@@ -181,7 +156,19 @@
+         }
+     }
+ 
++  delete workspace;
++
++  Image::deinit();
++  Display::deinit();
++  Filesystem::deinit();
++
+   return 0;
+ }
+ 
++int main(int argc, char** argv)
++{
++  Griv griv;
++  return griv.main(argc, argv);
++}
++
+ /* EOF */
+
+Modified: trunk/griv/griv.hpp
+===================================================================
+--- trunk/griv/griv.hpp	2007-11-12 22:54:14 UTC (rev 1531)
++++ trunk/griv/griv.hpp	2007-11-13 09:31:36 UTC (rev 1532)
+@@ -31,10 +31,28 @@
+ 
+ extern int x_offset;
+ extern int y_offset;
+-extern SDL_Surface* screen;
+-extern std::string config_home;
+ extern bool force_redraw;
+ 
++class Workspace;
++
++class Griv
++{
++private:
++  bool drag_n_drop;
++  int old_res;
++  int old_x_offset;
++  int old_y_offset;
++  Uint32 next_redraw;
++  Workspace* workspace;
++
++public:
++  Griv();
++  ~Griv();
++  
++  void process_events();
++  int main(int argc, char** argv);
++};
++
+ #endif
+ 
+ /* EOF */
+
+Modified: trunk/griv/image.hpp
+===================================================================
+--- trunk/griv/image.hpp	2007-11-12 22:54:14 UTC (rev 1531)
++++ trunk/griv/image.hpp	2007-11-13 09:31:36 UTC (rev 1532)
+@@ -27,6 +27,7 @@
+ #define HEADER_IMAGE_HPP
+ 
+ #include &lt;sstream&gt;
++#include &quot;display.hpp&quot;
+ #include &quot;loader.hpp&quot;
+ #include &quot;griv.hpp&quot;
+ 
+@@ -42,6 +43,7 @@
+   static SDL_Surface* loading_1024;
+ 
+   static void init();
++  static void deinit() {}
+ 
+   static SDL_Surface* placeholder(int res)
+   {
+@@ -109,8 +111,8 @@
+   void draw(int x, int y, int res)
+   {
+     SDL_LockMutex(mutex);
+-    if (x &gt; screen-&gt;w ||
+-        y &gt; screen-&gt;h ||
++    if (x &gt; Display::get_width() ||
++        y &gt; Display::get_height() ||
+         x &lt; -res || 
+         y &lt; -res)
+       { // Image out of screen
+@@ -136,9 +138,9 @@
+         dstrect.x = x;
+         dstrect.y = y;
+         if (surface)
+-          SDL_BlitSurface(surface, NULL, screen, &amp;dstrect);
++          SDL_BlitSurface(surface, NULL, Display::get_screen(), &amp;dstrect);
+         else if (image_requested)
+-          SDL_BlitSurface(placeholder(res), NULL, screen, &amp;dstrect);        
++          SDL_BlitSurface(placeholder(res), NULL, Display::get_screen(), &amp;dstrect);        
+       }
+     SDL_UnlockMutex(mutex);
+   }
+
+Modified: trunk/griv/loader.cpp
+===================================================================
+--- trunk/griv/loader.cpp	2007-11-12 22:54:14 UTC (rev 1531)
++++ trunk/griv/loader.cpp	2007-11-13 09:31:36 UTC (rev 1532)
+@@ -24,6 +24,7 @@
+ */
+ 
+ #include &lt;iostream&gt;
++#include &quot;filesystem.hpp&quot;
+ #include &quot;SDL_image.h&quot;
+ #include &quot;image.hpp&quot;
+ #include &quot;loader.hpp&quot;
+@@ -64,7 +65,7 @@
+ Loader::request(const std::string&amp; uid, int res, Image* receiver)
+ {
+   std::ostringstream out;
+-  out &lt;&lt; config_home &lt;&lt; &quot;/.griv/&quot; &lt;&lt; res &lt;&lt; &quot;/&quot; &lt;&lt; uid &lt;&lt; &quot;.jpg&quot;;
++  out &lt;&lt; Filesystem::get_home() &lt;&lt; &quot;/.griv/&quot; &lt;&lt; res &lt;&lt; &quot;/&quot; &lt;&lt; uid &lt;&lt; &quot;.jpg&quot;;
+ 
+   SDL_LockMutex(mutex);
+   jobs.push_back(Job(out.str(), receiver));
+
+Modified: trunk/griv/thumbnail.py
+===================================================================
+--- trunk/griv/thumbnail.py	2007-11-12 22:54:14 UTC (rev 1531)
++++ trunk/griv/thumbnail.py	2007-11-13 09:31:36 UTC (rev 1532)
+@@ -45,7 +45,7 @@
+         mtime = os.stat(filename)[ST_MTIME]
+         xattr.setxattr(filename, &quot;user.griv.md5&quot;, md5)
+         xattr.setxattr(filename, &quot;user.griv.mtime&quot;, &quot;%d&quot; % mtime)
+-        xattr.setxattr(filename, &quot;user.griv.filter&quot;, &quot;repeated-antialias&quot;)
++        xattr.setxattr(filename, &quot;user.griv.filter&quot;, &quot;repeated-bicibic&quot;)
+         
+     return md5
+ 
+@@ -60,7 +60,7 @@
+                 else:
+                     size = (res * img.size[0] / img.size[1], res)
+ 
+-                img = img.resize(size, Image.ANTIALIAS) # BICUBIC) #
++                img = img.resize(size, Image.BICUBIC) #
+                 img.save(filename, &quot;JPEG&quot;, quality = 75)
+ 
+                 print &quot;%s %4d %s =&gt; %s&quot; % (guid, res, orig_filename, filename)
+
+Modified: trunk/griv/workspace.hpp
+===================================================================
+--- trunk/griv/workspace.hpp	2007-11-12 22:54:14 UTC (rev 1531)
++++ trunk/griv/workspace.hpp	2007-11-13 09:31:36 UTC (rev 1532)
+@@ -57,8 +57,8 @@
+     int w = int(sqrt(4 * images.size() / 3));
+     for(int i = 0; i &lt; int(images.size()); ++i)
+       {
+-        images[i]-&gt;draw((i % w) * res + x_offset + screen-&gt;w/2,
+-                        (i / w) * res + y_offset + screen-&gt;h/2,
++        images[i]-&gt;draw((i % w) * res + x_offset + Display::get_width()/2,
++                        (i / w) * res + y_offset + Display::get_height()/2,
+                         res);
+       }
+   }
+@@ -66,10 +66,10 @@
+   void add(const std::string&amp; filename)
+   {
+     // if directory, do recursion
+-    if (is_directory(filename))
++    if (Filesystem::is_directory(filename))
+       {
+         std::cout &lt;&lt; '.' &lt;&lt; std::flush;
+-        std::vector&lt;std::string&gt; dir_list = open_directory(filename);
++        std::vector&lt;std::string&gt; dir_list = Filesystem::open_directory(filename);
+         for(std::vector&lt;std::string&gt;::iterator i = dir_list.begin(); i != dir_list.end(); ++i)
+           {
+             add(*i);
+@@ -79,7 +79,7 @@
+              has_suffix(filename, &quot;.JPG&quot;)
+              )
+       {
+-        std::string md5 = getxattr(filename);
++        std::string md5 = Filesystem::getxattr(filename);
+         if (!md5.empty())
+           {
+             images.push_back(new Image(md5));
+@@ -94,8 +94,8 @@
+   void zoom_in()
+   {
+     res *= 2;
+-    if (res &gt; 1024)
+-      res = 1024;
++    if (res &gt; 2048)
++      res = 2048;
+     else
+       { //300,200 ~ 212, 134 ~ 64, 0
+         x_offset *= 2;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001181.html">[Windstille-commit] r1531 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001183.html">[Windstille-commit] r1533 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1182">[ date ]</a>
+              <a href="thread.html#1182">[ thread ]</a>
+              <a href="subject.html#1182">[ subject ]</a>
+              <a href="author.html#1182">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

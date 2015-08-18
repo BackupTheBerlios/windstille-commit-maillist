@@ -1,0 +1,657 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3195 - in trunk/windstille/src: editor	scenegraph
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3195%20-%20in%20trunk/windstille/src%3A%20editor%0A%09scenegraph&In-Reply-To=%3C200909041259.n84Cx8GR006978%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002191.html">
+   <LINK REL="Next"  HREF="002193.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3195 - in trunk/windstille/src: editor	scenegraph</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3195%20-%20in%20trunk/windstille/src%3A%20editor%0A%09scenegraph&In-Reply-To=%3C200909041259.n84Cx8GR006978%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3195 - in trunk/windstille/src: editor	scenegraph">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Sep  4 14:59:08 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002191.html">[Windstille-commit] r3194 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="002193.html">[Windstille-commit] r3196 - in trunk/windstille/src: editor	scenegraph
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2192">[ date ]</a>
+              <a href="thread.html#2192">[ thread ]</a>
+              <a href="subject.html#2192">[ subject ]</a>
+              <a href="author.html#2192">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-04 14:59:05 +0200 (Fri, 04 Sep 2009)
+New Revision: 3195
+
+Modified:
+   trunk/windstille/src/editor/decal_object_model.cpp
+   trunk/windstille/src/editor/decal_object_model.hpp
+   trunk/windstille/src/editor/layer.cpp
+   trunk/windstille/src/editor/layer.hpp
+   trunk/windstille/src/editor/object_model.hpp
+   trunk/windstille/src/editor/object_model_factory.hpp
+   trunk/windstille/src/editor/particle_system_object_model.hpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sprite_object_model.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/scenegraph/scene_graph.cpp
+   trunk/windstille/src/scenegraph/surface_quad_drawable.hpp
+Log:
+Use SceneGraph in the editor, breaks some stuff
+
+Modified: trunk/windstille/src/editor/decal_object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/decal_object_model.cpp	2009-09-03 19:45:58 UTC (rev 3194)
++++ trunk/windstille/src/editor/decal_object_model.cpp	2009-09-04 12:59:05 UTC (rev 3195)
+@@ -22,9 +22,13 @@
+ #include &quot;display/surface.hpp&quot;
+ #include &quot;display/drawing_parameters.hpp&quot;
+ #include &quot;display/surface_drawing_parameters.hpp&quot;
++#include &quot;display/surface_drawing_parameters.hpp&quot;
+ #include &quot;display/scene_context.hpp&quot;
+ #include &quot;editor/decal_scale_control_point.hpp&quot;
+ #include &quot;editor/decal_rotate_control_point.hpp&quot;
++#include &quot;scenegraph/surface_quad_drawable.hpp&quot;
++#include &quot;scenegraph/scene_graph.hpp&quot;
++#include &quot;editor/sector_model.hpp&quot;
+ 
+ #include &quot;editor/decal_object_model.hpp&quot;
+ 
+@@ -44,7 +48,8 @@
+     scale(1.0f, 1.0f),
+     angle(0.0f),
+     hflip(false),
+-    vflip(false)
++    vflip(false),
++    m_drawable()
+ {
+   int map_type = 0;
+   reader.get(&quot;path&quot;, path);
+@@ -69,7 +74,8 @@
+     scale(1.0f, 1.0f),
+     angle(0.0f),
+     hflip(false),
+-    vflip(false)
++    vflip(false),
++    m_drawable()
+ {
+ }
+ 
+@@ -81,6 +87,7 @@
+ DecalObjectModel::set_angle(float angle_)
+ {
+   angle = angle_;
++  sync();
+ }
+ 
+ void
+@@ -91,6 +98,7 @@
+   // Disallow negative scale
+   scale.x = fabsf(scale.x);
+   scale.y = fabsf(scale.y);
++  sync();
+ }
+ 
+ void
+@@ -109,30 +117,33 @@
+ void
+ DecalObjectModel::draw(SceneContext&amp; sc)
+ {
+-  ObjectModel::draw(sc);
++  if (0)
++  {
++    ObjectModel::draw(sc);
+ 
+-  Vector2f wo_pos = get_world_pos();
+-  Vector2f center_offset(-surface.get_width()/2,
+-                         -surface.get_height()/2);
++    Vector2f wo_pos = get_world_pos();
++    Vector2f center_offset(-surface.get_width()/2,
++                           -surface.get_height()/2);
+ 
+-  DrawingContext* dc = 0; 
+-  SurfaceDrawingParameters params;
+-  switch(type)
++    DrawingContext* dc = 0; 
++    SurfaceDrawingParameters params;
++    switch(type)
+     {
+       case COLORMAP:     dc = &amp;sc.color(); break;
+       case LIGHTMAP:     dc = &amp;sc.light();     params.set_blend_func(GL_SRC_ALPHA, GL_ONE); break;
+       case HIGHLIGHTMAP: dc = &amp;sc.highlight(); params.set_blend_func(GL_SRC_ALPHA, GL_ONE); break;
+     }
+ 
+-  center_offset.x *= scale.x;
+-  center_offset.y *= scale.y;
++    center_offset.x *= scale.x;
++    center_offset.y *= scale.y;
+ 
+-  dc-&gt;draw(surface, params
+-           .set_pos(wo_pos + center_offset)
+-           .set_angle(angle)
+-           .set_hflip(hflip)
+-           .set_vflip(vflip)
+-           .set_scale(scale));
++    dc-&gt;draw(surface, params
++             .set_pos(wo_pos + center_offset)
++             .set_angle(angle)
++             .set_hflip(hflip)
++             .set_vflip(vflip)
++             .set_scale(scale));
++  }
+ }
+ 
+ Rectf
+@@ -241,4 +252,53 @@
+   control_points.push_back(ControlPointHandle(new DecalRotateControlPoint(this, angle + 3*math::pi/2, get_world_pos() + quad2.p4)));
+ }
+ 
++void
++DecalObjectModel::add_to_sector(SectorModel&amp; sector)
++{
++  m_drawable.reset(new SurfaceQuadDrawable(surface, Vector2f(), Quad(get_bounding_box()),
++                                           DrawingParameters(), 0.0f,
++                                           Matrix::identity()));
++  sector.get_scene_graph()-&gt;add_drawable(m_drawable);
++  std::cout &lt;&lt; &quot;DecalObjectModel::add_to_sector(SectorModel&amp; sector)&quot; &lt;&lt; std::endl;
++}
++
++void
++DecalObjectModel::remove_from_sector(SectorModel&amp; sector)
++{
++  sector.get_scene_graph()-&gt;remove_drawable(m_drawable);
++  std::cout &lt;&lt; &quot;DecalObjectModel::remove_from_sector(SectorModel&amp; sector)&quot; &lt;&lt; std::endl;
++}
++
++void
++DecalObjectModel::sync()
++{
++  if (m_drawable)
++  {
++    Quad quad(get_bounding_box());
++    quad.rotate(angle);
++    m_drawable-&gt;set_quad(quad);
++  }
++}
++
++void
++DecalObjectModel::set_world_pos(const Vector2f&amp; p)
++{
++  ObjectModel::set_world_pos(p);
++  sync();
++}
++
++void
++DecalObjectModel::set_rel_pos(const Vector2f&amp; rel_pos_)
++{
++  ObjectModel::set_rel_pos(rel_pos_);
++  sync();
++}
++
++void
++DecalObjectModel::set_select_mask(const SelectMask&amp; select_mask_)
++{
++  ObjectModel::set_select_mask(select_mask_);
++  sync();
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/decal_object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/decal_object_model.hpp	2009-09-03 19:45:58 UTC (rev 3194)
++++ trunk/windstille/src/editor/decal_object_model.hpp	2009-09-04 12:59:05 UTC (rev 3195)
+@@ -24,6 +24,8 @@
+ #include &quot;display/surface.hpp&quot;
+ #include &quot;display/software_surface.hpp&quot;
+ #include &quot;editor/object_model.hpp&quot;
++
++class SurfaceQuadDrawable;
+ 
+ class DecalObjectModel : public ObjectModel
+ {
+@@ -46,6 +48,8 @@
+   bool hflip;
+   bool vflip;
+ 
++  boost::shared_ptr&lt;SurfaceQuadDrawable&gt; m_drawable;
++
+ public:
+   DecalObjectModel(const FileReader&amp; reader);
+   DecalObjectModel(const std::string&amp; name, const Vector2f&amp; rel_pos, 
+@@ -78,6 +82,14 @@
+   void reset();
+ 
+   void add_control_points(std::vector&lt;ControlPointHandle&gt;&amp; control_points);
++
++  void add_to_sector(SectorModel&amp; sector);
++  void remove_from_sector(SectorModel&amp; sector);
++  void sync();
++
++  void set_world_pos(const Vector2f&amp; p);
++  void set_rel_pos(const Vector2f&amp; rel_pos_);
++  void set_select_mask(const SelectMask&amp; select_mask_);
+ };
+ 
+ #endif
+
+Modified: trunk/windstille/src/editor/layer.cpp
+===================================================================
+--- trunk/windstille/src/editor/layer.cpp	2009-09-03 19:45:58 UTC (rev 3194)
++++ trunk/windstille/src/editor/layer.cpp	2009-09-04 12:59:05 UTC (rev 3195)
+@@ -20,8 +20,9 @@
+ 
+ #include &quot;editor/sector_model.hpp&quot;
+ 
+-Layer::Layer()
+-  : objects(),
++Layer::Layer(SectorModel&amp; sector)
++  : m_sector(sector),
++    objects(),
+     name(),
+     visible(true),
+     locked(false)
+@@ -42,12 +43,14 @@
+ Layer::add(const ObjectModelHandle&amp; object)
+ {
+   objects.push_back(object);
++  object-&gt;add_to_sector(m_sector);
+ }
+ 
+ void
+ Layer::remove(const ObjectModelHandle&amp; object)
+ {
+   objects.remove(object);
++  object-&gt;remove_from_sector(m_sector);
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/editor/layer.hpp
+===================================================================
+--- trunk/windstille/src/editor/layer.hpp	2009-09-03 19:45:58 UTC (rev 3194)
++++ trunk/windstille/src/editor/layer.hpp	2009-09-04 12:59:05 UTC (rev 3195)
+@@ -31,6 +31,7 @@
+ private:
+   typedef std::list&lt;ObjectModelHandle&gt; Objects;
+ 
++  SectorModel&amp; m_sector;
+   Objects objects;
+   std::string name;
+   bool visible;
+@@ -39,7 +40,7 @@
+ public:
+   typedef Objects::iterator iterator;
+ 
+-  Layer();
++  Layer(SectorModel&amp; sector);
+   ~Layer();
+   
+   void set_row_ptr(Gtk::TreeModel::Row* row_ptr);
+
+Modified: trunk/windstille/src/editor/object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/object_model.hpp	2009-09-03 19:45:58 UTC (rev 3194)
++++ trunk/windstille/src/editor/object_model.hpp	2009-09-04 12:59:05 UTC (rev 3195)
+@@ -29,6 +29,7 @@
+ class ObjectModel;
+ class FileReader;
+ class SceneContext;
++class SectorModel;
+ typedef boost::shared_ptr&lt;ObjectModel&gt; ObjectModelHandle;
+ typedef boost::weak_ptr&lt;ObjectModel&gt;   ObjectModelPtr;
+ 
+@@ -52,15 +53,15 @@
+   std::string get_name() const { return name; }
+   std::string get_id() const;
+ 
+-  Vector2f get_world_pos() const;
+-  void set_world_pos(const Vector2f&amp; p);
++  virtual Vector2f get_world_pos() const;
++  virtual void set_world_pos(const Vector2f&amp; p);
+ 
+-  Vector2f get_rel_pos() const { return rel_pos; }
+-  void     set_rel_pos(const Vector2f&amp; rel_pos_);
++  virtual Vector2f get_rel_pos() const { return rel_pos; }
++  virtual void     set_rel_pos(const Vector2f&amp; rel_pos_);
++  
++  virtual SelectMask get_select_mask() const { return select_mask; }
++  virtual void   set_select_mask(const SelectMask&amp; select_mask_) { select_mask = select_mask_; }
+ 
+-  SelectMask get_select_mask() const { return select_mask; }
+-  void   set_select_mask(const SelectMask&amp; select_mask_) { select_mask = select_mask_; }
+-
+   SnapData snap_object(const Rectf&amp; rect) const;
+ 
+   virtual bool get_hflip() const { return false; }
+@@ -80,13 +81,19 @@
+ 
+   virtual void draw(SceneContext&amp; sc);
+   virtual void update(float /*delta*/) {}
+-  virtual Rectf get_bounding_box() const = 0;
++  virtual Rectf get_bounding_box() const =0;
+   virtual ObjectModelHandle clone() const =0;
+ 
+   virtual void write(FileWriter&amp; writer) const =0;
+   virtual FileWriter&amp; write_member(FileWriter&amp; writer) const;
+ 
+-  virtual void add_control_points(std::vector&lt;ControlPointHandle&gt;&amp; /*control_points*/) {}
++  virtual void add_control_points(std::vector&lt;ControlPointHandle&gt;&amp; control_points) {}
++  
++  /** This lets the object add things to the SceneGraph or do other
++      things needed to make it properly visible in the SectorModel */
++  virtual void add_to_sector(SectorModel&amp; sector)    =0;
++
++  virtual void remove_from_sector(SectorModel&amp; sector) =0;
+ };
+ 
+ #endif
+
+Modified: trunk/windstille/src/editor/object_model_factory.hpp
+===================================================================
+--- trunk/windstille/src/editor/object_model_factory.hpp	2009-09-03 19:45:58 UTC (rev 3194)
++++ trunk/windstille/src/editor/object_model_factory.hpp	2009-09-04 12:59:05 UTC (rev 3195)
+@@ -22,6 +22,7 @@
+ #include &quot;editor/object_model.hpp&quot;
+ 
+ class FileReader;
++class SectorModel;
+ 
+ class ObjectModelFactory
+ {
+
+Modified: trunk/windstille/src/editor/particle_system_object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/particle_system_object_model.hpp	2009-09-03 19:45:58 UTC (rev 3194)
++++ trunk/windstille/src/editor/particle_system_object_model.hpp	2009-09-04 12:59:05 UTC (rev 3195)
+@@ -41,6 +41,9 @@
+ 
+   void write(FileWriter&amp; writer) const;
+ 
++  void add_to_sector(SectorModel&amp; sector) {}
++  void remove_from_sector(SectorModel&amp; sector) {}
++
+ private:
+   ParticleSystemObjectModel(const ParticleSystemObjectModel&amp;);
+   ParticleSystemObjectModel&amp; operator=(const ParticleSystemObjectModel&amp;);
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-09-03 19:45:58 UTC (rev 3194)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-09-04 12:59:05 UTC (rev 3195)
+@@ -46,7 +46,7 @@
+ 
+   Gtk::ListStore::iterator it = layer_tree-&gt;append();
+ 
+-  LayerHandle layer(new Layer());
++  LayerHandle layer(new Layer(*this));
+   (*it)[LayerManagerColumns::instance().type_icon] = Gdk::Pixbuf::create_from_file(&quot;data/editor/type.png&quot;);
+   (*it)[LayerManagerColumns::instance().name]      = Glib::ustring(&quot;Scene&quot;);
+   (*it)[LayerManagerColumns::instance().visible]   = true;
+@@ -92,7 +92,7 @@
+   else
+     it = layer_tree-&gt;insert(layer_tree-&gt;get_iter(path));
+ 
+-  LayerHandle layer(new Layer());
++  LayerHandle layer(new Layer(*this));
+   (*it)[LayerManagerColumns::instance().type_icon] = Gdk::Pixbuf::create_from_file(&quot;data/editor/type.png&quot;);
+   (*it)[LayerManagerColumns::instance().name]      = name;
+   (*it)[LayerManagerColumns::instance().visible]   = true; 
+@@ -137,8 +137,22 @@
+     { 
+       Gtk::ListStore::iterator it = layer_tree-&gt;get_iter(path);
+       ((LayerHandle)(*it)[LayerManagerColumns::instance().layer])-&gt;add(object);
++      object-&gt;add_to_sector(*this);
+     }
+ }
++
++void
++SectorModel::remove(const ObjectModelHandle&amp; object)
++{
++  const Layers&amp; layers = get_layers();
++ 
++  for(Layers::const_reverse_iterator i = layers.rbegin(); i != layers.rend(); ++i)
++    {
++      (*i)-&gt;remove(object);
++    }
++
++  object-&gt;remove_from_sector(*this);
++}
+ 
+ struct GetLayersFunctor
+ {
+@@ -185,17 +199,6 @@
+     }
+ }
+ 
+-void
+-SectorModel::remove(const ObjectModelHandle&amp; object)
+-{
+-  const Layers&amp; layers = get_layers();
+- 
+-  for(Layers::const_reverse_iterator i = layers.rbegin(); i != layers.rend(); ++i)
+-    {
+-      (*i)-&gt;remove(object);
+-    }
+-}
+-
+ LayerHandle
+ SectorModel::get_layer(const ObjectModelHandle&amp; object) const
+ {
+@@ -361,26 +364,33 @@
+   reader.get(&quot;locked&quot;,  locked);
+   reader.get(&quot;objects&quot;, objects_reader);
+ 
+-  LayerHandle layer = LayerHandle(new Layer());
++  LayerHandle layer = LayerHandle(new Layer(*this));
+ 
+   const std::vector&lt;FileReader&gt;&amp; objects_sections = objects_reader.get_sections();
+   for(std::vector&lt;FileReader&gt;::const_iterator j = objects_sections.begin(); j != objects_sections.end(); ++j)
+   {
+-    ObjectModelHandle obj = ObjectModelFactory::create(*j);
++    try 
++    {
++      ObjectModelHandle obj = ObjectModelFactory::create(*j);
+ 
+-    layer-&gt;add(obj);
++      layer-&gt;add(obj);
+ 
+-    std::string id_str;
+-    if (j-&gt;read(&quot;id&quot;, id_str))
+-    {
+-      id_table[id_str] = obj;
++      std::string id_str;
++      if (j-&gt;read(&quot;id&quot;, id_str))
++      {
++        id_table[id_str] = obj;
++      }
++
++      std::string parent_str;
++      if (j-&gt;read(&quot;parent&quot;, parent_str))
++      {
++        if (!parent_str.empty())
++          parent_table[obj] = parent_str;
++      }
+     }
+-
+-    std::string parent_str;
+-    if (j-&gt;read(&quot;parent&quot;, parent_str))
++    catch(std::exception&amp; err)
+     {
+-      if (!parent_str.empty())
+-        parent_table[obj] = parent_str;
++      std::cout &lt;&lt; &quot;SectorModel::load_layer: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
+     }
+   }
+ 
+
+Modified: trunk/windstille/src/editor/sprite_object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sprite_object_model.hpp	2009-09-03 19:45:58 UTC (rev 3194)
++++ trunk/windstille/src/editor/sprite_object_model.hpp	2009-09-04 12:59:05 UTC (rev 3195)
+@@ -38,6 +38,9 @@
+   Rectf get_bounding_box() const;
+   ObjectModelHandle clone() const;
+   void write(FileWriter&amp; writer) const;
++
++  void add_to_sector(SectorModel&amp; sector) {}
++  void remove_from_sector(SectorModel&amp; sector) {}
+ };
+ 
+ #endif
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-09-03 19:45:58 UTC (rev 3194)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-09-04 12:59:05 UTC (rev 3195)
+@@ -264,7 +264,6 @@
+ void
+ WindstilleWidget::draw()
+ {
+-  //std::cout &lt;&lt; &quot;Draw&quot; &lt;&lt; std::endl;
+   if (sc.get())
+     {
+       state.push(*sc);
+
+Modified: trunk/windstille/src/scenegraph/scene_graph.cpp
+===================================================================
+--- trunk/windstille/src/scenegraph/scene_graph.cpp	2009-09-03 19:45:58 UTC (rev 3194)
++++ trunk/windstille/src/scenegraph/scene_graph.cpp	2009-09-04 12:59:05 UTC (rev 3195)
+@@ -32,9 +32,11 @@
+ }
+ 
+ void
+-SceneGraph::remove_drawable(boost::shared_ptr&lt;Drawable&gt; /*drawable*/)
++SceneGraph::remove_drawable(boost::shared_ptr&lt;Drawable&gt; drawable)
+ {
+-  // FIXME: implement me
++  Drawables::iterator i = std::find(m_drawables.begin(), m_drawables.end(), drawable);
++  if (i != m_drawables.end())
++    m_drawables.erase(i);
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/scenegraph/surface_quad_drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/surface_quad_drawable.hpp	2009-09-03 19:45:58 UTC (rev 3194)
++++ trunk/windstille/src/scenegraph/surface_quad_drawable.hpp	2009-09-04 12:59:05 UTC (rev 3195)
+@@ -21,23 +21,24 @@
+ 
+ #include &quot;math/vector2f.hpp&quot;
+ #include &quot;math/quad.hpp&quot;
++#include &quot;display/opengl_state.hpp&quot;
+ #include &quot;scenegraph/drawable.hpp&quot;
+ 
+ class SurfaceQuadDrawable : public Drawable
+ {
+ private:
+-  Surface surface;
+-  Quad quad;
+-  DrawingParameters params;
++  Surface m_surface;
++  Quad m_quad;
++  DrawingParameters m_params;
+ 
+ public:
+-  SurfaceQuadDrawable(Surface surface_, const Vector2f&amp; pos_, const Quad&amp; quad_, 
+-                            const DrawingParameters&amp; params_, float z_pos_,
+-                            const Matrix&amp; modelview_)
++  SurfaceQuadDrawable(Surface surface, const Vector2f&amp; pos_, const Quad&amp; quad, 
++                      const DrawingParameters&amp; params, float z_pos_,
++                      const Matrix&amp; modelview_)
+     : Drawable(pos_, z_pos_, modelview_),
+-      surface(surface_),
+-      quad(quad_),
+-      params(params_)
++      m_surface(surface),
++      m_quad(quad),
++      m_params(params)
+   {
+   }
+ 
+@@ -45,8 +46,8 @@
+   {
+     OpenGLState state;
+     state.enable(GL_BLEND);
+-    state.set_blend_func(params.blendfunc_src, params.blendfunc_dst);
+-    state.bind_texture(surface.get_texture());
++    state.set_blend_func(m_params.blendfunc_src, m_params.blendfunc_dst);
++    state.bind_texture(m_surface.get_texture());
+     state.activate();
+ 
+     glPushMatrix();
+@@ -54,22 +55,24 @@
+ 
+     glBegin(GL_QUADS);
+     {
+-      glTexCoord2f(surface.get_uv().left, surface.get_uv().top);
+-      glVertex2f(pos.x + quad.p1.x, pos.y + quad.p1.y);
++      glTexCoord2f(m_surface.get_uv().left, m_surface.get_uv().top);
++      glVertex2f(pos.x + m_quad.p1.x, pos.y + m_quad.p1.y);
+     
+-      glTexCoord2f(surface.get_uv().right, surface.get_uv().top);
+-      glVertex2f(pos.x + quad.p2.x, pos.y + quad.p2.y);
++      glTexCoord2f(m_surface.get_uv().right, m_surface.get_uv().top);
++      glVertex2f(pos.x + m_quad.p2.x, pos.y + m_quad.p2.y);
+ 
+-      glTexCoord2f(surface.get_uv().right, surface.get_uv().bottom);
+-      glVertex2f(pos.x + quad.p3.x, pos.y + quad.p3.y);
++      glTexCoord2f(m_surface.get_uv().right, m_surface.get_uv().bottom);
++      glVertex2f(pos.x + m_quad.p3.x, pos.y + m_quad.p3.y);
+ 
+-      glTexCoord2f(surface.get_uv().left, surface.get_uv().bottom);
+-      glVertex2f(pos.x + quad.p4.x, pos.y + quad.p4.y);
++      glTexCoord2f(m_surface.get_uv().left, m_surface.get_uv().bottom);
++      glVertex2f(pos.x + m_quad.p4.x, pos.y + m_quad.p4.y);
+     }
+     glEnd();
+ 
+     glPopMatrix();    
+   }
++
++  void set_quad(const Quad&amp; quad) { m_quad = quad; }
+ };
+ 
+ #endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002191.html">[Windstille-commit] r3194 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="002193.html">[Windstille-commit] r3196 - in trunk/windstille/src: editor	scenegraph
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2192">[ date ]</a>
+              <a href="thread.html#2192">[ thread ]</a>
+              <a href="subject.html#2192">[ subject ]</a>
+              <a href="author.html#2192">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

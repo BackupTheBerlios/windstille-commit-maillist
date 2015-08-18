@@ -1,0 +1,192 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r352 - trunk/test/physics
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r352%20-%20trunk/test/physics&In-Reply-To=%3C200506121538.j5CFcQFi021829%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000008.html">
+   <LINK REL="Next"  HREF="000010.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r352 - trunk/test/physics</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r352%20-%20trunk/test/physics&In-Reply-To=%3C200506121538.j5CFcQFi021829%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r352 - trunk/test/physics">grumbel at sheep.berlios.de
+       </A><BR>
+    <I>Sun Jun 12 17:38:26 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000008.html">[Windstille-commit] r351 - trunk/test/physics
+</A></li>
+        <LI>Next message: <A HREF="000010.html">[Windstille-commit] r353 - trunk/test/physics
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9">[ date ]</a>
+              <a href="thread.html#9">[ thread ]</a>
+              <a href="subject.html#9">[ subject ]</a>
+              <a href="author.html#9">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-06-12 17:38:23 +0200 (Sun, 12 Jun 2005)
+New Revision: 352
+
+Modified:
+   trunk/test/physics/physics.cxx
+   trunk/test/physics/physics.hxx
+Log:
+- first test of unstucker implementation
+
+Modified: trunk/test/physics/physics.cxx
+===================================================================
+--- trunk/test/physics/physics.cxx	2005-06-12 02:10:39 UTC (rev 351)
++++ trunk/test/physics/physics.cxx	2005-06-12 15:38:23 UTC (rev 352)
+@@ -27,7 +27,9 @@
+   friction       = 0.01f;
+   
+   x_acceleration = 0.0f;
+-  y_acceleration = 5.0f;
++  y_acceleration = 0.0f;
++
++  unstuck_velocity = 50.0f;
+ }
+ 
+ Physics::~Physics()
+@@ -70,7 +72,7 @@
+       res.u1 = (b + bw - a) / v;
+       res.state = COL_AT;
+ 
+-      assert(res.u0 &lt; res.u1);
++      assert(res.u0 &lt;= res.u1);
+       return res;
+     }
+   else if (v &lt; 0)
+@@ -80,7 +82,7 @@
+       res.u1 = (b - (a + aw)) / v;
+       res.state = COL_AT;
+ 
+-      assert(res.u0 &lt; res.u1);
++      assert(res.u0 &lt;= res.u1);
+       return res;
+     }
+   else // (v == 0)
+@@ -112,6 +114,49 @@
+       break;
+     }
+ }
++
++void
++Physics::unstuck(PhysicObject&amp; a, PhysicObject&amp; b, float delta)
++{
++  // The distance A needs to unstuck from B in the given direction
++  float left   = fabsf(a.x_pos + a.width - b.x_pos);
++  float right  = fabsf(b.x_pos + b.width - a.x_pos);
++  float top    = fabsf(a.y_pos + a.height - b.y_pos);
++  float bottom = fabsf(b.y_pos + b.height - a.y_pos);
++
++  if (left &lt; right &amp;&amp; left &lt; top &amp;&amp; left &lt; bottom)
++    {
++      if (a.movable)
++        a.x_pos -= unstuck_velocity * delta;
++      
++      if (b.movable)
++        b.x_pos += unstuck_velocity * delta;
++    }
++  else if (right &lt; left &amp;&amp; right &lt; top &amp;&amp; right &lt; bottom)
++    {
++      if (a.movable)
++        a.x_pos += unstuck_velocity * delta;
++
++      if (b.movable)
++        b.x_pos -= unstuck_velocity * delta;
++    }
++  else if (top &lt; left &amp;&amp; top &lt; right &amp;&amp; top &lt; bottom)
++    {
++      if (a.movable)
++        a.y_pos -= unstuck_velocity * delta;
++      
++      if (b.movable)
++        b.y_pos += unstuck_velocity * delta;
++    }
++  else // (bottom &lt; left &amp;&amp; bottom &lt; right &amp;&amp; bottom &lt; top)
++    {
++      if (a.movable)
++        a.y_pos += unstuck_velocity * delta;
++      
++      if (b.movable)
++        b.y_pos -= unstuck_velocity * delta;
++    }
++}
+   
+ void
+ Physics::resolve_collision(PhysicObject&amp; a, PhysicObject&amp; b, CollisionResult&amp; x, CollisionResult&amp; y, 
+@@ -183,6 +228,7 @@
+               //std::cout &lt;&lt; &quot;col: &quot; &lt;&lt; a &lt;&lt; &quot; &quot; &lt;&lt; b &lt;&lt; std::endl;
+               a.collision = true;
+               collision(a, b, STUCK);
++              unstuck(a, b, delta);
+             }
+           else
+             {
+
+Modified: trunk/test/physics/physics.hxx
+===================================================================
+--- trunk/test/physics/physics.hxx	2005-06-12 02:10:39 UTC (rev 351)
++++ trunk/test/physics/physics.hxx	2005-06-12 15:38:23 UTC (rev 352)
+@@ -43,6 +43,7 @@
+   float x_velocity;
+   float y_velocity;
+ 
++  /** The velocity which is used to unstuck, stuck objects */
+   bool collision;
+ 
+   PhysicObject(float x_, float y_, float width_, float height_) 
+@@ -80,6 +81,7 @@
+   Objects objects;
+ 
+   float friction;
++  float unstuck_velocity;
+ 
+   float x_acceleration;
+   float y_acceleration;
+@@ -105,6 +107,7 @@
+   CollisionResult simplesweep1d(float a, float aw, float av,
+                                 float b, float bw, float bv);
+ 
++  void unstuck(PhysicObject&amp; a, PhysicObject&amp; b, float delta);
+   void resolve_collision(PhysicObject&amp; a, PhysicObject&amp; b, CollisionResult&amp; x, CollisionResult&amp; y, 
+                          float delta);
+ public:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000008.html">[Windstille-commit] r351 - trunk/test/physics
+</A></li>
+	<LI>Next message: <A HREF="000010.html">[Windstille-commit] r353 - trunk/test/physics
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#9">[ date ]</a>
+              <a href="thread.html#9">[ thread ]</a>
+              <a href="subject.html#9">[ subject ]</a>
+              <a href="author.html#9">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

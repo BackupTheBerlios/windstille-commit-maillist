@@ -1,0 +1,177 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3273 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3273%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909290042.n8T0gxRe017579%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002269.html">
+   <LINK REL="Next"  HREF="002271.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3273 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3273%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909290042.n8T0gxRe017579%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3273 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Sep 29 02:42:59 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002269.html">[Windstille-commit] r3272 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="002271.html">[Windstille-commit] r3274 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2270">[ date ]</a>
+              <a href="thread.html#2270">[ thread ]</a>
+              <a href="subject.html#2270">[ subject ]</a>
+              <a href="author.html#2270">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-29 02:42:57 +0200 (Tue, 29 Sep 2009)
+New Revision: 3273
+
+Modified:
+   trunk/windstille/src/editor/timeline.cpp
+   trunk/windstille/src/editor/timeline.hpp
+   trunk/windstille/src/editor/timeline_commands.hpp
+   trunk/windstille/src/editor/timeline_object_layer.hpp
+Log:
+Reuse existing layer if it already exists
+
+Modified: trunk/windstille/src/editor/timeline.cpp
+===================================================================
+--- trunk/windstille/src/editor/timeline.cpp	2009-09-28 23:59:54 UTC (rev 3272)
++++ trunk/windstille/src/editor/timeline.cpp	2009-09-29 00:42:57 UTC (rev 3273)
+@@ -73,4 +73,21 @@
+   m_layers.erase(std::remove(m_layers.begin(), m_layers.end(), layer), m_layers.end());
+ }
+ 
++TimelineObjectLayerHandle
++Timeline::get_object_layer(ObjectModelHandle object, TimelineProperty property)
++{
++  for(iterator i = begin(); i != end(); ++i)
++  {
++    TimelineObjectLayerHandle layer = boost::dynamic_pointer_cast&lt;TimelineObjectLayer&gt;(*i);
++
++    if (layer &amp;&amp; 
++        layer-&gt;get_property() == property &amp;&amp;
++        layer-&gt;get_object()   == object)
++    {
++      return layer;
++    }
++  }
++  return TimelineObjectLayerHandle();
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/timeline.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline.hpp	2009-09-28 23:59:54 UTC (rev 3272)
++++ trunk/windstille/src/editor/timeline.hpp	2009-09-29 00:42:57 UTC (rev 3273)
+@@ -52,6 +52,7 @@
+ 
+   TimelineLayerHandle add_layer(const std::string&amp; name);
+   TimelineObjectLayerHandle create_object_layer(ObjectModelHandle object, TimelineProperty property);
++  TimelineObjectLayerHandle get_object_layer(ObjectModelHandle object, TimelineProperty property);
+ 
+   void add_layer(TimelineLayerHandle layer);
+   void remove_layer(TimelineLayerHandle layer);
+
+Modified: trunk/windstille/src/editor/timeline_commands.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_commands.hpp	2009-09-28 23:59:54 UTC (rev 3272)
++++ trunk/windstille/src/editor/timeline_commands.hpp	2009-09-29 00:42:57 UTC (rev 3273)
+@@ -34,27 +34,38 @@
+   ObjectModelHandle    m_object;
+   TimelineProperty     m_property;
+   TimelineObjectHandle m_keyframe;
++  bool m_add_layer;
+ 
+ public:
+   TimelineAddKeyframeCommand(SectorModel&amp; sector, ObjectModelHandle object, TimelineProperty property, float pos) :
+     m_sector(sector),
+     m_layer(),
+     m_object(object),
+-    m_property(property)
++    m_property(property),
++    m_add_layer(false)
+   {
+-    m_layer    = m_sector.get_timeline()-&gt;create_object_layer(m_object, m_property);
++    m_layer = m_sector.get_timeline()-&gt;get_object_layer(m_object, m_property);
++    if (!m_layer)
++    {
++      m_layer = m_sector.get_timeline()-&gt;create_object_layer(m_object, m_property);
++      m_add_layer = true;
++    }
++
+     m_keyframe = m_layer-&gt;create_keyframe(pos);
+   }
+   
+   void redo() 
+   {
+-    m_sector.get_timeline()-&gt;add_layer(m_layer);
++    if (m_add_layer)
++      m_sector.get_timeline()-&gt;add_layer(m_layer);
++
+     m_layer-&gt;add_object(m_keyframe);
+   }
+ 
+   void undo() 
+-  {
+-    m_layer-&gt;remove_object(m_keyframe);
++  {    
++    if (m_add_layer)
++      m_layer-&gt;remove_object(m_keyframe);
+ 
+     if (m_layer-&gt;empty())
+     {
+
+Modified: trunk/windstille/src/editor/timeline_object_layer.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_object_layer.hpp	2009-09-28 23:59:54 UTC (rev 3272)
++++ trunk/windstille/src/editor/timeline_object_layer.hpp	2009-09-29 00:42:57 UTC (rev 3273)
+@@ -36,6 +36,9 @@
+ 
+   virtual TimelineObjectHandle create_keyframe(float pos) =0;
+ 
++  TimelineProperty  get_property() const { return m_property; }
++  ObjectModelHandle get_object()   const { return m_object; }
++
+ private:
+   TimelineObjectLayer(const TimelineObjectLayer&amp;);
+   TimelineObjectLayer&amp; operator=(const TimelineObjectLayer&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002269.html">[Windstille-commit] r3272 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="002271.html">[Windstille-commit] r3274 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2270">[ date ]</a>
+              <a href="thread.html#2270">[ thread ]</a>
+              <a href="subject.html#2270">[ subject ]</a>
+              <a href="author.html#2270">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

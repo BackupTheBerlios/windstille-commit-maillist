@@ -1,0 +1,1053 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3192 - trunk/windstille/src/display
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3192%20-%20trunk/windstille/src/display&In-Reply-To=%3C200909031601.n83G1vuu027873%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002188.html">
+   <LINK REL="Next"  HREF="002190.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3192 - trunk/windstille/src/display</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3192%20-%20trunk/windstille/src/display&In-Reply-To=%3C200909031601.n83G1vuu027873%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3192 - trunk/windstille/src/display">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Sep  3 18:01:57 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002188.html">[Windstille-commit] r3191 - trunk/windstille/src/display
+</A></li>
+        <LI>Next message: <A HREF="002190.html">[Windstille-commit] r3193 - trunk/windstille/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2189">[ date ]</a>
+              <a href="thread.html#2189">[ thread ]</a>
+              <a href="subject.html#2189">[ subject ]</a>
+              <a href="author.html#2189">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-03 18:01:56 +0200 (Thu, 03 Sep 2009)
+New Revision: 3192
+
+Added:
+   trunk/windstille/src/display/basic_compositor_impl.cpp
+   trunk/windstille/src/display/basic_compositor_impl.hpp
+   trunk/windstille/src/display/compositor_impl.hpp
+   trunk/windstille/src/display/framebuffer_compositor_impl.cpp
+   trunk/windstille/src/display/framebuffer_compositor_impl.hpp
+Modified:
+   trunk/windstille/src/display/compositor.cpp
+   trunk/windstille/src/display/compositor.hpp
+   trunk/windstille/src/display/drawing_context.cpp
+   trunk/windstille/src/display/drawing_context.hpp
+Log:
+Splitted Compositor render paths into two classes
+
+Added: trunk/windstille/src/display/basic_compositor_impl.cpp
+===================================================================
+--- trunk/windstille/src/display/basic_compositor_impl.cpp	2009-09-03 15:14:04 UTC (rev 3191)
++++ trunk/windstille/src/display/basic_compositor_impl.cpp	2009-09-03 16:01:56 UTC (rev 3192)
+@@ -0,0 +1,164 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &quot;display/basic_compositor_impl.hpp&quot;
++
++#include &lt;GL/glew.h&gt;
++#include &lt;GL/gl.h&gt;
++
++#include &quot;display/graphic_context_state.hpp&quot;
++#include &quot;display/opengl_state.hpp&quot;
++#include &quot;display/scene_context.hpp&quot;
++#include &quot;scenegraph/scene_graph.hpp&quot;
++
++static const int LIGHTMAP_DIV = 4;
++
++BasicCompositorImpl::BasicCompositorImpl(const Size&amp; window, const Size&amp; viewport)
++  : CompositorImpl(window, viewport),
++    m_lightmap(m_window.width  / LIGHTMAP_DIV,
++               m_window.height / LIGHTMAP_DIV)
++{
++}
++
++void
++BasicCompositorImpl::render(SceneContext&amp; sc, SceneGraph* sg, const GraphicContextState&amp; gc_state)
++{
++  // Resize Lightmap, only needed in the editor, FIXME: move this into a 'set_size()' call
++  if (m_lightmap.get_width()  != m_window.width /LIGHTMAP_DIV ||
++      m_lightmap.get_height() != m_window.height/LIGHTMAP_DIV)
++  {
++    m_lightmap = Surface(m_window.width / LIGHTMAP_DIV, m_window.height / LIGHTMAP_DIV);
++  }
++
++  if (sc.get_render_mask() &amp; SceneContext::LIGHTMAPSCREEN)
++  {
++    // Render the lightmap to the framebuffers-&gt;lightmap
++    glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
++    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
++
++    glPushMatrix();
++    //glTranslatef(0.0f, static_cast&lt;float&gt;(m_viewport.height) - static_cast&lt;float&gt;(m_window.height/LIGHTMAP_DIV), 0.0f);
++    glScalef(1.0f / LIGHTMAP_DIV, 1.0f / LIGHTMAP_DIV, 1.0f);
++    sc.light().render();
++    glPopMatrix();
++
++    if (sg)
++    {
++      glPushMatrix();
++      //glTranslatef(0.0f, static_cast&lt;float&gt;(m_viewport.height) - static_cast&lt;float&gt;(m_window.height/LIGHTMAP_DIV), 0.0f);
++      glScalef(1.0f / LIGHTMAP_DIV, 1.0f / LIGHTMAP_DIV, 1.0f);
++      glMultMatrixf(gc_state.get_matrix().matrix);
++      sg-&gt;draw(SceneContext::LIGHTMAP);
++      glPopMatrix();
++    }
++
++    { // Copy lightmap to a texture
++      OpenGLState state;
++        
++      // Weird y-pos is needed since OpenGL is upside down when it comes to y-coordinate
++      state.bind_texture(m_lightmap.get_texture());
++      state.activate();
++
++      glCopyTexSubImage2D(GL_TEXTURE_2D, 
++                          0, // level
++                          0, 0, // xoffset, yoffset
++                          0, 
++                          m_window.height - static_cast&lt;GLsizei&gt;(m_lightmap.get_height()),
++                          static_cast&lt;GLsizei&gt;(m_lightmap.get_width()), 
++                          static_cast&lt;GLsizei&gt;(m_lightmap.get_height()));
++    }
++  }
++
++  if (sc.get_render_mask() &amp; SceneContext::COLORMAP)
++  {
++    // Render the colormap to the framebuffers-&gt;screen
++    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
++    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
++
++    sc.color().render();
++
++    if (sg)
++    {
++      glPushMatrix();
++      glMultMatrixf(gc_state.get_matrix().matrix);
++      sg-&gt;draw(SceneContext::COLORMAP);
++      glPopMatrix();
++    }
++  }
++
++  if (sc.get_render_mask() &amp; SceneContext::LIGHTMAP)
++  { // Renders the lightmap to the screen     
++    OpenGLState state;
++
++    state.bind_texture(m_lightmap.get_texture());
++
++    state.enable(GL_BLEND);
++    state.set_blend_func(GL_DST_COLOR, GL_ZERO);
++    state.activate();
++
++    glBegin(GL_QUADS);
++
++    glTexCoord2i(0, 1);
++    glVertex2i(0, 0);
++
++    glTexCoord2i(1, 1);
++    glVertex2i(m_viewport.width, 0);
++
++    glTexCoord2i(1, 0);
++    glVertex2i(m_viewport.width, m_viewport.height);
++
++    glTexCoord2i(0, 0);
++    glVertex2i(0, m_viewport.height);
++
++    glEnd();
++  }
++
++  if (sc.get_render_mask() &amp; SceneContext::HIGHLIGHTMAP)
++  {
++    sc.highlight().render();
++
++    if (sg)
++    {
++      glPushMatrix();
++      glMultMatrixf(gc_state.get_matrix().matrix);
++      sg-&gt;draw(SceneContext::HIGHLIGHTMAP);
++      glPopMatrix();
++    }
++  }
++
++  if (sc.get_render_mask() &amp; SceneContext::CONTROLMAP)
++  {
++    sc.control().render();
++
++    if (sg)
++    {
++      glPushMatrix();
++      glMultMatrixf(gc_state.get_matrix().matrix);
++      sg-&gt;draw(SceneContext::CONTROLMAP);
++      glPopMatrix();
++    }
++  }
++  
++  // Clear all DrawingContexts
++  sc.color().clear();
++  sc.light().clear();
++  sc.highlight().clear();
++  sc.control().clear(); 
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/display/basic_compositor_impl.cpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/display/basic_compositor_impl.hpp
+===================================================================
+--- trunk/windstille/src/display/basic_compositor_impl.hpp	2009-09-03 15:14:04 UTC (rev 3191)
++++ trunk/windstille/src/display/basic_compositor_impl.hpp	2009-09-03 16:01:56 UTC (rev 3192)
+@@ -0,0 +1,42 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_BASIC_COMPOSITOR_IMPL_HPP
++#define HEADER_BASIC_COMPOSITOR_IMPL_HPP
++
++#include &quot;display/compositor_impl.hpp&quot;
++#include &quot;display/surface.hpp&quot;
++
++class BasicCompositorImpl : public CompositorImpl
++{
++private:
++  Surface m_lightmap;
++
++public:
++  BasicCompositorImpl(const Size&amp; window, const Size&amp; viewport);
++
++  void render(SceneContext&amp; sc, SceneGraph* sg, const GraphicContextState&amp; gc_state);
++  
++private:
++  BasicCompositorImpl(const BasicCompositorImpl&amp;);
++  BasicCompositorImpl&amp; operator=(const BasicCompositorImpl&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/display/basic_compositor_impl.hpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/windstille/src/display/compositor.cpp
+===================================================================
+--- trunk/windstille/src/display/compositor.cpp	2009-09-03 15:14:04 UTC (rev 3191)
++++ trunk/windstille/src/display/compositor.cpp	2009-09-03 16:01:56 UTC (rev 3192)
+@@ -20,353 +20,32 @@
+ 
+ #include &lt;GL/glew.h&gt;
+ 
+-#include &quot;display/display.hpp&quot;
+-#include &quot;scenegraph/drawable.hpp&quot;
+-#include &quot;display/graphic_context_state.hpp&quot;
+-#include &quot;display/framebuffer.hpp&quot;
+-#include &quot;display/opengl_state.hpp&quot;
+-#include &quot;display/scene_context.hpp&quot;
+-#include &quot;display/surface.hpp&quot;
+-#include &quot;math/rect.hpp&quot;
+-#include &quot;scenegraph/scene_graph.hpp&quot;
+-
+-// The lightmap has a resolution of screen.w/LIGHTMAP, screen.h/LIGHTMAP
+-#define LIGHTMAP_DIV 4
+-
+-struct CompositorImpl
+-{
+-  struct Framebuffers 
+-  {
+-    Framebuffer screen;
+-    Framebuffer lightmap;   
+-
+-    Framebuffers(const Size&amp; window) 
+-      : screen  (GL_TEXTURE_2D, window.width, window.height),
+-        lightmap(GL_TEXTURE_2D, window.width / LIGHTMAP_DIV, window.height / LIGHTMAP_DIV)
+-    {
+-    }
+-  };
+-
+-  Size m_window;
+-  Size m_viewport; 
+-  boost::scoped_ptr&lt;Framebuffers&gt; framebuffers;
+-  Surface lightmap;
+-
+-  CompositorImpl(const Size&amp; window, const Size&amp; viewport)
+-    : m_window(window),
+-      m_viewport(viewport),
+-      framebuffers(0),
+-      lightmap(m_window.width  / LIGHTMAP_DIV,
+-               m_window.height / LIGHTMAP_DIV)
+-  {
+-      if (GLEW_EXT_framebuffer_object) 
+-      {
+-        std::cout  &lt;&lt; &quot;Display:: framebuffer_object extension is supported&quot; &lt;&lt; std::endl;
+-        framebuffers.reset(new Framebuffers(m_window));
+-      }
+-      else
+-      {
+-        std::cout  &lt;&lt; &quot;Display:: framebuffer_object extension is not supported&quot; &lt;&lt; std::endl;
+-      }
+-  }
+-};
++#include &quot;display/framebuffer_compositor_impl.hpp&quot;
++#include &quot;display/basic_compositor_impl.hpp&quot;
+ 
+ Compositor::Compositor(const Size&amp; window, const Size&amp; viewport)
+-  : impl(new CompositorImpl(window, viewport))
++  : impl()
+ {
+-}
+-
+-Compositor::~Compositor()
+-{
+-}
+-
+-void
+-Compositor::render_lightmap(SceneContext&amp; /*sc*/, SceneGraph* /*sg*/)
+-{
+-  OpenGLState state;
+-
+-  state.bind_texture(impl-&gt;framebuffers-&gt;lightmap.get_texture());
+-      
+-  state.enable(GL_BLEND);
+-  state.set_blend_func(GL_DST_COLOR, GL_ZERO); // multiply the lightmap with the screen
+-  state.activate();
+-
+-  glBegin(GL_QUADS);
++  if (GLEW_EXT_framebuffer_object)
+   {
+-    glTexCoord2i(0, 1);
+-    glVertex2i(0, 0);
+-
+-    glTexCoord2i(1, 1);
+-    glVertex2i(impl-&gt;m_viewport.width, 0);
+-
+-    glTexCoord2i(1, 0);
+-    glVertex2i(impl-&gt;m_viewport.width, impl-&gt;m_viewport.height);
+-
+-    glTexCoord2i(0, 0);
+-    glVertex2i(0, impl-&gt;m_viewport.height);
++    std::cout  &lt;&lt; &quot;Display:: framebuffer_object extension is supported&quot; &lt;&lt; std::endl;
++    impl.reset(new FramebufferCompositorImpl(window, viewport));
+   }
+-  glEnd();
+-}
+-
+-void
+-Compositor::render_with_framebuffers(SceneContext&amp; sc, SceneGraph* sg,
+-                                     const GraphicContextState&amp; gc_state)
+-{
+-  glClear(GL_DEPTH_BUFFER_BIT);
+-      
+-  if (sc.get_render_mask() &amp; SceneContext::LIGHTMAPSCREEN)
++  else
+   {
+-    // Render the lightmap to framebuffers-&gt;lightmap
+-    Display::push_framebuffer(impl-&gt;framebuffers-&gt;lightmap);
+-
+-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+-
+-    glPushMatrix();
+-    glTranslatef(0.0f, static_cast&lt;float&gt;(impl-&gt;m_viewport.height - (impl-&gt;m_viewport.height / LIGHTMAP_DIV)), 0.0f);
+-    glScalef(1.0f / LIGHTMAP_DIV, 1.0f / LIGHTMAP_DIV, 1.0f / LIGHTMAP_DIV);
+-    sc.light().render(*this);
+-
+-    if (sg)
+-    {
+-      glPushMatrix();
+-      glMultMatrixf(gc_state.get_matrix().matrix);
+-      sg-&gt;draw(SceneContext::LIGHTMAP);
+-      glPopMatrix();
+-    }
+-
+-    glPopMatrix();
+-    
+-    Display::pop_framebuffer();
++    std::cout  &lt;&lt; &quot;Display:: framebuffer_object extension is not supported&quot; &lt;&lt; std::endl;   
++    impl.reset(new BasicCompositorImpl(window, viewport));
+   }
+-
+-  { // Render the main screen
+-    Display::push_framebuffer(impl-&gt;framebuffers-&gt;screen);
+-
+-    if (sc.get_render_mask() &amp; SceneContext::COLORMAP)
+-    {
+-      // Render the colormap to framebuffers-&gt;screen
+-      glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+-      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+-      sc.color().render(*this);
+-
+-      if (sg)
+-      {
+-        glPushMatrix();
+-        glMultMatrixf(gc_state.get_matrix().matrix);
+-        sg-&gt;draw(SceneContext::COLORMAP);
+-        glPopMatrix();
+-      }
+-    }
+-
+-    if (sc.get_render_mask() &amp; SceneContext::LIGHTMAP)
+-    { // Renders the lightmap to the screen
+-      render_lightmap(sc, sg);
+-    }
+-
+-    if (sc.get_render_mask() &amp; SceneContext::HIGHLIGHTMAP)
+-    {
+-      sc.highlight().render(*this);
+-
+-      if (sg)
+-      {
+-        glPushMatrix();
+-        glMultMatrixf(gc_state.get_matrix().matrix);
+-        sg-&gt;draw(SceneContext::HIGHLIGHTMAP);
+-        glPopMatrix();
+-      }
+-    }
+-
+-    if (sc.get_render_mask() &amp; SceneContext::CONTROLMAP)
+-    {
+-      sc.control().render(*this);
+-
+-      if (sg)
+-      {
+-        glPushMatrix();
+-        glMultMatrixf(gc_state.get_matrix().matrix);
+-        sg-&gt;draw(SceneContext::CONTROLMAP);
+-        glPopMatrix();
+-      }
+-    }
+-
+-    Display::pop_framebuffer();
+-  }
+-
+-  if (1) 
+-  {
+-    // Render the screen framebuffer to the actual screen 
+-    OpenGLState state;
+-
+-    //static_cast&lt;float&gt;(impl-&gt;framebuffers-&gt;screen.get_width()),
+-    //static_cast&lt;float&gt;(impl-&gt;framebuffers-&gt;screen.get_height()));
+-
+-    state.bind_texture(impl-&gt;framebuffers-&gt;screen.get_texture(), 0);
+-
+-    state.activate();
+-
+-    glBegin(GL_QUADS);
+-    {
+-      glTexCoord2i(0, 1);
+-      glVertex2i(0, 0);
+-
+-      glTexCoord2i(1, 1);
+-      glVertex2i(impl-&gt;m_viewport.width, 0);
+-
+-      glTexCoord2i(1, 0);
+-      glVertex2i(impl-&gt;m_viewport.width, impl-&gt;m_viewport.height);
+-
+-      glTexCoord2i(0, 0);
+-      glVertex2i(0.0f, impl-&gt;m_viewport.height);
+-    }
+-    glEnd();
+-  }
+-
+-  // Clear all DrawingContexts
+-  sc.color().clear();
+-  sc.light().clear();
+-  sc.highlight().clear();
+-  sc.control().clear();
+ }
+ 
+-void
+-Compositor::render_without_framebuffers(SceneContext&amp; sc, SceneGraph* sg, const GraphicContextState&amp; gc_state)
++Compositor::~Compositor()
+ {
+-  // Resize Lightmap, only needed in the editor, FIXME: move this into a 'set_size()' call
+-  if (0)
+-  if (impl-&gt;lightmap.get_width()  != impl-&gt;m_window.width /LIGHTMAP_DIV ||
+-      impl-&gt;lightmap.get_height() != impl-&gt;m_window.height/LIGHTMAP_DIV)
+-  {
+-    impl-&gt;lightmap = Surface(impl-&gt;m_window.width / LIGHTMAP_DIV, impl-&gt;m_window.height / LIGHTMAP_DIV);
+-  }
+-
+-  if (sc.get_render_mask() &amp; SceneContext::LIGHTMAPSCREEN)
+-  {
+-    // Render the lightmap to the framebuffers-&gt;lightmap
+-    glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+-
+-    glPushMatrix();
+-    //glTranslatef(0.0f, static_cast&lt;float&gt;(impl-&gt;m_viewport.height) - static_cast&lt;float&gt;(impl-&gt;m_window.height/LIGHTMAP_DIV), 0.0f);
+-    glScalef(1.0f / LIGHTMAP_DIV, 1.0f / LIGHTMAP_DIV, 1.0f);
+-    sc.light().render(*this);
+-    glPopMatrix();
+-
+-    if (sg)
+-    {
+-      glPushMatrix();
+-      //glTranslatef(0.0f, static_cast&lt;float&gt;(impl-&gt;m_viewport.height) - static_cast&lt;float&gt;(impl-&gt;m_window.height/LIGHTMAP_DIV), 0.0f);
+-      glScalef(1.0f / LIGHTMAP_DIV, 1.0f / LIGHTMAP_DIV, 1.0f);
+-      glMultMatrixf(gc_state.get_matrix().matrix);
+-      sg-&gt;draw(SceneContext::LIGHTMAP);
+-      glPopMatrix();
+-    }
+-
+-    { // Copy lightmap to a texture
+-      OpenGLState state;
+-        
+-      // Weird y-pos is needed since OpenGL is upside down when it comes to y-coordinate
+-      state.bind_texture(impl-&gt;lightmap.get_texture());
+-      state.activate();
+-
+-      glCopyTexSubImage2D(GL_TEXTURE_2D, 
+-                          0, // level
+-                          0, 0, // xoffset, yoffset
+-                          0, 
+-                          impl-&gt;m_window.height - static_cast&lt;GLsizei&gt;(impl-&gt;lightmap.get_height()),
+-                          static_cast&lt;GLsizei&gt;(impl-&gt;lightmap.get_width()), 
+-                          static_cast&lt;GLsizei&gt;(impl-&gt;lightmap.get_height()));
+-    }
+-  }
+-
+-  if (sc.get_render_mask() &amp; SceneContext::COLORMAP)
+-  {
+-    // Render the colormap to the framebuffers-&gt;screen
+-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+-
+-    sc.color().render(*this);
+-
+-    if (sg)
+-    {
+-      glPushMatrix();
+-      glMultMatrixf(gc_state.get_matrix().matrix);
+-      sg-&gt;draw(SceneContext::COLORMAP);
+-      glPopMatrix();
+-    }
+-  }
+-
+-  if (sc.get_render_mask() &amp; SceneContext::LIGHTMAP)
+-  { // Renders the lightmap to the screen     
+-    OpenGLState state;
+-
+-    state.bind_texture(impl-&gt;lightmap.get_texture());
+-
+-    state.enable(GL_BLEND);
+-    state.set_blend_func(GL_DST_COLOR, GL_ZERO);
+-    state.activate();
+-
+-    glBegin(GL_QUADS);
+-
+-    glTexCoord2i(0, 1);
+-    glVertex2i(0, 0);
+-
+-    glTexCoord2i(1, 1);
+-    glVertex2i(impl-&gt;m_viewport.width, 0);
+-
+-    glTexCoord2i(1, 0);
+-    glVertex2i(impl-&gt;m_viewport.width, impl-&gt;m_viewport.height);
+-
+-    glTexCoord2i(0, 0);
+-    glVertex2i(0, impl-&gt;m_viewport.height);
+-
+-    glEnd();
+-  }
+-
+-  if (sc.get_render_mask() &amp; SceneContext::HIGHLIGHTMAP)
+-  {
+-    sc.highlight().render(*this);
+-
+-    if (sg)
+-    {
+-      glPushMatrix();
+-      glMultMatrixf(gc_state.get_matrix().matrix);
+-      sg-&gt;draw(SceneContext::HIGHLIGHTMAP);
+-      glPopMatrix();
+-    }
+-  }
+-
+-  if (sc.get_render_mask() &amp; SceneContext::CONTROLMAP)
+-  {
+-    sc.control().render(*this);
+-
+-    if (sg)
+-    {
+-      glPushMatrix();
+-      glMultMatrixf(gc_state.get_matrix().matrix);
+-      sg-&gt;draw(SceneContext::CONTROLMAP);
+-      glPopMatrix();
+-    }
+-  }
+-  
+-  // Clear all DrawingContexts
+-  sc.color().clear();
+-  sc.light().clear();
+-  sc.highlight().clear();
+-  sc.control().clear(); 
+ }
+ 
+ void
+ Compositor::render(SceneContext&amp; sc, SceneGraph* sg, const GraphicContextState&amp; state)
+ {
+-  if (impl-&gt;framebuffers)
+-  {
+-    render_with_framebuffers(sc, sg, state);
+-  }
+-  else
+-  {
+-    render_without_framebuffers(sc, sg, state);
+-  }
++  impl-&gt;render(sc, sg, state);
+ }
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/display/compositor.hpp
+===================================================================
+--- trunk/windstille/src/display/compositor.hpp	2009-09-03 15:14:04 UTC (rev 3191)
++++ trunk/windstille/src/display/compositor.hpp	2009-09-03 16:01:56 UTC (rev 3192)
+@@ -22,7 +22,6 @@
+ #include &lt;boost/scoped_ptr.hpp&gt;
+ 
+ class CompositorImpl;
+-class Drawable;
+ class GraphicContextState;
+ class SceneContext;
+ class SceneGraph;
+@@ -37,18 +36,6 @@
+   void render(SceneContext&amp; sc, SceneGraph* sg, const GraphicContextState&amp; state);
+ 
+ private:
+-  void render_with_framebuffers(SceneContext&amp; sc, SceneGraph* sg,
+-                                const GraphicContextState&amp; state);
+-  void render_without_framebuffers(SceneContext&amp; sc, SceneGraph* sg, 
+-                                   const GraphicContextState&amp; state);
+-
+-  void render_lightmap(SceneContext&amp; sc, SceneGraph* sg);
+-
+-private:
+-  Compositor(const Compositor&amp;);
+-  Compositor&amp; operator=(const Compositor&amp;);
+-
+-private:
+   boost::scoped_ptr&lt;CompositorImpl&gt; impl;
+ };
+ 
+
+Added: trunk/windstille/src/display/compositor_impl.hpp
+===================================================================
+--- trunk/windstille/src/display/compositor_impl.hpp	2009-09-03 15:14:04 UTC (rev 3191)
++++ trunk/windstille/src/display/compositor_impl.hpp	2009-09-03 16:01:56 UTC (rev 3192)
+@@ -0,0 +1,48 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_DISPLAY_COMPOSITOR_IMPL_HPP
++#define HEADER_WINDSTILLE_DISPLAY_COMPOSITOR_IMPL_HPP
++
++#include &quot;math/size.hpp&quot;
++
++class SceneContext;
++class SceneGraph;
++class GraphicContextState;
++
++class CompositorImpl
++{
++protected:
++  Size m_window;
++  Size m_viewport; 
++
++public:
++  CompositorImpl(const Size&amp; window, const Size&amp; viewport)
++    : m_window(window),
++      m_viewport(viewport)
++  {}
++
++  virtual ~CompositorImpl()
++  {}
++
++  virtual void render(SceneContext&amp; sc, SceneGraph* sg, const GraphicContextState&amp; state) =0;
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/display/compositor_impl.hpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/windstille/src/display/drawing_context.cpp
+===================================================================
+--- trunk/windstille/src/display/drawing_context.cpp	2009-09-03 15:14:04 UTC (rev 3191)
++++ trunk/windstille/src/display/drawing_context.cpp	2009-09-03 16:01:56 UTC (rev 3192)
+@@ -60,7 +60,7 @@
+ }
+ 
+ void
+-DrawingContext::render(Compositor&amp; /*comp*/)
++DrawingContext::render()
+ {
+   std::stable_sort(drawingrequests.begin(), drawingrequests.end(), DrawablesSorter());
+   
+
+Modified: trunk/windstille/src/display/drawing_context.hpp
+===================================================================
+--- trunk/windstille/src/display/drawing_context.hpp	2009-09-03 15:14:04 UTC (rev 3191)
++++ trunk/windstille/src/display/drawing_context.hpp	2009-09-03 16:01:56 UTC (rev 3192)
+@@ -53,7 +53,7 @@
+   ~DrawingContext();
+ 
+   /** Draws everything in the drawing context to the screen */
+-  void render(Compositor&amp; sc);
++  void render();
+ 
+   /** Empties the drawing context */
+   void clear();
+
+Added: trunk/windstille/src/display/framebuffer_compositor_impl.cpp
+===================================================================
+--- trunk/windstille/src/display/framebuffer_compositor_impl.cpp	2009-09-03 15:14:04 UTC (rev 3191)
++++ trunk/windstille/src/display/framebuffer_compositor_impl.cpp	2009-09-03 16:01:56 UTC (rev 3192)
+@@ -0,0 +1,184 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &quot;display/framebuffer_compositor_impl.hpp&quot;
++
++#include &quot;display/display.hpp&quot;
++#include &quot;display/graphic_context_state.hpp&quot;
++#include &quot;display/opengl_state.hpp&quot;
++#include &quot;display/scene_context.hpp&quot;
++#include &quot;scenegraph/scene_graph.hpp&quot;
++
++static const int LIGHTMAP_DIV = 4;
++
++FramebufferCompositorImpl::FramebufferCompositorImpl(const Size&amp; window, const Size&amp; viewport)
++  : CompositorImpl(window, viewport),
++    m_screen  (GL_TEXTURE_2D, window.width, window.height),
++    m_lightmap(GL_TEXTURE_2D, window.width / LIGHTMAP_DIV, window.height / LIGHTMAP_DIV)
++{
++}
++
++void
++FramebufferCompositorImpl::render_lightmap(SceneContext&amp; /*sc*/, SceneGraph* /*sg*/)
++{
++  OpenGLState state;
++
++  state.bind_texture(m_lightmap.get_texture());
++      
++  state.enable(GL_BLEND);
++  state.set_blend_func(GL_DST_COLOR, GL_ZERO); // multiply the lightmap with the screen
++  state.activate();
++
++  glBegin(GL_QUADS);
++  {
++    glTexCoord2i(0, 1);
++    glVertex2i(0, 0);
++
++    glTexCoord2i(1, 1);
++    glVertex2i(m_viewport.width, 0);
++
++    glTexCoord2i(1, 0);
++    glVertex2i(m_viewport.width, m_viewport.height);
++
++    glTexCoord2i(0, 0);
++    glVertex2i(0, m_viewport.height);
++  }
++  glEnd();
++}
++
++void
++FramebufferCompositorImpl::render(SceneContext&amp; sc, SceneGraph* sg, const GraphicContextState&amp; gc_state)
++{
++  glClear(GL_DEPTH_BUFFER_BIT);
++      
++  if (sc.get_render_mask() &amp; SceneContext::LIGHTMAPSCREEN)
++  {
++    // Render the lightmap to framebuffers-&gt;lightmap
++    Display::push_framebuffer(m_lightmap);
++
++    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
++    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
++
++    glPushMatrix();
++    glTranslatef(0.0f, static_cast&lt;float&gt;(m_viewport.height - (m_viewport.height / LIGHTMAP_DIV)), 0.0f);
++    glScalef(1.0f / LIGHTMAP_DIV, 1.0f / LIGHTMAP_DIV, 1.0f / LIGHTMAP_DIV);
++    sc.light().render();
++
++    if (sg)
++    {
++      glPushMatrix();
++      glMultMatrixf(gc_state.get_matrix().matrix);
++      sg-&gt;draw(SceneContext::LIGHTMAP);
++      glPopMatrix();
++    }
++
++    glPopMatrix();
++    
++    Display::pop_framebuffer();
++  }
++
++  { // Render the main screen
++    Display::push_framebuffer(m_screen);
++
++    if (sc.get_render_mask() &amp; SceneContext::COLORMAP)
++    {
++      // Render the colormap to framebuffers-&gt;screen
++      glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
++      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
++      sc.color().render();
++
++      if (sg)
++      {
++        glPushMatrix();
++        glMultMatrixf(gc_state.get_matrix().matrix);
++        sg-&gt;draw(SceneContext::COLORMAP);
++        glPopMatrix();
++      }
++    }
++
++    if (sc.get_render_mask() &amp; SceneContext::LIGHTMAP)
++    { // Renders the lightmap to the screen
++      render_lightmap(sc, sg);
++    }
++
++    if (sc.get_render_mask() &amp; SceneContext::HIGHLIGHTMAP)
++    {
++      sc.highlight().render();
++
++      if (sg)
++      {
++        glPushMatrix();
++        glMultMatrixf(gc_state.get_matrix().matrix);
++        sg-&gt;draw(SceneContext::HIGHLIGHTMAP);
++        glPopMatrix();
++      }
++    }
++
++    if (sc.get_render_mask() &amp; SceneContext::CONTROLMAP)
++    {
++      sc.control().render();
++
++      if (sg)
++      {
++        glPushMatrix();
++        glMultMatrixf(gc_state.get_matrix().matrix);
++        sg-&gt;draw(SceneContext::CONTROLMAP);
++        glPopMatrix();
++      }
++    }
++
++    Display::pop_framebuffer();
++  }
++
++  if (1) 
++  {
++    // Render the screen framebuffer to the actual screen 
++    OpenGLState state;
++
++    //static_cast&lt;float&gt;(m_screen.get_width()),
++    //static_cast&lt;float&gt;(m_screen.get_height()));
++
++    state.bind_texture(m_screen.get_texture(), 0);
++
++    state.activate();
++
++    glBegin(GL_QUADS);
++    {
++      glTexCoord2i(0, 1);
++      glVertex2i(0, 0);
++
++      glTexCoord2i(1, 1);
++      glVertex2i(m_viewport.width, 0);
++
++      glTexCoord2i(1, 0);
++      glVertex2i(m_viewport.width, m_viewport.height);
++
++      glTexCoord2i(0, 0);
++      glVertex2i(0.0f, m_viewport.height);
++    }
++    glEnd();
++  }
++
++  // Clear all DrawingContexts
++  sc.color().clear();
++  sc.light().clear();
++  sc.highlight().clear();
++  sc.control().clear();
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/display/framebuffer_compositor_impl.cpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/display/framebuffer_compositor_impl.hpp
+===================================================================
+--- trunk/windstille/src/display/framebuffer_compositor_impl.hpp	2009-09-03 15:14:04 UTC (rev 3191)
++++ trunk/windstille/src/display/framebuffer_compositor_impl.hpp	2009-09-03 16:01:56 UTC (rev 3192)
+@@ -0,0 +1,46 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_DISPLAY_FRAMEBUFFER_COMPOSITOR_IMPL_HPP
++#define HEADER_WINDSTILLE_DISPLAY_FRAMEBUFFER_COMPOSITOR_IMPL_HPP
++
++#include &quot;display/framebuffer.hpp&quot;
++#include &quot;display/compositor_impl.hpp&quot;
++
++class FramebufferCompositorImpl : public CompositorImpl
++{
++private:
++  Framebuffer m_screen;
++  Framebuffer m_lightmap;   
++
++public:
++  FramebufferCompositorImpl(const Size&amp; window, const Size&amp; viewport);
++
++  void render(SceneContext&amp; sc, SceneGraph* sg, const GraphicContextState&amp; state);
++
++private:
++  void render_lightmap(SceneContext&amp; /*sc*/, SceneGraph* /*sg*/);
++
++private:
++  FramebufferCompositorImpl(const FramebufferCompositorImpl&amp;);
++  FramebufferCompositorImpl&amp; operator=(const FramebufferCompositorImpl&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/display/framebuffer_compositor_impl.hpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002188.html">[Windstille-commit] r3191 - trunk/windstille/src/display
+</A></li>
+	<LI>Next message: <A HREF="002190.html">[Windstille-commit] r3193 - trunk/windstille/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2189">[ date ]</a>
+              <a href="thread.html#2189">[ thread ]</a>
+              <a href="subject.html#2189">[ subject ]</a>
+              <a href="author.html#2189">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

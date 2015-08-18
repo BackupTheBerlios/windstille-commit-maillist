@@ -1,0 +1,459 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1437 - in trunk/windstille/src: . display math
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1437%20-%20in%20trunk/windstille/src%3A%20.%20display%20math&In-Reply-To=%3C200706151713.l5FHDSkZ030094%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001088.html">
+   <LINK REL="Next"  HREF="001090.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1437 - in trunk/windstille/src: . display math</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1437%20-%20in%20trunk/windstille/src%3A%20.%20display%20math&In-Reply-To=%3C200706151713.l5FHDSkZ030094%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1437 - in trunk/windstille/src: . display math">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Jun 15 19:13:28 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001088.html">[Windstille-commit] r1436 - trunk/test
+</A></li>
+        <LI>Next message: <A HREF="001090.html">[Windstille-commit] r1438 - in trunk/windstille/src: . navigation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1089">[ date ]</a>
+              <a href="thread.html#1089">[ thread ]</a>
+              <a href="subject.html#1089">[ subject ]</a>
+              <a href="author.html#1089">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-06-15 19:13:26 +0200 (Fri, 15 Jun 2007)
+New Revision: 1437
+
+Added:
+   trunk/windstille/src/geometry_test.cpp
+   trunk/windstille/src/geometry_test.hpp
+Modified:
+   trunk/windstille/src/SConscript
+   trunk/windstille/src/display/display.cpp
+   trunk/windstille/src/display/display.hpp
+   trunk/windstille/src/math/line.cpp
+   trunk/windstille/src/math/line.hpp
+   trunk/windstille/src/menu_manager.cpp
+   trunk/windstille/src/menu_manager.hpp
+Log:
+- added some line intersection code and some code to test it
+
+Modified: trunk/windstille/src/SConscript
+===================================================================
+--- trunk/windstille/src/SConscript	2007-06-15 06:40:08 UTC (rev 1436)
++++ trunk/windstille/src/SConscript	2007-06-15 17:13:26 UTC (rev 1437)
+@@ -60,6 +60,7 @@
+ 'game_object.cpp',
+ 'game_session.cpp',
+ 'globals.cpp',
++'geometry_test.cpp',
+ 'graphic_context_state.cpp',
+ 'grenade.cpp',
+ 'inventory.cpp',
+
+Modified: trunk/windstille/src/display/display.cpp
+===================================================================
+--- trunk/windstille/src/display/display.cpp	2007-06-15 06:40:08 UTC (rev 1436)
++++ trunk/windstille/src/display/display.cpp	2007-06-15 17:13:26 UTC (rev 1437)
+@@ -42,6 +42,12 @@
+ std::vector&lt;Framebuffer&gt; framebuffers;
+ 
+ void
++Display::draw_line(const Line&amp; line, const Color&amp; color)
++{
++  draw_line(line.p1, line.p2, color);
++}
++
++void
+ Display::draw_line(const Vector&amp; pos1, const Vector&amp; pos2, const Color&amp; color)
+ {
+   OpenGLState state;
+
+Modified: trunk/windstille/src/display/display.hpp
+===================================================================
+--- trunk/windstille/src/display/display.hpp	2007-06-15 06:40:08 UTC (rev 1436)
++++ trunk/windstille/src/display/display.hpp	2007-06-15 17:13:26 UTC (rev 1437)
+@@ -29,6 +29,7 @@
+ #include &lt;vector&gt;
+ #include &lt;SDL.h&gt;
+ #include &quot;math/rect.hpp&quot;
++#include &quot;math/line.hpp&quot;
+ #include &quot;color.hpp&quot;
+ #include &quot;display/framebuffer.hpp&quot;
+ 
+@@ -45,6 +46,7 @@
+   static void fill_rounded_rect(const Rectf&amp; rect, float radius, const Color&amp; color);
+   static void draw_rounded_rect(const Rectf&amp; rect, float radius, const Color&amp; color);
+ 
++  static void draw_line(const Line&amp; line, const Color&amp; color);
+   static void draw_line(const Vector&amp; pos1, const Vector&amp; pos2, const Color&amp; color);
+ 
+   static void draw_circle(const Vector&amp; pos, float radius, const Color&amp; color);
+
+Added: trunk/windstille/src/geometry_test.cpp
+===================================================================
+--- trunk/windstille/src/geometry_test.cpp	2007-06-15 06:40:08 UTC (rev 1436)
++++ trunk/windstille/src/geometry_test.cpp	2007-06-15 17:13:26 UTC (rev 1437)
+@@ -0,0 +1,113 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &lt;GL/glew.h&gt;
++#include &lt;GL/gl.h&gt;
++#include &quot;geometry_test.hpp&quot;
++#include &quot;math/rect.hpp&quot;
++#include &quot;console.hpp&quot;
++#include &quot;math/size.hpp&quot;
++#include &quot;controller_def.hpp&quot;
++#include &quot;input/controller.hpp&quot;
++#include &quot;display/display.hpp&quot;
++
++GeometryTest::GeometryTest()
++{
++  cursor = Vector(400, 300);
++  point_count = 0;
++  had_prev_collision = true;
++}
++
++void
++GeometryTest::draw()
++{
++  glClear(GL_COLOR_BUFFER_BIT);
++
++  Display::draw_line(line1, Color(0.0f, 1.0f, 0.0f));
++  Display::draw_line(line2, Color(0.0f, 1.0f, 0.0f));
++
++  Display::fill_rect(Rectf(cursor - Vector(2,2), Sizef(5,5)), Color(1.0f, 1.0f, 1.0f));
++  Display::fill_rect(Rectf(cursor2 - Vector(2,2), Sizef(5,5)), Color(1.0f, 1.0f, 1.0f));
++  Display::fill_rect(Rectf(collision_point - Vector(2,2), Sizef(5,5)), Color(1.0f, 0.0f, 0.0f));
++
++  Vector current_point;
++  if (point_count == 0)
++    current_point = line1.p1;
++  else if (point_count == 1)
++    current_point = line1.p2;
++  else if (point_count == 2)
++    current_point = line2.p1;
++  else // (point_count == 3)
++    current_point = line2.p2;
++
++  Display::fill_rect(Rectf(current_point - Vector(2,2), Sizef(5,5)), Color(1.0f, 0.0f, 1.0f));
++}
++
++void
++GeometryTest::update(float delta, const Controller&amp; controller)
++{
++  cursor.x += controller.get_axis_state(X_AXIS) * 500.0f * delta;
++  cursor.y += controller.get_axis_state(Y_AXIS) * 500.0f * delta;
++
++  cursor2.x += controller.get_axis_state(X2_AXIS) * 500.0f * delta;
++  cursor2.y -= controller.get_axis_state(Y2_AXIS) * 500.0f * delta;
++
++  if (controller.button_was_pressed(TERTIARY_BUTTON))
++    {
++      point_count += 1;
++      if (point_count &gt; 1)
++        point_count = 0;   
++    }
++
++  if (controller.get_button_state(AIM_BUTTON))
++    {
++      if (point_count == 0)
++        {
++          line1.p1 = cursor;
++          line1.p2 = cursor2;
++        }
++      else if (point_count == 1)
++        {
++          line2.p1 = cursor;
++          line2.p2 = cursor2;
++        }
++
++      if (line1.intersect(line2, collision_point))
++        {
++          if (!had_prev_collision)
++            console &lt;&lt; &quot;Collision&quot; &lt;&lt; std::endl;
++          had_prev_collision = true;
++        }
++      else
++        {
++          if (had_prev_collision)
++            console &lt;&lt; &quot;No Collision&quot; &lt;&lt; std::endl;
++          had_prev_collision = false;
++          collision_point = Vector(32, 32);
++        }
++    }
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/geometry_test.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/geometry_test.hpp
+===================================================================
+--- trunk/windstille/src/geometry_test.hpp	2007-06-15 06:40:08 UTC (rev 1436)
++++ trunk/windstille/src/geometry_test.hpp	2007-06-15 17:13:26 UTC (rev 1437)
+@@ -0,0 +1,60 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_GEOMETRY_TEST_HPP
++#define HEADER_GEOMETRY_TEST_HPP
++
++#include &quot;screen.hpp&quot;
++#include &quot;math/vector.hpp&quot;
++#include &quot;math/line.hpp&quot;
++
++/** */
++class GeometryTest : public Screen
++{
++private:
++  Vector cursor;
++  Vector cursor2;
++  Vector collision_point;
++
++  int point_count;
++
++  Line line1;
++  Line line2;
++  bool had_prev_collision;
++
++public:
++  GeometryTest();
++
++  void draw();
++  void update(float delta, const Controller&amp; controller);
++
++private:
++  GeometryTest (const GeometryTest&amp;);
++  GeometryTest&amp; operator= (const GeometryTest&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/geometry_test.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/windstille/src/math/line.cpp
+===================================================================
+--- trunk/windstille/src/math/line.cpp	2007-06-15 06:40:08 UTC (rev 1436)
++++ trunk/windstille/src/math/line.cpp	2007-06-15 17:13:26 UTC (rev 1437)
+@@ -37,4 +37,39 @@
+   return (p2 - p1).length();
+ }
+ 
++bool
++Line::intersect(const Line&amp; line, float&amp; ua, float&amp; ub)
++{
++  const float&amp; x1 = p1.x;
++  const float&amp; y1 = p1.y;
++
++  const float&amp; x2 = p2.x;
++  const float&amp; y2 = p2.y;
++  
++  const float&amp; x3 = line.p1.x;
++  const float&amp; y3 = line.p1.y;
++
++  const float&amp; x4 = line.p2.x;
++  const float&amp; y4 = line.p2.y;
++
++  float quotient = ((y4 - y3) * (x2 - x1) - (x4 - x3) * (y2 - y1));
++
++  ua = ((x4 - x3) * (y1 - y3) - (y4 - y3) * (x1 - x3)) / quotient;
++  ub = ((x2 - x1) * (y1 - y3) - (y2 - y1) * (x1 - x3)) / quotient;
++
++  return (ua &gt;= 0.0f &amp;&amp; ua &lt;= 1.0f &amp;&amp;
++          ub &gt;= 0.0f &amp;&amp; ub &lt;= 1.0f);
++}
++
++bool
++Line::intersect(const Line&amp; line, Vector&amp; colpos)
++{
++  float ua, ub;
++  bool do_collide = intersect(line, ua, ub);
++
++  colpos = p1 + ((p2 - p1) * ua);
++
++  return do_collide;
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/math/line.hpp
+===================================================================
+--- trunk/windstille/src/math/line.hpp	2007-06-15 06:40:08 UTC (rev 1436)
++++ trunk/windstille/src/math/line.hpp	2007-06-15 17:13:26 UTC (rev 1437)
+@@ -36,16 +36,21 @@
+   Vector p1;
+   Vector p2;
+ 
++  Line() {}
++  
+   Line(const Vector&amp; p1,
+        const Vector&amp; p2);  
+   
+   float length() const;
+ 
+-  /** Calculate if and where two lines collide */
+-  bool collide(const Line&amp; line, float&amp; a, float&amp; b);
++  /** Calculate if and where two lines intersect
++   *  @param a  
++   *  @param b 
++   */
++  bool intersect(const Line&amp; line_b, float&amp; ua, float&amp; ub);
+ 
+-  /** Calculate if and where two lines collide */
+-  bool collide(const Line&amp; line, Vector&amp; colpos);
++  /** Calculate if and where two lines intersect */
++  bool intersect(const Line&amp; line, Vector&amp; colpos);
+ 
+ private:
+   Line (const Line&amp;);
+
+Modified: trunk/windstille/src/menu_manager.cpp
+===================================================================
+--- trunk/windstille/src/menu_manager.cpp	2007-06-15 06:40:08 UTC (rev 1436)
++++ trunk/windstille/src/menu_manager.cpp	2007-06-15 17:13:26 UTC (rev 1437)
+@@ -38,6 +38,7 @@
+ #include &quot;sector.hpp&quot;
+ #include &quot;sprite3d/manager.hpp&quot;
+ #include &quot;sprite3dview.hpp&quot;
++#include &quot;geometry_test.hpp&quot;
+ #include &quot;gui/menu_item.hpp&quot;
+ #include &quot;menu_manager.hpp&quot;
+ 
+@@ -144,6 +145,10 @@
+   slots.push_back(select_scenario_button-&gt;sig_click().connect(this, &amp;MenuManager::display_scenario_menu));
+   menu-&gt;add_item(select_scenario_button);
+ 
++  ButtonMenuItem* geometry_test_button = new ButtonMenuItem(menu,  &quot;Geometry Test&quot;);
++  slots.push_back(geometry_test_button-&gt;sig_click().connect(this, &amp;MenuManager::menu_show_geometry_test));
++  menu-&gt;add_item(geometry_test_button);
++
+   ButtonMenuItem* model_viewer_button = new ButtonMenuItem(menu,  &quot;Model Viewer&quot;);
+   slots.push_back(model_viewer_button-&gt;sig_click().connect(this, &amp;MenuManager::display_models_menu));
+   menu-&gt;add_item(model_viewer_button);
+@@ -554,6 +559,13 @@
+ }
+ 
+ void
++MenuManager::menu_show_geometry_test()
++{
++  screen_manager.push_screen(new GeometryTest());
++  screen_manager.clear_overlay();  
++}
++
++void
+ MenuManager::menu_gamma(int i)
+ {
+   float gamma = i / 100.0f;
+
+Modified: trunk/windstille/src/menu_manager.hpp
+===================================================================
+--- trunk/windstille/src/menu_manager.hpp	2007-06-15 06:40:08 UTC (rev 1436)
++++ trunk/windstille/src/menu_manager.hpp	2007-06-15 17:13:26 UTC (rev 1437)
+@@ -58,6 +58,7 @@
+   void menu_ambient_light(int i, int component);
+   void menu_start_scenario(std::string scenario);
+   void menu_show_model(std::string scenario);
++  void menu_show_geometry_test();
+   void menu_show_particle_system(std::string file);
+   void menu_gamma(int i);
+ private:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001088.html">[Windstille-commit] r1436 - trunk/test
+</A></li>
+	<LI>Next message: <A HREF="001090.html">[Windstille-commit] r1438 - in trunk/windstille/src: . navigation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1089">[ date ]</a>
+              <a href="thread.html#1089">[ thread ]</a>
+              <a href="subject.html#1089">[ subject ]</a>
+              <a href="author.html#1089">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,321 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3003 - trunk/windstille/src/sprite3d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3003%20-%20trunk/windstille/src/sprite3d&In-Reply-To=%3C200908212316.n7LNG0lC014054%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001999.html">
+   <LINK REL="Next"  HREF="002001.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3003 - trunk/windstille/src/sprite3d</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3003%20-%20trunk/windstille/src/sprite3d&In-Reply-To=%3C200908212316.n7LNG0lC014054%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3003 - trunk/windstille/src/sprite3d">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Aug 22 01:16:00 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001999.html">[Windstille-commit] r3002 - in trunk/windstille:	data/particlesystems src/particles
+</A></li>
+        <LI>Next message: <A HREF="002001.html">[Windstille-commit] r3004 - in trunk/windstille/src: display	objects screen sprite3d util
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2000">[ date ]</a>
+              <a href="thread.html#2000">[ thread ]</a>
+              <a href="subject.html#2000">[ subject ]</a>
+              <a href="author.html#2000">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-08-22 01:15:52 +0200 (Sat, 22 Aug 2009)
+New Revision: 3003
+
+Modified:
+   trunk/windstille/src/sprite3d/data.cpp
+   trunk/windstille/src/sprite3d/sprite3d.cpp
+Log:
+Minor code cleanup and use boost::scoped_array
+
+Modified: trunk/windstille/src/sprite3d/data.cpp
+===================================================================
+--- trunk/windstille/src/sprite3d/data.cpp	2009-08-21 22:17:38 UTC (rev 3002)
++++ trunk/windstille/src/sprite3d/data.cpp	2009-08-21 23:15:52 UTC (rev 3003)
+@@ -18,11 +18,13 @@
+ 
+ #include &quot;sprite3d/data.hpp&quot;
+ 
++#include &lt;boost/scoped_array.hpp&gt;
+ #include &lt;iostream&gt;
+ #include &lt;physfs.h&gt;
+ #include &lt;string.h&gt;
+ #include &lt;sstream&gt;
+ #include &lt;stdexcept&gt;
++
+ #include &quot;util/util.hpp&quot;
+ #include &quot;app/globals.hpp&quot;
+ #include &quot;display/texture_manager.hpp&quot;
+@@ -34,26 +36,27 @@
+ 
+ static inline float read_float(PHYSFS_file* file)
+ {
+-  union {
+-    uint32_t i;
+-    float    f;
+-  } result;
++  float result;
+ 
+-  if(PHYSFS_readULE32(file, &amp;result.i) == 0) {
++  if(PHYSFS_readULE32(file, reinterpret_cast&lt;PHYSFS_uint32*&gt;(&amp;result)) == 0) 
++  {
+     std::ostringstream msg;
+     msg &lt;&lt; &quot;Problem reading float value: &quot; &lt;&lt; PHYSFS_getLastError();
+     throw std::runtime_error(msg.str());
+   }
+-
+-  // FIXME: is this platform independent? -&gt; should be, since
+-  // endianess is handled in readULE32
+-  return result.f;
++  else
++  {
++    // FIXME: is this platform independent? -&gt; should be, since
++    // endianess is handled in readULE32
++    return result;
++  }
+ }
+ 
+ static inline uint16_t read_uint16_t(PHYSFS_file* file)
+ {
+   uint16_t result;
+-  if(PHYSFS_readULE16(file, &amp;result) == 0) {
++  if(PHYSFS_readULE16(file, &amp;result) == 0) 
++  {
+     std::ostringstream msg;
+     msg &lt;&lt; &quot;Problem reading uint16 value: &quot; &lt;&lt; PHYSFS_getLastError();
+     throw std::runtime_error(msg.str());
+@@ -63,17 +66,20 @@
+ 
+ static inline std::string read_string(PHYSFS_file* file, size_t size)
+ {
+-  char* buffer = new char[size+1];
+-  if(PHYSFS_read(file, buffer, size, 1) != 1) {
++  boost::scoped_array&lt;char&gt; buffer(new char[size+1]);
++  if(PHYSFS_read(file, buffer.get(), size, 1) != 1) 
++  {
+     std::ostringstream msg;
+     msg &lt;&lt; &quot;Problem reading string value: &quot; &lt;&lt; PHYSFS_getLastError();
+     throw std::runtime_error(msg.str());
+   }
+-  buffer[size] = 0;
+-  std::string ret = buffer;
+-  delete[] buffer;
++  else
++  {
++    buffer[size] = 0;
++    std::string ret = buffer.get();
+ 
+-  return ret;
++    return ret;
++  }
+ }
+ 
+ Data::Data(const std::string&amp; filename)
+@@ -210,16 +216,16 @@
+   }
+ 
+   if (actions.empty())
+-    {
+-      std::ostringstream msg;
+-      msg &lt;&lt; &quot;No action with name '&quot; &lt;&lt; name &lt;&lt; &quot;' defined&quot;;
+-      throw std::runtime_error(msg.str());
+-    }
++  {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;No action with name '&quot; &lt;&lt; name &lt;&lt; &quot;' defined&quot;;
++    throw std::runtime_error(msg.str());
++  }
+   else
+-    {
+-      std::cout &lt;&lt; &quot;No action with name '&quot; &lt;&lt; name &lt;&lt; &quot;' defined&quot; &lt;&lt; std::endl;
+-      return actions.front();
+-    }
++  {
++    std::cout &lt;&lt; &quot;No action with name '&quot; &lt;&lt; name &lt;&lt; &quot;' defined&quot; &lt;&lt; std::endl;
++    return actions.front();
++  }
+ }
+ 
+ const Marker&amp;
+
+Modified: trunk/windstille/src/sprite3d/sprite3d.cpp
+===================================================================
+--- trunk/windstille/src/sprite3d/sprite3d.cpp	2009-08-21 22:17:38 UTC (rev 3002)
++++ trunk/windstille/src/sprite3d/sprite3d.cpp	2009-08-21 23:15:52 UTC (rev 3003)
+@@ -18,12 +18,14 @@
+ 
+ #include &quot;sprite3d/sprite3d.hpp&quot;
+ 
++#include &lt;boost/scoped_array.hpp&gt;
+ #include &lt;assert.h&gt;
+ #include &lt;vector&gt;
+ #include &lt;stdint.h&gt;
+ #include &lt;sstream&gt;
+ #include &lt;stdexcept&gt;
+ #include &lt;physfs.h&gt;
++
+ #include &quot;display/drawing_request.hpp&quot;
+ #include &quot;display/scene_context.hpp&quot;
+ #include &quot;app/globals.hpp&quot;
+@@ -335,14 +337,14 @@
+   OpenGLState state;
+ 
+   if (blend_sfactor != GL_ONE || blend_dfactor != GL_ZERO)
+-    {
+-      state.enable(GL_BLEND);
+-      state.set_blend_func(blend_sfactor, blend_dfactor);
+-    }
++  {
++    state.enable(GL_BLEND);
++    state.set_blend_func(blend_sfactor, blend_dfactor);
++  }
+   else
+-    {
+-      state.enable(GL_DEPTH_TEST);
+-    }
++  {
++    state.enable(GL_DEPTH_TEST);
++  }
+ 
+   state.enable_client_state(GL_VERTEX_ARRAY);
+   state.enable_client_state(GL_NORMAL_ARRAY);
+@@ -354,53 +356,56 @@
+   const ActionFrame&amp; aframe2 = frame2.action-&gt;frames[frame2.frame];
+   
+   for(uint16_t m = 0; m &lt; data-&gt;meshs.size(); ++m) 
+-    {
+-      const Mesh&amp; mesh = data-&gt;meshs[m];
+-      const MeshVertices&amp; vertices1 = aframe1.meshs[m];
+-      const MeshVertices&amp; vertices2 = aframe2.meshs[m];
++  {
++    const Mesh&amp; mesh = data-&gt;meshs[m];
++    const MeshVertices&amp; vertices1 = aframe1.meshs[m];
++    const MeshVertices&amp; vertices2 = aframe2.meshs[m];
+ 
+-      // set texture
+-      state.bind_texture(mesh.texture);
++    // set texture
++    state.bind_texture(mesh.texture);
+ 
+-      // blend between frame1 + frame2
+-      float* verts = new float[mesh.vertex_count * 3];
+-      if(frame1.rot == frame2.rot) {
+-        for(uint16_t v = 0; v &lt; mesh.vertex_count*3; ++v) {
+-          float v1 = vertices1.vertices[v];
+-          float v2 = vertices2.vertices[v];
+-          verts[v] = interpolate(v1, v2, blend_time);
+-        }
+-      } else {
+-        // need to manually rotate 180 degree here because frames have different
+-        // rot values (=&gt; x=-x, y=y, z=-z)
+-        for(uint16_t v = 0; v &lt; mesh.vertex_count*3; ) {
+-          // X coord
+-          float v1 = vertices1.vertices[v];
+-          float v2 = -vertices2.vertices[v];
+-          verts[v++] = interpolate(v1, v2, blend_time);
+-          // Y coord
+-          v1 = vertices1.vertices[v];
+-          v2 = vertices2.vertices[v];
+-          verts[v++] = interpolate(v1, v2, blend_time);
+-          // Z coord
+-          v1 = vertices1.vertices[v];
+-          v2 = -vertices2.vertices[v];                            
+-          verts[v++] = interpolate(v1, v2, blend_time);          
+-        }
++    // blend between frame1 + frame2
++    boost::scoped_array&lt;float&gt; verts(new float[mesh.vertex_count * 3]);
++    if(frame1.rot == frame2.rot) 
++    {
++      for(uint16_t v = 0; v &lt; mesh.vertex_count*3; ++v) 
++      {
++        float v1 = vertices1.vertices[v];
++        float v2 = vertices2.vertices[v];
++        verts[v] = interpolate(v1, v2, blend_time);
+       }
++    } 
++    else 
++    {
++      // need to manually rotate 180 degree here because frames have different
++      // rot values (=&gt; x=-x, y=y, z=-z)
++      for(uint16_t v = 0; v &lt; mesh.vertex_count*3; ) 
++      {
++        // X coord
++        float v1 = vertices1.vertices[v];
++        float v2 = -vertices2.vertices[v];
++        verts[v++] = interpolate(v1, v2, blend_time);
++        // Y coord
++        v1 = vertices1.vertices[v];
++        v2 = vertices2.vertices[v];
++        verts[v++] = interpolate(v1, v2, blend_time);
++        // Z coord
++        v1 = vertices1.vertices[v];
++        v2 = -vertices2.vertices[v];                            
++        verts[v++] = interpolate(v1, v2, blend_time);          
++      }
++    }
+ 
+-      state.activate();
++    state.activate();
+ 
+-      // draw mesh
+-      glVertexPointer(3, GL_FLOAT, 0, verts);
+-      glNormalPointer(GL_FLOAT, 0, &amp;*mesh.normals.begin());
+-      glTexCoordPointer(2, GL_FLOAT, 0, &amp;*mesh.tex_coords.begin());
+-      glDrawElements(GL_TRIANGLES, mesh.triangle_count * 3, GL_UNSIGNED_SHORT,
+-                     &amp;*mesh.vertex_indices.begin());
++    // draw mesh
++    glVertexPointer(3, GL_FLOAT, 0, verts.get());
++    glNormalPointer(GL_FLOAT, 0, &amp;*mesh.normals.begin());
++    glTexCoordPointer(2, GL_FLOAT, 0, &amp;*mesh.tex_coords.begin());
++    glDrawElements(GL_TRIANGLES, mesh.triangle_count * 3, GL_UNSIGNED_SHORT,
++                   &amp;*mesh.vertex_indices.begin());
++  }
+ 
+-      delete[] verts;
+-    }
+-
+   assert_gl(&quot;rendering 3d sprite&quot;);      
+ 
+   glPopMatrix();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001999.html">[Windstille-commit] r3002 - in trunk/windstille:	data/particlesystems src/particles
+</A></li>
+	<LI>Next message: <A HREF="002001.html">[Windstille-commit] r3004 - in trunk/windstille/src: display	objects screen sprite3d util
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2000">[ date ]</a>
+              <a href="thread.html#2000">[ thread ]</a>
+              <a href="subject.html#2000">[ subject ]</a>
+              <a href="author.html#2000">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

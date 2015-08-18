@@ -1,0 +1,308 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r940 - in trunk/src: . scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r940%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200508071522.j77FMRSq027584%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000593.html">
+   <LINK REL="Next"  HREF="000591.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r940 - in trunk/src: . scripting</H1>
+    <B>James Gregory at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r940%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200508071522.j77FMRSq027584%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r940 - in trunk/src: . scripting">jamesgregory at berlios.de
+       </A><BR>
+    <I>Sun Aug  7 17:22:27 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000593.html">[Windstille-commit] r939 - in trunk: data/scripts data/scripts/newformat2 src src/scripting
+</A></li>
+        <LI>Next message: <A HREF="000591.html">[Windstille-commit] r941 - in trunk/data: images/objects levels
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#594">[ date ]</a>
+              <a href="thread.html#594">[ thread ]</a>
+              <a href="subject.html#594">[ subject ]</a>
+              <a href="author.html#594">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: jamesgregory
+Date: 2005-08-07 17:22:25 +0200 (Sun, 07 Aug 2005)
+New Revision: 940
+
+Modified:
+   trunk/src/controller_def.hpp
+   trunk/src/conversation.cpp
+   trunk/src/game_session.cpp
+   trunk/src/game_session.hpp
+   trunk/src/pda.cpp
+   trunk/src/player.cpp
+   trunk/src/scripting/interface.cpp
+Log:
+- player control is blocked when when console, pda dialog, or conversation is active
+- pda displays dialogs in reverse chronological order
+- dialogs stay on the screen when you are selecting a conversation answer, this needs tidying up though
+- changed run button back to primary button
+
+Modified: trunk/src/controller_def.hpp
+===================================================================
+--- trunk/src/controller_def.hpp	2005-08-06 23:13:55 UTC (rev 939)
++++ trunk/src/controller_def.hpp	2005-08-07 15:22:25 UTC (rev 940)
+@@ -40,8 +40,8 @@
+     AIM_BUTTON,       // used to draw the gun and aim
+   };
+ 
+-#define JUMP_BUTTON PRIMARY_BUTTON
+-#define RUN_BUTTON  SECONDARY_BUTTON
++#define JUMP_BUTTON SECONDARY_BUTTON
++#define RUN_BUTTON PRIMARY_BUTTON
+ 
+ /** */
+ class ControllerDef
+
+Modified: trunk/src/conversation.cpp
+===================================================================
+--- trunk/src/conversation.cpp	2005-08-06 23:13:55 UTC (rev 939)
++++ trunk/src/conversation.cpp	2005-08-07 15:22:25 UTC (rev 940)
+@@ -108,6 +108,7 @@
+               active = false;
+               GameSession::current()-&gt;pda.add_dialog(&quot;Jane&quot;, choices[selection]);
+               choices.clear();
++              GameSession::current()-&gt;set_game_state();
+               script_manager-&gt;fire_wakeup_event(ScriptManager::CONVERSATION_CLOSED);
+               return;
+               break;
+
+Modified: trunk/src/game_session.cpp
+===================================================================
+--- trunk/src/game_session.cpp	2005-08-06 23:13:55 UTC (rev 939)
++++ trunk/src/game_session.cpp	2005-08-07 15:22:25 UTC (rev 940)
+@@ -196,13 +196,14 @@
+             {
+             case DIALOG:
+               dialog_manager-&gt;update(delta);
++              conversation-&gt;update(delta);
+               break;
+             case GAME:
+               break;
+             }
+           break;
+         }
+-      conversation-&gt;update(delta);
++      
+       controller_help_window.update(delta);
+       pda.update(delta);
+     }
+
+Modified: trunk/src/game_session.hpp
+===================================================================
+--- trunk/src/game_session.hpp	2005-08-06 23:13:55 UTC (rev 939)
++++ trunk/src/game_session.hpp	2005-08-07 15:22:25 UTC (rev 940)
+@@ -46,6 +46,8 @@
+ 
+ class GameSession : public Windstille::Screen
+ {
++public:
++  enum ControlState { DIALOG, GAME };
+ private:
+   SceneContext sc;
+ 
+@@ -62,7 +64,7 @@
+   bool pause;
+ 
+   enum { FADEIN, RUNNING, FADEOUT } fade_state;
+-  enum { DIALOG, GAME } control_state;
++  ControlState control_state;
+   GameMainState target_state;
+ 
+   void change_sector ();
+@@ -81,6 +83,8 @@
+   void set_dialog_state() { control_state = DIALOG; }
+   void set_game_state()   { control_state = GAME; }
+   void set_sector(const std::string&amp; arg_filename);
++  
++  ControlState get_game_state() const { return control_state; }
+   const std::string&amp; get_filename () const { return filename; }
+ 
+   void draw();
+
+Modified: trunk/src/pda.cpp
+===================================================================
+--- trunk/src/pda.cpp	2005-08-06 23:13:55 UTC (rev 939)
++++ trunk/src/pda.cpp	2005-08-07 15:22:25 UTC (rev 940)
+@@ -134,10 +134,10 @@
+   new_text = &quot;&lt;large&gt;Personal Digital Assistant&lt;/large&gt;\n&quot;;
+   new_text += &quot;inventory - missions - &lt;b&gt;dialogs&lt;/b&gt;\n\n&quot;;
+   
+-  for (unsigned i = 0; i != dialogs.size(); ++i) {
+-    new_text += dialogs[i].character;
++  for (std::vector&lt;Dialog_Entry&gt;::reverse_iterator i = dialogs.rbegin(); i != dialogs.rend(); ++i) {
++    new_text += i-&gt;character;
+     new_text += &quot;: &quot;;
+-    new_text += dialogs[i].text + '\n';
++    new_text += i-&gt;text + '\n';
+   }
+ }
+ 
+
+Modified: trunk/src/player.cpp
+===================================================================
+--- trunk/src/player.cpp	2005-08-06 23:13:55 UTC (rev 939)
++++ trunk/src/player.cpp	2005-08-07 15:22:25 UTC (rev 940)
+@@ -29,6 +29,8 @@
+ #include &quot;glutil/surface_manager.hpp&quot;
+ #include &quot;particles/particle_system.hpp&quot;
+ #include &quot;collision/collision_engine.hpp&quot;
++#include &quot;game_session.hpp&quot;
++#include &quot;console.hpp&quot;
+ 
+ static const int MAX_ENERGY = 16;
+ static const float WALK_SPEED = 128.0;
+@@ -112,51 +114,55 @@
+ {
+   controller = InputManager::get_controller();
+ 
+-  switch(state) {
+-    case STAND:
+-    case WALK:
+-      update_walk_stand();
+-      break;
+-    case RUN:
+-      update_run();
+-      break;
+-    case DUCKING:
+-      update_ducking();
+-      break;
+-    case DUCKED:
+-      update_ducked();
+-      break;
+-    case TURNAROUND:
+-      update_turnaround();
+-      break;
+-    case STAND_TO_LISTEN:
+-      update_stand_to_listen();
+-      break;
+-    case LISTEN:
+-      update_listen();
+-      break;
+-    case JUMP_BEGIN:
+-      update_jump_begin();
+-      break;
+-    case JUMP_AIR:
+-      update_jump_air();
+-      break;
+-    case JUMP_LAND:
+-      update_jump_land();
+-      break;
+-    case JUMP_UP_BEGIN:
+-      update_jump_up_begin();
+-      break;
+-    case JUMP_UP_AIR:
+-      update_jump_up_air();
+-      break;
+-    case JUMP_UP_LAND:
+-      update_jump_up_land();
+-      break;
+-    default:
+-      assert(false);
+-      break;
+-  }
++  if (!console.is_active() &amp;&amp; !GameSession::current()-&gt;pda.is_active()
++  &amp;&amp; GameSession::current()-&gt;get_game_state() != GameSession::DIALOG)
++    {
++      switch(state) {
++        case STAND:
++        case WALK:
++          update_walk_stand();
++          break;
++        case RUN:
++          update_run();
++          break;
++        case DUCKING:
++          update_ducking();
++          break;
++        case DUCKED:
++          update_ducked();
++          break;
++        case TURNAROUND:
++          update_turnaround();
++          break;
++        case STAND_TO_LISTEN:
++          update_stand_to_listen();
++          break;
++        case LISTEN:
++          update_listen();
++          break;
++        case JUMP_BEGIN:
++          update_jump_begin();
++          break;
++        case JUMP_AIR:
++          update_jump_air();
++          break;
++        case JUMP_LAND:
++          update_jump_land();
++          break;
++        case JUMP_UP_BEGIN:
++          update_jump_up_begin();
++          break;
++        case JUMP_UP_AIR:
++          update_jump_up_air();
++          break;
++        case JUMP_UP_LAND:
++          update_jump_up_land();
++          break;
++        default:
++          assert(false);
++          break;
++      }
++    }
+ 
+   // fall down
+   velocity.y += GRAVITY * delta;
+
+Modified: trunk/src/scripting/interface.cpp
+===================================================================
+--- trunk/src/scripting/interface.cpp	2005-08-06 23:13:55 UTC (rev 939)
++++ trunk/src/scripting/interface.cpp	2005-08-07 15:22:25 UTC (rev 940)
+@@ -138,6 +138,7 @@
+ void conversation_show()
+ {
+   Conversation::current()-&gt;show();
++  GameSession::current()-&gt;set_dialog_state();
+ }
+ 
+ int  conversation_get_selection()
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000593.html">[Windstille-commit] r939 - in trunk: data/scripts data/scripts/newformat2 src src/scripting
+</A></li>
+	<LI>Next message: <A HREF="000591.html">[Windstille-commit] r941 - in trunk/data: images/objects levels
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#594">[ date ]</a>
+              <a href="thread.html#594">[ thread ]</a>
+              <a href="subject.html#594">[ subject ]</a>
+              <a href="author.html#594">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

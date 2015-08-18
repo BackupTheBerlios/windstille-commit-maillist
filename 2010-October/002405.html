@@ -1,0 +1,246 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3408 - trunk/windstille/src/display
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2010-October/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3408%20-%20trunk/windstille/src/display&In-Reply-To=%3C20101024185352.C7F5B48107E%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002404.html">
+   <LINK REL="Next"  HREF="002406.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3408 - trunk/windstille/src/display</H1>
+    <B>grumbel at mail.berlios.de</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3408%20-%20trunk/windstille/src/display&In-Reply-To=%3C20101024185352.C7F5B48107E%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3408 - trunk/windstille/src/display">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Oct 24 20:53:52 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002404.html">[Windstille-commit] r3407 - trunk/windstille/src/display
+</A></li>
+        <LI>Next message: <A HREF="002406.html">[Windstille-commit] r3409 - trunk/windstille/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2405">[ date ]</a>
+              <a href="thread.html#2405">[ thread ]</a>
+              <a href="subject.html#2405">[ subject ]</a>
+              <a href="author.html#2405">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2010-10-24 20:53:52 +0200 (Sun, 24 Oct 2010)
+New Revision: 3408
+
+Modified:
+   trunk/windstille/src/display/software_surface.cpp
+   trunk/windstille/src/display/software_surface.hpp
+Log:
+Convert surface data into a normalized format to avoid issues with Texture upload
+
+Modified: trunk/windstille/src/display/software_surface.cpp
+===================================================================
+--- trunk/windstille/src/display/software_surface.cpp	2010-10-24 18:53:22 UTC (rev 3407)
++++ trunk/windstille/src/display/software_surface.cpp	2010-10-24 18:53:52 UTC (rev 3408)
+@@ -17,14 +17,16 @@
+ */
+ 
+ #include &lt;boost/scoped_array.hpp&gt;
++#include &lt;boost/format.hpp&gt;
+ #include &lt;png.h&gt;
+ #include &lt;errno.h&gt;
+ #include &lt;sstream&gt;
+ #include &lt;stdexcept&gt;
+ #include &lt;SDL_image.h&gt;
+ 
++#include &quot;display/software_surface.hpp&quot;
+ #include &quot;math/rect.hpp&quot;
+-#include &quot;display/software_surface.hpp&quot;
++#include &quot;util/util.hpp&quot;
+ 
+ SoftwareSurfacePtr
+ SoftwareSurface::create(const Pathname&amp; filename)
+@@ -39,7 +41,8 @@
+ }
+ 
+ SoftwareSurface::SoftwareSurface(const Pathname&amp; filename) :
+-  m_surface(0)
++  m_surface(0),
++  m_format(RGBA)
+ {
+   m_surface = IMG_Load(filename.get_sys_path().c_str());
+ 
+@@ -53,24 +56,114 @@
+   {
+     SDL_SetAlpha(m_surface, 0, 0);
+ 
++    if (m_surface-&gt;format-&gt;BytesPerPixel == 4)
++    { // convert image into standard format
++      m_format = RGBA;
++      
++      if ((is_little_endian() &amp;&amp; 
++           !(m_surface-&gt;format-&gt;Rmask == 0x000000ff &amp;&amp;
++             m_surface-&gt;format-&gt;Gmask == 0x0000ff00 &amp;&amp;
++             m_surface-&gt;format-&gt;Bmask == 0x00ff0000 &amp;&amp;
++             m_surface-&gt;format-&gt;Amask == 0xff000000)) ||
++          (is_big_endian() &amp;&amp;
++           !(m_surface-&gt;format-&gt;Rmask == 0xff000000 &amp;&amp;
++             m_surface-&gt;format-&gt;Gmask == 0x00ff0000 &amp;&amp;
++             m_surface-&gt;format-&gt;Bmask == 0x0000ff00 &amp;&amp;
++             m_surface-&gt;format-&gt;Amask == 0x000000ff)))
++      {
++        std::cout &lt;&lt; &quot;XXX Doing conversation RGBA: &quot; &lt;&lt; filename &lt;&lt; std::endl;
++        std::cout &lt;&lt; &quot;    rmask: &quot; &lt;&lt; boost::format(&quot;%08x %08x %08x %08x&quot;) % 
++          m_surface-&gt;format-&gt;Rmask %
++          m_surface-&gt;format-&gt;Gmask %
++          m_surface-&gt;format-&gt;Bmask %
++          m_surface-&gt;format-&gt;Amask &lt;&lt; std::endl;
++
++        SDL_Surface* tmp_surface;
++        if (is_little_endian())
++        {
++          tmp_surface = SDL_CreateRGBSurface(SDL_SWSURFACE,
++                                             m_surface-&gt;w, m_surface-&gt;h, 32,
++                                             0xff000000, 0x00ff0000, 0x0000ff00, 0x000000ff);
++        }
++        else
++        {
++          tmp_surface = SDL_CreateRGBSurface(SDL_SWSURFACE,
++                                             m_surface-&gt;w, m_surface-&gt;h, 32,
++                                             0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000);
++        }
++
++        SDL_BlitSurface(m_surface, 0, tmp_surface, 0);
++
++        std::swap(m_surface, tmp_surface);
++        SDL_FreeSurface(tmp_surface);
++      }
++    }
++    else if (m_surface-&gt;format-&gt;BytesPerPixel == 3)
++    {
++      m_format = RGB;
++      
++      if ((is_little_endian() &amp;&amp; 
++           !(m_surface-&gt;format-&gt;Rmask == 0x0000ff &amp;&amp;
++             m_surface-&gt;format-&gt;Gmask == 0x00ff00 &amp;&amp;
++             m_surface-&gt;format-&gt;Bmask == 0xff0000 &amp;&amp;
++             m_surface-&gt;format-&gt;Amask == 0x000000)) ||
++          (is_big_endian() &amp;&amp;
++           !(m_surface-&gt;format-&gt;Rmask == 0xff0000 &amp;&amp;
++             m_surface-&gt;format-&gt;Gmask == 0x00ff00 &amp;&amp;
++             m_surface-&gt;format-&gt;Bmask == 0x0000ff &amp;&amp;
++             m_surface-&gt;format-&gt;Amask == 0x000000)))
++      {
++        std::cout &lt;&lt; &quot;XXX Doing conversation RGB: &quot; &lt;&lt; filename &lt;&lt; std::endl;
++        std::cout &lt;&lt; &quot;    rmask: &quot; &lt;&lt; boost::format(&quot;%08x %08x %08x %08x&quot;) % 
++          m_surface-&gt;format-&gt;Rmask %
++          m_surface-&gt;format-&gt;Gmask %
++          m_surface-&gt;format-&gt;Bmask %
++          m_surface-&gt;format-&gt;Amask &lt;&lt; std::endl;
++
++
++        SDL_Surface* tmp_surface;
++        if (is_little_endian())
++        {
++          tmp_surface = SDL_CreateRGBSurface(SDL_SWSURFACE,
++                                             m_surface-&gt;w, m_surface-&gt;h, 24,
++                                             0xff000, 0x00ff00, 0x0000ff, 0);
++        }
++        else
++        {
++          tmp_surface = SDL_CreateRGBSurface(SDL_SWSURFACE,
++                                             m_surface-&gt;w, m_surface-&gt;h, 24,
++                                             0x0000ff, 0x00ff00, 0xff0000, 0);
++        }
++
++        SDL_BlitSurface(m_surface, 0, tmp_surface, 0);
++
++        std::swap(m_surface, tmp_surface);
++        SDL_FreeSurface(tmp_surface);
++      }
++    }
++
+     assert(!SDL_MUSTLOCK(m_surface));
+   }
+ }
+ 
+ SoftwareSurface::SoftwareSurface(int width, int height, Format format) :
+-  m_surface(0)
++  m_surface(0),
++  m_format(format)
+ {
+   assert(format == RGBA);
+ 
+-#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+-  m_surface = SDL_CreateRGBSurface(SDL_SWSURFACE,
+-                                       width, height, 32,
+-                                       0xff000000, 0x00ff0000, 0x0000ff00, 0x000000ff);
+-#else
+-  m_surface = SDL_CreateRGBSurface(SDL_SWSURFACE,
+-                                       width, height, 32,
+-                                       0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000);
+-#endif
++  if (is_big_endian())
++  {
++    m_surface = SDL_CreateRGBSurface(SDL_SWSURFACE,
++                                     width, height, 32,
++                                     0xff000000, 0x00ff0000, 0x0000ff00, 0x000000ff);
++  }
++  else
++  {
++    m_surface = SDL_CreateRGBSurface(SDL_SWSURFACE,
++                                     width, height, 32,
++                                     0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000);
++  }
+ 
+   SDL_SetAlpha(m_surface, 0, 0);
+ 
+
+Modified: trunk/windstille/src/display/software_surface.hpp
+===================================================================
+--- trunk/windstille/src/display/software_surface.hpp	2010-10-24 18:53:22 UTC (rev 3407)
++++ trunk/windstille/src/display/software_surface.hpp	2010-10-24 18:53:52 UTC (rev 3408)
+@@ -67,8 +67,11 @@
+ 
+   bool is_at(int x, int y) const;
+ 
++  Format get_format() const { return m_format; }
++
+ private:
+   SDL_Surface* m_surface;
++  Format m_format;
+ 
+ private:
+   SoftwareSurface(const SoftwareSurface&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002404.html">[Windstille-commit] r3407 - trunk/windstille/src/display
+</A></li>
+	<LI>Next message: <A HREF="002406.html">[Windstille-commit] r3409 - trunk/windstille/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2405">[ date ]</a>
+              <a href="thread.html#2405">[ thread ]</a>
+              <a href="subject.html#2405">[ subject ]</a>
+              <a href="author.html#2405">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,438 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3202 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3202%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909072041.n87Kfh3t006471%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002198.html">
+   <LINK REL="Next"  HREF="002200.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3202 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3202%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909072041.n87Kfh3t006471%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3202 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Sep  7 22:41:43 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002198.html">[Windstille-commit] r3201 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="002200.html">[Windstille-commit] r3203 - trunk/windstille/src/navigation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2199">[ date ]</a>
+              <a href="thread.html#2199">[ thread ]</a>
+              <a href="subject.html#2199">[ subject ]</a>
+              <a href="author.html#2199">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-07 22:41:42 +0200 (Mon, 07 Sep 2009)
+New Revision: 3202
+
+Modified:
+   trunk/windstille/src/editor/navgraph_edge_object_model.cpp
+   trunk/windstille/src/editor/navgraph_edge_object_model.hpp
+   trunk/windstille/src/editor/navgraph_insert_tool.cpp
+   trunk/windstille/src/editor/navgraph_node_object_model.cpp
+   trunk/windstille/src/editor/navgraph_node_object_model.hpp
+   trunk/windstille/src/editor/object_model.cpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/editor/windstille_widget.hpp
+Log:
+NavGraphNode is now dragable with normal select tool
+
+Modified: trunk/windstille/src/editor/navgraph_edge_object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_edge_object_model.cpp	2009-09-07 19:39:02 UTC (rev 3201)
++++ trunk/windstille/src/editor/navgraph_edge_object_model.cpp	2009-09-07 20:41:42 UTC (rev 3202)
+@@ -18,14 +18,46 @@
+ 
+ #include &quot;editor/navgraph_edge_object_model.hpp&quot;
+ 
+-NavGraphEdgeObjectModel::NavGraphEdgeObjectModel()
+-  : ObjectModel(&quot;NavGraphEdgeObjectModel&quot;, Vector2f())
++#include &quot;editor/navgraph_node_object_model.hpp&quot;
++#include &quot;scenegraph/vertex_array_drawable.hpp&quot;
++#include &quot;scenegraph/scene_graph.hpp&quot;
++
++NavGraphEdgeObjectModel::NavGraphEdgeObjectModel(boost::weak_ptr&lt;NavGraphNodeObjectModel&gt; lhs,
++                                                 boost::weak_ptr&lt;NavGraphNodeObjectModel&gt; rhs)
++  : ObjectModel(&quot;NavGraphEdgeObjectModel&quot;, Vector2f()),
++    m_lhs(lhs),
++    m_rhs(rhs),
++    m_drawable()
+ {
+ }
+ 
+ void
++NavGraphEdgeObjectModel::update(float delta)
++{
++  if (m_drawable)
++  {
++    boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; lhs = m_lhs.lock();
++    boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; rhs = m_rhs.lock();
++
++    if (lhs &amp;&amp; rhs)
++    {
++      m_drawable-&gt;clear();
++
++      m_drawable-&gt;color(Color(0.0f, 1.0f, 1.0f));
++      m_drawable-&gt;vertex(lhs-&gt;get_world_pos());
++
++      m_drawable-&gt;color(Color(0.0f, 1.0f, 1.0f));
++      m_drawable-&gt;vertex(rhs-&gt;get_world_pos());
++    }
++  }
++}
++
++void
+ NavGraphEdgeObjectModel::add_to_scenegraph(SceneGraph&amp; sg)
+ {
++  m_drawable.reset(new VertexArrayDrawable(Vector2f(), 0.0f, Matrix::identity()));
++  update(0.0f);
++  sg.add_drawable(m_drawable);
+ }
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/navgraph_edge_object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_edge_object_model.hpp	2009-09-07 19:39:02 UTC (rev 3201)
++++ trunk/windstille/src/editor/navgraph_edge_object_model.hpp	2009-09-07 20:41:42 UTC (rev 3202)
+@@ -16,18 +16,29 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
+-#ifndef HEADER_WINDSTILLE_EDITOR_NAVGRAPH_NODE_OBJECT_MODEL_HPP
+-#define HEADER_WINDSTILLE_EDITOR_NAVGRAPH_NODE_OBJECT_MODEL_HPP
++#ifndef HEADER_WINDSTILLE_EDITOR_NAVGRAPH_EDGE_OBJECT_MODEL_HPP
++#define HEADER_WINDSTILLE_EDITOR_NAVGRAPH_EDGE_OBJECT_MODEL_HPP
+ 
++#include &lt;boost/weak_ptr.hpp&gt;
++
+ #include &quot;editor/object_model.hpp&quot;
+ 
++class NavGraphNodeObjectModel;
++class VertexArrayDrawable;
++
+ class NavGraphEdgeObjectModel : public ObjectModel
+ {
+ private:
++  boost::weak_ptr&lt;NavGraphNodeObjectModel&gt; m_lhs;
++  boost::weak_ptr&lt;NavGraphNodeObjectModel&gt; m_rhs;
++  boost::shared_ptr&lt;VertexArrayDrawable&gt; m_drawable;
++  
+ public:
+-  NavGraphEdgeObjectModel();
++  NavGraphEdgeObjectModel(boost::weak_ptr&lt;NavGraphNodeObjectModel&gt; lhs,
++                          boost::weak_ptr&lt;NavGraphNodeObjectModel&gt; rhs);
+ 
+   void add_to_scenegraph(SceneGraph&amp; sg);
++  void update(float delta);
+ 
+ private:
+   NavGraphEdgeObjectModel(const NavGraphEdgeObjectModel&amp;);
+
+Modified: trunk/windstille/src/editor/navgraph_insert_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_insert_tool.cpp	2009-09-07 19:39:02 UTC (rev 3201)
++++ trunk/windstille/src/editor/navgraph_insert_tool.cpp	2009-09-07 20:41:42 UTC (rev 3202)
+@@ -16,14 +16,16 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
++#include &quot;editor/navgraph_insert_tool.hpp&quot;
++
+ #include &quot;editor/sector_model.hpp&quot;
+ #include &quot;navigation/navigation_graph.hpp&quot;
+ #include &quot;navigation/node.hpp&quot;
+ #include &quot;navigation/edge.hpp&quot;
+ #include &quot;editor/windstille_widget.hpp&quot;
+ #include &quot;editor/editor_window.hpp&quot;
+-
+-#include &quot;editor/navgraph_insert_tool.hpp&quot;
++#include &quot;editor/navgraph_node_object_model.hpp&quot;
++#include &quot;editor/object_commands.hpp&quot;
+ 
+ NavgraphInsertTool::NavgraphInsertTool()
+   : mouse_pos(),
+@@ -36,10 +38,11 @@
+ }
+ 
+ void
+-NavgraphInsertTool::mouse_down (GdkEventButton* event, WindstilleWidget&amp; wst)
++NavgraphInsertTool::mouse_down(GdkEventButton* event, WindstilleWidget&amp; wst)
+ {
+   mouse_pos = wst.get_state().screen_to_world(Vector2f(static_cast&lt;float&gt;(event-&gt;x), static_cast&lt;float&gt;(event-&gt;y)));
+   NavigationGraph&amp; navgraph = *wst.get_sector_model()-&gt;get_nav_graph();
++  SectorModel* sector = wst.get_sector_model();
+ 
+   NodeHandle node = navgraph.find_closest_node(mouse_pos, 16.0f); // FIXME: Radius should scale with zoom
+   EdgeHandle edge = navgraph.find_closest_edge(mouse_pos, 16.0f);
+@@ -56,7 +59,10 @@
+             }
+           else
+             { // connect last node with newly created node
+-              node = navgraph.add_node(mouse_pos);
++              NavGraphNodeObjectModel* obj = new NavGraphNodeObjectModel(mouse_pos, *sector);
++              node = obj-&gt;get_node();
++              wst.execute(CommandHandle(new ObjectAddCommand(wst.get_current_layer(), ObjectModelHandle(obj))));
++
+               navgraph.add_edge(last_node, node);
+               last_node = NodeHandle();
+             }
+@@ -78,7 +84,10 @@
+             }
+           else
+             {
+-              last_node = navgraph.add_node(mouse_pos);
++              NavGraphNodeObjectModel* obj = new NavGraphNodeObjectModel(mouse_pos, *sector);
++              last_node = obj-&gt;get_node();
++              wst.execute(CommandHandle(new ObjectAddCommand(wst.get_current_layer(), ObjectModelHandle(obj))));
++              
+               mode = EDGE_MODE;
+             }
+         }
+
+Modified: trunk/windstille/src/editor/navgraph_node_object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_node_object_model.cpp	2009-09-07 19:39:02 UTC (rev 3201)
++++ trunk/windstille/src/editor/navgraph_node_object_model.cpp	2009-09-07 20:41:42 UTC (rev 3202)
+@@ -18,14 +18,79 @@
+ 
+ #include &quot;editor/navgraph_node_object_model.hpp&quot;
+ 
+-NavGraphNodeObjectModel::NavGraphNodeObjectModel(const Vector2f&amp; pos)
+-  : ObjectModel(&quot;NavGraphNodeObjectModel&quot;, pos)
++#include &quot;editor/sector_model.hpp&quot;
++#include &quot;scenegraph/vertex_array_drawable.hpp&quot;
++#include &quot;scenegraph/scene_graph.hpp&quot;
++#include &quot;navigation/node.hpp&quot;
++
++NavGraphNodeObjectModel::NavGraphNodeObjectModel(const Vector2f&amp; pos, SectorModel&amp; sector)
++  : ObjectModel(&quot;NavGraphNodeObjectModel&quot;, pos),
++    m_drawable(),
++    m_node()
+ {
++  m_node = sector.get_nav_graph()-&gt;add_node(pos);
+ }
+ 
+ void
+ NavGraphNodeObjectModel::add_to_scenegraph(SceneGraph&amp; sg)
+ {
++  if (!m_drawable)
++    m_drawable.reset(new VertexArrayDrawable(Vector2f(), 0.0f, Matrix::identity()));
++
++  sync_drawable();
++  sg.add_drawable(m_drawable);
+ }
+ 
++void
++NavGraphNodeObjectModel::sync_drawable()
++{
++  if (m_drawable)
++  {
++    m_drawable-&gt;clear();
++
++    m_drawable-&gt;color(Color(1.0f, 0.0f, 0.0f));
++    m_drawable-&gt;vertex(get_world_pos() + Vector2f(-10.0f, -10.0f));
++
++    m_drawable-&gt;color(Color(1.0f, 0.0f, 0.0f));
++    m_drawable-&gt;vertex(get_world_pos() + Vector2f(10.0f, -10.0f));
++
++    m_drawable-&gt;color(Color(1.0f, 0.0f, 0.0f));
++    m_drawable-&gt;vertex(get_world_pos() + Vector2f(10.0f, 10.0f));
++
++    m_drawable-&gt;color(Color(1.0f, 0.0f, 0.0f));
++    m_drawable-&gt;vertex(get_world_pos() + Vector2f(-10.0f, 10.0f));
++  }
++}
++
++void
++NavGraphNodeObjectModel::set_rel_pos(const Vector2f&amp; rel_pos_)
++{
++  ObjectModel::set_rel_pos(rel_pos_);
++  m_node-&gt;set_pos(get_world_pos());
++}
++
++void
++NavGraphNodeObjectModel::on_remove()
++{
++  // remove connected edges
++}
++
++Rectf
++NavGraphNodeObjectModel::get_bounding_box() const
++{
++  return Rectf(get_world_pos() - Vector2f(10.0f, 10.0f),
++               Sizef(20.0f, 20.0f));
++}
++
++ObjectModelHandle 
++NavGraphNodeObjectModel::clone() const
++{
++  return ObjectModelHandle();
++}
++
++void
++NavGraphNodeObjectModel::write(FileWriter&amp; writer) const
++{
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/navgraph_node_object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_node_object_model.hpp	2009-09-07 19:39:02 UTC (rev 3201)
++++ trunk/windstille/src/editor/navgraph_node_object_model.hpp	2009-09-07 20:41:42 UTC (rev 3202)
+@@ -19,16 +19,34 @@
+ #ifndef HEADER_WINDSTILLE_EDITOR_NAVGRAPH_NODE_OBJECT_MODEL_HPP
+ #define HEADER_WINDSTILLE_EDITOR_NAVGRAPH_NODE_OBJECT_MODEL_HPP
+ 
++#include &lt;boost/shared_ptr.hpp&gt;
++
+ #include &quot;editor/object_model.hpp&quot;
++#include &quot;navigation/navigation_graph.hpp&quot;
+ 
++class VertexArrayDrawable;
++
+ class NavGraphNodeObjectModel : public ObjectModel
+ {
+ private:
++  boost::shared_ptr&lt;VertexArrayDrawable&gt; m_drawable;
++  NodeHandle m_node;
++
+ public:
+-  NavGraphNodeObjectModel(const Vector2f&amp; pos);
++  NavGraphNodeObjectModel(const Vector2f&amp; pos, SectorModel&amp; sector);
+ 
+   void add_to_scenegraph(SceneGraph&amp; sg);
++  void set_rel_pos(const Vector2f&amp; rel_pos_);
++  void sync_drawable();
+ 
++  void on_remove();
++  
++  NodeHandle get_node() const { return m_node; }
++
++  Rectf get_bounding_box() const;
++  ObjectModelHandle clone() const;
++  void write(FileWriter&amp; writer) const;
++
+ private:
+   NavGraphNodeObjectModel(const NavGraphNodeObjectModel&amp;);
+   NavGraphNodeObjectModel&amp; operator=(const NavGraphNodeObjectModel&amp;);
+
+Modified: trunk/windstille/src/editor/object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/object_model.cpp	2009-09-07 19:39:02 UTC (rev 3201)
++++ trunk/windstille/src/editor/object_model.cpp	2009-09-07 20:41:42 UTC (rev 3202)
+@@ -131,15 +131,15 @@
+ ObjectModel::set_world_pos(const Vector2f&amp; p)
+ {
+   if (parent_ptr.lock())
+-    rel_pos += p - get_world_pos();
++    set_rel_pos(rel_pos + (p - get_world_pos()));
+   else
+-    rel_pos = p;
++    set_rel_pos(p);
+ }
+ 
+ void
+ ObjectModel::set_rel_pos(const Vector2f&amp; rel_pos_)
+ {
+-  // Cut to integer positions
++  // FIXME: Cut to integer positions, might not be the right place to do this
+   rel_pos.x = floorf(rel_pos_.x);
+   rel_pos.y = floorf(rel_pos_.y);
+ }
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-09-07 19:39:02 UTC (rev 3201)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-09-07 20:41:42 UTC (rev 3202)
+@@ -557,6 +557,7 @@
+       }
+     }
+   }
++
+   queue_draw();
+ }
+ 
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-09-07 19:39:02 UTC (rev 3201)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-09-07 20:41:42 UTC (rev 3202)
+@@ -88,7 +88,6 @@
+   void draw(SceneContext&amp; sc, const SelectMask&amp; layers, bool draw_navgraph);
+ 
+   void update(float delta);
+-  void update(float delta, const Gtk::TreeRow&amp; row);
+ 
+   void set_all_visible(bool v);
+   void set_all_locked(bool v);
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-09-07 19:39:02 UTC (rev 3201)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-09-07 20:41:42 UTC (rev 3202)
+@@ -132,7 +132,7 @@
+ {
+   undo_manager-&gt;execute(cmd);
+   EditorWindow::current()-&gt;update_undo_state();
+-  queue_draw();
++  sector_model-&gt;rebuild_scene_graph();
+ }
+ 
+ bool
+
+Modified: trunk/windstille/src/editor/windstille_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.hpp	2009-09-07 19:39:02 UTC (rev 3201)
++++ trunk/windstille/src/editor/windstille_widget.hpp	2009-09-07 20:41:42 UTC (rev 3202)
+@@ -82,7 +82,7 @@
+ 
+   GraphicContextState&amp; get_state() { return state; }
+ 
+-  void execute(CommandHandle);
++  void execute(CommandHandle cmd);
+ 
+   virtual void on_realize();
+   virtual bool on_timeout();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002198.html">[Windstille-commit] r3201 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="002200.html">[Windstille-commit] r3203 - trunk/windstille/src/navigation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2199">[ date ]</a>
+              <a href="thread.html#2199">[ thread ]</a>
+              <a href="subject.html#2199">[ subject ]</a>
+              <a href="author.html#2199">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

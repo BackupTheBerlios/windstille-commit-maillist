@@ -1,0 +1,702 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r514 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r514%20-%20trunk/src&In-Reply-To=%3C200507022052.j62KquN9017673%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000169.html">
+   <LINK REL="Next"  HREF="000171.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r514 - trunk/src</H1>
+    <B>James Gregory at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r514%20-%20trunk/src&In-Reply-To=%3C200507022052.j62KquN9017673%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r514 - trunk/src">jamesgregory at berlios.de
+       </A><BR>
+    <I>Sat Jul  2 22:52:56 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000169.html">[Windstille-commit] r513 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000171.html">[Windstille-commit] r515 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#170">[ date ]</a>
+              <a href="thread.html#170">[ thread ]</a>
+              <a href="subject.html#170">[ subject ]</a>
+              <a href="author.html#170">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: jamesgregory
+Date: 2005-07-02 22:52:53 +0200 (Sat, 02 Jul 2005)
+New Revision: 514
+
+Modified:
+   trunk/src/game_session.cpp
+   trunk/src/game_session.hpp
+   trunk/src/globals.cpp
+   trunk/src/globals.hpp
+   trunk/src/screen.cpp
+   trunk/src/screen.hpp
+   trunk/src/windstille_bonus.cpp
+   trunk/src/windstille_bonus.hpp
+   trunk/src/windstille_main.cpp
+   trunk/src/windstille_main.hpp
+   trunk/src/windstille_menu.cpp
+   trunk/src/windstille_menu.hpp
+Log:
+Restructure such that there is only a single Screen* in the whole game, a private member of WindstilleMain. This pointer can be moved between different types of Screen by modifying the global game_main_state
+
+Modified: trunk/src/game_session.cpp
+===================================================================
+--- trunk/src/game_session.cpp	2005-07-02 20:44:42 UTC (rev 513)
++++ trunk/src/game_session.cpp	2005-07-02 20:52:53 UTC (rev 514)
+@@ -61,10 +61,83 @@
+ {
+   current_ = this;
+   set_sector(arg_filename);
++  
++  slots.push_back(CL_Keyboard::sig_key_down().connect(this, &amp;GameSession::on_key_down));
++  slots.push_back(CL_Mouse::sig_key_down().connect(this, &amp;GameSession::on_mouse_down));
++
++  blink = 0.0f;
++
++  GameObject::set_world (world);
++
++  view   = new View();
++  
++  energiebar = new Energiebar();
++  dialog_manager = new DialogManager();
++
++  logo       = CL_Sprite(&quot;logo&quot;, resources);
++  logo_black = CL_Sprite(&quot;logo_black&quot;, resources);
++
++  if (1)
++    {
++      world-&gt;add(new Door(24, 6));
++      world-&gt;add(new Door(32, 14));
++      world-&gt;add(new Door(8, 22));
++
++      CL_Surface surface1(&quot;particles/smoke&quot;, resources);
++      CL_Surface surface2(&quot;particles/smoke2&quot;, resources);
++
++      ParticleSystem* psystem2 = new ParticleSystem();
++      psystem2-&gt;set_drawer(new SparkDrawer());
++      psystem2-&gt;set_pos(0,0);
++      psystem2-&gt;set_speed(300, 550);
++      psystem2-&gt;set_cone(-25-90, 25-90);
++      psystem2-&gt;set_gravity(0, 5);
++      psystem2-&gt;set_line_distribution(-50, 0, 50, 0);
++
++      ParticleSystem* psystem3 = new ParticleSystem();
++      psystem3-&gt;set_lifetime(8);
++      psystem3-&gt;set_count(30);
++      surface2.set_blend_func(blend_src_alpha, blend_one_minus_src_alpha);
++      surface2.set_alignment(origin_center);
++      psystem3-&gt;set_drawer(new SurfaceDrawer(surface2));
++      psystem3-&gt;set_pos(0,0);
++      psystem3-&gt;set_speed(70, 100);
++      psystem3-&gt;set_cone(-25-90, 25-90);
++      psystem3-&gt;set_gravity(0, -1);
++      psystem3-&gt;set_size(1.0f, 3.0f);
++      psystem3-&gt;set_line_distribution(-50, 0, 50, 0);
++ 
++      ParticleSystem* psystem = new ParticleSystem();
++      psystem-&gt;set_count(100);
++      surface1.set_blend_func(blend_src_alpha, blend_one);
++      surface1.set_alignment(origin_center);
++      psystem-&gt;set_drawer(new SurfaceDrawer(surface1));
++      psystem-&gt;set_pos(0,0);
++      psystem-&gt;set_speed(200, 300);
++      psystem-&gt;set_cone(-5-90, 5-90);
++      psystem-&gt;set_gravity(0, 0);
++      psystem-&gt;set_line_distribution(-50, 0, 50, 0);
++
++      psystem-&gt;set_spawn_point (768, 832);
++      psystem2-&gt;set_spawn_point(768, 832);
++      psystem3-&gt;set_spawn_point(768, 832);
++      
++      world-&gt;add(psystem3);
++      world-&gt;add(psystem2);
++      world-&gt;add(psystem);
++    }
++  
++  world-&gt;add(new Sprite3D(&quot;3dsprites/3dsprites&quot;));
++
++  world-&gt;activate();
++  world-&gt;spawn_player(&quot;default&quot;);
+ }
+ 
+ GameSession::~GameSession()
+ {
++  delete energiebar;
++  delete view;
++  delete dialog_manager;
+   delete world;
+ }
+ 
+@@ -178,7 +251,7 @@
+       break;
+     case FADEOUT:
+       if (fadeout_value &gt; 1.0f)
+-        Screen::quit();
++        game_main_state = LOAD_MENU;
+ 
+       fadeout_value += delta;
+       break;
+@@ -221,88 +294,6 @@
+ }
+ 
+ void
+-GameSession::on_startup ()
+-{ 
+-  slots.push_back(CL_Keyboard::sig_key_down().connect(this, &amp;GameSession::on_key_down));
+-  slots.push_back(CL_Mouse::sig_key_down().connect(this, &amp;GameSession::on_mouse_down));
+-
+-  blink = 0.0f;
+-
+-  GameObject::set_world (world);
+-
+-  view   = new View();
+-  
+-  energiebar = new Energiebar();
+-  dialog_manager = new DialogManager();
+-
+-  logo       = CL_Sprite(&quot;logo&quot;, resources);
+-  logo_black = CL_Sprite(&quot;logo_black&quot;, resources);
+-
+-  if (1)
+-    {
+-      world-&gt;add(new Door(24, 6));
+-      world-&gt;add(new Door(32, 14));
+-      world-&gt;add(new Door(8, 22));
+-
+-      CL_Surface surface1(&quot;particles/smoke&quot;, resources);
+-      CL_Surface surface2(&quot;particles/smoke2&quot;, resources);
+-
+-      ParticleSystem* psystem2 = new ParticleSystem();
+-      psystem2-&gt;set_drawer(new SparkDrawer());
+-      psystem2-&gt;set_pos(0,0);
+-      psystem2-&gt;set_speed(300, 550);
+-      psystem2-&gt;set_cone(-25-90, 25-90);
+-      psystem2-&gt;set_gravity(0, 5);
+-      psystem2-&gt;set_line_distribution(-50, 0, 50, 0);
+-
+-      ParticleSystem* psystem3 = new ParticleSystem();
+-      psystem3-&gt;set_lifetime(8);
+-      psystem3-&gt;set_count(30);
+-      surface2.set_blend_func(blend_src_alpha, blend_one_minus_src_alpha);
+-      surface2.set_alignment(origin_center);
+-      psystem3-&gt;set_drawer(new SurfaceDrawer(surface2));
+-      psystem3-&gt;set_pos(0,0);
+-      psystem3-&gt;set_speed(70, 100);
+-      psystem3-&gt;set_cone(-25-90, 25-90);
+-      psystem3-&gt;set_gravity(0, -1);
+-      psystem3-&gt;set_size(1.0f, 3.0f);
+-      psystem3-&gt;set_line_distribution(-50, 0, 50, 0);
+- 
+-      ParticleSystem* psystem = new ParticleSystem();
+-      psystem-&gt;set_count(100);
+-      surface1.set_blend_func(blend_src_alpha, blend_one);
+-      surface1.set_alignment(origin_center);
+-      psystem-&gt;set_drawer(new SurfaceDrawer(surface1));
+-      psystem-&gt;set_pos(0,0);
+-      psystem-&gt;set_speed(200, 300);
+-      psystem-&gt;set_cone(-5-90, 5-90);
+-      psystem-&gt;set_gravity(0, 0);
+-      psystem-&gt;set_line_distribution(-50, 0, 50, 0);
+-
+-      psystem-&gt;set_spawn_point (768, 832);
+-      psystem2-&gt;set_spawn_point(768, 832);
+-      psystem3-&gt;set_spawn_point(768, 832);
+-      
+-      world-&gt;add(psystem3);
+-      world-&gt;add(psystem2);
+-      world-&gt;add(psystem);
+-    }
+-  
+-  world-&gt;add(new Sprite3D(&quot;3dsprites/3dsprites&quot;));
+-
+-  world-&gt;activate();
+-  world-&gt;spawn_player(&quot;default&quot;);
+-}
+-
+-void
+-GameSession::on_shutdown ()
+-{
+-  delete energiebar;
+-  delete view;
+-  delete dialog_manager;
+-}
+-
+-void
+ GameSession::quit()
+ {
+   if (state != FADEOUT)
+
+Modified: trunk/src/game_session.hpp
+===================================================================
+--- trunk/src/game_session.hpp	2005-07-02 20:44:42 UTC (rev 513)
++++ trunk/src/game_session.hpp	2005-07-02 20:52:53 UTC (rev 514)
+@@ -76,9 +76,6 @@
+   void set_game_state()   { control_state = GAME; }
+   void set_sector (const std::string&amp; arg_filename);
+ 
+-  void on_startup();
+-  void on_shutdown();
+-
+   void draw();
+   void draw_game();
+   void update(float delta);
+
+Modified: trunk/src/globals.cpp
+===================================================================
+--- trunk/src/globals.cpp	2005-07-02 20:44:42 UTC (rev 513)
++++ trunk/src/globals.cpp	2005-07-02 20:52:53 UTC (rev 514)
+@@ -31,5 +31,6 @@
+ float game_speed = 1.0f;
+ int debug = 1;
+ bool sound_disabled = false;
++GameMainState game_main_state;
+ 
+ /* EOF */
+
+Modified: trunk/src/globals.hpp
+===================================================================
+--- trunk/src/globals.hpp	2005-07-02 20:44:42 UTC (rev 513)
++++ trunk/src/globals.hpp	2005-07-02 20:52:53 UTC (rev 514)
+@@ -44,6 +44,9 @@
+ 
+ extern int debug;
+ 
++enum GameMainState { RUN_GAME, LOAD_MENU, LOAD_GAME_SESSION, LOAD_BONUS, QUIT_GAME };
++extern GameMainState game_main_state;
++
+ #endif
+ 
+ /* EOF */
+
+Modified: trunk/src/screen.cpp
+===================================================================
+--- trunk/src/screen.cpp	2005-07-02 20:44:42 UTC (rev 513)
++++ trunk/src/screen.cpp	2005-07-02 20:52:53 UTC (rev 514)
+@@ -33,45 +33,42 @@
+ {
+ }
+ 
++Screen::~Screen()
++{
++  CL_Keyboard::sig_key_down().disconnect(slot);
++}
++
+ void 
+ Screen::display()
+ {
+   do_pause = false;
+-  do_quit  = false;
+ 
+-  on_startup();
+-
+   DeltaManager delta_manager;
+ 
+   slot = CL_Keyboard::sig_key_down().connect(this, &amp;Screen::key_down);
+-  while (!do_quit)
+-    {
+-      draw();
+-      float delta = delta_manager.getset ();
+-      float step = 10/1000.0f;
+-      if (config-&gt;show_fps)
+-        draw_fps(delta);
+-      CL_Display::flip(0);
+-      
+-      ++frames;
+-      
+-      while (delta &gt; step)
+-        {
+-          update(step);
+-          delta -= step;
+-        }
+-      // FIXME: non constant delta isn't a good idea
+-      update(delta);
+-      
+-      // update(0.020f);
+ 
+-      sound_manager-&gt;update();
+-      CL_System::keep_alive ();
+-      //CL_System::sleep (1);
++  draw();
++  float delta = delta_manager.getset ();
++  float step = 10/1000.0f;
++  if (config-&gt;show_fps)
++    draw_fps(delta);
++  CL_Display::flip(0);
++  
++  ++frames;
++  
++  while (delta &gt; step)
++    {
++      update(step);
++      delta -= step;
+     }
+-  CL_Keyboard::sig_key_down().disconnect(slot);
++  // FIXME: non constant delta isn't a good idea
++  update(delta);
++  
++  // update(0.020f);
+ 
+-  on_shutdown();
++  sound_manager-&gt;update();
++  CL_System::keep_alive ();
++  //CL_System::sleep (1); 
+ }
+ 
+ void 
+
+Modified: trunk/src/screen.hpp
+===================================================================
+--- trunk/src/screen.hpp	2005-07-02 20:44:42 UTC (rev 513)
++++ trunk/src/screen.hpp	2005-07-02 20:52:53 UTC (rev 514)
+@@ -31,7 +31,6 @@
+   void draw_fps(float delta);
+   void key_down(const CL_InputEvent&amp; event);
+   
+-  bool do_quit;
+   bool do_pause;
+   CL_Slot slot;
+   
+@@ -40,17 +39,13 @@
+   
+ public:
+   Screen();
+-  virtual ~Screen() {}
++  virtual ~Screen();
+ 
+   virtual void draw() =0;
+   virtual void update(float delta) =0;
+ 
+-  virtual void on_startup() {}
+-  virtual void on_shutdown() {}
+-
+   void display();
+ 
+-  virtual void quit() { do_quit = true; }
+   void set_pause(bool p) { do_pause = p; }
+   bool get_pause() { return do_pause; }
+ private:
+
+Modified: trunk/src/windstille_bonus.cpp
+===================================================================
+--- trunk/src/windstille_bonus.cpp	2005-07-02 20:44:42 UTC (rev 513)
++++ trunk/src/windstille_bonus.cpp	2005-07-02 20:52:53 UTC (rev 514)
+@@ -108,15 +108,12 @@
+ 
+     case FADEOUT:
+       if (fadeout_value &gt; 1.0f)
+-        Screen::quit();
++        game_main_state = LOAD_MENU;
+ 
+       fadeout_value += delta;
+       break;
+ 
+     case RUNNING:
+-      if (CL_Keyboard::get_keycode(CL_KEY_ESCAPE))
+-        quit();
+-
+       passed_time += delta;
+ 
+       if (passed_time &gt; 1.85f)
+@@ -151,6 +148,9 @@
+       sprite.set_alpha(std::max(0.0f, std::min(1.0f, 1.0f - passed_time/1.85f)));
+       break;
+     }
++    
++    if (CL_Keyboard::get_keycode(CL_KEY_ESCAPE))
++      quit();
+ }
+ 
+ void
+@@ -161,14 +161,4 @@
+   fadeout_value = 0;
+ }
+ 
+-void
+-WindstilleBonus::on_startup()
+-{
+-}
+-
+-void
+-WindstilleBonus::on_shutdown()
+-{
+-}
+-
+ /* EOF */
+
+Modified: trunk/src/windstille_bonus.hpp
+===================================================================
+--- trunk/src/windstille_bonus.hpp	2005-07-02 20:44:42 UTC (rev 513)
++++ trunk/src/windstille_bonus.hpp	2005-07-02 20:52:53 UTC (rev 514)
+@@ -46,9 +46,6 @@
+   void update(float delta);
+ 
+   void quit();
+-
+-  void on_startup();
+-  void on_shutdown();
+ };
+ 
+ #endif
+
+Modified: trunk/src/windstille_main.cpp
+===================================================================
+--- trunk/src/windstille_main.cpp	2005-07-02 20:44:42 UTC (rev 513)
++++ trunk/src/windstille_main.cpp	2005-07-02 20:52:53 UTC (rev 514)
+@@ -24,9 +24,11 @@
+ 
+ #include &quot;windstille_error.hpp&quot;
+ #include &quot;globals.hpp&quot;
++#include &quot;screen.hpp&quot;
+ #include &quot;game_session.hpp&quot;
+ #include &quot;windstille_main.hpp&quot;
+ #include &quot;windstille_menu.hpp&quot;
++#include &quot;windstille_bonus.hpp&quot;
+ #include &quot;fonts.hpp&quot;
+ #include &quot;sector.hpp&quot;
+ #include &quot;input/input_manager.hpp&quot;
+@@ -36,10 +38,13 @@
+ #include &quot;tinygettext/gettext.hpp&quot;
+ #include &quot;gameconfig.hpp&quot;
+ 
++using namespace Windstille;
++
+ WindstilleMain main_app;
+ CL_ResourceManager* resources;
+ 
+ WindstilleMain::WindstilleMain()
++  : the_game(0)
+ {
+   game_definition_file = &quot;windstille.rb&quot;;
+ }
+@@ -234,19 +239,22 @@
+     
+     if (debug) std::cout &lt;&lt; &quot;Initialising TileFactory&quot; &lt;&lt; std::endl;
+     TileFactory::init();
++    
+     if (levelfile.empty())
+       {
+-        if (debug) std::cout &lt;&lt; &quot;Starting Menu&quot; &lt;&lt; std::endl;
+-        WindstilleMenu menu;
+-        menu.display();
++        game_main_state = LOAD_MENU;
+       }
+     else 
+       {
+         std::string leveldir = dirname(levelfile);
+         PHYSFS_addToSearchPath(leveldir.c_str(), true);
+-        GameSession game (basename(levelfile));
+-        game.display ();
++        GameSession game(basename(levelfile));
++        the_game = new GameSession(basename(levelfile));
++        game_main_state = RUN_GAME;
+       }
++      
++    while (game_main());
++    
+     TileFactory::deinit();
+     InputManager::deinit();
+ 
+@@ -431,4 +439,40 @@
+     printf(&quot;[%s] is in the search path.\n&quot;, *i);
+ }
+ 
++bool
++WindstilleMain::game_main()
++{
++  switch (game_main_state)
++    {
++    case RUN_GAME:
++      the_game-&gt;display();
++      break;
++    case LOAD_MENU:
++      if (the_game)
++        delete the_game;
++      the_game = new WindstilleMenu();
++      game_main_state = RUN_GAME;
++      break;
++    case LOAD_GAME_SESSION:
++      if (the_game)
++        delete the_game;
++      the_game = new GameSession(&quot;levels/newformat2.wst&quot;);
++      game_main_state = RUN_GAME;
++      break;
++    case LOAD_BONUS:
++      if (the_game)
++        delete the_game;
++      the_game = new WindstilleBonus();
++      game_main_state = RUN_GAME;
++      break;
++    case QUIT_GAME:
++      if (the_game)
++        delete the_game;
++      return false;
++      break;
++    }
++  
++  return true;
++}
++
+ /* EOF */
+
+Modified: trunk/src/windstille_main.hpp
+===================================================================
+--- trunk/src/windstille_main.hpp	2005-07-02 20:44:42 UTC (rev 513)
++++ trunk/src/windstille_main.hpp	2005-07-02 20:52:53 UTC (rev 514)
+@@ -23,6 +23,8 @@
+ #include &lt;ClanLib/gl.h&gt;
+ #include &lt;ClanLib/application.h&gt;
+ 
++#include &quot;screen.hpp&quot;
++
+ class WindstilleMain : public CL_ClanApplication
+ {
+ public:
+@@ -46,6 +48,9 @@
+   void parse_command_line(int argc, char** argv);
+   void init_modules();
+   void deinit_modules();
++  bool game_main();
++
++  Windstille::Screen* the_game;
+ };
+ 
+ extern WindstilleMain main_app;
+
+Modified: trunk/src/windstille_menu.cpp
+===================================================================
+--- trunk/src/windstille_menu.cpp	2005-07-02 20:44:42 UTC (rev 513)
++++ trunk/src/windstille_menu.cpp	2005-07-02 20:52:53 UTC (rev 514)
+@@ -37,9 +37,12 @@
+   : background(&quot;menu_background&quot;, resources),
+     windstille(&quot;logo_large&quot;, resources)
+ {
++  if (debug) std::cout &lt;&lt; &quot;Starting Menu&quot; &lt;&lt; std::endl;
+   current_choice = 0;
+   windstille.set_alignment(origin_center);
+   passed_time = 0;
++  
++  sound_manager-&gt;play_music(&quot;music/jingle.ogg&quot;);
+ }
+ 
+ WindstilleMenu::~WindstilleMenu()
+@@ -58,7 +61,7 @@
+   windstille.update(delta);
+ 
+   if (CL_Keyboard::get_keycode(CL_KEY_ESCAPE))
+-    quit();
++    game_main_state = QUIT_GAME;
+ 
+   InputEventLst events = InputManager::get_controller().get_events();
+ 
+@@ -73,17 +76,15 @@
+                   || (current_choice == 2 &amp;&amp; bonus_active))// QUIT
+                 {
+                   sound_manager-&gt;stop_music();
+-                  fadeout();
+-                  quit();
++                  fadeout();                  
++                  game_main_state = QUIT_GAME;
+                   break;
+                 }
+               else if (current_choice == 1 &amp;&amp; bonus_active)
+                 {
+                   sound_manager-&gt;stop_music();
+                   fadeout();
+-                  WindstilleBonus bonus;
+-                  bonus.display();
+-                  on_startup();
++                  game_main_state = LOAD_BONUS;
+                   break;
+                 }
+               else if (current_choice == 0) // start game
+@@ -91,9 +92,7 @@
+                   InputManager::clear();
+                   sound_manager-&gt;stop_music();
+                   fadeout();
+-                  GameSession game(&quot;levels/newformat2.wst&quot;);
+-                  game.display ();
+-                  on_startup();
++                  game_main_state = LOAD_GAME_SESSION;
+                   break;
+                 }
+               else if (current_choice == 1) // start editor
+@@ -103,7 +102,6 @@
+                   fadeout();
+                   Editor editor;
+                   editor.run();
+-                  on_startup();
+                   */
+                   break;
+                 }
+@@ -232,15 +230,4 @@
+     }
+ }
+ 
+-void
+-WindstilleMenu::on_startup()
+-{
+-  sound_manager-&gt;play_music(&quot;music/jingle.ogg&quot;);
+-}
+-
+-void
+-WindstilleMenu::on_shutdown()
+-{
+-}
+-
+ /* EOF */
+
+Modified: trunk/src/windstille_menu.hpp
+===================================================================
+--- trunk/src/windstille_menu.hpp	2005-07-02 20:44:42 UTC (rev 513)
++++ trunk/src/windstille_menu.hpp	2005-07-02 20:52:53 UTC (rev 514)
+@@ -39,9 +39,6 @@
+   void update(float delta);
+   void draw();
+   
+-  void on_startup();
+-  void on_shutdown();
+-
+ private:
+   void fadeout();
+   WindstilleMenu (const WindstilleMenu&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000169.html">[Windstille-commit] r513 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000171.html">[Windstille-commit] r515 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#170">[ date ]</a>
+              <a href="thread.html#170">[ thread ]</a>
+              <a href="subject.html#170">[ subject ]</a>
+              <a href="author.html#170">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

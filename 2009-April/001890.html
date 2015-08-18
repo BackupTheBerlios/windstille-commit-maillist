@@ -1,0 +1,258 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2893 - in trunk/windstille/src: editor screen
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2893%20-%20in%20trunk/windstille/src%3A%20editor%20screen&In-Reply-To=%3C200904072311.n37NBBSQ008172%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001889.html">
+   <LINK REL="Next"  HREF="001891.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2893 - in trunk/windstille/src: editor screen</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2893%20-%20in%20trunk/windstille/src%3A%20editor%20screen&In-Reply-To=%3C200904072311.n37NBBSQ008172%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2893 - in trunk/windstille/src: editor screen">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Apr  8 01:11:11 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001889.html">[Windstille-commit] r2892 - trunk/windstille/src/navigation
+</A></li>
+        <LI>Next message: <A HREF="001891.html">[Windstille-commit] r2894 - in trunk/windstille/src: . editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1890">[ date ]</a>
+              <a href="thread.html#1890">[ thread ]</a>
+              <a href="subject.html#1890">[ subject ]</a>
+              <a href="author.html#1890">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-04-08 01:11:07 +0200 (Wed, 08 Apr 2009)
+New Revision: 2893
+
+Modified:
+   trunk/windstille/src/editor/navgraph_tool.cpp
+   trunk/windstille/src/editor/navgraph_tool.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/screen/navigation_test.cpp
+Log:
+Some basic work on navigation graph
+
+Modified: trunk/windstille/src/editor/navgraph_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_tool.cpp	2009-04-07 23:10:29 UTC (rev 2892)
++++ trunk/windstille/src/editor/navgraph_tool.cpp	2009-04-07 23:11:07 UTC (rev 2893)
+@@ -16,7 +16,11 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
++#include &quot;sector_model.hpp&quot;
++#include &quot;navigation/navigation_graph.hpp&quot;
++#include &quot;navigation/node.hpp&quot;
+ #include &quot;windstille_widget.hpp&quot;
++
+ #include &quot;navgraph_tool.hpp&quot;
+ 
+ NavgraphTool::NavgraphTool()
+@@ -27,15 +31,32 @@
+ NavgraphTool::mouse_down (GdkEventButton* event, WindstilleWidget&amp; wst)
+ {
+   click_pos = wst.get_state().screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
++  NavigationGraph&amp; navgraph = *wst.get_sector_model()-&gt;get_nav_graph();
+ 
+-  {
+-    rect.left   = click_pos.x;
+-    rect.top    = click_pos.y;
+-    rect.right  = click_pos.x;
+-    rect.bottom = click_pos.y;
++  NodeHandle node = navgraph.find_closest_node(click_pos, 16.0f); // FIXME: Radius should scale with zoom
++  EdgeHandle edge = navgraph.find_closest_edge(click_pos, 16.0f);
++
++  if (node)
++    {
++      mode = DRAG_MODE;
++      selection.clear();
++      selection.insert(node);
++    }
++  else if (edge)
++    {
++      navgraph.remove_edge(edge);
++      mode = NO_MODE;
++    }
++  else
++    {
++      rect.left   = click_pos.x;
++      rect.top    = click_pos.y;
++      rect.right  = click_pos.x;
++      rect.bottom = click_pos.y;
+       
+-    mode = SELECT_MODE;
+-  }
++      selection.clear();
++      mode = SELECT_MODE;
++    }
+ 
+   return true;
+ }
+@@ -47,7 +68,14 @@
+ 
+   switch(mode)
+     {
++      case EDGE_MODE:
++        break;
++
+       case DRAG_MODE:
++        {
++          NodeHandle node = *selection.begin();
++          node-&gt;set_pos(pos);
++        }
+         break;
+ 
+       case SELECT_MODE:
+@@ -66,7 +94,30 @@
+ NavgraphTool::mouse_up(GdkEventButton* event, WindstilleWidget&amp; wst)
+ {
+   Vector2f pos = wst.get_state().screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
++  NavigationGraph&amp; navgraph = *wst.get_sector_model()-&gt;get_nav_graph();
+ 
++  switch(mode)
++    {
++      case DRAG_MODE:
++        break;
++
++      case EDGE_MODE:
++        break;
++
++      case SELECT_MODE:
++        {
++          rect.normalize();
++          const std::vector&lt;NodeHandle&gt;&amp; lst = navgraph.find_nodes(rect);
++          selection.insert(lst.begin(), lst.end());
++          std::cout &lt;&lt; &quot;NavgraphTool::select: &quot; &lt;&lt; selection.size() &lt;&lt; std::endl;
++          wst.queue_draw();
++        }
++        break;
++
++      case NO_MODE:
++        break;
++    }
++
+   mode = NO_MODE;
+ 
+   return true;
+@@ -80,6 +131,12 @@
+       sc.control().fill_rect(rect, Color(1.0f, 0.5f, 0.5f, 0.25));
+       sc.control().draw_rect(rect, Color(1.0f, 0.5f, 0.5f)); 
+     }
++
++  std::cout &lt;&lt; &quot;NavgraphTool::draw: &quot; &lt;&lt; selection.size() &lt;&lt; std::endl;
++  for(std::set&lt;NodeHandle&gt;::const_iterator i = selection.begin(); i != selection.end(); ++i)
++    {
++      sc.control().draw_rect(Rectf((*i)-&gt;get_pos() - Vector2f(16,16), Sizef(32,32)), Color(1.0f, 1.0f, 1.0f));
++    }
+ }
+   
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/navgraph_tool.hpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_tool.hpp	2009-04-07 23:10:29 UTC (rev 2892)
++++ trunk/windstille/src/editor/navgraph_tool.hpp	2009-04-07 23:11:07 UTC (rev 2893)
+@@ -19,8 +19,11 @@
+ #ifndef HEADER_WINDSTILLE_EDITOR_NAVGRAPH_TOOL_HPP
+ #define HEADER_WINDSTILLE_EDITOR_NAVGRAPH_TOOL_HPP
+ 
++#include &lt;set&gt;
++
+ #include &quot;math/rect.hpp&quot;
+ #include &quot;tool.hpp&quot;
++#include &quot;navigation/navigation_graph.hpp&quot;
+ 
+ class NavgraphTool : public Tool
+ {
+@@ -29,11 +32,14 @@
+   Rectf    rect;
+ 
+   enum { 
+-    SELECT_MODE,
+-    DRAG_MODE,
+-    NO_MODE
++    SELECT_MODE, // select multiple nodes at once
++    DRAG_MODE,   // move nodes around
++    EDGE_MODE,   // create an edge between two nodes
++    NO_MODE      // mode is determined by next click
+   } mode;
+ 
++  std::set&lt;NodeHandle&gt; selection;
++
+ public:
+   NavgraphTool();
+ 
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-04-07 23:10:29 UTC (rev 2892)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-04-07 23:11:07 UTC (rev 2893)
+@@ -271,8 +271,8 @@
+           (*i)-&gt;draw(*sc);
+         }
+ 
+-      if (active_tool)
+-        active_tool-&gt;draw(*sc);
++      if (EditorWindow::current()-&gt;get_current_tool())
++        EditorWindow::current()-&gt;get_current_tool()-&gt;draw(*sc);
+ 
+       sc-&gt;render();
+       state.pop(*sc);
+
+Modified: trunk/windstille/src/screen/navigation_test.cpp
+===================================================================
+--- trunk/windstille/src/screen/navigation_test.cpp	2009-04-07 23:10:29 UTC (rev 2892)
++++ trunk/windstille/src/screen/navigation_test.cpp	2009-04-07 23:11:07 UTC (rev 2893)
+@@ -34,11 +34,7 @@
+ NavigationTest::NavigationTest()
+   : cursor(400, 300),
+     player(200,200),
+-    graph(new NavigationGraph()),
+-    connection(0),
+-    selected_edge(0),
+-    selected_node(0),
+-    node_to_connect(0)
++    graph(new NavigationGraph())
+ {
+   try {
+     FileReader reader = FileReader::parse(&quot;navigation.nav&quot;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001889.html">[Windstille-commit] r2892 - trunk/windstille/src/navigation
+</A></li>
+	<LI>Next message: <A HREF="001891.html">[Windstille-commit] r2894 - in trunk/windstille/src: . editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1890">[ date ]</a>
+              <a href="thread.html#1890">[ thread ]</a>
+              <a href="subject.html#1890">[ subject ]</a>
+              <a href="author.html#1890">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,546 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1574 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-December/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1574%20-%20trunk/griv&In-Reply-To=%3C200712030126.lB31QH2S016837%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001224.html">
+   <LINK REL="Next"  HREF="001226.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1574 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1574%20-%20trunk/griv&In-Reply-To=%3C200712030126.lB31QH2S016837%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1574 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Dec  3 02:26:17 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001224.html">[Windstille-commit] r1573 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001226.html">[Windstille-commit] r1575 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1225">[ date ]</a>
+              <a href="thread.html#1225">[ thread ]</a>
+              <a href="subject.html#1225">[ subject ]</a>
+              <a href="author.html#1225">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-12-03 02:26:15 +0100 (Mon, 03 Dec 2007)
+New Revision: 1574
+
+Modified:
+   trunk/griv/grid.hpp
+   trunk/griv/griv.cpp
+   trunk/griv/griv.hpp
+   trunk/griv/image.cpp
+   trunk/griv/large_surface.cpp
+   trunk/griv/large_surface.hpp
+   trunk/griv/loader.cpp
+   trunk/griv/software_surface.cpp
+   trunk/griv/surface.cpp
+   trunk/griv/surface.hpp
+   trunk/griv/texture.cpp
+   trunk/griv/thumbnail_store.cpp
+Log:
+- fixed aspect ration, large image/originals work now
+
+Modified: trunk/griv/grid.hpp
+===================================================================
+--- trunk/griv/grid.hpp	2007-12-02 21:32:36 UTC (rev 1573)
++++ trunk/griv/grid.hpp	2007-12-03 01:26:15 UTC (rev 1574)
+@@ -53,17 +53,33 @@
+   int get_height() const { return height; }
+ 
+   const T&amp; operator()(int x, int y) const {
++    assert(y &gt;= 0 &amp;&amp; y &lt; rows.size());
++    assert(x &gt;= 0 &amp;&amp; x &lt; rows[y].size());
+     return rows[y][x];
+   }
+ 
+   T&amp; operator()(int x, int y) {
++    assert(y &gt;= 0 &amp;&amp; y &lt; int(rows.size()));
++    assert(x &gt;= 0 &amp;&amp; x &lt; int(rows[y].size()));
+     return rows[y][x];
+   }
+ 
+-  void resize(int w, int h)
++  void resize(int w, int h, const T&amp; t = T())
+   {
+-    rows.resize(h);
++    for(typename Rows::iterator i = rows.begin(); i != rows.end(); ++i)
++      i-&gt;resize(w);
++    rows.resize(h, Columns(w, t));
+ 
++    if (0)
++      {
++        std::cout &lt;&lt; &quot;Resize: &quot; &lt;&lt; w &lt;&lt; &quot;x&quot; &lt;&lt; h &lt;&lt; std::endl;
++        std::cout &lt;&lt; &quot;Rows: &quot; &lt;&lt; rows.size() &lt;&lt; std::endl;
++        for(int y = 0; y &lt; int(rows.size()); ++y)
++          {
++            std::cout &lt;&lt; &quot;Column: &quot; &lt;&lt; y &lt;&lt; &quot; -&gt; &quot; &lt;&lt; rows[y].size() &lt;&lt; std::endl;
++          }
++      }
++
+     width  = w;
+     height = h;
+   }
+
+Modified: trunk/griv/griv.cpp
+===================================================================
+--- trunk/griv/griv.cpp	2007-12-02 21:32:36 UTC (rev 1573)
++++ trunk/griv/griv.cpp	2007-12-03 01:26:15 UTC (rev 1574)
+@@ -486,8 +486,13 @@
+ 
+ int main(int argc, char** argv)
+ {
+-  Griv griv;
+-  return griv.main(argc, argv);
++  try {
++    Griv griv;
++    return griv.main(argc, argv);
++  } catch(std::exception&amp; err) {
++    std::cout &lt;&lt; &quot;Griv: uncatched exception: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
++    return EXIT_FAILURE;
++  }
+ }
+ 
+ /* EOF */
+
+Modified: trunk/griv/griv.hpp
+===================================================================
+--- trunk/griv/griv.hpp	2007-12-02 21:32:36 UTC (rev 1573)
++++ trunk/griv/griv.hpp	2007-12-03 01:26:15 UTC (rev 1574)
+@@ -59,6 +59,7 @@
+   bool grid_color;
+   bool drag_toggle;
+   float gamma;
++
+ public:
+   Griv();
+   ~Griv();
+
+Modified: trunk/griv/image.cpp
+===================================================================
+--- trunk/griv/image.cpp	2007-12-02 21:32:36 UTC (rev 1573)
++++ trunk/griv/image.cpp	2007-12-03 01:26:15 UTC (rev 1574)
+@@ -150,11 +150,32 @@
+           received_surface_res = 0;
+         }
+ 
++      // Detect aspect ration
++      float aspect = float(original_width)/float(original_height);
++      float dw, dh;
++      if (aspect &gt; 1.0f)
++        {
++          dw = zoom;
++          dh = zoom / aspect;
++        }
++      else
++        {
++          dw = zoom * aspect;
++          dh = zoom;
++        }
++
++      x += (zoom - dw)/2;
++      y += (zoom - dh)/2;
++
+       // Handle drawing
+       if (surface)
+-        surface-&gt;draw(x, y, zoom, zoom);
++        {
++          surface-&gt;draw(x, y, dw, dh);
++        }
+       else if (surface_16x16)
+-        surface_16x16-&gt;draw(x, y, zoom, zoom);
++        {
++          surface_16x16-&gt;draw(x, y, dw, dh);
++        }
+     }
+   SDL_UnlockMutex(mutex);
+ }
+
+Modified: trunk/griv/large_surface.cpp
+===================================================================
+--- trunk/griv/large_surface.cpp	2007-12-02 21:32:36 UTC (rev 1573)
++++ trunk/griv/large_surface.cpp	2007-12-03 01:26:15 UTC (rev 1574)
+@@ -23,15 +23,86 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;iostream&gt;
+ #include &quot;surface.hpp&quot;
+ #include &quot;large_surface.hpp&quot;
+ 
++const int max_texture_size = 1024;
++
++void find_splice(int&amp; rest, int&amp; chunk)
++{
++  do
++    {
++      if (rest - chunk &gt;= 0)
++        {
++          rest -= chunk;
++          return;
++        }
++      else
++        {
++          chunk /= 2;
++        }
++    }
++  while(chunk &gt;= 16);
++  
++  // Don't create slices smaller then 16px
++  chunk = rest;
++  rest  = 0;
++}
++
++void make_splices(int width, std::vector&lt;int&gt;&amp; slices)
++{
++  int chunk = max_texture_size;
++  while(width &gt; 0)
++    {
++      find_splice(width, chunk);
++      slices.push_back(chunk);
++    }
++}
++
+ LargeSurface::LargeSurface(SWSurfaceHandle surface)
+-  : grid(1,1)
++  : grid(1,1),
++    width(surface-&gt;get_width()),
++    height(surface-&gt;get_height())
+ {
+-  grid(0,0) = new Surface(surface, 0, 0, 
+-                          std::min(1024, surface-&gt;get_width()), 
+-                          std::min(1024, surface-&gt;get_height()));
++  if (surface-&gt;get_width()  &gt; max_texture_size ||
++      surface-&gt;get_height() &gt; max_texture_size)
++    { // Large Surface, splice into small chunks
++      std::vector&lt;int&gt; width_splices;
++      make_splices(surface-&gt;get_width(), width_splices);
++
++      std::vector&lt;int&gt; height_splices;
++      make_splices(surface-&gt;get_height(), height_splices);
++
++      grid.resize(width_splices.size(), height_splices.size());
++
++      int x_pos = 0;
++      int y_pos = 0;
++      for(int iy = 0; iy &lt; int(height_splices.size()); ++iy)
++        {
++          for(int ix = 0; ix &lt; int(width_splices.size()); ++ix)
++            {
++              if (0)
++                std::cout &lt;&lt; x_pos &lt;&lt; &quot;+&quot; &lt;&lt; y_pos &lt;&lt; &quot; - &quot; &lt;&lt; width_splices[ix] &lt;&lt; &quot;x&quot; &lt;&lt; height_splices[iy] 
++                          &lt;&lt; &quot; -&gt; &quot; &lt;&lt; ix &lt;&lt; &quot;x&quot; &lt;&lt; iy 
++                          &lt;&lt; std::endl;
++            
++              grid(ix, iy) = new Surface(surface, x_pos, y_pos, 
++                                         width_splices[ix], height_splices[iy]);
++              x_pos += width_splices[ix];
++            }
++          x_pos = 0;
++          y_pos += height_splices[iy];
++        }
++      if (0)
++        std::cout &lt;&lt; &quot;------------------: &quot; &lt;&lt; grid.get_width() &lt;&lt; &quot;x&quot; &lt;&lt; grid.get_height() &lt;&lt; std::endl;
++    }
++  else
++    {
++      grid(0,0) = new Surface(surface, 0, 0, 
++                              surface-&gt;get_width(), 
++                              surface-&gt;get_height());
++    }
+ }
+ 
+ LargeSurface::~LargeSurface()
+@@ -42,9 +113,34 @@
+ }
+ 
+ void
+-LargeSurface::draw(float x, float y, float w, float h)
++LargeSurface::draw(float orig_x_pos, float y_pos, float w, float h)
+ {
+-  grid(0,0)-&gt;draw(x, y, w, h);
++  float x_pos = orig_x_pos;
++  Surface* sur = 0;
++  for(int y = 0; y &lt; grid.get_height(); ++y)
++    {
++      for(int x = 0; x &lt; grid.get_width(); ++x)
++        {
++          sur = grid(x,y);
++          if (sur)
++            {
++              if (0)
++              std::cout &lt;&lt; &quot;draw: &quot; &lt;&lt; x &lt;&lt; &quot;+&quot; &lt;&lt; y &lt;&lt; &quot; - &quot; &lt;&lt; w &lt;&lt; &quot;x&quot; &lt;&lt; h &lt;&lt; &quot; - &quot; 
++                        &lt;&lt; sur-&gt;get_width() &lt;&lt; &quot;x&quot; &lt;&lt; sur-&gt;get_height() &lt;&lt; &quot; - &quot; 
++                        &lt;&lt; get_width() &lt;&lt; &quot;x&quot; &lt;&lt; get_height() &lt;&lt; std::endl;
++              
++              sur-&gt;draw(x_pos, y_pos, 
++                        w * sur-&gt;get_width() / get_width(),
++                        h * sur-&gt;get_height() / get_height());
++              x_pos += w * sur-&gt;get_width() / get_width();
++            }
++        }
++      if (sur)
++        {
++          y_pos += h * sur-&gt;get_height() / get_height();
++          x_pos = orig_x_pos;
++        }
++    }
+ }
+ 
+ /* EOF */
+
+Modified: trunk/griv/large_surface.hpp
+===================================================================
+--- trunk/griv/large_surface.hpp	2007-12-02 21:32:36 UTC (rev 1573)
++++ trunk/griv/large_surface.hpp	2007-12-03 01:26:15 UTC (rev 1574)
+@@ -35,6 +35,8 @@
+ {
+ private:
+   Grid&lt;Surface*&gt; grid;
++  int width;
++  int height;
+ 
+ public:
+   LargeSurface(SWSurfaceHandle surface);
+@@ -42,6 +44,9 @@
+ 
+   void draw(float x, float y, float w, float h);  
+ 
++  int get_width()  const { return width; }
++  int get_height() const { return height; }
++
+ private:
+   LargeSurface (const LargeSurface&amp;);
+   LargeSurface&amp; operator= (const LargeSurface&amp;);
+
+Modified: trunk/griv/loader.cpp
+===================================================================
+--- trunk/griv/loader.cpp	2007-12-02 21:32:36 UTC (rev 1573)
++++ trunk/griv/loader.cpp	2007-12-03 01:26:15 UTC (rev 1574)
+@@ -53,13 +53,18 @@
+ int
+ Loader::thread_func(void*)
+ {
+-  while(loader.keep_thread_running)
+-    {
+-      loader.process_job();
++  try {
++    while(loader.keep_thread_running)
++      {
++        loader.process_job();
+ 
+-      if (loader.empty())
+-        SDL_Delay(100);
+-    }
++        if (loader.empty())
++          SDL_Delay(100);
++      }
++  } catch(std::exception&amp; err) {
++    std::cout &lt;&lt; &quot;Loader Thread error: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
++    exit(1);
++  }
+   return 0;
+ }
+ 
+@@ -108,9 +113,13 @@
+       if (!job.image-&gt;surface ||
+           job.image-&gt;surface_resolution != job.image-&gt;requested_res)
+         {
+-          if (job.image-&gt;original_width  &lt;= job.image-&gt;requested_res ||
+-              job.image-&gt;original_height &lt;= job.image-&gt;requested_res)
++          if (job.image-&gt;requested_res == -1)
+             {
++              if (0)
++                std::cout &lt;&lt; &quot;Loading original: &quot;
++                          &lt;&lt; job.image-&gt;original_width  &lt;&lt; &quot;x&quot;
++                          &lt;&lt; job.image-&gt;original_height &lt;&lt; &quot; &quot; 
++                          &lt;&lt; job.image-&gt;url &lt;&lt; std::endl;
+               job.image-&gt;receive(store-&gt;get_by_url(job.image-&gt;url, -1),
+                                  -1);
+             }
+
+Modified: trunk/griv/software_surface.cpp
+===================================================================
+--- trunk/griv/software_surface.cpp	2007-12-02 21:32:36 UTC (rev 1573)
++++ trunk/griv/software_surface.cpp	2007-12-03 01:26:15 UTC (rev 1574)
+@@ -43,7 +43,8 @@
+ 
+ SoftwareSurface::~SoftwareSurface()
+ {
+-  SDL_FreeSurface(surface);
++  if (surface)
++    SDL_FreeSurface(surface);
+ }
+ 
+ /* EOF */
+
+Modified: trunk/griv/surface.cpp
+===================================================================
+--- trunk/griv/surface.cpp	2007-12-02 21:32:36 UTC (rev 1573)
++++ trunk/griv/surface.cpp	2007-12-03 01:26:15 UTC (rev 1574)
+@@ -45,10 +45,13 @@
+                             surface-&gt;get_surface(), 
+                             x, y, w, h);
+     
+-      u = float(surface-&gt;get_width()) / tex_w;
+-      v = float(surface-&gt;get_height()) / tex_h;
++      u = float(w) / tex_w;
++      v = float(h) / tex_h;
+ 
+-      aspect = float(surface-&gt;get_width()) / surface-&gt;get_height();
++      aspect = float(w) / h;
++
++      width  = w;
++      height = h;
+     }
+   else
+     {
+@@ -71,21 +74,26 @@
+       
+       glColor3f(1.0f, 1.0f, 1.0f);
+ 
+-      float w, h;
+-      if (aspect &gt; 1.0f)
+-        { // FIXME: This only works as long as w == h
+-          w = orig_w;
+-          h = orig_h / aspect;
+-        }
+-      else
++      if (0)
+         {
+-          w = orig_w * aspect;
+-          h = orig_h;
++          float w, h;
++          if (aspect &gt; 1.0f)
++            { // FIXME: This only works as long as w == h
++              w = orig_w;
++              h = orig_h / aspect;
++            }
++          else
++            {
++              w = orig_w * aspect;
++              h = orig_h;
++            }
++
++          x += (orig_w - w)/2;
++          y += (orig_h - h)/2;
+         }
++      float w = orig_w;
++      float h = orig_h;
+ 
+-      x += (orig_w - w)/2;
+-      y += (orig_h - h)/2;
+-     
+       glBegin(GL_QUADS);
+       glTexCoord2f(0,0);
+       glVertex2f(x, y);
+
+Modified: trunk/griv/surface.hpp
+===================================================================
+--- trunk/griv/surface.hpp	2007-12-02 21:32:36 UTC (rev 1573)
++++ trunk/griv/surface.hpp	2007-12-03 01:26:15 UTC (rev 1574)
+@@ -47,12 +47,18 @@
+ 
+   float aspect;
+ 
++  int width;
++  int height;
++  
+ public:
+   Surface(SWSurfaceHandle surface, int x, int y, int w, int h);
+   ~Surface();
+ 
+   void draw(float x, float y, float w, float h);
+-  
++
++  int get_width()  const { return width; }
++  int get_height() const { return height; }
++
+ private:
+   Surface (const Surface&amp;);
+   Surface&amp; operator= (const Surface&amp;);
+
+Modified: trunk/griv/texture.cpp
+===================================================================
+--- trunk/griv/texture.cpp	2007-12-02 21:32:36 UTC (rev 1573)
++++ trunk/griv/texture.cpp	2007-12-03 01:26:15 UTC (rev 1574)
+@@ -106,7 +106,7 @@
+ 
+   { // Create the texture
+     unsigned char dummy[width*height*3];
+-    memset(dummy, 100, width*height*3);
++    memset(dummy, 150, width*height*3);
+     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB,
+                  width,
+                  height,
+
+Modified: trunk/griv/thumbnail_store.cpp
+===================================================================
+--- trunk/griv/thumbnail_store.cpp	2007-12-02 21:32:36 UTC (rev 1573)
++++ trunk/griv/thumbnail_store.cpp	2007-12-03 01:26:15 UTC (rev 1574)
+@@ -47,10 +47,9 @@
+ {
+   if (thumb_size == -1) // load original
+     {
+-      std::cout &lt;&lt; &quot;Loading original: &quot; &lt;&lt; url &lt;&lt; std::endl;
+       try 
+         { 
+-          return  new SoftwareSurface(url.substr(7)); // cut <A HREF="file://">file://</A> part
++          return new SoftwareSurface(url.substr(7)); // cut <A HREF="file://">file://</A> part
+         }
+       catch(std::exception&amp; err) 
+         {
+@@ -82,7 +81,13 @@
+             return 0;
+           }
+ 
+-          return new SoftwareSurface(thumb_filename.c_str());
++          // FIXME: This will fail for some images, which ones?
++          try {
++            return new SoftwareSurface(thumb_filename.c_str());
++          } catch(std::exception&amp; err) {
++            std::cout &lt;&lt; &quot;ThumbnailStore: FIXME: This shouldn't happen: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
++            return 0;
++          }
+         }
+     }
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001224.html">[Windstille-commit] r1573 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001226.html">[Windstille-commit] r1575 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1225">[ date ]</a>
+              <a href="thread.html#1225">[ thread ]</a>
+              <a href="subject.html#1225">[ subject ]</a>
+              <a href="author.html#1225">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

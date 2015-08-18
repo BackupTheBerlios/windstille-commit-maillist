@@ -1,0 +1,325 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r830 - in trunk/src: . collision
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r830%20-%20in%20trunk/src%3A%20.%20collision&In-Reply-To=%3C200507281301.j6SD12un011351%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000482.html">
+   <LINK REL="Next"  HREF="000484.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r830 - in trunk/src: . collision</H1>
+    <B>David Kamphausen at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r830%20-%20in%20trunk/src%3A%20.%20collision&In-Reply-To=%3C200507281301.j6SD12un011351%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r830 - in trunk/src: . collision">davidkamphausen at berlios.de
+       </A><BR>
+    <I>Thu Jul 28 15:01:02 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000482.html">[Windstille-commit] r829 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000484.html">[Windstille-commit] r831 - trunk/src/collision
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#483">[ date ]</a>
+              <a href="thread.html#483">[ thread ]</a>
+              <a href="subject.html#483">[ subject ]</a>
+              <a href="author.html#483">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: davidkamphausen
+Date: 2005-07-28 15:00:50 +0200 (Thu, 28 Jul 2005)
+New Revision: 830
+
+Modified:
+   trunk/src/collision/collision_data.hpp
+   trunk/src/collision/collision_engine.cpp
+   trunk/src/entity.hpp
+   trunk/src/player.cpp
+   trunk/src/player.hpp
+Log:
+* new collision-detection/movement-loop strategy
+* fixed player-movement according to collision-engine
+
+
+Modified: trunk/src/collision/collision_data.hpp
+===================================================================
+--- trunk/src/collision/collision_data.hpp	2005-07-28 12:56:54 UTC (rev 829)
++++ trunk/src/collision/collision_data.hpp	2005-07-28 13:00:50 UTC (rev 830)
+@@ -25,6 +25,8 @@
+ #include &lt;iostream&gt;
+ #include &quot;math/vector.hpp&quot;
+ 
++class CollisionObject;
++
+ struct CollisionData
+ {
+   enum State { NONE, STUCK, COLLISION } state;
+@@ -42,6 +44,8 @@
+   // time of collision
+   float col_time;
+ 
++  CollisionObject *a,*b;
++
+   CollisionData()
+   {
+     state    = NONE;
+
+Modified: trunk/src/collision/collision_engine.cpp
+===================================================================
+--- trunk/src/collision/collision_engine.cpp	2005-07-28 12:56:54 UTC (rev 829)
++++ trunk/src/collision/collision_engine.cpp	2005-07-28 13:00:50 UTC (rev 830)
+@@ -171,25 +171,66 @@
+ {
+   if (objects.empty())
+     return; 
+-  
+-  for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
++
++  CollisionData col_data;
++  float frame=delta;
++  float min_time=frame;
++  int max_tries=20;
++
++  do
+     {
+-      for(Objects::iterator j = i + 1; j != objects.end(); ++j)
+-        {
+-          if (i != j)
+-            {
+-	      CollisionData r = collide(**i, **j, delta);
+-	      if(r.state!=CollisionData::NONE)
++      min_time=frame;
++      
++      for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
++	{
++	  for(Objects::iterator j = i + 1; j != objects.end(); ++j)
++	    {
++	      if (i != j)
+ 		{
+-		  collision(**i, **j, r, delta);
++		  CollisionData r = collide(**i, **j, frame);
++		  if(r.state!=CollisionData::NONE)
++		    {
++		      if (min_time &gt; r.col_time &amp;&amp; r.col_time&gt;=0)
++			{
++			  r.a=*i;
++			  r.b=*j;
++			  col_data = r;
++			  min_time = r.col_time;
++			  if (min_time &gt; 0.0005)
++			    min_time -= 0.0005;
++			}
++		    }
+ 		}
+-            }
+-        }
+-      
+-      update(**i, delta);
+-    }
++	    }
++	}
+ 
+-  //  return;
++      // move till first collision (or till end, when no collision occured)
++      if(min_time&gt;0)
++	{
++	  for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
++	    {
++	      update(**i,min_time);
++	    }
++	}
++      // report collision
++      if (min_time &lt; frame)
++	{
++	  collision (*col_data.a, *col_data.b, col_data, min_time);
++	}
++
++      frame-=min_time;
++      min_time=0;
++
++
++      // check tries
++      --max_tries;
++      if (max_tries == 0)
++	std::cerr&lt;&lt;&quot;Too much tries in collision detection&quot;&lt;&lt;std::endl;
++
++    }while (min_time &lt; frame  &amp;&amp; max_tries&gt;0);
++
++  //return; // uncomment, if you want no unstucking
++
+   // check penetration and resolve
+   bool penetration = true;
+   int maxtries=15;
+@@ -336,6 +377,7 @@
+     }
+ }
+ 
++
+ int get_next_integer(float f, float direction)
+ {
+   int result;
+@@ -445,6 +487,9 @@
+   float tx, ty;         // next time, when grid is hit
+   float ct=1.0f;        // collision_time
+ 
++  // also check at time==0
++  bool first_time=true;
++
+   if (vel.x &lt; 0)
+     x = &amp;r.left;
+   else
+@@ -459,8 +504,17 @@
+     {
+       ct = -1.0f;
+ 
+-      next_x = get_next_integer ((*x / TILE_SIZE), vel.x) * TILE_SIZE;
+-      next_y = get_next_integer ((*y / TILE_SIZE), vel.y) * TILE_SIZE;
++      if(first_time)
++	{
++	  next_x = ((int)(*x / TILE_SIZE)) * TILE_SIZE;
++	  next_y = ((int)(*y / TILE_SIZE)) * TILE_SIZE;
++	  first_time = false;
++	}
++      else
++	{
++	  next_x = get_next_integer ((*x / TILE_SIZE), vel.x) * TILE_SIZE;
++	  next_y = get_next_integer ((*y / TILE_SIZE), vel.y) * TILE_SIZE;
++	}
+ 
+       if (vel.x != 0.0f)
+ 	tx = (next_x - *x) / vel.x;
+@@ -472,8 +526,10 @@
+       else
+ 	ty = 10000.0f;
+ 
+-      assert (tx &gt;= 0.0f);
+-      assert (ty &gt;= 0.0f);
++      if(tx&lt;0)
++	tx=0;
++      if(ty&lt;0)
++	ty=0;
+ 
+       if (tx &lt; ty)
+ 	{
+
+Modified: trunk/src/entity.hpp
+===================================================================
+--- trunk/src/entity.hpp	2005-07-28 12:56:54 UTC (rev 829)
++++ trunk/src/entity.hpp	2005-07-28 13:00:50 UTC (rev 830)
+@@ -54,7 +54,7 @@
+   virtual Vector get_pos() const
+   { return pos; }
+ 
+-  void set_pos(Vector pos);
++  virtual void set_pos(Vector pos);
+ 
+   /** Called once per frame to allow the object to draw itself */
+   virtual void draw(SceneContext&amp; gc) = 0;
+
+Modified: trunk/src/player.cpp
+===================================================================
+--- trunk/src/player.cpp	2005-07-28 12:56:54 UTC (rev 829)
++++ trunk/src/player.cpp	2005-07-28 13:00:50 UTC (rev 830)
+@@ -149,22 +149,14 @@
+   }
+ 
+   // fall down
+-  if(on_ground()) {
+-    if(velocity.y &gt; 0) {
+-      velocity.y = 0;
+-      pos.y = int(pos.y / TILE_SIZE) * TILE_SIZE + TILE_SIZE - 1;
+-    }
+-  } else {
+-    velocity.y += GRAVITY * delta;
+-  }
++  velocity.y += GRAVITY * delta;
+ 
+   pos += velocity * delta;
+   sprite.update(delta);
+   grenade.update(delta);
+ 
+-  // FIXME: actually movement should be done through CollisionObject
+-  //        and this-&gt;pos should be set by getting value from the current CollisionObject
+-  (*col_objects.begin ())-&gt;set_pos (pos);
++  (*col_objects.begin ())-&gt;set_velocity (velocity);
++  pos=(*col_objects.begin ())-&gt;get_pos();
+ }
+ 
+ void
+@@ -531,8 +523,27 @@
+ void
+ Player::collision(const CollisionData&amp; data, CollisionObject&amp; other)
+ {
+-  (void) data;
++  Vector cur_vel = (*col_objects.begin ())-&gt;get_velocity(); // copy velocity, as &quot;velocity&quot; is the wanted velocity, whereas cur_vel is the velocity in the current delta-frame
+   (void) other;
++  if (data.direction.y != 0)
++    {
++      cur_vel.y = 0;
++      velocity.y = 0; // also reset vertical velocity
++    }
++  else
++    {
++      // do not reset horizontal velocity, as it's only set, when starting to go/run
++      cur_vel.x = 0;
++    }
++  (*col_objects.begin ())-&gt;set_velocity (cur_vel);
++  
+ }
+ 
++void 
++Player::set_pos(Vector pos)
++{
++  Entity::set_pos(pos);
++  (*col_objects.begin ())-&gt;set_pos (pos);
++}
++
+ /* EOF */
+
+Modified: trunk/src/player.hpp
+===================================================================
+--- trunk/src/player.hpp	2005-07-28 12:56:54 UTC (rev 829)
++++ trunk/src/player.hpp	2005-07-28 13:00:50 UTC (rev 830)
+@@ -102,6 +102,8 @@
+ 
+   Entity* find_useable_entity();
+ 
++  virtual void set_pos(Vector pos);
++
+ private:
+   void update_walk_stand();
+   void set_stand();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000482.html">[Windstille-commit] r829 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000484.html">[Windstille-commit] r831 - trunk/src/collision
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#483">[ date ]</a>
+              <a href="thread.html#483">[ thread ]</a>
+              <a href="subject.html#483">[ subject ]</a>
+              <a href="author.html#483">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

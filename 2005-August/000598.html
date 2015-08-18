@@ -1,0 +1,669 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r945 - in trunk/src: . input scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r945%20-%20in%20trunk/src%3A%20.%20input%20scripting&In-Reply-To=%3C200508081648.j78Gm7no029867%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000597.html">
+   <LINK REL="Next"  HREF="000599.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r945 - in trunk/src: . input scripting</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r945%20-%20in%20trunk/src%3A%20.%20input%20scripting&In-Reply-To=%3C200508081648.j78Gm7no029867%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r945 - in trunk/src: . input scripting">grumbel at berlios.de
+       </A><BR>
+    <I>Mon Aug  8 18:48:07 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000597.html">[Windstille-commit] r944 - in trunk/src: . input
+</A></li>
+        <LI>Next message: <A HREF="000599.html">[Windstille-commit] r946 - in trunk/src: . scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#598">[ date ]</a>
+              <a href="thread.html#598">[ thread ]</a>
+              <a href="subject.html#598">[ subject ]</a>
+              <a href="author.html#598">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-08-08 18:47:57 +0200 (Mon, 08 Aug 2005)
+New Revision: 945
+
+Added:
+   trunk/src/screen_manager.cpp
+   trunk/src/screen_manager.hpp
+Removed:
+   trunk/src/windstille_error.cpp
+   trunk/src/windstille_error.hpp
+Modified:
+   trunk/src/Jamfile
+   trunk/src/game_session.cpp
+   trunk/src/game_session.hpp
+   trunk/src/input/controller.cpp
+   trunk/src/input/controller.hpp
+   trunk/src/input/input_manager.cpp
+   trunk/src/screen.cpp
+   trunk/src/screen.hpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/scripting/wrapper.hpp
+   trunk/src/windstille_main.cpp
+   trunk/src/windstille_main.hpp
+Log:
+- removed WindstilleError
+- added ScreenManager back
+
+Modified: trunk/src/Jamfile
+===================================================================
+--- trunk/src/Jamfile	2005-08-08 16:26:06 UTC (rev 944)
++++ trunk/src/Jamfile	2005-08-08 16:47:57 UTC (rev 945)
+@@ -76,8 +76,10 @@
+         random.hpp
+         screen.cpp
+         screen.hpp
++        screen_manager.cpp
++        screen_manager.hpp
++        script_manager.cpp
+         script_manager.hpp
+-        script_manager.cpp
+         scriptable_object.hpp
+         scriptable_object.cpp
+         sector.cpp
+@@ -105,8 +107,6 @@
+         util.hpp
+         view.cpp
+         view.hpp
+-        windstille_error.cpp
+-        windstille_error.hpp
+         windstille_getters.hpp
+         windstille_getters.cpp
+         windstille_main.cpp
+
+Modified: trunk/src/game_session.cpp
+===================================================================
+--- trunk/src/game_session.cpp	2005-08-08 16:26:06 UTC (rev 944)
++++ trunk/src/game_session.cpp	2005-08-08 16:47:57 UTC (rev 945)
+@@ -60,8 +60,6 @@
+ 
+ #include &quot;game_session.hpp&quot;
+ 
+-using namespace Windstille;
+-
+ GameSession* GameSession::current_ = 0; 
+ 
+ GameSession::GameSession(const std::string&amp; arg_filename)
+@@ -142,12 +140,12 @@
+ }
+ 
+ void
+-GameSession::update(float delta)
++GameSession::update(float delta, const Controller&amp; controller)
+ {  
+-  if (InputManager::get_controller().button_was_pressed(PDA_BUTTON))
++  if (controller.button_was_pressed(PDA_BUTTON))
+     pda.set_active(!pda.is_active());
+ 
+-  if (InputManager::get_controller().button_was_pressed(PAUSE_BUTTON))
++  if (controller.button_was_pressed(PAUSE_BUTTON))
+     pause = !pause;
+ 
+   Uint8 *keystate = SDL_GetKeyState(NULL);
+
+Modified: trunk/src/game_session.hpp
+===================================================================
+--- trunk/src/game_session.hpp	2005-08-08 16:26:06 UTC (rev 944)
++++ trunk/src/game_session.hpp	2005-08-08 16:47:57 UTC (rev 945)
+@@ -43,8 +43,7 @@
+ class DialogManager;
+ class Conversation;
+ 
+-
+-class GameSession : public Windstille::Screen
++class GameSession : public Screen
+ {
+ public:
+   enum ControlState { DIALOG, GAME };
+@@ -89,7 +88,7 @@
+ 
+   void draw();
+   void draw_game();
+-  void update(float delta);
++  void update(float delta, const Controller&amp; controller);
+   void handle_event(const SDL_Event&amp; event);
+ 
+   void quit();
+
+Modified: trunk/src/input/controller.cpp
+===================================================================
+--- trunk/src/input/controller.cpp	2005-08-08 16:26:06 UTC (rev 944)
++++ trunk/src/input/controller.cpp	2005-08-08 16:47:57 UTC (rev 945)
+@@ -91,9 +91,9 @@
+ }
+ 
+ bool
+-Controller::button_was_pressed(int name)
++Controller::button_was_pressed(int name) const
+ {
+-  for(InputEventLst::iterator i = events.begin(); i != events.end(); ++i)
++  for(InputEventLst::const_iterator i = events.begin(); i != events.end(); ++i)
+     {
+       if (i-&gt;type == BUTTON_EVENT &amp;&amp; i-&gt;button.name == name &amp;&amp; i-&gt;button.down)
+         {
+@@ -104,9 +104,9 @@
+ }
+ 
+ bool
+-Controller::axis_was_pressed_up(int name)
++Controller::axis_was_pressed_up(int name) const
+ {
+-  for(InputEventLst::iterator i = events.begin(); i != events.end(); ++i)
++  for(InputEventLst::const_iterator i = events.begin(); i != events.end(); ++i)
+     {
+       if (i-&gt;type == AXIS_EVENT &amp;&amp; i-&gt;axis.name == name &amp;&amp; i-&gt;axis.pos &gt; 0.5f)
+         {
+@@ -117,9 +117,9 @@
+ }
+ 
+ bool
+-Controller::axis_was_pressed_down(int name)
++Controller::axis_was_pressed_down(int name) const
+ {
+-  for(InputEventLst::iterator i = events.begin(); i != events.end(); ++i)
++  for(InputEventLst::const_iterator i = events.begin(); i != events.end(); ++i)
+     {
+       if (i-&gt;type == AXIS_EVENT &amp;&amp; i-&gt;axis.name == name &amp;&amp; i-&gt;axis.pos &lt; -0.5f)
+         {
+
+Modified: trunk/src/input/controller.hpp
+===================================================================
+--- trunk/src/input/controller.hpp	2005-08-08 16:26:06 UTC (rev 944)
++++ trunk/src/input/controller.hpp	2005-08-08 16:47:57 UTC (rev 945)
+@@ -55,15 +55,15 @@
+ 
+   /** Convenience function that searches for a button down event for
+       the given button */
+-  bool button_was_pressed(int name);
++  bool button_was_pressed(int name) const;
+ 
+   /** Convenience function that searches for a AxisMove event that
+       pushed the axis up */
+-  bool axis_was_pressed_up(int name);
++  bool axis_was_pressed_up(int name) const;
+ 
+   /** Convenience function that searches for a AxisMove event that
+       pushed the axis down */
+-  bool axis_was_pressed_down(int name);
++  bool axis_was_pressed_down(int name) const;
+ };
+ 
+ #endif
+
+Modified: trunk/src/input/input_manager.cpp
+===================================================================
+--- trunk/src/input/input_manager.cpp	2005-08-08 16:26:06 UTC (rev 944)
++++ trunk/src/input/input_manager.cpp	2005-08-08 16:47:57 UTC (rev 945)
+@@ -26,7 +26,6 @@
+ #include &quot;lisp/parser.hpp&quot;
+ #include &quot;lisp/lisp.hpp&quot;
+ #include &quot;lisp/properties.hpp&quot;
+-#include &quot;windstille_error.hpp&quot;
+ #include &quot;input_manager_sdl.hpp&quot;
+ #include &quot;input_manager_player.hpp&quot;
+ #include &quot;input_manager_impl.hpp&quot;
+
+Modified: trunk/src/screen.cpp
+===================================================================
+--- trunk/src/screen.cpp	2005-08-08 16:26:06 UTC (rev 944)
++++ trunk/src/screen.cpp	2005-08-08 16:47:57 UTC (rev 945)
+@@ -67,7 +67,7 @@
+   while (time_delta &gt; step)
+     {
+       console.update(step);
+-      update(step);
++      update(step, InputManager::get_controller());
+       InputManager::clear();
+   
+       time_delta -= step;
+
+Modified: trunk/src/screen.hpp
+===================================================================
+--- trunk/src/screen.hpp	2005-08-08 16:26:06 UTC (rev 944)
++++ trunk/src/screen.hpp	2005-08-08 16:47:57 UTC (rev 945)
+@@ -23,7 +23,7 @@
+ #include &lt;SDL.h&gt;
+ #include &quot;signals/slot.hpp&quot;
+ 
+-namespace Windstille {
++class Controller;
+ 
+ /** */
+ class Screen
+@@ -45,14 +45,12 @@
+   virtual ~Screen();
+ 
+   virtual void draw() =0;
+-  virtual void update(float delta) =0;
++  virtual void update(float delta, const Controller&amp; controller) =0;
+   virtual void handle_event(const SDL_Event&amp; event) =0;
+ 
+   void display();
+ };
+ 
+-} // namespace Windstille
+-
+ #endif
+ 
+ /* EOF */
+
+Added: trunk/src/screen_manager.cpp
+===================================================================
+--- trunk/src/screen_manager.cpp	2005-08-08 16:26:06 UTC (rev 944)
++++ trunk/src/screen_manager.cpp	2005-08-08 16:47:57 UTC (rev 945)
+@@ -0,0 +1,78 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &quot;game_session.hpp&quot;
++#include &quot;globals.hpp&quot;
++#include &quot;screen.hpp&quot;
++#include &quot;screen_manager.hpp&quot;
++
++ScreenManager::ScreenManager()
++{
++  screen = 0;
++}
++
++ScreenManager::~ScreenManager()
++{
++}
++
++void
++ScreenManager::run()
++{
++  bool quit = false;
++  while (!quit)
++    {
++      switch (game_main_state)
++        {
++        case RUN_GAME:
++          screen-&gt;display();
++          break;
++
++        case LOAD_MENU:
++          // Fall through and load the game directly as long as we don't
++          // have a new menu
++        case LOAD_GAME_SESSION:
++          delete screen;
++          screen = new GameSession(&quot;levels/newformat2.wst&quot;);
++          game_main_state = RUN_GAME;
++          break;
++
++        case QUIT_GAME:
++          delete screen;
++          screen = 0;
++          quit = true;
++          break;
++        }
++    }
++ 
++}
++
++void
++ScreenManager::set_screen(Screen* s)
++{
++  delete screen;
++  screen = s;
++}
++
++/* EOF */
+
+Added: trunk/src/screen_manager.hpp
+===================================================================
+--- trunk/src/screen_manager.hpp	2005-08-08 16:26:06 UTC (rev 944)
++++ trunk/src/screen_manager.hpp	2005-08-08 16:47:57 UTC (rev 945)
+@@ -0,0 +1,50 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_SCREEN_MANAGER_HPP
++#define HEADER_SCREEN_MANAGER_HPP
++
++class Screen;
++
++/** */
++class ScreenManager
++{
++private:
++  Screen* screen;
++
++public:
++  ScreenManager();
++  ~ScreenManager();
++
++  void run();
++  void set_screen(Screen* s);
++private:
++  ScreenManager (const ScreenManager&amp;);
++  ScreenManager&amp; operator= (const ScreenManager&amp;);
++};
++
++#endif
++
++/* EOF */
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2005-08-08 16:26:06 UTC (rev 944)
++++ trunk/src/scripting/wrapper.cpp	2005-08-08 16:47:57 UTC (rev 945)
+@@ -1,6 +1,6 @@
+ /**
+  * WARNING: This file is automatically generated from:
+- *  'src/scripting/wrapper.interface.hpp'
++ *  'scripting/wrapper.interface.hpp'
+  * DO NOT CHANGE
+  */
+ #include &lt;config.h&gt;
+
+Modified: trunk/src/scripting/wrapper.hpp
+===================================================================
+--- trunk/src/scripting/wrapper.hpp	2005-08-08 16:26:06 UTC (rev 944)
++++ trunk/src/scripting/wrapper.hpp	2005-08-08 16:47:57 UTC (rev 945)
+@@ -1,6 +1,6 @@
+ /**
+  * WARNING: This file is automatically generated from:
+- *  'src/scripting/wrapper.interface.hpp'
++ *  'scripting/wrapper.interface.hpp'
+  * DO NOT CHANGE
+  */
+ #ifndef __windstille_WRAPPER_H__
+
+Deleted: trunk/src/windstille_error.cpp
+===================================================================
+--- trunk/src/windstille_error.cpp	2005-08-08 16:26:06 UTC (rev 944)
++++ trunk/src/windstille_error.cpp	2005-08-08 16:47:57 UTC (rev 945)
+@@ -1,43 +0,0 @@
+-//  $Id: windstille_error.cxx,v 1.1 2003/11/05 22:51:27 grumbel Exp $
+-//
+-//  Pingus - A free Lemmings clone
+-//  Copyright (C) 1999 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+-//
+-//  This program is free software; you can redistribute it and/or
+-//  modify it under the terms of the GNU General Public License
+-//  as published by the Free Software Foundation; either version 2
+-//  of the License, or (at your option) any later version.
+-//
+-//  This program is distributed in the hope that it will be useful,
+-//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-//  GNU General Public License for more details.
+-//
+-//  You should have received a copy of the GNU General Public License
+-//  along with this program; if not, write to the Free Software
+-//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+-
+-#include &quot;windstille_error.hpp&quot;
+-
+-WindstilleError::WindstilleError (const std::string&amp; mes) 
+-  : message(&quot;WindstilleError: &quot; + mes)
+-{
+-}
+-
+-WindstilleError::~WindstilleError() throw()
+-{
+-}
+-
+-const std::string&amp;
+-WindstilleError::get_message () const
+-{
+-  return message;
+-}
+-
+-const char* 
+-WindstilleError::what() const throw()
+-{
+-  return message.c_str(); 
+-}
+-
+-/* EOF */
+
+Deleted: trunk/src/windstille_error.hpp
+===================================================================
+--- trunk/src/windstille_error.hpp	2005-08-08 16:26:06 UTC (rev 944)
++++ trunk/src/windstille_error.hpp	2005-08-08 16:47:57 UTC (rev 945)
+@@ -1,42 +0,0 @@
+-//  $Id: windstille_error.hpp,v 1.1 2003/11/05 22:51:27 grumbel Exp $
+-// 
+-//  Pingus - A free Lemmings clone
+-//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+-//
+-//  This program is free software; you can redistribute it and/or
+-//  modify it under the terms of the GNU General Public License
+-//  as published by the Free Software Foundation; either version 2
+-//  of the License, or (at your option) any later version.
+-//
+-//  This program is distributed in the hope that it will be useful,
+-//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-//  GNU General Public License for more details.
+-// 
+-//  You should have received a copy of the GNU General Public License
+-//  along with this program; if not, write to the Free Software
+-//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+-
+-#ifndef HEADER_WINDSTILLE_ERROR_HXX
+-#define HEADER_WINDSTILLE_ERROR_HXX
+-
+-#include &lt;string&gt;
+-#include &lt;exception&gt;
+-
+-/** A WindstilleError is thrown in situation where an error occured due to
+-    invalid user input, file not found events or similar stuff. */
+-class WindstilleError : public std::exception
+-{
+-protected:
+-  std::string message;
+-public:
+-  WindstilleError(const std::string&amp; mes);
+-  ~WindstilleError() throw();
+-
+-  const std::string&amp; get_message () const;
+-  const char* what() const throw();
+-};
+-
+-#endif
+-
+-/* EOF */
+
+Modified: trunk/src/windstille_main.cpp
+===================================================================
+--- trunk/src/windstille_main.cpp	2005-08-08 16:26:06 UTC (rev 944)
++++ trunk/src/windstille_main.cpp	2005-08-08 16:47:57 UTC (rev 945)
+@@ -25,12 +25,11 @@
+ 
+ #include &lt;physfs.h&gt;
+ 
+-#include &quot;windstille_error.hpp&quot;
+ #include &quot;globals.hpp&quot;
+ #include &quot;screen.hpp&quot;
+-#include &quot;game_session.hpp&quot;
+ #include &quot;windstille_main.hpp&quot;
+ #include &quot;fonts.hpp&quot;
++#include &quot;game_session.hpp&quot;
+ #include &quot;sector.hpp&quot;
+ #include &quot;input/input_manager.hpp&quot;
+ #include &quot;sound/sound_manager.hpp&quot;
+@@ -44,13 +43,11 @@
+ #include &quot;glutil/surface_manager.hpp&quot;
+ #include &quot;glutil/texture_manager.hpp&quot;
+ #include &quot;sprite3d/manager.hpp&quot;
++#include &quot;screen_manager.hpp&quot;
+ #include &quot;command_line.hpp&quot;
+ #include &quot;sprite2d/manager.hpp&quot;
+ 
+-using namespace Windstille;
+-
+ WindstilleMain::WindstilleMain()
+-  : screen(0)
+ {
+   game_main_state = LOAD_GAME_SESSION;
+ }
+@@ -199,6 +196,8 @@
+     
+     if (debug) std::cout &lt;&lt; &quot;Initialising TileFactory&quot; &lt;&lt; std::endl;
+     TileFactory::init();
++
++    ScreenManager screen_manager;
+     
+     if (levelfile.empty())
+       {
+@@ -208,20 +207,18 @@
+       {
+         std::string leveldir = dirname(levelfile);
+         PHYSFS_addToSearchPath(leveldir.c_str(), true);
+-        screen = new GameSession(basename(levelfile));
++        screen_manager.set_screen(new GameSession(basename(levelfile)));
+         game_main_state = RUN_GAME;
+       }
+-   
++    
+     console &lt;&lt; &quot;Press F1 to open the console&quot; &lt;&lt; std::endl;
+-    while (game_main());
++    screen_manager.run();
+     
+     TileFactory::deinit();
+     InputManager::deinit();
+ 
+     deinit_modules();
+ 
+-  } catch (WindstilleError&amp; err) {
+-    std::cout &lt;&lt; &quot;WindstilleError: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
+   } catch (std::exception&amp; err) {
+     std::cout &lt;&lt; &quot;std::exception: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
+   } catch (...) {
+@@ -412,33 +409,6 @@
+     printf(&quot;[%s] is in the search path.\n&quot;, *i);
+ }
+ 
+-bool
+-WindstilleMain::game_main()
+-{
+-  switch (game_main_state)
+-    {
+-    case RUN_GAME:
+-      screen-&gt;display();
+-      break;
+-
+-    case LOAD_MENU:
+-      // Fall through and load the game directly as long as we don't
+-      // have a new menu
+-    case LOAD_GAME_SESSION:
+-      delete screen;
+-      screen = new GameSession(&quot;levels/newformat2.wst&quot;);
+-      game_main_state = RUN_GAME;
+-      break;
+-
+-    case QUIT_GAME:
+-      delete screen;
+-      screen = 0;
+-      return false;
+-    }
+-  
+-  return true;
+-}
+-
+ int main(int argc, char** argv)
+ {
+   WindstilleMain main_app;
+
+Modified: trunk/src/windstille_main.hpp
+===================================================================
+--- trunk/src/windstille_main.hpp	2005-08-08 16:26:06 UTC (rev 944)
++++ trunk/src/windstille_main.hpp	2005-08-08 16:47:57 UTC (rev 945)
+@@ -51,9 +51,6 @@
+   void parse_command_line(int argc, char** argv);
+   void init_modules();
+   void deinit_modules();
+-  bool game_main();
+-
+-  Windstille::Screen* screen;
+ };
+ 
+ #endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000597.html">[Windstille-commit] r944 - in trunk/src: . input
+</A></li>
+	<LI>Next message: <A HREF="000599.html">[Windstille-commit] r946 - in trunk/src: . scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#598">[ date ]</a>
+              <a href="thread.html#598">[ thread ]</a>
+              <a href="subject.html#598">[ subject ]</a>
+              <a href="author.html#598">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

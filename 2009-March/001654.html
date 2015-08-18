@@ -1,0 +1,289 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2657 - trunk/windstille/src/hud
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2657%20-%20trunk/windstille/src/hud&In-Reply-To=%3C200903132243.n2DMhdS7002365%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001653.html">
+   <LINK REL="Next"  HREF="001655.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2657 - trunk/windstille/src/hud</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2657%20-%20trunk/windstille/src/hud&In-Reply-To=%3C200903132243.n2DMhdS7002365%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2657 - trunk/windstille/src/hud">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Mar 13 23:43:39 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001653.html">[Windstille-commit] r2656 - trunk/windstille/src/gui
+</A></li>
+        <LI>Next message: <A HREF="001655.html">[Windstille-commit] r2658 - in trunk/windstille: . src/hud
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1654">[ date ]</a>
+              <a href="thread.html#1654">[ thread ]</a>
+              <a href="subject.html#1654">[ subject ]</a>
+              <a href="author.html#1654">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-13 23:43:39 +0100 (Fri, 13 Mar 2009)
+New Revision: 2657
+
+Modified:
+   trunk/windstille/src/hud/pda.cpp
+   trunk/windstille/src/hud/pda.hpp
+Log:
+Added scrolling to PDA (doesn't look good since 'UI' and text are in one text area)
+
+Modified: trunk/windstille/src/hud/pda.cpp
+===================================================================
+--- trunk/windstille/src/hud/pda.cpp	2009-03-13 22:01:29 UTC (rev 2656)
++++ trunk/windstille/src/hud/pda.cpp	2009-03-13 22:43:39 UTC (rev 2657)
+@@ -38,14 +38,13 @@
+ PDA::PDA()
+   : state(PDA_OBJECTIVES)
+ { 
+-  text_area  = 0;
+   background = Sprite(&quot;images/pda/pda.sprite&quot;);
+ }
+ 
+ void
+ PDA::draw()
+ {
+-  if (text_area)
++  if (text_area.get())
+     {
+       // Darken the background a bit
+       Display::fill_rect(Rect(0, 0, Display::get_width(), Display::get_height()), Color(0.0f, 0.0f, 0.0f, 0.25f));
+@@ -66,41 +65,49 @@
+ PDA::update(float delta, const Controller&amp; controller)
+ {
+   const InputEventLst&amp; events = controller.get_events();
+-  for(InputEventLst::const_iterator i = events.begin(); i != events.end(); ++i) {
+-    if (i-&gt;type == BUTTON_EVENT)
+-      {
+-        if (i-&gt;axis.name == MENU_LEFT_BUTTON &amp;&amp; i-&gt;button.down) 
+-          {
+-            state = static_cast&lt;pda_state&gt;(state + 1);
+-            if (state &gt; PDA_DIALOGS)
+-              state = PDA_OBJECTIVES;
+-          }
+-        else if (i-&gt;axis.name == MENU_RIGHT_BUTTON &amp;&amp; i-&gt;button.down) 
+-          {
+-            state = static_cast&lt;pda_state&gt;(state - 1);
+-            if (state &lt; PDA_OBJECTIVES)
+-              state = PDA_DIALOGS;
+-          }
+-      }
+-  }
++
++  for(InputEventLst::const_iterator i = events.begin(); i != events.end(); ++i) 
++    {
++      if (i-&gt;type == BUTTON_EVENT)
++        {
++          if (i-&gt;axis.name == MENU_LEFT_BUTTON &amp;&amp; i-&gt;button.down) 
++            {
++              state = static_cast&lt;pda_state&gt;(state + 1);
++              if (state &gt; PDA_DIALOGS)
++                state = PDA_OBJECTIVES;
++            }
++          else if (i-&gt;axis.name == MENU_RIGHT_BUTTON &amp;&amp; i-&gt;button.down) 
++            {
++              state = static_cast&lt;pda_state&gt;(state - 1);
++              if (state &lt; PDA_OBJECTIVES)
++                state = PDA_DIALOGS;
++            }
++        }
++    }
++  
++  if (text_area.get())
++    text_area-&gt;set_scroll_offset(text_area-&gt;get_scroll_offset() + 500.0f * controller.get_axis_state(Y2_AXIS) * delta);
+     
+-  switch (state) {
+-  case PDA_OBJECTIVES:
+-    show_objectives();
+-    break;
+-  case PDA_DIALOGS:
+-    show_dialogs();
+-    break;
+-  }
++  switch (state) 
++    {
++      case PDA_OBJECTIVES:
++        show_objectives();
++        break;
++
++      case PDA_DIALOGS:
++        show_dialogs();
++        break;
++    }
+  
+-  if (new_text != old_text) {
+-    delete text_area; // FIXME: Unneeded could just use set_text
+-    text_area = new TextArea(Rectf(70, 83, 385, 520).grow(-12.0f), false);
+-    text_area-&gt;set_font(Fonts::ttffont);
+-    text_area-&gt;set_text(new_text);
++  if (new_text != old_text) 
++    {
++      // FIXME: Unneeded could just use set_text
++      text_area.reset(new TextArea(Rectf(70, 83, 385, 520).grow(-12.0f), false));
++      text_area-&gt;set_font(Fonts::ttffont);
++      text_area-&gt;set_text(new_text);
+     
+-    old_text = new_text;
+-  }
++      old_text = new_text;
++    }
+   
+   text_area-&gt;update(delta);
+ }
+@@ -120,20 +127,22 @@
+ void
+ PDA::objective_complete(const std::string&amp; name)
+ {
+-  for (std::vector&lt;ObjectiveEntry&gt;::iterator i = objectives.begin(); i != objectives.end(); ++i) {
+-    if (i-&gt;name == name)
+-      i-&gt;complete = true;
++  for (std::vector&lt;ObjectiveEntry&gt;::iterator i = objectives.begin(); i != objectives.end(); ++i) 
++    {
++      if (i-&gt;name == name)
++        i-&gt;complete = true;
+       return;
+-  }
++    }
+ }
+ 
+ bool
+ PDA::is_objective_given(const std::string&amp; name)
+ {
+-  for (std::vector&lt;ObjectiveEntry&gt;::iterator i = objectives.begin(); i != objectives.end(); ++i) {
+-    if (i-&gt;name == name)
+-      return true;
+-  }
++  for (std::vector&lt;ObjectiveEntry&gt;::iterator i = objectives.begin(); i != objectives.end(); ++i) 
++    {
++      if (i-&gt;name == name)
++        return true;
++    }
+   
+   return false;
+ }
+@@ -141,10 +150,11 @@
+ bool
+ PDA::is_objective_complete(const std::string&amp; name)
+ {
+-  for (std::vector&lt;ObjectiveEntry&gt;::iterator i = objectives.begin(); i != objectives.end(); ++i) {
+-    if (i-&gt;name == name &amp;&amp; i-&gt;complete)
+-      return true;
+-  }
++  for (std::vector&lt;ObjectiveEntry&gt;::iterator i = objectives.begin(); i != objectives.end(); ++i) 
++    {
++      if (i-&gt;name == name &amp;&amp; i-&gt;complete)
++        return true;
++    }
+   
+   return false;
+ }
+@@ -155,15 +165,18 @@
+   new_text = &quot;&lt;large&gt;Personal Digital Assistant&lt;/large&gt;\n&quot;;
+   new_text += &quot;&lt;b&gt;objectives&lt;/b&gt; - dialogs\n\n&quot;;
+   
+-  for (std::vector&lt;ObjectiveEntry&gt;::reverse_iterator i = objectives.rbegin(); i != objectives.rend(); ++i) {
+-    new_text += i-&gt;name;
+-    new_text += &quot;: &quot;;
+-    if (i-&gt;complete)
+-      new_text += &quot;complete\n&quot;;
+-    else
+-      new_text += &quot;incomplete\n&quot;;
+-    new_text += i-&gt;text + &quot;\n\n&quot;;
+-  }
++  for (std::vector&lt;ObjectiveEntry&gt;::reverse_iterator i = objectives.rbegin(); i != objectives.rend(); ++i) 
++    {
++      new_text += i-&gt;name;
++      new_text += &quot;: &quot;;
++
++      if (i-&gt;complete)
++        new_text += &quot;complete\n&quot;;
++      else
++        new_text += &quot;incomplete\n&quot;;
++
++      new_text += i-&gt;text + &quot;\n\n&quot;;
++    }
+ }
+ 
+ void
+@@ -172,11 +185,12 @@
+   new_text = &quot;&lt;large&gt;Personal Digital Assistant&lt;/large&gt;\n&quot;;
+   new_text += &quot;objectives - &lt;b&gt;dialogs&lt;/b&gt;\n\n&quot;;
+   
+-  for (std::vector&lt;DialogEntry&gt;::reverse_iterator i = dialogs.rbegin(); i != dialogs.rend(); ++i) {
+-    new_text += i-&gt;character;
+-    new_text += &quot;: &quot;;
+-    new_text += i-&gt;text + '\n';
+-  }
++  for (std::vector&lt;DialogEntry&gt;::reverse_iterator i = dialogs.rbegin(); i != dialogs.rend(); ++i) 
++    {
++      new_text += i-&gt;character;
++      new_text += &quot;: &quot;;
++      new_text += i-&gt;text + '\n';
++    }
+ }
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/hud/pda.hpp
+===================================================================
+--- trunk/windstille/src/hud/pda.hpp	2009-03-13 22:01:29 UTC (rev 2656)
++++ trunk/windstille/src/hud/pda.hpp	2009-03-13 22:43:39 UTC (rev 2657)
+@@ -19,6 +19,7 @@
+ #ifndef HEADER_WINDSTILLE_HUD_PDA_HPP
+ #define HEADER_WINDSTILLE_HUD_PDA_HPP
+ 
++#include &lt;memory&gt;
+ #include &quot;sprite2d/sprite.hpp&quot;
+ #include &quot;screen/screen.hpp&quot;
+ 
+@@ -48,7 +49,7 @@
+ {
+ private:
+   Sprite    background;
+-  TextArea* text_area;
++  std::auto_ptr&lt;TextArea&gt;  text_area;
+   std::vector&lt;DialogEntry&gt; dialogs;
+   std::vector&lt;ObjectiveEntry&gt; objectives;   
+   
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001653.html">[Windstille-commit] r2656 - trunk/windstille/src/gui
+</A></li>
+	<LI>Next message: <A HREF="001655.html">[Windstille-commit] r2658 - in trunk/windstille: . src/hud
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1654">[ date ]</a>
+              <a href="thread.html#1654">[ thread ]</a>
+              <a href="subject.html#1654">[ subject ]</a>
+              <a href="author.html#1654">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,280 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1381 - in trunk/windstille: data/scripts src	src/gui
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1381%20-%20in%20trunk/windstille%3A%20data/scripts%20src%0A%09src/gui&In-Reply-To=%3C200706100404.l5A44IkR001365%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001033.html">
+   <LINK REL="Next"  HREF="001035.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1381 - in trunk/windstille: data/scripts src	src/gui</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1381%20-%20in%20trunk/windstille%3A%20data/scripts%20src%0A%09src/gui&In-Reply-To=%3C200706100404.l5A44IkR001365%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1381 - in trunk/windstille: data/scripts src	src/gui">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Jun 10 06:04:18 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001033.html">[Windstille-commit] r1380 - in trunk/windstille/src: . gui
+</A></li>
+        <LI>Next message: <A HREF="001035.html">[Windstille-commit] r1382 - in trunk/windstille/src: . gui
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1034">[ date ]</a>
+              <a href="thread.html#1034">[ thread ]</a>
+              <a href="subject.html#1034">[ subject ]</a>
+              <a href="author.html#1034">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-06-10 06:04:17 +0200 (Sun, 10 Jun 2007)
+New Revision: 1381
+
+Modified:
+   trunk/windstille/data/scripts/windstille.nut
+   trunk/windstille/src/gui/menu_component.cpp
+   trunk/windstille/src/gui/menu_component.hpp
+   trunk/windstille/src/screen_manager.cpp
+Log:
+- turned BoolMenuItem into a more flexible EnumMenuItem, press F8 for testing
+
+Modified: trunk/windstille/data/scripts/windstille.nut
+===================================================================
+--- trunk/windstille/data/scripts/windstille.nut	2007-06-10 00:25:29 UTC (rev 1380)
++++ trunk/windstille/data/scripts/windstille.nut	2007-06-10 04:04:17 UTC (rev 1381)
+@@ -25,10 +25,11 @@
+ 
+ /**
+  * This script is read on Windstille startup, add all helper functions
+- * that should be available in the console all the time here 
++ * that should be available in the console all the time go here. Use
++ * the init.nut file for non-function stuff that should be evaluated
++ * (startup messages and such).
+  */
+ 
+-
+ /**
+  * Constants from display/scene_context.hpp, manually copied here so
+  * you have to sync manually in case stuff changes
+
+Modified: trunk/windstille/src/gui/menu_component.cpp
+===================================================================
+--- trunk/windstille/src/gui/menu_component.cpp	2007-06-10 00:25:29 UTC (rev 1380)
++++ trunk/windstille/src/gui/menu_component.cpp	2007-06-10 04:04:17 UTC (rev 1381)
+@@ -62,30 +62,40 @@
+ {
+ }
+ 
+-BoolMenuItem::BoolMenuItem(MenuComponent* parent_, 
+-                           const std::string&amp; label_, bool value_, 
+-                           const std::string&amp; true_label_, const std::string&amp; false_label_)
++EnumMenuItem::EnumMenuItem(MenuComponent* parent_, 
++                           const std::string&amp; label_, int index_)
+   : MenuItem(parent_, label_),
+-    value(value_),
+-    true_label(true_label_),
+-    false_label(false_label_)
++    index(index_)
+ {
+ }
+ 
+ void
+-BoolMenuItem::incr()
++EnumMenuItem::add_pair(int value, const std::string&amp; label)
+ {
+-  value = !value;
++  EnumValue enum_value;
++  enum_value.value = value;
++  enum_value.label = label;
++  labels.push_back(enum_value);
+ }
+ 
+ void
+-BoolMenuItem::decr()
++EnumMenuItem::incr()
+ {
+-  value = !value;
++  index -= 1;
++  if (index &lt; 0)
++    index = labels.size()-1;
+ }
+ 
++void
++EnumMenuItem::decr()
++{
++  index += 1;
++  if (index &gt;= static_cast&lt;int&gt;(labels.size()))
++    index = 0;
++}
++
+ void 
+-BoolMenuItem::draw(const Rectf&amp; rect, bool is_active)
++EnumMenuItem::draw(const Rectf&amp; rect, bool is_active)
+ {
+   MenuItem::draw(rect, is_active);
+   TTFFont* font = Fonts::vera16;
+@@ -99,14 +109,14 @@
+       font_color = Color(0.75f, 0.75f, 0.75f, 1.0f);
+     }
+ 
+-  font-&gt;draw(rect.right - font-&gt;get_height() - font-&gt;get_width(value ? true_label : false_label), 
++  font-&gt;draw(rect.right - font-&gt;get_height() - font-&gt;get_width(&quot;&lt; &quot; + labels[index].label + &quot; &gt;&quot;),
+              rect.top + font-&gt;get_height()/2.0f + rect.get_height()/2.0f - 2.0f,
+-             (value ? true_label : false_label), 
++             &quot;&lt; &quot; + labels[index].label + &quot; &gt;&quot;,
+              font_color);
+ }
+ 
+ void 
+-BoolMenuItem::update(float delta)
++EnumMenuItem::update(float delta)
+ {
+   MenuItem::update(delta);
+ }
+@@ -158,7 +168,7 @@
+   Display::fill_rounded_rect(Rectf(Vector(rect.right - 4 - width, rect.top + 4),
+                                    Sizef(width, rect.get_height() - 8)), 
+                              5.0f,
+-                             color);
++                             Color(0.75f*color.r, 0.75f*color.g, 0.75f*color.b, color.a));
+ 
+ 
+   Display::draw_rounded_rect(Rectf(Vector(rect.right - 4 - total_width, rect.top + 4),
+@@ -194,13 +204,6 @@
+ }
+ 
+ void
+-MenuComponent::add_item(const std::string&amp; label)
+-{
+-  MenuItem* item = new BoolMenuItem(this, label, true, &quot;on&quot;, &quot;off&quot;);
+-  items.push_back(item);
+-}
+-
+-void
+ MenuComponent::draw()
+ {
+   float spacing = 10.0f;
+
+Modified: trunk/windstille/src/gui/menu_component.hpp
+===================================================================
+--- trunk/windstille/src/gui/menu_component.hpp	2007-06-10 00:25:29 UTC (rev 1380)
++++ trunk/windstille/src/gui/menu_component.hpp	2007-06-10 04:04:17 UTC (rev 1381)
+@@ -48,16 +48,22 @@
+   virtual void update(float delta);
+ };
+ 
+-class BoolMenuItem : public MenuItem {
++class EnumMenuItem : public MenuItem {
+ private: // FIXME: Convert this into a generic enum/value slider
+-  bool value;
+-  std::string true_label;
+-  std::string false_label;
++  struct EnumValue {
++    std::string label;
++    int         value;
++  };
++  
++  int index;
++  std::vector&lt;EnumValue&gt; labels;
+ 
+ public:  
+-  BoolMenuItem(MenuComponent* parent_, 
+-               const std::string&amp; label_, bool value_, 
+-               const std::string&amp; true_label_ = &quot;on&quot;, const std::string&amp; false_label_ = &quot;off&quot;);
++  EnumMenuItem(MenuComponent* parent_, 
++               const std::string&amp; label_, int index_ = 0);
++  
++  void add_pair(int value, const std::string&amp; label);
++
+   void incr();
+   void decr();
+   void draw(const Rectf&amp; rect, bool is_active);
+@@ -94,7 +100,6 @@
+   MenuComponent(const Rectf&amp; rect, Component* parent);
+   virtual ~MenuComponent();
+ 
+-  void add_item(const std::string&amp; label);
+   void add_item(MenuItem* item);
+   void draw();
+   void update(float delta, const Controller&amp; controller);
+
+Modified: trunk/windstille/src/screen_manager.cpp
+===================================================================
+--- trunk/windstille/src/screen_manager.cpp	2007-06-10 00:25:29 UTC (rev 1380)
++++ trunk/windstille/src/screen_manager.cpp	2007-06-10 04:04:17 UTC (rev 1381)
+@@ -217,13 +217,36 @@
+                     grid-&gt;pack(new Button(&quot;0&quot;,  grid), 1, 3);
+                     grid-&gt;pack(new Button(&quot;Ok&quot;, grid), 2, 3);
+ 
++                    // Begin Option Menu
+                     MenuComponent* menu = new MenuComponent(Rectf(100, 130, 700, 500), tab);
+-                    menu-&gt;add_item(&quot;Volume&quot;);
+-                    menu-&gt;add_item(&quot;Sound&quot;);
+-                    menu-&gt;add_item(&quot;Aspect Ratio&quot;);
+-                    menu-&gt;add_item(new SliderMenuItem(menu, &quot;Volume&quot;, 50, 0, 100, 5));
+ 
+-                    tab-&gt;pack(&quot;Menu&quot;, menu);
++                    SliderMenuItem* music_volume_item = new SliderMenuItem(menu, &quot;Music Volume&quot;, 100, 0, 100, 10);
++                    menu-&gt;add_item(music_volume_item);
++
++                    SliderMenuItem* sfx_volume_item = new SliderMenuItem(menu, &quot;Sound FX Volume&quot;, 100, 0, 100, 10);
++                    menu-&gt;add_item(sfx_volume_item);
++
++                    EnumMenuItem* fullscreen_item = new EnumMenuItem(menu, &quot;Fullscreen&quot;, 0);
++                    fullscreen_item-&gt;add_pair(1, &quot;on&quot;);
++                    fullscreen_item-&gt;add_pair(0, &quot;off&quot;);
++                    menu-&gt;add_item(fullscreen_item);
++
++                    EnumMenuItem* fps_item = new EnumMenuItem(menu, &quot;Display Frames per Second&quot;, 0);
++                    fps_item-&gt;add_pair(1, &quot;on&quot;);
++                    fps_item-&gt;add_pair(0, &quot;off&quot;);
++                    menu-&gt;add_item(fps_item);
++
++
++                    EnumMenuItem* aspect_item = new EnumMenuItem(menu, &quot;Aspect Ratio&quot;);
++                    aspect_item-&gt;add_pair(0, &quot;4:3&quot;);
++                    aspect_item-&gt;add_pair(1, &quot;16:9&quot;);
++                    aspect_item-&gt;add_pair(3, &quot;16:10&quot;);
++                    aspect_item-&gt;add_pair(2, &quot;letterbox&quot;);
++                    menu-&gt;add_item(aspect_item);
++
++                    tab-&gt;pack(&quot;Options&quot;, menu);
++                    // End: Option Menu
++
+                     tab-&gt;pack(&quot;Auto Map&quot;,  new Automap(Rectf(100, 130, 700, 500), tab));
+                     tab-&gt;pack(&quot;Grid Test&quot;, grid);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001033.html">[Windstille-commit] r1380 - in trunk/windstille/src: . gui
+</A></li>
+	<LI>Next message: <A HREF="001035.html">[Windstille-commit] r1382 - in trunk/windstille/src: . gui
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1034">[ date ]</a>
+              <a href="thread.html#1034">[ thread ]</a>
+              <a href="subject.html#1034">[ subject ]</a>
+              <a href="author.html#1034">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

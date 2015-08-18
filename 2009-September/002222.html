@@ -1,0 +1,294 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3225 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3225%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909110544.n8B5iecQ029014%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002221.html">
+   <LINK REL="Next"  HREF="002223.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3225 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3225%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909110544.n8B5iecQ029014%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3225 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Sep 11 07:44:40 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002221.html">[Windstille-commit] r3224 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="002223.html">[Windstille-commit] r3226 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2222">[ date ]</a>
+              <a href="thread.html#2222">[ thread ]</a>
+              <a href="subject.html#2222">[ subject ]</a>
+              <a href="author.html#2222">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-11 07:44:39 +0200 (Fri, 11 Sep 2009)
+New Revision: 3225
+
+Modified:
+   trunk/windstille/src/editor/navgraph_node_object_model.cpp
+   trunk/windstille/src/editor/navgraph_node_object_model.hpp
+   trunk/windstille/src/editor/navigation_graph_model.cpp
+   trunk/windstille/src/editor/navigation_graph_model.hpp
+   trunk/windstille/src/editor/sector_model.cpp
+Log:
+Implemented NavigationGraph loading in the editor
+
+Modified: trunk/windstille/src/editor/navgraph_node_object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_node_object_model.cpp	2009-09-11 04:51:57 UTC (rev 3224)
++++ trunk/windstille/src/editor/navgraph_node_object_model.cpp	2009-09-11 05:44:39 UTC (rev 3225)
+@@ -23,6 +23,12 @@
+ #include &quot;scenegraph/scene_graph.hpp&quot;
+ #include &quot;navigation/node.hpp&quot;
+ 
++NavGraphNodeObjectModel::NavGraphNodeObjectModel(const FileReader&amp; reader)
++  : ObjectModel(reader),
++    m_drawable()
++{
++}
++
+ NavGraphNodeObjectModel::NavGraphNodeObjectModel(const Vector2f&amp; pos)//, SectorModel&amp; sector)
+   : ObjectModel(&quot;NavGraphNodeObjectModel&quot;, pos),
+     m_drawable()
+
+Modified: trunk/windstille/src/editor/navgraph_node_object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_node_object_model.hpp	2009-09-11 04:51:57 UTC (rev 3224)
++++ trunk/windstille/src/editor/navgraph_node_object_model.hpp	2009-09-11 05:44:39 UTC (rev 3225)
+@@ -25,6 +25,7 @@
+ #include &quot;navigation/navigation_graph.hpp&quot;
+ 
+ class VertexArrayDrawable;
++class FileReader;
+ 
+ class NavGraphNodeObjectModel : public ObjectModel
+ {
+@@ -32,7 +33,8 @@
+   boost::shared_ptr&lt;VertexArrayDrawable&gt; m_drawable;
+ 
+ public:
+-  NavGraphNodeObjectModel(const Vector2f&amp; pos);//, SectorModel&amp; sector);
++  NavGraphNodeObjectModel(const FileReader&amp; reader);
++  NavGraphNodeObjectModel(const Vector2f&amp; pos);
+   ~NavGraphNodeObjectModel();
+ 
+   void add_to_scenegraph(SceneGraph&amp; sg);
+
+Modified: trunk/windstille/src/editor/navigation_graph_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/navigation_graph_model.cpp	2009-09-11 04:51:57 UTC (rev 3224)
++++ trunk/windstille/src/editor/navigation_graph_model.cpp	2009-09-11 05:44:39 UTC (rev 3225)
+@@ -22,6 +22,7 @@
+ #include &quot;editor/navgraph_node_object_model.hpp&quot;
+ #include &quot;math/line.hpp&quot;
+ #include &quot;navigation/navigation_graph.hpp&quot;
++#include &quot;util/file_reader.hpp&quot;
+ 
+ NavigationGraphModel::NavigationGraphModel(SectorModel&amp; sector)
+   : m_sector(sector),
+@@ -197,4 +198,89 @@
+   writer.end_section();
+ }
+ 
++void
++NavigationGraphModel::load(const FileReader&amp; reader, std::map&lt;std::string, ObjectModelHandle&gt;&amp; all_id_table)
++{
++  std::cout &lt;&lt; &quot;NavigationGraphModel::load&quot; &lt;&lt; std::endl;
++  std::map&lt;std::string, boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; &gt; id_table;
++
++  FileReader nodes_section;
++  if (reader.get(&quot;nodes&quot;, nodes_section))
++  {
++    const std::vector&lt;FileReader&gt;&amp; sections = nodes_section.get_sections();
++    for(std::vector&lt;FileReader&gt;::const_iterator i = sections.begin(); i != sections.end(); ++i)
++    {
++      if (i-&gt;get_name() == &quot;navgraph-node&quot;)
++      {
++        boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; node(new NavGraphNodeObjectModel(*i));
++
++        std::string id_str;
++        if (i-&gt;get(&quot;id&quot;, id_str))
++        {
++          id_table[id_str] = node;
++        }
++
++        m_nodes.push_back(node);
++      }
++      else
++      {
++        std::cout &lt;&lt; &quot;NavigationGraphModel:load: unknown tag &quot; &lt;&lt; i-&gt;get_name() &lt;&lt; std::endl;
++      }
++    }
++  }
++  else
++  {
++    std::cout &lt;&lt; &quot;NavigationGraphModel: nodes missing&quot; &lt;&lt; std::endl;
++  }
++
++  FileReader edges_section;
++  if (reader.get(&quot;edges&quot;, edges_section))
++  {
++    const std::vector&lt;FileReader&gt;&amp; sections = edges_section.get_sections();
++    for(std::vector&lt;FileReader&gt;::const_iterator i = sections.begin(); i != sections.end(); ++i)
++    {
++      if (i-&gt;get_name() == &quot;navgraph-edge&quot;)
++      {
++        std::string lhs;
++        std::string rhs;
++
++        if (i-&gt;get(&quot;lhs-node&quot;, lhs) &amp;&amp; i-&gt;get(&quot;rhs-node&quot;, rhs))
++        {
++          boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; lhs_node = id_table[lhs];
++          boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; rhs_node = id_table[rhs];
++
++          if (lhs_node &amp;&amp; rhs_node)
++          {
++            boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; edge(new NavGraphEdgeObjectModel(lhs_node, rhs_node));
++
++            std::string id_str;
++            if (i-&gt;get(&quot;id&quot;, id_str))
++            {
++              all_id_table[id_str] = edge;
++            }
++
++            m_edges.push_back(edge);
++          }
++          else
++          {
++            std::cout &lt;&lt; &quot;Error: NavigationGraphModel::load: couldn't resolve edge: &quot; &lt;&lt; lhs_node &lt;&lt; &quot; &quot; &lt;&lt; rhs_node &lt;&lt; std::endl;
++          }
++        }
++        else
++        {
++          std::cout &lt;&lt; &quot;Error: NavigationGraphModel::load: invalid edge&quot; &lt;&lt; std::endl;
++        }
++      }
++      else
++      {
++        std::cout &lt;&lt; &quot;NavigationGraphModel:load: unknown tag &quot; &lt;&lt; i-&gt;get_name() &lt;&lt; std::endl;
++      }
++    }
++  }
++  else
++  {
++    std::cout &lt;&lt; &quot;NavigationGraphModel: edges missing&quot; &lt;&lt; std::endl;
++  }
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/navigation_graph_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/navigation_graph_model.hpp	2009-09-11 04:51:57 UTC (rev 3224)
++++ trunk/windstille/src/editor/navigation_graph_model.hpp	2009-09-11 05:44:39 UTC (rev 3225)
+@@ -67,6 +67,7 @@
+   SelectionHandle   get_selection(const Rectf&amp; rect, const SelectMask&amp; layers) const;
+ 
+   void write(FileWriter&amp; writer) const;
++  void load(const FileReader&amp; reader, std::map&lt;std::string, ObjectModelHandle&gt;&amp; id_table);
+ 
+ private:
+   NavigationGraphModel(const NavigationGraphModel&amp;);
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-09-11 04:51:57 UTC (rev 3224)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-09-11 05:44:39 UTC (rev 3225)
+@@ -380,21 +380,32 @@
+   {
+     try 
+     {
+-      ObjectModelHandle obj = ObjectModelFactory::create(*j);
+-
+-      layer-&gt;add(obj);
+-
+-      std::string id_str;
+-      if (j-&gt;read(&quot;id&quot;, id_str))
++      if (j-&gt;get_name() == &quot;navgraph-edge-ref&quot;)
+       {
+-        id_table[id_str] = obj;
++        std::string id_str;
++        if (j-&gt;get(&quot;edge&quot;, id_str))
++        {
++          layer-&gt;add(id_table[id_str]);
++        }
+       }
++      else
++      {
++        ObjectModelHandle obj = ObjectModelFactory::create(*j);
+ 
+-      std::string parent_str;
+-      if (j-&gt;read(&quot;parent&quot;, parent_str))
+-      {
+-        if (!parent_str.empty())
+-          parent_table[obj] = parent_str;
++        layer-&gt;add(obj);
++
++        std::string id_str;
++        if (j-&gt;read(&quot;id&quot;, id_str))
++        {
++          id_table[id_str] = obj;
++        }
++
++        std::string parent_str;
++        if (j-&gt;read(&quot;parent&quot;, parent_str))
++        {
++          if (!parent_str.empty())
++            parent_table[obj] = parent_str;
++        }
+       }
+     }
+     catch(std::exception&amp; err)
+@@ -436,9 +447,9 @@
+       ambient_color = Color(0,0,0,1);
+       reader.get(&quot;ambient-color&quot;, ambient_color);
+ 
+-      //FileReader navigation_section;
+-      //reader.get(&quot;navigation&quot;, navigation_section);
+-      //nav_graph-&gt;load(navigation_section);
++      FileReader navigation_section;
++      reader.get(&quot;navigation&quot;, navigation_section);
++      nav_graph-&gt;load(navigation_section, id_table);
+ 
+       FileReader layers_section;
+       reader.get(&quot;layers&quot;, layers_section);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002221.html">[Windstille-commit] r3224 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="002223.html">[Windstille-commit] r3226 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2222">[ date ]</a>
+              <a href="thread.html#2222">[ thread ]</a>
+              <a href="subject.html#2222">[ subject ]</a>
+              <a href="author.html#2222">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

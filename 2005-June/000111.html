@@ -1,0 +1,326 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r454 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r454%20-%20trunk/src&In-Reply-To=%3C200506272013.j5RKDm2a004657%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000110.html">
+   <LINK REL="Next"  HREF="000112.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r454 - trunk/src</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r454%20-%20trunk/src&In-Reply-To=%3C200506272013.j5RKDm2a004657%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r454 - trunk/src">grumbel at sheep.berlios.de
+       </A><BR>
+    <I>Mon Jun 27 22:13:48 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000110.html">[Windstille-commit] r453 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000112.html">[Windstille-commit] r455 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#111">[ date ]</a>
+              <a href="thread.html#111">[ thread ]</a>
+              <a href="subject.html#111">[ subject ]</a>
+              <a href="author.html#111">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-06-27 22:13:45 +0200 (Mon, 27 Jun 2005)
+New Revision: 454
+
+Modified:
+   trunk/src/console.cxx
+   trunk/src/console.hxx
+   trunk/src/game_session.cxx
+Log:
+- fixed console a bit more
+- removed unused assert.hxx
+
+Modified: trunk/src/console.cxx
+===================================================================
+--- trunk/src/console.cxx	2005-06-27 18:30:21 UTC (rev 453)
++++ trunk/src/console.cxx	2005-06-27 20:13:45 UTC (rev 454)
+@@ -18,7 +18,8 @@
+ //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ 
+ #include &lt;ClanLib/Display/keys.h&gt;
+-#include &quot;assert.hxx&quot;
++#include &lt;ClanLib/Display/keyboard.h&gt;
++#include &lt;ClanLib/core.h&gt;
+ #include &quot;fonts.hxx&quot;
+ #include &quot;input/input_manager.hxx&quot;
+ #include &quot;console.hxx&quot;
+@@ -30,12 +31,13 @@
+   current_ = this;
+   x_pos = arg_x;
+   y_pos = arg_y;
++  active = false;
+ }
+ 
+ Console* 
+ Console::current()
+ {
+-  AssertMsg(current_, &quot;comm-* commands must not be called on script loading!&quot;);
++  assert(current_);
+   return current_;
+ }
+ 
+@@ -52,8 +54,11 @@
+ Console::draw()
+ {
+   CL_Font font = Fonts::copyright;
+-  int y = y_pos - font.get_height() - 2;
++  int y = y_pos;
+ 
++  if (active)
++    y -= font.get_height() + 2;
++
+   font.set_alignment(origin_bottom_left);
+   for(Buffer::reverse_iterator i = buffer.rbegin(); i != buffer.rend(); ++i)
+     {
+@@ -69,9 +74,12 @@
+       y -= font.get_height() + 2;
+     }
+ 
+-  font.set_alignment(origin_bottom_left);
+-  font.set_alpha(1.0f);
+-  font.draw(x_pos, y_pos, &quot;&gt;&quot; + command_line);
++  if (active)
++    {
++      font.set_alignment(origin_bottom_left);
++      font.set_alpha(1.0f);
++      font.draw(x_pos, y_pos, &quot;&gt;&quot; + command_line);
++    }
+ }
+ 
+ void
+@@ -82,34 +90,61 @@
+       i-&gt;display_time += delta;
+     }  
+ 
+-  InputEventLst events = InputManager::get_controller().get_events();
++  if (active)
++    {
++      InputEventLst events = InputManager::get_controller().get_events();
+   
+-  for (InputEventLst::iterator i = events.begin(); i != events.end(); ++i)
+-    {
+-      if ((*i).type == KEYBOARD_EVENT)
++      for (InputEventLst::iterator i = events.begin(); i != events.end(); ++i)
+         {
+-          if ((*i).keyboard.key_type == KeyboardEvent::LETTER)
++          if ((*i).type == KEYBOARD_EVENT)
+             {
+-              //std::cout &lt;&lt; &quot;Key: '&quot; &lt;&lt; (char)((*i).keyboard.code) &lt;&lt; &quot;' &quot; &lt;&lt; (*i).keyboard.code &lt;&lt; std::endl;
+-              command_line += (char)(*i).keyboard.code;
+-            }
+-          else if ((*i).keyboard.key_type == KeyboardEvent::SPECIAL)
+-            {
+-              switch (i-&gt;keyboard.code)
++              if ((*i).keyboard.key_type == KeyboardEvent::LETTER)
+                 {
+-                case CL_KEY_BACKSPACE:
+-                  if (!command_line.empty())
+-                    command_line = command_line.substr(0, command_line.size() - 2);
+-                  break;
++                  //std::cout &lt;&lt; &quot;Key: '&quot; &lt;&lt; (char)((*i).keyboard.code) &lt;&lt; &quot;' &quot; &lt;&lt; (*i).keyboard.code &lt;&lt; std::endl;
++                  command_line += (char)(*i).keyboard.code;
++                }
++              else if ((*i).keyboard.key_type == KeyboardEvent::SPECIAL)
++                {
++                  switch (i-&gt;keyboard.code)
++                    {
++                    case CL_KEY_BACKSPACE:
++                      if (!command_line.empty())
++                        command_line = command_line.substr(0, command_line.size() - 1);
++                      break;
+ 
+-                case CL_KEY_ENTER:
+-                  add(command_line);
+-                  command_line = &quot;&quot;;
+-                  break;
++                    case CL_KEY_ENTER:
++                      add(command_line);
++                      command_line = &quot;&quot;;
++                      break;
++
++                    case CL_KEY_F1:
++                      deactive();
++                      break;
++                    }
+                 }
+             }
+         }
+     }
+ }
+ 
++void
++Console::activate()
++{
++  // Get rid of all input events so that we don't double press
++  InputManager::clear();
++  active = true;
++}
++
++void
++Console::deactive()
++{
++  active = false;
++}
++
++bool
++Console::is_active() const
++{
++  return active;
++}
++
+ /* EOF */
+
+Modified: trunk/src/console.hxx
+===================================================================
+--- trunk/src/console.hxx	2005-06-27 18:30:21 UTC (rev 453)
++++ trunk/src/console.hxx	2005-06-27 20:13:45 UTC (rev 454)
+@@ -38,6 +38,7 @@
+   Buffer buffer;
+   static Console* current_;
+   std::string command_line;
++  bool active;
+ public:
+   static Console* current();
+ 
+@@ -60,6 +61,10 @@
+ 
+   void draw();
+   void update(float delta);
++
++  void activate();
++  void deactive();
++  bool is_active() const;
+ private:
+   Console (const Console&amp;);
+   Console&amp; operator= (const Console&amp;);
+
+Modified: trunk/src/game_session.cxx
+===================================================================
+--- trunk/src/game_session.cxx	2005-06-27 18:30:21 UTC (rev 453)
++++ trunk/src/game_session.cxx	2005-06-27 20:13:45 UTC (rev 454)
+@@ -24,6 +24,7 @@
+ 
+ #include &quot;fonts.hxx&quot;
+ #include &quot;sector.hxx&quot;
++#include &quot;console.hxx&quot;
+ #include &quot;game_object.hxx&quot;
+ #include &quot;player.hxx&quot;
+ #include &quot;animation_obj.hxx&quot;
+@@ -112,6 +113,8 @@
+ void
+ GameSession::draw()
+ {
++  //std::cout &lt;&lt; gluErrorString(glGetError()) &lt;&lt; std::endl;
++
+   draw_game();
+   console.draw();
+ 
+@@ -289,10 +292,10 @@
+       psystem-&gt;set_spawn_point (768, 832);
+       psystem2-&gt;set_spawn_point(768, 832);
+       psystem3-&gt;set_spawn_point(768, 832);
+-
+-      //world-&gt;add(psystem3);
+-      //world-&gt;add(psystem2);
+-      //world-&gt;add(psystem);
++      
++      world-&gt;add(psystem3);
++      world-&gt;add(psystem2);
++      world-&gt;add(psystem);
+     }
+   
+   world-&gt;add(new Sprite3D(&quot;3dsprites/3dsprites&quot;));
+@@ -333,27 +336,34 @@
+ void
+ GameSession::on_key_down(const CL_InputEvent&amp; event)
+ {
+-  switch(event.id)
++  if (!console.is_active())
+     {
+-    case CL_KEY_1:
+-      sc.set_render_mask(sc.get_render_mask() ^ SceneContext::COLORMAP);
+-      console.add(&quot;Toggled COLORMAP: &quot;, (sc.get_render_mask() &amp; SceneContext::COLORMAP) &gt; 0);
+-      break;
++      switch(event.id)
++        {
++        case CL_KEY_F1:
++          console.activate();
++          break;
+ 
+-    case CL_KEY_2:
+-      sc.set_render_mask(sc.get_render_mask() ^ SceneContext::LIGHTMAP);
+-      console.add(&quot;Toggled LIGHTMAP: &quot;, (sc.get_render_mask() &amp; SceneContext::LIGHTMAP) &gt; 0);
+-      break;
++        case CL_KEY_1:
++          sc.set_render_mask(sc.get_render_mask() ^ SceneContext::COLORMAP);
++          console.add(&quot;Toggled COLORMAP: &quot;, (sc.get_render_mask() &amp; SceneContext::COLORMAP) &gt; 0);
++          break;
+ 
+-    case CL_KEY_3:
+-      sc.set_render_mask(sc.get_render_mask() ^ SceneContext::HIGHLIGHTMAP);
+-      console.add(&quot;Toggled HIGHLIGHTMAP: &quot;, (sc.get_render_mask() &amp; SceneContext::HIGHLIGHTMAP) &gt; 0);
+-      break;      
++        case CL_KEY_2:
++          sc.set_render_mask(sc.get_render_mask() ^ SceneContext::LIGHTMAP);
++          console.add(&quot;Toggled LIGHTMAP: &quot;, (sc.get_render_mask() &amp; SceneContext::LIGHTMAP) &gt; 0);
++          break;
+ 
+-    default:
+-      // ignore key
+-      //console.add(&quot;Key pressed:: &quot;, event.id);
+-      break;
++        case CL_KEY_3:
++          sc.set_render_mask(sc.get_render_mask() ^ SceneContext::HIGHLIGHTMAP);
++          console.add(&quot;Toggled HIGHLIGHTMAP: &quot;, (sc.get_render_mask() &amp; SceneContext::HIGHLIGHTMAP) &gt; 0);
++          break;      
++
++        default:
++          // ignore key
++          //console.add(&quot;Key pressed:: &quot;, event.id);
++          break;
++        }
+     }
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000110.html">[Windstille-commit] r453 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000112.html">[Windstille-commit] r455 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#111">[ date ]</a>
+              <a href="thread.html#111">[ thread ]</a>
+              <a href="subject.html#111">[ subject ]</a>
+              <a href="author.html#111">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

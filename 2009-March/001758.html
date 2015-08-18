@@ -1,0 +1,319 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2761 - in trunk/windstille: . src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2761%20-%20in%20trunk/windstille%3A%20.%20src/editor&In-Reply-To=%3C200903250559.n2P5xEj1000123%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001757.html">
+   <LINK REL="Next"  HREF="001759.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2761 - in trunk/windstille: . src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2761%20-%20in%20trunk/windstille%3A%20.%20src/editor&In-Reply-To=%3C200903250559.n2P5xEj1000123%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2761 - in trunk/windstille: . src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Mar 25 06:59:14 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001757.html">[Windstille-commit] r2760 - trunk/windstille
+</A></li>
+        <LI>Next message: <A HREF="001759.html">[Windstille-commit] r2762 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1758">[ date ]</a>
+              <a href="thread.html#1758">[ thread ]</a>
+              <a href="subject.html#1758">[ subject ]</a>
+              <a href="author.html#1758">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-25 06:59:13 +0100 (Wed, 25 Mar 2009)
+New Revision: 2761
+
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/src/editor/decal_object_model.cpp
+   trunk/windstille/src/editor/decal_object_model.hpp
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/object_model.hpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+   trunk/windstille/src/editor/sprite_object_model.cpp
+   trunk/windstille/src/editor/sprite_object_model.hpp
+Log:
+Added very basic file writing
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-03-25 04:16:15 UTC (rev 2760)
++++ trunk/windstille/TODO	2009-03-25 05:59:13 UTC (rev 2761)
+@@ -185,6 +185,9 @@
+ Miscellaneous
+ =============
+ 
++* make FileReader work more like lisp::Writer, i.e. less functional,
++  keeping the current cursor position
++
+ * image-grid in Sprite seems broken
+ 
+ * remove GameObject::get_world(), use Sector::current() instead
+@@ -490,6 +493,9 @@
+ Editor
+ ======
+ 
++* WindstilleWidget contains garbage when its first created, it gets
++  however cleaned up in later redraws
++
+ * think about load/save
+ 
+ * think about Undo/Redo
+@@ -523,10 +529,12 @@
+ 
+   - circular parentship causes universe to explode
+   - cloning doesn't preserve parentship  
+-
+   - parents could be handled like normal objects, but with the
+     SelectTool traversing all children and marking them before the
+     move begings, Ctrl could be used to toggle this behaviour
++  - having classic groups of objects, where clicking one object moves
++    all in the group could be useful (like when each object is parent
++    to each other object in the group)
+ 
+ * ObjectSelector/IconView allows drag&amp;drop even when nothing is
+   selected, leading to a Grumbel dummy image drag&amp;drop without effect
+
+Modified: trunk/windstille/src/editor/decal_object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/decal_object_model.cpp	2009-03-25 04:16:15 UTC (rev 2760)
++++ trunk/windstille/src/editor/decal_object_model.cpp	2009-03-25 05:59:13 UTC (rev 2761)
+@@ -31,6 +31,7 @@
+ DecalObjectModel::DecalObjectModel(const std::string&amp; name, const Vector2f&amp; rel_pos, 
+                                    const std::string&amp; path_, MapType type_)
+   : ObjectModel(&quot;DecalObjectModel&quot;, rel_pos),
++    path(path_),
+     surface(path_),
+     type(type_)
+ {
+@@ -83,5 +84,14 @@
+ {
+   return ObjectModelHandle(new DecalObjectModel(*this));
+ }
++
++void
++DecalObjectModel::write(lisp::Writer&amp; writer) const
++{
++  writer.start_list(&quot;decal&quot;);
++  writer.write_string(&quot;path&quot;, path);
++  writer.write_int(&quot;type&quot;, type);
++  writer.end_list(&quot;decal&quot;);
++}
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/decal_object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/decal_object_model.hpp	2009-03-25 04:16:15 UTC (rev 2760)
++++ trunk/windstille/src/editor/decal_object_model.hpp	2009-03-25 05:59:13 UTC (rev 2761)
+@@ -30,6 +30,7 @@
+   static ObjectModelHandle create(const std::string&amp; name, const Vector2f&amp; pos, const std::string&amp; path, MapType type);
+ 
+ private:
++  std::string path;
+   Surface surface;
+   MapType type;
+ 
+@@ -41,6 +42,7 @@
+   void draw(SceneContext&amp; sc);
+   Rectf get_bounding_box() const;
+   ObjectModelHandle clone() const;
++  void write(lisp::Writer&amp; writer) const;
+ };
+ 
+ #endif
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-03-25 04:16:15 UTC (rev 2760)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-03-25 05:59:13 UTC (rev 2761)
+@@ -16,6 +16,7 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
++#include &lt;fstream&gt;
+ #include &lt;iostream&gt;
+ #include &lt;gtkmm/filechooserdialog.h&gt;
+ #include &lt;gtkmm/actiongroup.h&gt;
+@@ -30,6 +31,7 @@
+ #include &quot;editor_window.hpp&quot;
+ #include &quot;zoom_tool.hpp&quot;
+ #include &quot;select_tool.hpp&quot;
++#include &quot;sector_model.hpp&quot;
+ 
+ EditorWindow* EditorWindow::current_ = 0;
+ 
+@@ -363,6 +365,13 @@
+           std::cout &lt;&lt; &quot;Select clicked.&quot; &lt;&lt; std::endl;
+           std::cout &lt;&lt; &quot;Folder selected: &quot; &lt;&lt; dialog.get_filename()
+                     &lt;&lt; std::endl;
++
++          std::ofstream out(dialog.get_filename().c_str());
++          lisp::Writer writer(&amp;out);
++          if (WindstilleWidget* wst = get_windstille_widget())
++            {
++              wst-&gt;get_sector_model()-&gt;write(writer);
++            }
+           break;
+         }
+ 
+
+Modified: trunk/windstille/src/editor/object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/object_model.hpp	2009-03-25 04:16:15 UTC (rev 2760)
++++ trunk/windstille/src/editor/object_model.hpp	2009-03-25 05:59:13 UTC (rev 2761)
+@@ -23,6 +23,7 @@
+ #include &lt;boost/weak_ptr.hpp&gt;
+ #include &lt;string&gt;
+ 
++#include &quot;lisp/writer.hpp&quot;
+ #include &quot;display/surface.hpp&quot;
+ #include &quot;math/vector2f.hpp&quot;
+ #include &quot;snap_data.hpp&quot;
+@@ -64,6 +65,8 @@
+   virtual void update(float delta) {}
+   virtual Rectf get_bounding_box() const = 0;
+   virtual ObjectModelHandle clone() const =0;
++
++  virtual void write(lisp::Writer&amp; writer) const =0;
+ };
+ 
+ #endif
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-03-25 04:16:15 UTC (rev 2760)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-03-25 05:59:13 UTC (rev 2761)
+@@ -218,6 +218,28 @@
+ 
+   return best_snap;
+ }
++
++void
++SectorModel::write(lisp::Writer&amp; writer) const
++{
++  writer.write_comment(&quot;;; -*- scheme -*-&quot;);
++  writer.start_list(&quot;windstille-sector&quot;);
++
++  writer.write_int(&quot;version&quot;, 1);
++  writer.write_string(&quot;name&quot;, &quot;&quot;);
++  // writer.write_color(&quot;ambient-color&quot;, );
++  writer.write_string(&quot;init-script&quot;, &quot;init.nut&quot;);
++
++  writer.start_list(&quot;objects&quot;);
++  for(Objects::const_iterator i = objects.begin(); i != objects.end(); ++i)
++    {
++      (*i)-&gt;write(writer);
++    }
++  writer.end_list(&quot;objects&quot;);
++ 
++  writer.end_list(&quot;windstille-sector&quot;);
++  writer.write_comment(&quot;;; EOF ;;&quot;);
++}
+ 
+ void
+ SectorModel::on_row_changed(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter)
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-03-25 04:16:15 UTC (rev 2760)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-03-25 05:59:13 UTC (rev 2761)
+@@ -92,6 +92,8 @@
+ 
+   SnapData snap_object(const ObjectModelHandle&amp; object) const;
+ 
++  void write(lisp::Writer&amp; writer) const;
++
+ private:
+   SectorModel(const SectorModel&amp;);
+   SectorModel&amp; operator=(const SectorModel&amp;);
+
+Modified: trunk/windstille/src/editor/sprite_object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sprite_object_model.cpp	2009-03-25 04:16:15 UTC (rev 2760)
++++ trunk/windstille/src/editor/sprite_object_model.cpp	2009-03-25 05:59:13 UTC (rev 2761)
+@@ -22,6 +22,7 @@
+ SpriteObjectModel::SpriteObjectModel(const std::string&amp; name_, const Vector2f&amp; rel_pos_,
+                                      const std::string&amp; path_)
+   : ObjectModel(name_, rel_pos_),
++    path(path_),
+     sprite(path_)
+ {
+ }
+@@ -53,5 +54,13 @@
+ {
+   return ObjectModelHandle(new SpriteObjectModel(*this));
+ }
++
++void
++SpriteObjectModel::write(lisp::Writer&amp; writer) const
++{
++  writer.start_list(&quot;sprite&quot;);
++  writer.write_string(&quot;path&quot;, path);
++  writer.end_list(&quot;sprite&quot;);
++}
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/sprite_object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sprite_object_model.hpp	2009-03-25 04:16:15 UTC (rev 2760)
++++ trunk/windstille/src/editor/sprite_object_model.hpp	2009-03-25 05:59:13 UTC (rev 2761)
+@@ -25,6 +25,7 @@
+ class SpriteObjectModel : public ObjectModel
+ {
+ private:
++  std::string path;
+   Sprite sprite;
+ 
+ public:
+@@ -36,6 +37,7 @@
+   void update(float delta);
+   Rectf get_bounding_box() const;
+   ObjectModelHandle clone() const;
++  void write(lisp::Writer&amp; writer) const;
+ };
+ 
+ #endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001757.html">[Windstille-commit] r2760 - trunk/windstille
+</A></li>
+	<LI>Next message: <A HREF="001759.html">[Windstille-commit] r2762 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1758">[ date ]</a>
+              <a href="thread.html#1758">[ thread ]</a>
+              <a href="subject.html#1758">[ subject ]</a>
+              <a href="author.html#1758">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

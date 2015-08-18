@@ -1,0 +1,271 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1007 - trunk/src/gui
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1007%20-%20trunk/src/gui&In-Reply-To=%3C200508221114.j7MBE4Sa013019%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000659.html">
+   <LINK REL="Next"  HREF="000661.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1007 - trunk/src/gui</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1007%20-%20trunk/src/gui&In-Reply-To=%3C200508221114.j7MBE4Sa013019%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1007 - trunk/src/gui">grumbel at berlios.de
+       </A><BR>
+    <I>Mon Aug 22 13:14:04 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000659.html">[Windstille-commit] r1006 - in trunk/src: . gui
+</A></li>
+        <LI>Next message: <A HREF="000661.html">[Windstille-commit] r1008 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#660">[ date ]</a>
+              <a href="thread.html#660">[ thread ]</a>
+              <a href="subject.html#660">[ subject ]</a>
+              <a href="author.html#660">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-08-22 13:13:45 +0200 (Mon, 22 Aug 2005)
+New Revision: 1007
+
+Modified:
+   trunk/src/gui/gui_manager.cpp
+   trunk/src/gui/list_view.cpp
+   trunk/src/gui/list_view.hpp
+Log:
+- made listview basically working (spacing wrong, no clippping, etc)
+
+Modified: trunk/src/gui/gui_manager.cpp
+===================================================================
+--- trunk/src/gui/gui_manager.cpp	2005-08-22 00:57:12 UTC (rev 1006)
++++ trunk/src/gui/gui_manager.cpp	2005-08-22 11:13:45 UTC (rev 1007)
+@@ -29,6 +29,7 @@
+ #include &quot;screen_manager.hpp&quot;
+ #include &quot;grid_component.hpp&quot;
+ #include &quot;tab_component.hpp&quot;
++#include &quot;list_view.hpp&quot;
+ #include &quot;text_view.hpp&quot;
+ #include &quot;automap.hpp&quot;
+ #include &quot;gui_manager.hpp&quot;
+@@ -65,11 +66,22 @@
+   tab-&gt;pack(&quot;Auto Map&quot;,  new Automap(Rectf(100, 130, 700, 500), tab));
+   tab-&gt;pack(&quot;Grid Test&quot;, grid);
+ 
++  ListView* list_view = new ListView(Rectf(), tab);
++  list_view-&gt;add_column(&quot;Date&quot;);
++  list_view-&gt;add_column(&quot;Name&quot;);
++  list_view-&gt;add_column(&quot;Subject&quot;);
++
++  list_view-&gt;add_item(ListView::Item(&quot;2005-10-08&quot;, &quot;John Doh&quot;, &quot;Re: Buying a goldmine&quot;));
++  list_view-&gt;add_item(ListView::Item(&quot;2005-13-08&quot;, &quot;Jane Doh&quot;, &quot;Re: What the f***&quot;));
++  list_view-&gt;add_item(ListView::Item(&quot;2005-13-09&quot;, &quot;Testo Test&quot;, &quot;Testing Email&quot;));
++
++  tab-&gt;pack(&quot;ListView&quot;, list_view);
++
+   root-&gt;set_child(tab);
+   text_view-&gt;set_text(&quot;Hello World\n&lt;large&gt;Blabla&lt;/large&gt; more textt and more and&quot;
+                       &quot;more for testing all for testing even more and more blabla blabla&quot;
+                       &quot;more for testing all for testing even more and more blabla blabla&quot;
+-                      &quot;blabla blabla blabltest und ende.&quot;);
++                      &quot;blabla blabla blabltest ende.&quot;);
+ }
+ 
+ GUIManager::~GUIManager()
+
+Modified: trunk/src/gui/list_view.cpp
+===================================================================
+--- trunk/src/gui/list_view.cpp	2005-08-22 00:57:12 UTC (rev 1006)
++++ trunk/src/gui/list_view.cpp	2005-08-22 11:13:45 UTC (rev 1007)
+@@ -23,6 +23,9 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &quot;display/display.hpp&quot;
++#include &quot;input/controller.hpp&quot;
++#include &quot;fonts.hpp&quot;
+ #include &quot;list_view.hpp&quot;
+ 
+ namespace GUI {
+@@ -40,19 +43,95 @@
+ void
+ ListView::draw()
+ {
+-  
++  TTFFont* font = Fonts::ttfdialog;
++
++  float x = rect.left;
++  float y = rect.top + font-&gt;get_height();
++  float padding = 10;
++
++  for(int i = 0; i &lt; int(columns.size()); ++i)
++    {
++      // FIXME: Poor mans outline effect
++      font-&gt;draw_center(x + columns[i].width/2 + 1, y - 1, columns[i].title);
++      font-&gt;draw_center(x + columns[i].width/2 - 1, y - 1, columns[i].title);
++      font-&gt;draw_center(x + columns[i].width/2 + 1, y + 1, columns[i].title);
++      font-&gt;draw_center(x + columns[i].width/2 - 1, y + 1, columns[i].title);
++      font-&gt;draw_center(x + columns[i].width/2, y, columns[i].title, Color(0.0f, 0.0f, 0.0f));
++      x += columns[i].width;
++    }
++
++  for(int j = 0; j &lt; int(items.size()); ++j)
++    {
++      x = rect.left;
++
++      if (j == current_item)
++        Display::fill_rect(Rectf(x, y,
++                                 rect.right, y + font-&gt;get_height()), 
++                           is_active() ? Color(0.5f, 0.5f, 1.0f, 0.8f) : Color(0.5f, 0.5f, 1.0f, 0.3f));
++
++      y += font-&gt;get_height();
++          
++      for(int i = 0; i &lt; int(items[j].columns.size()) &amp;&amp; i &lt; int(columns.size()); ++i)
++        {
++          font-&gt;draw(x + padding, y, items[j].columns[i]);
++            
++          x += columns[i].width;
++        }
++    }
+ }
+ 
+ void
+ ListView::update(float delta, const Controller&amp; controller)
+ {
+-  
++   for(InputEventLst::const_iterator i = controller.get_events().begin(); 
++       i != controller.get_events().end(); ++i) 
++    {
++      if (i-&gt;type == BUTTON_EVENT &amp;&amp; i-&gt;button.down)
++        {
++          if (i-&gt;button.name == OK_BUTTON)
++            {
++              // do something with item (scripting callback)
++            }
++          else if (i-&gt;button.name == CANCEL_BUTTON)
++            {
++              set_active(false);
++            }
++        }
++      else if (i-&gt;type == AXIS_EVENT)
++        {
++          if (i-&gt;axis.name == Y_AXIS)
++            {
++              if (i-&gt;axis.pos &gt; 0)
++                {
++                  if (current_item == int(items.size()) - 1)
++                    current_item = 0;
++                  else
++                    current_item += 1;
++                }
++              else if (i-&gt;axis.pos &lt; 0)
++                {
++                  if (current_item == 0)
++                    current_item = items.size() - 1;
++                  else
++                    current_item -= 1;
++                }
++            }
++        }
++    }
+ }
+ 
+ void
+-ListView::add_column(const std::string&amp; name)
++ListView::add_column(const std::string&amp; title, float width)
+ {
+-  headers.push_back(name);
++  Column column;
++
++  column.title = title;
++  if (width == -1)
++    column.width = 150;
++  else
++    column.width = width;
++
++  columns.push_back(column);
+ }
+ 
+ void
+
+Modified: trunk/src/gui/list_view.hpp
+===================================================================
+--- trunk/src/gui/list_view.hpp	2005-08-22 00:57:12 UTC (rev 1006)
++++ trunk/src/gui/list_view.hpp	2005-08-22 11:13:45 UTC (rev 1007)
+@@ -36,9 +36,29 @@
+ class ListView : public Component
+ {
+ private:
+-  typedef std::vector&lt;std::string&gt; Item;
++  struct Column {
++    std::string title;
++    float       width;
++  };
++  
++public:
++  struct Item {
++    std::vector&lt;std::string&gt; columns;
++
++    Item(const std::string&amp; el1, 
++         const std::string&amp; el2,
++         const std::string&amp; el3)
++    {
++      columns.push_back(el1);
++      columns.push_back(el2);
++      columns.push_back(el3);
++    }
++  };
++
++private:
+   typedef std::vector&lt;Item&gt; Items;
+-  Item    headers;
++  typedef std::vector&lt;Column&gt; Columns;
++  Columns columns;
+   Items   items;
+   int     current_item;
+ 
+@@ -49,7 +69,8 @@
+   void draw();
+   void update(float delta, const Controller&amp; controller);
+ 
+-  void add_column(const std::string&amp; name);
++  /** if width is -1 it will be automatically spaced */
++  void add_column(const std::string&amp; name, float width = -1);
+   void add_item(const Item&amp; item);
+   
+ private:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000659.html">[Windstille-commit] r1006 - in trunk/src: . gui
+</A></li>
+	<LI>Next message: <A HREF="000661.html">[Windstille-commit] r1008 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#660">[ date ]</a>
+              <a href="thread.html#660">[ thread ]</a>
+              <a href="subject.html#660">[ subject ]</a>
+              <a href="author.html#660">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

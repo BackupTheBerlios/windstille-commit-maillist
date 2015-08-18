@@ -1,0 +1,456 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r678 - in trunk/src: display particles
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r678%20-%20in%20trunk/src%3A%20display%20particles&In-Reply-To=%3C200507191249.j6JCnI7c024060%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000330.html">
+   <LINK REL="Next"  HREF="000332.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r678 - in trunk/src: display particles</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r678%20-%20in%20trunk/src%3A%20display%20particles&In-Reply-To=%3C200507191249.j6JCnI7c024060%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r678 - in trunk/src: display particles">grumbel at berlios.de
+       </A><BR>
+    <I>Tue Jul 19 14:49:18 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000330.html">[Windstille-commit] r677 - in trunk/src: . display
+</A></li>
+        <LI>Next message: <A HREF="000332.html">[Windstille-commit] r679 - trunk/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#331">[ date ]</a>
+              <a href="thread.html#331">[ thread ]</a>
+              <a href="subject.html#331">[ subject ]</a>
+              <a href="author.html#331">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-07-19 14:49:17 +0200 (Tue, 19 Jul 2005)
+New Revision: 678
+
+Added:
+   trunk/src/display/vertex_array_drawing_request.cpp
+   trunk/src/display/vertex_array_drawing_request.hpp
+Modified:
+   trunk/src/display/Jamfile
+   trunk/src/particles/surface_drawer.cpp
+   trunk/src/particles/surface_drawer.hpp
+Log:
+- added generic vertex array drawingrequest
+
+Modified: trunk/src/display/Jamfile
+===================================================================
+--- trunk/src/display/Jamfile	2005-07-19 11:01:45 UTC (rev 677)
++++ trunk/src/display/Jamfile	2005-07-19 12:49:17 UTC (rev 678)
+@@ -4,6 +4,8 @@
+           drawing_context.cpp
+           scene_context.hpp
+           scene_context.cpp
++          vertex_array_drawing_request.hpp
++          vertex_array_drawing_request.cpp
+ ;
+ 
+ TRANSLATABLE_SOURCES = [ SearchSource $(sources) ] ;
+
+Added: trunk/src/display/vertex_array_drawing_request.cpp
+===================================================================
+--- trunk/src/display/vertex_array_drawing_request.cpp	2005-07-19 11:01:45 UTC (rev 677)
++++ trunk/src/display/vertex_array_drawing_request.cpp	2005-07-19 12:49:17 UTC (rev 678)
+@@ -0,0 +1,134 @@
++//  $Id$
++//
++//  Windstille - A Jump'n Shoot Game
++//  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++//
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#include &lt;ClanLib/Display/graphic_context.h&gt;
++#include &quot;vertex_array_drawing_request.hpp&quot;
++
++VertexArrayDrawingRequest::VertexArrayDrawingRequest(const CL_Vector&amp; pos_, const CL_Matrix4x4&amp; modelview_)
++  : DrawingRequest(pos_, modelview_)
++{
++  blend_sfactor = GL_SRC_ALPHA;
++  blend_dfactor = GL_ONE;
++  mode = GL_QUADS;
++}
++
++int
++VertexArrayDrawingRequest::num_vertices() const
++{
++  return vertices.size()/3;
++}
++
++void
++VertexArrayDrawingRequest::draw(CL_GraphicContext* gc)
++{
++  assert(!vertices.empty());
++  assert(texcoords.empty() || int(texcoords.size()/2) == num_vertices());
++  assert(colors.empty() || int(colors.size()/4) == num_vertices());
++
++  gc-&gt;push_modelview();
++  gc-&gt;add_modelview(modelview);
++
++  CL_OpenGLState state(gc);
++  state.set_active();
++  state.setup_2d();
++
++  if (!colors.empty())
++    {
++      glEnableClientState(GL_COLOR_ARRAY);
++      glColorPointer(4, GL_UNSIGNED_BYTE, 0, &amp;*colors.begin());
++    }
++  else
++    {
++      glDisableClientState(GL_COLOR_ARRAY);
++    }
++
++  if (!texcoords.empty())
++    {
++      glEnableClientState(GL_TEXTURE_COORD_ARRAY);
++      glTexCoordPointer(2, GL_FLOAT, 0, &amp;*texcoords.begin());
++    }
++  else
++    {
++      glDisableClientState(GL_TEXTURE_COORD_ARRAY);
++    }
++  
++  glDisableClientState(GL_NORMAL_ARRAY);
++  glEnableClientState(GL_VERTEX_ARRAY);
++  glVertexPointer  (3, GL_FLOAT, 0, &amp;*vertices.begin());
++  
++  glEnable(GL_BLEND);
++  glEnable(GL_TEXTURE_2D);
++  glBlendFunc(blend_sfactor, blend_dfactor);
++
++  if (texture)
++    texture.bind();
++
++  glDrawArrays(GL_QUADS, 0, num_vertices());
++
++  glDisableClientState(GL_COLOR_ARRAY);
++  glDisableClientState(GL_TEXTURE_COORD_ARRAY);
++  glDisableClientState(GL_VERTEX_ARRAY);
++
++  gc-&gt;pop_modelview();
++}
++
++void
++VertexArrayDrawingRequest::vertex(float x, float y, float z)
++{
++  vertices.push_back(x + pos.x);
++  vertices.push_back(y + pos.y);
++  vertices.push_back(z + pos.z);
++}
++
++void
++VertexArrayDrawingRequest::texcoord(float u, float v)
++{
++  texcoords.push_back(u);
++  texcoords.push_back(v);
++}
++
++void
++VertexArrayDrawingRequest::color(const CL_Color&amp; color)
++{
++  colors.push_back(color.get_red());
++  colors.push_back(color.get_green());
++  colors.push_back(color.get_blue());
++  colors.push_back(color.get_alpha());
++}
++
++void
++VertexArrayDrawingRequest::set_surface(CL_Surface surface)
++{
++  texture = CL_OpenGLSurface(surface);
++}
++
++void
++VertexArrayDrawingRequest::set_blend_func(GLenum sfactor, GLenum dfactor)
++{
++  blend_sfactor = sfactor;
++  blend_dfactor = dfactor;
++}
++
++void
++VertexArrayDrawingRequest::set_mode(GLenum mode_)
++{
++  mode = mode_;
++}
++
++/* EOF */
+
+Added: trunk/src/display/vertex_array_drawing_request.hpp
+===================================================================
+--- trunk/src/display/vertex_array_drawing_request.hpp	2005-07-19 11:01:45 UTC (rev 677)
++++ trunk/src/display/vertex_array_drawing_request.hpp	2005-07-19 12:49:17 UTC (rev 678)
+@@ -0,0 +1,59 @@
++//  $Id$
++// 
++//  Windstille - A Jump'n Shoot Game
++//  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++// 
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#ifndef HEADER_VERTEX_ARRAY_DRAWING_REQUEST_HXX
++#define HEADER_VERTEX_ARRAY_DRAWING_REQUEST_HXX
++
++#include &lt;vector&gt;
++#include &lt;ClanLib/gl.h&gt;
++#include &quot;drawing_request.hpp&quot;
++
++/** */
++class VertexArrayDrawingRequest : public DrawingRequest
++{
++private:
++  GLenum mode;
++
++  GLenum blend_sfactor;
++  GLenum blend_dfactor;
++
++  CL_OpenGLSurface   texture;
++  std::vector&lt;unsigned char&gt; colors;
++  std::vector&lt;float&gt; texcoords;
++  std::vector&lt;float&gt; vertices;
++
++public:
++  VertexArrayDrawingRequest(const CL_Vector&amp; pos_, const CL_Matrix4x4&amp; modelview_);
++
++  void draw(CL_GraphicContext* gc);
++
++  void vertex(float x, float y, float z = 0.0f);
++  void texcoord(float u, float v);
++  void color(const CL_Color&amp; color);
++
++  int num_vertices() const;
++
++  void set_mode(GLenum mode_);
++  void set_surface(CL_Surface surface);
++  void set_blend_func(GLenum sfactor, GLenum dfactor);
++};
++
++#endif
++
++/* EOF */
+
+Modified: trunk/src/particles/surface_drawer.cpp
+===================================================================
+--- trunk/src/particles/surface_drawer.cpp	2005-07-19 11:01:45 UTC (rev 677)
++++ trunk/src/particles/surface_drawer.cpp	2005-07-19 12:49:17 UTC (rev 678)
+@@ -17,6 +17,7 @@
+ //  along with this program; if not, write to the Free Software
+ //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ 
++#include &quot;display/vertex_array_drawing_request.hpp&quot;
+ #include &quot;particle_system.hpp&quot;
+ #include &quot;surface_drawer.hpp&quot;
+ 
+@@ -36,29 +37,114 @@
+   surface.set_alignment(origin_center);
+ }
+ 
++static GLenum blendfunc2opengl(CL_BlendFunc blend)
++{
++  switch (blend)
++    {
++    case blend_zero:
++      return GL_ZERO;
++    case blend_one:
++      return GL_ONE;
++    case blend_dest_color:
++      return GL_DST_COLOR;
++    case blend_src_color:
++      return GL_SRC_COLOR;
++    case blend_one_minus_dest_color:
++      return GL_ONE_MINUS_DST_COLOR;
++    case blend_one_minus_src_color:
++      return GL_ONE_MINUS_SRC_COLOR;
++    case blend_src_alpha:
++      return GL_SRC_ALPHA;
++    case blend_one_minus_src_alpha:
++      return GL_ONE_MINUS_SRC_ALPHA;
++    case blend_dst_alpha:
++      return GL_DST_ALPHA;
++    case blend_one_minus_dest_alpha:
++      return GL_ONE_MINUS_DST_ALPHA;
++    case blend_src_alpha_saturate:
++      return GL_SRC_ALPHA_SATURATE;
++    case blend_constant_color:
++      return GL_CONSTANT_COLOR;
++    case blend_constant_alpha:
++      return GL_CONSTANT_ALPHA;
++    case blend_one_minus_constant_color:
++      return GL_ONE_MINUS_CONSTANT_COLOR;
++    case blend_one_minus_constant_alpha:
++      return GL_ONE_MINUS_CONSTANT_ALPHA;
++    }
++  return GL_ONE;
++}
++
+ void
+ SurfaceDrawer::draw(SceneContext&amp; sc, ParticleSystem&amp; psys) 
+ {          
+-  for(ParticleSystem::Particles::iterator i = psys.begin(); i != psys.end(); ++i)
++  if (0)
+     {
+-      // FIXME: use custom OpenGL here
+-      if (i-&gt;t != -1.0f)
++      for(ParticleSystem::Particles::iterator i = psys.begin(); i != psys.end(); ++i)
+         {
+-          float p = 1.0f - psys.get_progress(i-&gt;t);
+-          surface.set_color(CL_Color(int(psys.color_start.get_red()   * p + psys.color_stop.get_red()   * (1.0f - p)),
+-                                     int(psys.color_start.get_green() * p + psys.color_stop.get_green() * (1.0f - p)),
+-                                     int(psys.color_start.get_blue()  * p + psys.color_stop.get_blue()  * (1.0f - p)),
+-                                     int(psys.color_start.get_alpha() * p + psys.color_stop.get_alpha() * (1.0f - p))));
++          if (i-&gt;t != -1.0f)
++            {
++              float p = 1.0f - psys.get_progress(i-&gt;t);
++              surface.set_color(CL_Color(int(psys.color_start.get_red()   * p + psys.color_stop.get_red()   * (1.0f - p)),
++                                         int(psys.color_start.get_green() * p + psys.color_stop.get_green() * (1.0f - p)),
++                                         int(psys.color_start.get_blue()  * p + psys.color_stop.get_blue()  * (1.0f - p)),
++                                         int(psys.color_start.get_alpha() * p + psys.color_stop.get_alpha() * (1.0f - p))));
+ 
+-          surface.set_scale(psys.size_start + psys.get_progress(i-&gt;t)*(psys.size_stop - psys.size_start),
+-                            psys.size_start + psys.get_progress(i-&gt;t)*(psys.size_stop - psys.size_start));
+-          surface.set_angle(i-&gt;angle);
++              surface.set_scale(psys.size_start + psys.get_progress(i-&gt;t)*(psys.size_stop - psys.size_start),
++                                psys.size_start + psys.get_progress(i-&gt;t)*(psys.size_stop - psys.size_start));
++              surface.set_angle(i-&gt;angle);
+           
+-          sc.color().draw(surface, 
+-                          psys.get_x_pos() + i-&gt;x,
+-                          psys.get_y_pos() + i-&gt;y);
++              sc.color().draw(surface, 
++                              psys.get_x_pos() + i-&gt;x,
++                              psys.get_y_pos() + i-&gt;y);
++            }
+         }
+     }
++  else
++    {
++      VertexArrayDrawingRequest* buffer = new VertexArrayDrawingRequest(CL_Vector(psys.get_x_pos(), psys.get_y_pos(), 0), // FIXME: add zpos
++                                                                          sc.color().get_modelview());
++
++      buffer-&gt;set_mode(GL_QUADS);
++      buffer-&gt;set_surface(surface);
++      CL_BlendFunc src, dest;
++      surface.get_blend_func(src, dest);
++
++      buffer-&gt;set_blend_func(blendfunc2opengl(src), blendfunc2opengl(dest));
++
++      int width  = surface.get_width();
++      int height = surface.get_height();
++      for(ParticleSystem::Particles::iterator i = psys.begin(); i != psys.end(); ++i)
++        {
++          if (i-&gt;t != -1.0f)
++            {
++              float p = 1.0f - psys.get_progress(i-&gt;t);
++              CL_Color color(int(psys.color_start.get_red()   * p + psys.color_stop.get_red()   * (1.0f - p)),
++                             int(psys.color_start.get_green() * p + psys.color_stop.get_green() * (1.0f - p)),
++                             int(psys.color_start.get_blue()  * p + psys.color_stop.get_blue()  * (1.0f - p)),
++                             int(psys.color_start.get_alpha() * p + psys.color_stop.get_alpha() * (1.0f - p)));
++
++              // FIXME: Add scaling and rotation
++              buffer-&gt;color(color);
++              buffer-&gt;texcoord(0, 0);
++              buffer-&gt;vertex(i-&gt;x - width/2, i-&gt;y - height/2);
++
++              buffer-&gt;color(color);
++              buffer-&gt;texcoord(1, 0);
++              buffer-&gt;vertex(i-&gt;x + width/2, i-&gt;y - height/2);
++
++              buffer-&gt;color(color);
++              buffer-&gt;texcoord(1, 1);
++              buffer-&gt;vertex(i-&gt;x + width/2, i-&gt;y + height/2);
++
++              buffer-&gt;color(color);
++              buffer-&gt;texcoord(0, 1);
++              buffer-&gt;vertex(i-&gt;x - width/2, i-&gt;y + height/2);
++            }
++        }
++
++      sc.color().draw(buffer);
++    }
+ }
+ 
+ /* EOF */
+
+Modified: trunk/src/particles/surface_drawer.hpp
+===================================================================
+--- trunk/src/particles/surface_drawer.hpp	2005-07-19 11:01:45 UTC (rev 677)
++++ trunk/src/particles/surface_drawer.hpp	2005-07-19 12:49:17 UTC (rev 678)
+@@ -21,12 +21,13 @@
+ #define HEADER_SURFACE_DRAWER_HXX
+ 
+ #include &lt;ClanLib/Display/surface.h&gt;
++#include &lt;ClanLib/GL/opengl_surface.h&gt;
+ #include &quot;drawer.hpp&quot;
+ 
+ class SurfaceDrawer : public Drawer
+ {
+ private:
+-  CL_Surface surface;
++  CL_OpenGLSurface surface;
+   
+ public:
+   SurfaceDrawer(const CL_Surface&amp; sur);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000330.html">[Windstille-commit] r677 - in trunk/src: . display
+</A></li>
+	<LI>Next message: <A HREF="000332.html">[Windstille-commit] r679 - trunk/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#331">[ date ]</a>
+              <a href="thread.html#331">[ thread ]</a>
+              <a href="subject.html#331">[ subject ]</a>
+              <a href="author.html#331">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

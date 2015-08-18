@@ -1,0 +1,380 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2352 - trunk/griv/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2352%20-%20trunk/griv/src&In-Reply-To=%3C200808212110.m7LLACvG027136%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001348.html">
+   <LINK REL="Next"  HREF="001350.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2352 - trunk/griv/src</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2352%20-%20trunk/griv/src&In-Reply-To=%3C200808212110.m7LLACvG027136%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2352 - trunk/griv/src">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Aug 21 23:10:12 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001348.html">[Windstille-commit] r2351 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001350.html">[Windstille-commit] r2353 - in trunk/griv: . src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1349">[ date ]</a>
+              <a href="thread.html#1349">[ thread ]</a>
+              <a href="subject.html#1349">[ subject ]</a>
+              <a href="author.html#1349">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-21 23:10:12 +0200 (Thu, 21 Aug 2008)
+New Revision: 2352
+
+Modified:
+   trunk/griv/src/database_thread.cpp
+   trunk/griv/src/image.cpp
+   trunk/griv/src/image.hpp
+   trunk/griv/src/tile_generator.cpp
+   trunk/griv/src/tile_generator_thread.cpp
+   trunk/griv/src/tile_generator_thread.hpp
+   trunk/griv/src/viewer_thread.cpp
+   trunk/griv/src/workspace.cpp
+   trunk/griv/src/workspace.hpp
+Log:
+Pass around whole FileEntry objects, instead of breaking them up into fileid and filename
+
+Modified: trunk/griv/src/database_thread.cpp
+===================================================================
+--- trunk/griv/src/database_thread.cpp	2008-08-21 20:39:35 UTC (rev 2351)
++++ trunk/griv/src/database_thread.cpp	2008-08-21 21:10:12 UTC (rev 2352)
+@@ -247,10 +247,7 @@
+                                       &lt;&lt; tile_msg-&gt;tilescale
+                                       &lt;&lt; std::endl;
+ 
+-                          tile_msg-&gt;job_handle.finish();
+-                          // Need to send loading command back
+-                          //TileGeneratorThread::request_tile(tile_msg-&gt;fileid, tile_msg-&gt;x, tile_msg-&gt;y, tile_msg-&gt;tilescale, 
+-                          //                                  tile_msg-&gt;job_handle, 
++                          //TileGeneratorThread::request_tile(tile_msg-&gt;fileid, tile_msg-&gt;pos, tile_msg-&gt;tilescale, 
+                           //                                  tile_msg-&gt;callback);
+                         }
+                     }
+
+Modified: trunk/griv/src/image.cpp
+===================================================================
+--- trunk/griv/src/image.cpp	2008-08-21 20:39:35 UTC (rev 2351)
++++ trunk/griv/src/image.cpp	2008-08-21 21:10:12 UTC (rev 2352)
+@@ -28,6 +28,7 @@
+ #include &quot;framebuffer.hpp&quot;
+ #include &quot;surface.hpp&quot;
+ #include &quot;math.hpp&quot;
++#include &quot;file_entry.hpp&quot;
+ #include &quot;database_thread.hpp&quot;
+ #include &quot;viewer_thread.hpp&quot;
+ #include &quot;image.hpp&quot;
+@@ -40,9 +41,7 @@
+ class ImageImpl
+ {
+ public:
+-  int fileid;
+-  std::string filename;
+-  Size size;
++  FileEntry file_entry;
+   float scale;
+ 
+   int max_tiledb_scale;
+@@ -64,16 +63,15 @@
+ {
+ }
+ 
+-Image::Image(int fileid, const std::string&amp; filename, const Size&amp; size)
++Image::Image(const FileEntry&amp; file_entry)
+   : impl(new ImageImpl())
+ {
+-  impl-&gt;fileid   = fileid;
+-  impl-&gt;filename = filename;
+-  impl-&gt;size     = size;
+-  impl-&gt;scale    = 1.0f;
++  impl-&gt;file_entry = file_entry;
++  impl-&gt;scale      = 1.0f;
+   
+   int  tiledb_scale = 0;
+-  Size tmpsize = size;
++  Size tmpsize = file_entry.size;
++
+   do {
+     tmpsize.width  /= 2;
+     tmpsize.height /= 2;
+@@ -111,25 +109,25 @@
+ float
+ Image::get_scaled_width() const
+ {
+-  return impl-&gt;size.width * impl-&gt;scale;
++  return impl-&gt;file_entry.size.width * impl-&gt;scale;
+ }
+ 
+ float
+ Image::get_scaled_height() const
+ {
+-  return impl-&gt;size.height * impl-&gt;scale;
++  return impl-&gt;file_entry.size.height * impl-&gt;scale;
+ }
+ 
+ int
+ Image::get_original_width() const
+ {
+-  return impl-&gt;size.width;
++  return impl-&gt;file_entry.size.width;
+ }
+ 
+ int
+ Image::get_original_height() const
+ {
+-  return impl-&gt;size.height;
++  return impl-&gt;file_entry.size.height;
+ }
+ 
+ Surface
+@@ -140,7 +138,7 @@
+ 
+   if (i == impl-&gt;cache.end())
+     {
+-      impl-&gt;jobs.push_back(ViewerThread::current()-&gt;request_tile(impl-&gt;fileid, tile_scale, x, y, *this));
++      impl-&gt;jobs.push_back(ViewerThread::current()-&gt;request_tile(impl-&gt;file_entry.fileid, tile_scale, x, y, *this));
+ 
+       // Request the next smaller tile too, so we get a lower quality
+       // image fast and a higher quality one soon after FIXME: Its
+@@ -148,7 +146,7 @@
+       // request gets mungled in the DatabaseThread, we should request
+       // the whole group of lower res tiles at once, instead of one by
+       // one, since that eats up the possible speed up
+-      impl-&gt;jobs.push_back(ViewerThread::current()-&gt;request_tile(impl-&gt;fileid, tile_scale+1, x, y, *this));
++      impl-&gt;jobs.push_back(ViewerThread::current()-&gt;request_tile(impl-&gt;file_entry.fileid, tile_scale+1, x, y, *this));
+ 
+       SurfaceStruct s;
+       
+@@ -212,8 +210,8 @@
+             {         
+               // give up, no lower resolution found
+ 
+-              Size s(Math::min(256, (impl-&gt;size.width  / Math::pow2(tiledb_scale)) - 256 * x),
+-                     Math::min(256, (impl-&gt;size.height / Math::pow2(tiledb_scale)) - 256 * y));
++              Size s(Math::min(256, (impl-&gt;file_entry.size.width  / Math::pow2(tiledb_scale)) - 256 * x),
++                     Math::min(256, (impl-&gt;file_entry.size.height / Math::pow2(tiledb_scale)) - 256 * y));
+ 
+               Framebuffer::fill_rect(Rectf(pos, s*scale),
+                                      RGB(255, 0, 255));
+@@ -233,7 +231,7 @@
+       impl-&gt;jobs.clear();
+     }
+ 
+-  Rectf image_rect(impl-&gt;pos, Sizef(impl-&gt;size * impl-&gt;scale)); // in world coordinates
++  Rectf image_rect(impl-&gt;pos, Sizef(impl-&gt;file_entry.size * impl-&gt;scale)); // in world coordinates
+ 
+   //Framebuffer::draw_rect(image_rect);
+ 
+@@ -244,8 +242,8 @@
+                                                        log(2)));
+       int scale_factor = Math::pow2(tiledb_scale);
+ 
+-      int scaled_width  = impl-&gt;size.width  / scale_factor;
+-      int scaled_height = impl-&gt;size.height / scale_factor;
++      int scaled_width  = impl-&gt;file_entry.size.width  / scale_factor;
++      int scaled_height = impl-&gt;file_entry.size.height / scale_factor;
+ 
+       if (scaled_width  &lt; 256 &amp;&amp; scaled_height &lt; 256)
+         { // So small that only one tile is to be drawn
+
+Modified: trunk/griv/src/image.hpp
+===================================================================
+--- trunk/griv/src/image.hpp	2008-08-21 20:39:35 UTC (rev 2351)
++++ trunk/griv/src/image.hpp	2008-08-21 21:10:12 UTC (rev 2352)
+@@ -40,6 +40,7 @@
+ class Rectf;
+ class Vector2f;
+ class ImageImpl;
++class FileEntry;
+ 
+ class Image
+ {
+@@ -61,7 +62,7 @@
+ 
+ public:
+   Image();
+-  Image(int fileid, const std::string&amp; filename, const Size&amp; size);
++  Image(const FileEntry&amp; file_entry);
+ 
+   void draw_tile(int x, int y, int tiledb_scale, const Vector2f&amp; rect, float scale);
+   void draw(const Rectf&amp; cliprect, float scale);
+
+Modified: trunk/griv/src/tile_generator.cpp
+===================================================================
+--- trunk/griv/src/tile_generator.cpp	2008-08-21 20:39:35 UTC (rev 2351)
++++ trunk/griv/src/tile_generator.cpp	2008-08-21 21:10:12 UTC (rev 2352)
+@@ -99,6 +99,7 @@
+ 
+   //std::cout &lt;&lt; &quot;Loading with scale: 2^&quot; &lt;&lt; scale &lt;&lt; &quot; = &quot; &lt;&lt; Math::pow2(scale) &lt;&lt; &quot; &quot; &lt;&lt; entry.size &lt;&lt; std::endl;
+ 
++  // The JPEG class can only scale down by factor 2,4,8, so we have to limit things
+   int jpeg_scale = Math::min(8, Math::pow2(scale));
+ 
+   // Load the largest scale at which the image fits on a single tile 
+
+Modified: trunk/griv/src/tile_generator_thread.cpp
+===================================================================
+--- trunk/griv/src/tile_generator_thread.cpp	2008-08-21 20:39:35 UTC (rev 2351)
++++ trunk/griv/src/tile_generator_thread.cpp	2008-08-21 21:10:12 UTC (rev 2352)
+@@ -42,19 +42,10 @@
+ }
+ 
+ void
+-TileGeneratorThread::request_tiles(int fileid, const std::string&amp; filename)
++TileGeneratorThread::request_tile(const FileEntry&amp; file_entry, 
++                                  const Vector2i&amp; pos, int scale,
++                                  const boost::function&lt;void (TileEntry)&gt;&amp; callback)
+ {
+-  TileGeneratorMessage msg;
+-
+-  msg.fileid   = fileid;
+-  msg.filename = filename;
+-
+-  msg_queue.push(msg);
+-}
+-
+-void
+-TileGeneratorThread::request_tile(int fileid, const std::string&amp; filename, const Vector2i&amp; pos, int scale)
+-{
+   // Do some magic to group tile request for the same fileid
+ }
+ 
+
+Modified: trunk/griv/src/tile_generator_thread.hpp
+===================================================================
+--- trunk/griv/src/tile_generator_thread.hpp	2008-08-21 20:39:35 UTC (rev 2351)
++++ trunk/griv/src/tile_generator_thread.hpp	2008-08-21 21:10:12 UTC (rev 2352)
+@@ -26,9 +26,13 @@
+ #ifndef HEADER_TILE_GENERATOR_THREAD_HPP
+ #define HEADER_TILE_GENERATOR_THREAD_HPP
+ 
++#include &lt;boost/function.hpp&gt;
+ #include &quot;thread.hpp&quot;
+ #include &quot;thread_message_queue.hpp&quot;
++#include &quot;tile_entry.hpp&quot;
+ 
++class FileEntry;
++
+ struct TileGeneratorMessage
+ {
+   int fileid;
+@@ -55,8 +59,9 @@
+ 
+   void stop();
+ 
+-  void request_tiles(int fileid, const std::string&amp; filename);
+-  void request_tile (int fileid, const std::string&amp; filename, const Vector2i&amp; pos, int scale);
++  void request_tile(const FileEntry&amp; file_entry, 
++                    const Vector2i&amp; pos, int scale,
++                    const boost::function&lt;void (TileEntry)&gt;&amp; callback);
+ 
+   void receive_tile(const TileEntry&amp; tile);
+   
+
+Modified: trunk/griv/src/viewer_thread.cpp
+===================================================================
+--- trunk/griv/src/viewer_thread.cpp	2008-08-21 20:39:35 UTC (rev 2351)
++++ trunk/griv/src/viewer_thread.cpp	2008-08-21 21:10:12 UTC (rev 2352)
+@@ -47,7 +47,6 @@
+ ViewerThread::receive_file(const FileEntry&amp; entry)
+ {
+   file_queue.push(entry);
+-  //TileGeneratorThread::current()-&gt;request_tiles(entry.fileid, entry.filename);
+ }
+ 
+ void
+@@ -85,7 +84,7 @@
+       while (!file_queue.empty())
+         {
+           const FileEntry&amp; entry = file_queue.front();
+-          workspace.add_image(entry.fileid, entry.filename, entry.size);
++          workspace.add_image(entry);
+           file_queue.pop();
+         }
+ 
+
+Modified: trunk/griv/src/workspace.cpp
+===================================================================
+--- trunk/griv/src/workspace.cpp	2008-08-21 20:39:35 UTC (rev 2351)
++++ trunk/griv/src/workspace.cpp	2008-08-21 21:10:12 UTC (rev 2352)
+@@ -23,6 +23,7 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &quot;file_entry.hpp&quot;
+ #include &quot;math.hpp&quot;
+ #include &quot;workspace.hpp&quot;
+ 
+@@ -32,12 +33,12 @@
+ }
+ 
+ void
+-Workspace::add_image(int fileid, const std::string&amp; filename, const Size&amp; size)
++Workspace::add_image(const FileEntry&amp; file_entry)
+ {
+-  Image image(fileid, filename, size);
++  Image image(file_entry);
+   images.push_back(image);
+-  image.set_scale(Math::min(1000.0f / size.width,
+-                            1000.0f / size.height));
++  image.set_scale(Math::min(1000.0f / file_entry.size.width,
++                            1000.0f / file_entry.size.height));
+ 
+   image.set_pos(next_pos * 1024.0f);
+                    
+
+Modified: trunk/griv/src/workspace.hpp
+===================================================================
+--- trunk/griv/src/workspace.hpp	2008-08-21 20:39:35 UTC (rev 2351)
++++ trunk/griv/src/workspace.hpp	2008-08-21 21:10:12 UTC (rev 2352)
+@@ -40,7 +40,7 @@
+ public:
+   Workspace();
+ 
+-  void add_image(int fileid, const std::string&amp; filename, const Size&amp; size);
++  void add_image(const FileEntry&amp; file_entry);
+   void draw(const Rectf&amp; cliprect, float scale);
+ 
+   void layout(float aspect_w, float aspect_h);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001348.html">[Windstille-commit] r2351 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001350.html">[Windstille-commit] r2353 - in trunk/griv: . src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1349">[ date ]</a>
+              <a href="thread.html#1349">[ thread ]</a>
+              <a href="subject.html#1349">[ subject ]</a>
+              <a href="author.html#1349">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

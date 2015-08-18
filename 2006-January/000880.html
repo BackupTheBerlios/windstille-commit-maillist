@@ -1,0 +1,265 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1227 - in trunk/src: . display
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1227%20-%20in%20trunk/src%3A%20.%20display&In-Reply-To=%3C200601172108.k0HL8f2X011911%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000879.html">
+   <LINK REL="Next"  HREF="000881.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1227 - in trunk/src: . display</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1227%20-%20in%20trunk/src%3A%20.%20display&In-Reply-To=%3C200601172108.k0HL8f2X011911%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1227 - in trunk/src: . display">grumbel at berlios.de
+       </A><BR>
+    <I>Tue Jan 17 22:08:41 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000879.html">[Windstille-commit] r1226 - trunk/src/display
+</A></li>
+        <LI>Next message: <A HREF="000881.html">[Windstille-commit] r1228 - in trunk/src: . font
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#880">[ date ]</a>
+              <a href="thread.html#880">[ thread ]</a>
+              <a href="subject.html#880">[ subject ]</a>
+              <a href="author.html#880">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-01-17 22:08:40 +0100 (Tue, 17 Jan 2006)
+New Revision: 1227
+
+Added:
+   trunk/src/display/render_buffer.cpp
+   trunk/src/display/render_buffer.hpp
+Modified:
+   trunk/src/SConscript
+   trunk/src/display/framebuffer.cpp
+Log:
+- added depth buffer support to framebuffer
+
+Modified: trunk/src/SConscript
+===================================================================
+--- trunk/src/SConscript	2006-01-17 20:05:56 UTC (rev 1226)
++++ trunk/src/SConscript	2006-01-17 21:08:40 UTC (rev 1227)
+@@ -65,6 +65,7 @@
+ 'pistol.cpp',
+ 'player.cpp',
+ 'random.cpp',
++'display/render_buffer.cpp',
+ 'screen.cpp',
+ 'screen_manager.cpp',
+ 'scriptable_object.cpp',
+
+Modified: trunk/src/display/framebuffer.cpp
+===================================================================
+--- trunk/src/display/framebuffer.cpp	2006-01-17 20:05:56 UTC (rev 1226)
++++ trunk/src/display/framebuffer.cpp	2006-01-17 21:08:40 UTC (rev 1227)
+@@ -28,6 +28,7 @@
+ #include &lt;GL/glext.h&gt;
+ #include &quot;util.hpp&quot;
+ #include &quot;texture.hpp&quot;
++#include &quot;render_buffer.hpp&quot;
+ #include &quot;framebuffer.hpp&quot;
+ 
+ class FramebufferImpl
+@@ -35,26 +36,32 @@
+ public:
+   GLuint  handle;
+   Texture texture;
++  RenderBuffer render_buffer;
+   
+   FramebufferImpl(GLenum target, int width, int height)
+-    : texture(target, width, height)
++    : texture(target, width, height),
++      render_buffer(GL_DEPTH_COMPONENT24, width, height)
+   {
+     glGenFramebuffersEXT(1, &amp;handle);
+     assert_gl(&quot;Framebuffer1&quot;);
+ 
+-    // FIXME: Should use push/pop_framebuffer instead, but don't have
+-    // pointer to Framebuffer here
++    // FIXME: Should use push/pop_framebuffer instead, but don't have pointer to Framebuffer here
+     glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, handle);
+     assert_gl(&quot;Framebuffer2&quot;);
+     glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, 
+                               GL_COLOR_ATTACHMENT0_EXT, texture.get_target(), texture.get_handle(), 0);
+     assert_gl(&quot;Framebuffer3&quot;);
++    
++    glFramebufferRenderbufferEXT(GL_FRAMEBUFFER_EXT, 
++                                 GL_DEPTH_ATTACHMENT_EXT, // FIXME: must not hardcode this
++                                 GL_RENDERBUFFER_EXT, render_buffer.get_handle());
++
+     glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+   }
+ 
+   ~FramebufferImpl()
+   {
+-    glDeleteRenderbuffersEXT(1, &amp;handle);
++    glDeleteFramebuffersEXT(1, &amp;handle);
+   }
+ };
+ 
+
+Added: trunk/src/display/render_buffer.cpp
+===================================================================
+--- trunk/src/display/render_buffer.cpp	2006-01-17 20:05:56 UTC (rev 1226)
++++ trunk/src/display/render_buffer.cpp	2006-01-17 21:08:40 UTC (rev 1227)
+@@ -0,0 +1,64 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#define GL_GLEXT_PROTOTYPES 1
++#include &lt;GL/gl.h&gt;
++#include &lt;GL/glext.h&gt;
++
++#include &quot;render_buffer.hpp&quot;
++
++class RenderBufferImpl
++{
++public:
++  GLuint handle;
++
++  RenderBufferImpl(GLenum format, int width, int height)
++  {
++    glGenRenderbuffersEXT(1, &amp;handle);
++
++    glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, handle);
++    glRenderbufferStorageEXT(GL_RENDERBUFFER_EXT, format, width, height);
++    
++    glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, 0);
++  }
++
++  ~RenderBufferImpl()
++  {
++    glDeleteRenderbuffersEXT(1, &amp;handle);
++  }
++};
++
++RenderBuffer::RenderBuffer(GLenum format, int width, int height)
++  : impl(new RenderBufferImpl(format, width, height))
++{
++}
++
++GLuint
++RenderBuffer::get_handle() const
++{
++  return impl-&gt;handle;
++}
++
++/* EOF */
+
+Added: trunk/src/display/render_buffer.hpp
+===================================================================
+--- trunk/src/display/render_buffer.hpp	2006-01-17 20:05:56 UTC (rev 1226)
++++ trunk/src/display/render_buffer.hpp	2006-01-17 21:08:40 UTC (rev 1227)
+@@ -0,0 +1,52 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_RENDER_BUFFER_HPP
++#define HEADER_RENDER_BUFFER_HPP
++
++#include &lt;GL/gl.h&gt;
++#include &quot;sharedptr.hpp&quot;
++
++class RenderBufferImpl;
++
++/** */
++class RenderBuffer
++{
++public:
++  /**
++   * @param width  Width of the Renderbuffer
++   * @param height Height of the Renderbuffer
++   * @param format GL_DEPTH_COMPONENT24, GL_STENCIL_INDEX, ...
++   */
++  RenderBuffer(GLenum format, int width, int height);
++  
++  GLuint get_handle() const;
++private:
++  SharedPtr&lt;RenderBufferImpl&gt; impl;
++};
++
++#endif
++
++/* EOF */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000879.html">[Windstille-commit] r1226 - trunk/src/display
+</A></li>
+	<LI>Next message: <A HREF="000881.html">[Windstille-commit] r1228 - in trunk/src: . font
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#880">[ date ]</a>
+              <a href="thread.html#880">[ thread ]</a>
+              <a href="subject.html#880">[ subject ]</a>
+              <a href="author.html#880">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

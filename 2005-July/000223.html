@@ -1,0 +1,321 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r569 - in trunk: data/3dsprites data/blender/hero src src/sprite3d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r569%20-%20in%20trunk%3A%20data/3dsprites%20data/blender/hero%20src%20src/sprite3d&In-Reply-To=%3C200507101518.j6AFI8R0017715%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000222.html">
+   <LINK REL="Next"  HREF="000224.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r569 - in trunk: data/3dsprites data/blender/hero src src/sprite3d</H1>
+    <B>Matthias Braun at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r569%20-%20in%20trunk%3A%20data/3dsprites%20data/blender/hero%20src%20src/sprite3d&In-Reply-To=%3C200507101518.j6AFI8R0017715%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r569 - in trunk: data/3dsprites data/blender/hero src src/sprite3d">matzebraun at berlios.de
+       </A><BR>
+    <I>Sun Jul 10 17:18:08 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000222.html">[Windstille-commit] r568 - in trunk/data/blender: . sophie
+</A></li>
+        <LI>Next message: <A HREF="000224.html">[Windstille-commit] r570 - trunk/data/blender/sophie
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#223">[ date ]</a>
+              <a href="thread.html#223">[ thread ]</a>
+              <a href="subject.html#223">[ subject ]</a>
+              <a href="author.html#223">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: matzebraun
+Date: 2005-07-10 17:18:05 +0200 (Sun, 10 Jul 2005)
+New Revision: 569
+
+Modified:
+   trunk/data/3dsprites/heroken.wsprite
+   trunk/data/blender/hero/heroken2.blend
+   trunk/src/player.cpp
+   trunk/src/player.hpp
+   trunk/src/sprite3d/sprite3d.cpp
+   trunk/src/sprite3d/sprite3d.hpp
+Log:
+- Fix markers in blender file. (Set them at the actions where we want to start
+    the animation, not at the action that will be started)
+- Add some code to handle jumping
+
+
+
+Modified: trunk/data/3dsprites/heroken.wsprite
+===================================================================
+(Binary files differ)
+
+Modified: trunk/data/blender/hero/heroken2.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/src/player.cpp
+===================================================================
+--- trunk/src/player.cpp	2005-07-10 14:19:09 UTC (rev 568)
++++ trunk/src/player.cpp	2005-07-10 15:18:05 UTC (rev 569)
+@@ -30,6 +30,7 @@
+ 
+ static const int MAX_ENERGY = 16;
+ static const float WALK_SPEED = 128.0;
++static const float RUN_SPEED = 256.0;
+ static const float GRAVITY = 1500;
+ 
+ Player* Player::current_ = 0;
+@@ -102,6 +103,9 @@
+     case WALK:
+       update_walk_stand();
+       break;
++    case RUN:
++      update_run();
++      break;
+     case DUCKING:
+       update_ducking();
+       break;
+@@ -117,6 +121,15 @@
+     case LISTEN:
+       update_listen();
+       break;
++    case JUMP_BEGIN:
++      update_jump_begin();
++      break;
++    case JUMP_AIR:
++      update_jump_air();
++      break;
++    case JUMP_LAND:
++      update_jump_land();
++      break;
+     default:
+       assert(false);
+       break;
+@@ -205,6 +218,11 @@
+     set_turnaround();
+     return;
+   }
++
++  if(controller.get_button_state(RUN_BUTTON)) {
++    set_run();
++    return;
++  }
+ }
+ 
+ void
+@@ -325,6 +343,100 @@
+   // nothing
+ }
+ 
++void
++Player::set_run()
++{
++  try_set_action(&quot;Run&quot;);
++  if(get_direction() == EAST)
++    velocity.x = RUN_SPEED;
++  else
++    velocity.x = -RUN_SPEED;  
++  state = RUN;
++}
++
++void
++Player::update_run()
++{
++  if(!controller.get_button_state(RUN_BUTTON)) {
++    set_walk(get_direction());
++    return;
++  }
++  if(controller.get_button_state(JUMP_BUTTON)) {
++    set_jump_begin();
++    return;
++  }
++}
++
++void
++Player::set_jump_begin()
++{
++  if(sprite-&gt;before_marker(&quot;RightFoot&quot;)) {
++    sprite-&gt;set_next_action(&quot;JumpRightFoot&quot;);
++    sprite-&gt;abort_at_marker(&quot;RightFoot&quot;);
++    printf(&quot;jumpright.\n&quot;);
++    jump_foot = LEFT_FOOT;
++  } else if(sprite-&gt;before_marker(&quot;LeftFoot&quot;)) {
++    sprite-&gt;set_next_action(&quot;JumpLeftFoot&quot;);
++    sprite-&gt;abort_at_marker(&quot;LeftFoot&quot;);
++    printf(&quot;jumpleft.\n&quot;);
++    jump_foot = RIGHT_FOOT;
++  } else {
++    sprite-&gt;set_next_action(&quot;JumpRightFoot&quot;);
++    sprite-&gt;abort_at_marker(&quot;RightFoot&quot;);
++    printf(&quot;jumpright.\n&quot;);
++    jump_foot = LEFT_FOOT;
++  }
++  state = JUMP_BEGIN;
++}
++
++void
++Player::update_jump_begin()
++{
++  if(sprite-&gt;switched_actions()) {
++    if(sprite-&gt;get_action() == &quot;JumpLeftFoot&quot;) {
++      sprite-&gt;set_next_action(&quot;JumpLeftFootAir&quot;);
++    } else if(sprite-&gt;get_action() == &quot;JumpRightFoot&quot;) {
++      sprite-&gt;set_next_action(&quot;JumpRightFootAir&quot;);
++    } else {
++      set_jump_air();
++      return;
++    }
++  }
++}
++
++void
++Player::set_jump_air()
++{
++  velocity.y = -400;
++  sprite-&gt;set_next_action(&quot;JumpLandSofttoRun&quot;);
++  state = JUMP_AIR;
++}
++
++void
++Player::update_jump_air()
++{
++  if(sprite-&gt;switched_actions()) {
++    set_jump_land();
++    return;
++  }
++}
++
++void
++Player::set_jump_land()
++{
++  sprite-&gt;set_next_action(&quot;Run&quot;);
++  state = JUMP_LAND;
++}
++
++void
++Player::update_jump_land()
++{
++  if(sprite-&gt;switched_actions()) {
++    set_run();
++    return;
++  }
++}
++
+ Direction
+ Player::get_direction() const
+ {
+
+Modified: trunk/src/player.hpp
+===================================================================
+--- trunk/src/player.hpp	2005-07-10 14:19:09 UTC (rev 568)
++++ trunk/src/player.hpp	2005-07-10 15:18:05 UTC (rev 569)
+@@ -56,13 +56,25 @@
+     TURNAROUND,
+     DUCKING,
+     DUCKED,
++    ACCELERATE,
++    RUN,
++    SLOWDOWN,
+     STAND_TO_LISTEN,
+-    LISTEN
++    LISTEN,
++    JUMP_BEGIN,
++    JUMP_AIR,
++    JUMP_LAND
+   };
+ 
+ private:
+   State state;
+ 
++  // jump state info
++  enum Foot {
++    LEFT_FOOT, RIGHT_FOOT
++  };
++  Foot jump_foot;
++  
+   double reload_time;
+   static Player* current_;
+ public:
+@@ -104,6 +116,14 @@
+   void update_stand_to_listen();
+   void set_listen();
+   void update_listen();
++  void set_run();
++  void update_run();
++  void set_jump_begin();
++  void update_jump_begin();
++  void set_jump_air();
++  void update_jump_air();
++  void set_jump_land();
++  void update_jump_land();
+ 
+   /**
+    * Sets an action for the sprite. In contrast to sprite-&gt;set_action this
+
+Modified: trunk/src/sprite3d/sprite3d.cpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d.cpp	2005-07-10 14:19:09 UTC (rev 568)
++++ trunk/src/sprite3d/sprite3d.cpp	2005-07-10 15:18:05 UTC (rev 569)
+@@ -111,10 +111,10 @@
+ }
+ 
+ bool
+-Sprite3D::after_marker(const std::string&amp; name) const
++Sprite3D::before_marker(const std::string&amp; name) const
+ {
+   const Marker&amp; marker = data-&gt;get_marker(frame1.action, name);  
+-  return frame1.frame &gt;= marker.frame;
++  return frame1.frame &lt; marker.frame;
+ }
+ 
+ bool
+
+Modified: trunk/src/sprite3d/sprite3d.hpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d.hpp	2005-07-10 14:19:09 UTC (rev 568)
++++ trunk/src/sprite3d/sprite3d.hpp	2005-07-10 15:18:05 UTC (rev 569)
+@@ -69,9 +69,9 @@
+   void abort_at_marker(const std::string&amp; marker);
+ 
+   /**
+-   * returns true if the current frame of the action is after a certain marker
++   * returns true if the current frame of the action is before a certain marker
+    */
+-  bool after_marker(const std::string&amp; marker) const;
++  bool before_marker(const std::string&amp; marker) const;
+ 
+   /**
+    * returns true exactly once after actions have been switched after a
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000222.html">[Windstille-commit] r568 - in trunk/data/blender: . sophie
+</A></li>
+	<LI>Next message: <A HREF="000224.html">[Windstille-commit] r570 - trunk/data/blender/sophie
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#223">[ date ]</a>
+              <a href="thread.html#223">[ thread ]</a>
+              <a href="subject.html#223">[ subject ]</a>
+              <a href="author.html#223">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

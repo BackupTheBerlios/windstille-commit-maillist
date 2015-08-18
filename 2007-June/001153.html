@@ -1,0 +1,224 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1501 - in trunk/windstille: src src/armature	tools
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1501%20-%20in%20trunk/windstille%3A%20src%20src/armature%0A%09tools&In-Reply-To=%3C200706230407.l5N47cSS022968%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001152.html">
+   <LINK REL="Next"  HREF="001154.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1501 - in trunk/windstille: src src/armature	tools</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1501%20-%20in%20trunk/windstille%3A%20src%20src/armature%0A%09tools&In-Reply-To=%3C200706230407.l5N47cSS022968%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1501 - in trunk/windstille: src src/armature	tools">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Jun 23 06:07:38 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001152.html">[Windstille-commit] r1500 - in trunk/windstille: data/armature src	src/armature tools
+</A></li>
+        <LI>Next message: <A HREF="001154.html">[Windstille-commit] r1502 - in trunk/windstille: data/armature	src/armature
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1153">[ date ]</a>
+              <a href="thread.html#1153">[ thread ]</a>
+              <a href="subject.html#1153">[ subject ]</a>
+              <a href="author.html#1153">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-06-23 06:07:37 +0200 (Sat, 23 Jun 2007)
+New Revision: 1501
+
+Modified:
+   trunk/windstille/src/armature/mesh.cpp
+   trunk/windstille/src/armature_test.cpp
+   trunk/windstille/tools/mesh_export.py
+Log:
+- rewrote how influences get exported
+
+Modified: trunk/windstille/src/armature/mesh.cpp
+===================================================================
+--- trunk/windstille/src/armature/mesh.cpp	2007-06-23 02:35:07 UTC (rev 1500)
++++ trunk/windstille/src/armature/mesh.cpp	2007-06-23 04:07:37 UTC (rev 1501)
+@@ -48,8 +48,43 @@
+   reader.get(&quot;texcoords&quot;, texcoords);
+   reader.get(&quot;triangles&quot;, triangles);
+   
+-  // FIXME: add 'influences' tag parsing
++#if 0 
++  // FIXME: Broken by design
++  FileReader influences_reader;
++  if (reader.get(&quot;influences&quot;, influences_reader))
++    {
++      std::vector&lt;FileReader&gt; sections = influences_reader.get_sections();
++      for(std::vector&lt;FileReader&gt;::iterator i = sections.begin(); i != sections.end(); ++i)
++        {
++          if ((*i).get_name() == &quot;vertex&quot;)
++            {
++              FileReader influences_sub_reader;
+ 
++              (*i).get(&quot;index&quot;, index);
++              if ((*i).get(&quot;influences&quot;, influences_sub_reader))
++                {
++                  std::vector&lt;FileReader&gt; sub_sections = influences_sub_reader.get_sections();
++                  for(std::vector&lt;FileReader&gt;::iterator j = sub_sections.begin(); j != sub_sections.end(); ++j)
++                    {
++                      if ((*j).get_name() == &quot;influences&quot;)
++                        {
++                          float weight;
++                          std::string bone_name;
++                      
++                          (*j).get(&quot;weight&quot;, weight);
++                          (*j).get(&quot;bone&quot;,   bone_name);                         
++                        }
++                    }
++                }
++            }
++          else
++            {
++              std::cout &lt;&lt; &quot;Unknown tag: &quot; &lt;&lt; (*i).get_name() &lt;&lt; std::endl;
++            }
++        }
++    }
++#endif
++
+   texture = texture_manager-&gt;get(texture_filename);
+ 
+   // Check that all vectors have the same right modulo
+
+Modified: trunk/windstille/src/armature_test.cpp
+===================================================================
+--- trunk/windstille/src/armature_test.cpp	2007-06-23 02:35:07 UTC (rev 1500)
++++ trunk/windstille/src/armature_test.cpp	2007-06-23 04:07:37 UTC (rev 1501)
+@@ -69,7 +69,7 @@
+ void
+ ArmatureTest::draw()
+ {
+-  glClearColor(0.2f, 0.0f, 0.2f, 1.0f);
++  glClearColor(0.3f, 0.0f, 0.3f, 1.0f);
+   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+ 
+   glPushMatrix();
+
+Modified: trunk/windstille/tools/mesh_export.py
+===================================================================
+--- trunk/windstille/tools/mesh_export.py	2007-06-23 02:35:07 UTC (rev 1500)
++++ trunk/windstille/tools/mesh_export.py	2007-06-23 04:07:37 UTC (rev 1501)
+@@ -16,6 +16,9 @@
+ 
+         # { orig_index : VerticeData, ... }
+         self.vertmap = {}
++
++        # { (bonename, weight) : VertexGroup, ...}
++        self.groups = {}
+ 
+     def add(self, face):
+         self.faces.append(face)
+@@ -24,11 +27,17 @@
+             self.vertmap[vert.orig_idx] = vert
+ 
+     def add_influences(self, orig_idx, influences):
++        &quot;&quot;&quot;influences -&gt; [(bonename, weight), ...]&quot;&quot;&quot;
+         if not self.vertmap.has_key(orig_idx):
+             pass # this is normal due to MeshData not being a complete
+                  # Blender mesh when multiple textures are in play       
+         else:
+             self.vertmap[orig_idx].influences = influences
++            for (bone,weight) in influences:
++                key = (bone, weight)
++                if not self.groups.has_key(key):
++                    self.groups[key] = VertexGroup(bone, weight)
++                self.groups[key].add(orig_idx)
+ 
+     def finalize(self):
+         &quot;&quot;&quot;Reorders vertex indexes and merge vertexes which have the
+@@ -72,6 +81,15 @@
+                 self.normal[0], self.normal[1], self.normal[2],
+                 self.uv[0], self.uv[1])
+     
++
++class VertexGroup:
++    def __init__(self, bone, weight):
++        self.bone     = bone
++        self.weight   = weight
++        self.vertices = [] # [23,2,1,2,...]
++
++    def add(self, v):
++        self.vertices.append(v)
+ 
+ class WindstilleModel:
+     &quot;&quot;&quot;WindstilleMesh is used to collect data vertex and face data
+@@ -161,16 +179,28 @@
+                                                 face.verts[2].index))
+             out.write(&quot;     ) ;; triangles\n\n&quot;)
+ 
+-            out.write(&quot;    (influences\n&quot;)
+-            for vert in mesh.vertices:
+-                if vert.influences != []:
+-                    out.write(&quot;      (vertex\n&quot;)
+-                    out.write(&quot;        (index %d)\n&quot; % vert.index)
+-                    out.write(&quot;        (influeces&quot;)
+-                    for (bone, weight) in vert.influences:
+-                        out.write(&quot;\n          (influence (weight %f) (bone \&quot;%s\&quot;))&quot; % (weight, bone))
+-                    out.write(&quot;))\n&quot;)
+-            out.write(&quot;     ) ;; influencs\n\n&quot;)
++            out.write(&quot;    (groups\n&quot;)
++            for group in mesh.groups.values():
++                out.write(&quot;      (group\n&quot;)
++                out.write(&quot;        (bone    \&quot;%s\&quot;)\n&quot; % group.bone)
++                out.write(&quot;        (weight   %f)\n&quot; % group.weight)
++                out.write(&quot;        (vertices&quot;)
++                for v in group.vertices:
++                    out.write(&quot; %d&quot; % v)
++                out.write(&quot;)\n&quot;)
++                out.write(&quot;       )\n&quot;)
++            out.write(&quot;     ) ;; groups\n\n&quot;)
++             
++#             out.write(&quot;    (influences\n&quot;)
++#             for vert in mesh.vertices:
++#                 if vert.influences != []:
++#                     out.write(&quot;      (vertex\n&quot;)
++#                     out.write(&quot;        (index %d)\n&quot; % vert.index)
++#                     out.write(&quot;        (influeces&quot;)
++#                     for (bone, weight) in vert.influences:
++#                         out.write(&quot;\n          (influence (weight %f) (bone \&quot;%s\&quot;))&quot; % (weight, bone))
++#                     out.write(&quot;))\n&quot;)
++#             out.write(&quot;     ) ;; influencs\n\n&quot;)
+             
+             out.write(&quot;   ) ;; mesh\n\n&quot;)
+         out.write(&quot; ) ;; windstille-model\n&quot;)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001152.html">[Windstille-commit] r1500 - in trunk/windstille: data/armature src	src/armature tools
+</A></li>
+	<LI>Next message: <A HREF="001154.html">[Windstille-commit] r1502 - in trunk/windstille: data/armature	src/armature
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1153">[ date ]</a>
+              <a href="thread.html#1153">[ thread ]</a>
+              <a href="subject.html#1153">[ subject ]</a>
+              <a href="author.html#1153">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

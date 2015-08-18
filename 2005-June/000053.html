@@ -1,0 +1,529 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r397 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r397%20-%20trunk/src&In-Reply-To=%3C200506230145.j5N1jDtU014393%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000052.html">
+   <LINK REL="Next"  HREF="000054.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r397 - trunk/src</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r397%20-%20trunk/src&In-Reply-To=%3C200506230145.j5N1jDtU014393%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r397 - trunk/src">grumbel at sheep.berlios.de
+       </A><BR>
+    <I>Thu Jun 23 03:45:13 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000052.html">[Windstille-commit] r396 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000054.html">[Windstille-commit] r398 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#53">[ date ]</a>
+              <a href="thread.html#53">[ thread ]</a>
+              <a href="subject.html#53">[ subject ]</a>
+              <a href="author.html#53">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-06-23 03:45:02 +0200 (Thu, 23 Jun 2005)
+New Revision: 397
+
+Added:
+   trunk/src/graphic_context_state.cxx
+   trunk/src/graphic_context_state.hxx
+Modified:
+   trunk/src/SConstruct
+   trunk/src/tile_map.cxx
+   trunk/src/view.cxx
+   trunk/src/view.hxx
+Log:
+- added graphic_context_state to handle zooming/scaling/etc in a nicer way
+
+
+Modified: trunk/src/SConstruct
+===================================================================
+--- trunk/src/SConstruct	2005-06-22 23:42:13 UTC (rev 396)
++++ trunk/src/SConstruct	2005-06-23 01:45:02 UTC (rev 397)
+@@ -74,7 +74,8 @@
+     'water_splash.cxx',
+     'windstille_bonus.cxx', 
+     'windstille_error.cxx', 
+-    'game_session.cxx', 
++    'game_session.cxx',
++    'graphic_context_state.cxx',
+     'windstille_main.cxx', 
+     'windstille_menu.cxx',
+ 
+
+Added: trunk/src/graphic_context_state.cxx
+===================================================================
+--- trunk/src/graphic_context_state.cxx	2005-06-22 23:42:13 UTC (rev 396)
++++ trunk/src/graphic_context_state.cxx	2005-06-23 01:45:02 UTC (rev 397)
+@@ -0,0 +1,222 @@
++//  $Id$
++//
++//  Flexlay - A Generic 2D Game Editor
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++//
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#include &lt;ClanLib/Display/display.h&gt;
++#include &lt;ClanLib/Display/display_window.h&gt;
++#include &lt;ClanLib/Display/graphic_context.h&gt;
++#include &lt;ClanLib/GUI/component.h&gt;
++#include &lt;math.h&gt;
++#include &quot;display/scene_context.hxx&quot;
++#include &quot;graphic_context_state.hxx&quot;
++
++class GraphicContextStateImpl
++{
++public:
++  int width;
++  int height;
++  
++  CL_Pointf offset;
++  float zoom;
++  float rotation;
++};
++
++GraphicContextState::GraphicContextState()
++  : impl(new GraphicContextStateImpl())
++{
++  impl-&gt;width  = 1;
++  impl-&gt;height = 1; 
++  impl-&gt;offset = CL_Pointf(0,0);
++  impl-&gt;zoom   = 1.0f;
++  impl-&gt;rotation = 0;
++}
++
++GraphicContextState::GraphicContextState(int w, int h)
++  : impl(new GraphicContextStateImpl())
++{  
++  impl-&gt;width  = w;
++  impl-&gt;height = h;
++  impl-&gt;offset = CL_Pointf(0,0); 
++  impl-&gt;zoom   = 1.0f;
++  impl-&gt;rotation = 0;
++}
++
++void
++GraphicContextState::set_size(int w, int h)
++{
++  impl-&gt;width  = w;
++  impl-&gt;height = h;
++}
++
++void
++GraphicContextState::push(SceneContext&amp; sc)
++{
++  sc.push_modelview();
++
++  sc.translate(impl-&gt;width/2, impl-&gt;height/2);
++  sc.rotate(impl-&gt;rotation);
++  sc.translate(-impl-&gt;width/2, -impl-&gt;height/2);
++
++  sc.scale(get_zoom(), get_zoom());
++  sc.translate(impl-&gt;offset.x, impl-&gt;offset.y);
++}
++
++void
++GraphicContextState::pop(SceneContext&amp; sc)
++{
++  sc.pop_modelview();
++}
++
++void
++GraphicContextState::push(CL_GraphicContext* gc)
++{
++  if (gc == 0)
++    gc = CL_Display::get_current_window()-&gt;get_gc();
++  
++  gc-&gt;push_modelview();
++
++  gc-&gt;add_translate(impl-&gt;width/2, impl-&gt;height/2);
++  gc-&gt;add_rotate(impl-&gt;rotation, 0, 0, 1.0);
++  gc-&gt;add_translate(-impl-&gt;width/2, -impl-&gt;height/2);
++
++  gc-&gt;add_scale(get_zoom(), get_zoom());
++  gc-&gt;add_translate(impl-&gt;offset.x, impl-&gt;offset.y);
++}
++
++void
++GraphicContextState::pop(CL_GraphicContext* gc)
++{
++  if (gc == 0)
++    gc = CL_Display::get_current_window()-&gt;get_gc();
++  
++  gc-&gt;pop_modelview();
++}
++
++CL_Rectf
++GraphicContextState::get_clip_rect()
++{
++  return CL_Rectf(CL_Pointf(-impl-&gt;offset.x,
++                            -impl-&gt;offset.y),
++                  CL_Sizef(get_width()  / impl-&gt;zoom,
++                           get_height() / impl-&gt;zoom));
++}
++
++void
++GraphicContextState::set_pos(const CL_Pointf&amp; pos)
++{
++  impl-&gt;offset.x = -pos.x + (get_width()/2  / impl-&gt;zoom);
++  impl-&gt;offset.y = -pos.y + (get_height()/2 / impl-&gt;zoom);
++}
++
++CL_Pointf
++GraphicContextState::get_pos() const
++{
++  return CL_Pointf(-impl-&gt;offset.x + (get_width()/2  / impl-&gt;zoom),
++                   -impl-&gt;offset.y + (get_height()/2  / impl-&gt;zoom));
++}
++
++void
++GraphicContextState::set_zoom(CL_Pointf pos, float z)
++{
++  float old_zoom = impl-&gt;zoom;
++  set_zoom(z);
++  impl-&gt;offset.x = pos.x/impl-&gt;zoom - pos.x/old_zoom + impl-&gt;offset.x;
++  impl-&gt;offset.y = pos.y/impl-&gt;zoom - pos.y/old_zoom + impl-&gt;offset.y;
++}
++
++void
++GraphicContextState::set_zoom(float z)
++{
++  impl-&gt;zoom = z;
++}
++
++float
++GraphicContextState::get_zoom()
++{
++  return impl-&gt;zoom;
++}
++
++void
++GraphicContextState::zoom_to (const CL_Rectf&amp; rect)
++{
++  float center_x = (rect.left + rect.right) / 2.0f;
++  float center_y = (rect.top + rect.bottom) / 2.0f;
++
++  float width  = rect.right - rect.left;
++  float height = rect.bottom - rect.top;
++  float screen_relation = float(get_height())/float(get_width ());
++  float rect_relation   = height/width; 
++  
++  //std::cout &lt;&lt; &quot;Screen: &quot; &lt;&lt; screen_relation &lt;&lt; &quot; Zoom: &quot; &lt;&lt; rect_relation &lt;&lt; std::endl;
++  if (rect_relation &lt; screen_relation) // take width, ignore height
++    {
++      impl-&gt;zoom = get_width()/width; 
++    }
++  else // take height, ignore width
++    {
++      impl-&gt;zoom = get_height()/height;
++    }
++
++  impl-&gt;offset.x = (get_width()  / (2*impl-&gt;zoom)) - center_x;
++  impl-&gt;offset.y = (get_height() / (2*impl-&gt;zoom)) - center_y;
++}
++
++CL_Pointf
++GraphicContextState::screen2world(const CL_Point&amp; pos_)
++{
++  CL_Pointf pos = pos_;
++  float sa = sin(-impl-&gt;rotation/180.0f*M_PI);
++  float ca = cos(-impl-&gt;rotation/180.0f*M_PI);
++
++  float dx = pos.x - impl-&gt;width/2;
++  float dy = pos.y - impl-&gt;height/2;
++
++  pos.x = impl-&gt;width/2  + (ca * dx - sa * dy);
++  pos.y = impl-&gt;height/2 + (sa * dx + ca * dy);
++
++  CL_Pointf p((float(pos.x) / impl-&gt;zoom) - impl-&gt;offset.x, 
++              (float(pos.y) / impl-&gt;zoom) - impl-&gt;offset.y);
++
++  return p;
++}
++
++void
++GraphicContextState::set_rotation(float angle)
++{
++  impl-&gt;rotation = angle;
++}
++
++float
++GraphicContextState::get_rotation()
++{
++  return impl-&gt;rotation;
++}
++
++int
++GraphicContextState::get_width()  const 
++{
++  return impl-&gt;width; 
++}
++
++int
++GraphicContextState::get_height() const 
++{ 
++  return impl-&gt;height; 
++}
++
++/* EOF */
+
+Added: trunk/src/graphic_context_state.hxx
+===================================================================
+--- trunk/src/graphic_context_state.hxx	2005-06-22 23:42:13 UTC (rev 396)
++++ trunk/src/graphic_context_state.hxx	2005-06-23 01:45:02 UTC (rev 397)
+@@ -0,0 +1,83 @@
++//  $Id$
++// 
++//  Flexlay - A Generic 2D Game Editor
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++// 
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#ifndef HEADER_GRAPHIC_CONTEXT_STATE_HXX
++#define HEADER_GRAPHIC_CONTEXT_STATE_HXX
++
++#include &lt;ClanLib/Core/Math/point.h&gt;
++#include &lt;ClanLib/Core/Math/rect.h&gt;
++#include &lt;ClanLib/Core/System/sharedptr.h&gt;
++
++class SceneContext;
++class CL_GraphicContext;
++
++class GraphicContextStateImpl;
++
++/** Helper class for capturing the state of a GraphicContext, with
++    additional convenience functions to make handling GraphicContexts
++    easier */
++class GraphicContextState
++{
++public:
++  GraphicContextState();
++  GraphicContextState(int w, int h);
++
++  void set_size(int w, int h);
++
++  void push(CL_GraphicContext* gc = 0);
++  void pop (CL_GraphicContext* gc = 0);
++
++  void push(SceneContext&amp; sc);
++  void pop(SceneContext&amp; sc);
++
++  /** Return a rectangle in world coordinates that represents the area
++      visible on the screen */
++  CL_Rectf get_clip_rect();
++
++  int get_width()  const;
++  int get_height() const;
++
++  /** Set the current rotation angel */
++  void  set_rotation(float angle);
++
++  /** Return the current rotation angel */
++  float get_rotation();
++
++  /** Move the center of the visible area to pos */
++  void      set_pos(const CL_Pointf&amp; pos);
++  CL_Pointf get_pos() const;
++
++  /** Set zoom to z, while ensuring that the screen position \a pos
++      (normaly the position of the mouse pointer) stays in the same
++      position even after zoomed in/out */
++  void  set_zoom(CL_Pointf pos, float z);
++  void  set_zoom(float z);
++  float get_zoom(); 
++
++  void zoom_to (const CL_Rectf&amp; rect);
++
++  CL_Pointf screen2world(const CL_Point&amp; pos);
++
++private:
++  CL_SharedPtr&lt;GraphicContextStateImpl&gt; impl;
++};
++
++#endif
++
++/* EOF */
+
+Modified: trunk/src/tile_map.cxx
+===================================================================
+--- trunk/src/tile_map.cxx	2005-06-22 23:42:13 UTC (rev 396)
++++ trunk/src/tile_map.cxx	2005-06-23 01:45:02 UTC (rev 397)
+@@ -93,7 +93,7 @@
+ void
+ TileMap::draw (SceneContext&amp; sc)
+ {
+-  CL_Rect rect = View::current()-&gt;get_clip_rect();
++  CL_Rect rect = CL_Rect(View::current()-&gt;get_clip_rect());
+ 
+   int start_x = std::max(0, rect.left/TILE_SIZE);
+   int start_y = std::max(0, rect.top/TILE_SIZE);
+
+Modified: trunk/src/view.cxx
+===================================================================
+--- trunk/src/view.cxx	2005-06-22 23:42:13 UTC (rev 396)
++++ trunk/src/view.cxx	2005-06-23 01:45:02 UTC (rev 397)
+@@ -26,25 +26,19 @@
+ 
+ View::View (Player* t)
+   : player (t),
+-    world (player-&gt;get_world ())
++    world (player-&gt;get_world ()),
++    state(CL_Display::get_width(), CL_Display::get_height())
+ {
+   current_ = this;
+ }
+ 
+ void
+-View::draw (SceneContext&amp; gc)
++View::draw (SceneContext&amp; sc)
+ {
+-  CL_Display::push_modelview();
+-  CL_Display::add_translate(int(-pos.x + CL_Display::get_width ()/2),
+-                            int(-pos.y + CL_Display::get_height ()/2));
+-
+-  gc.push_modelview();
+-  gc.translate(-pos.x + CL_Display::get_width ()/2,
+-               -pos.y + CL_Display::get_height ()/2);
+-  world-&gt;draw(gc);
+-  gc.pop_modelview();
+-
+-  CL_Display::pop_modelview();
++  state.set_pos(pos);
++  state.push(sc);
++  world-&gt;draw(sc);
++  state.pop(sc);
+ }
+ 
+ void
+@@ -86,26 +80,16 @@
+     pos.y = end_y;
+ }
+ 
+-CL_Rect
++CL_Rectf
+ View::get_clip_rect()
+ {
+-  return CL_Rect(CL_Point(int(pos.x - CL_Display::get_width()/2),
+-                          int(pos.y - CL_Display::get_height()/2)),
+-                 CL_Size(800, 600));
++  return state.get_clip_rect();
+ }
+ 
+ CL_Pointf
+ View::screen2world(CL_Pointf point)
+ {
+-  return CL_Pointf(point.x + pos.x - CL_Display::get_width()/2,
+-                   point.y + pos.y - CL_Display::get_height()/2);
++  return state.screen2world(CL_Point(point));
+ }
+ 
+-CL_Pointf
+-View::world2screen(CL_Pointf point)
+-{
+-  return CL_Pointf(point.x - pos.x + CL_Display::get_width()/2,
+-                   point.y - pos.y + CL_Display::get_height()/2);
+-}
+-
+ /* EOF */
+
+Modified: trunk/src/view.hxx
+===================================================================
+--- trunk/src/view.hxx	2005-06-22 23:42:13 UTC (rev 396)
++++ trunk/src/view.hxx	2005-06-23 01:45:02 UTC (rev 397)
+@@ -22,6 +22,7 @@
+ 
+ #include &lt;ClanLib/Core/Math/rect.h&gt;
+ #include &lt;ClanLib/Core/Math/cl_vector.h&gt;
++#include &quot;graphic_context_state.hxx&quot;
+ 
+ class Player;
+ class Sector;
+@@ -31,9 +32,10 @@
+ class View
+ {
+ private:
+-  Player*  player;
+-  Sector* world;
+-  CL_Vector pos;
++  Player*   player;
++  Sector*   world;
++  CL_Pointf pos;
++  GraphicContextState state;
+ 
+ public:
+   View(Player*);
+@@ -41,9 +43,8 @@
+ 
+   /** @return the rectangle which represents the currently visible
+       area, everything outside of it doesn't have to be drawn */
+-  CL_Rect get_clip_rect();
++  CL_Rectf get_clip_rect();
+   CL_Pointf screen2world(CL_Pointf point);
+-  CL_Pointf world2screen(CL_Pointf point);
+ 
+   void draw(SceneContext&amp; gc);
+   void update(float delta);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000052.html">[Windstille-commit] r396 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000054.html">[Windstille-commit] r398 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#53">[ date ]</a>
+              <a href="thread.html#53">[ thread ]</a>
+              <a href="subject.html#53">[ subject ]</a>
+              <a href="author.html#53">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,440 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1443 - in trunk/windstille: . src src/display	src/math src/navigation
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1443%20-%20in%20trunk/windstille%3A%20.%20src%20src/display%0A%09src/math%20src/navigation&In-Reply-To=%3C200706160025.l5G0PJJ2001934%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001094.html">
+   <LINK REL="Next"  HREF="001096.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1443 - in trunk/windstille: . src src/display	src/math src/navigation</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1443%20-%20in%20trunk/windstille%3A%20.%20src%20src/display%0A%09src/math%20src/navigation&In-Reply-To=%3C200706160025.l5G0PJJ2001934%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1443 - in trunk/windstille: . src src/display	src/math src/navigation">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Jun 16 02:25:20 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001094.html">[Windstille-commit] r1442 - in trunk/windstille/src: . math	navigation
+</A></li>
+        <LI>Next message: <A HREF="001096.html">[Windstille-commit] r1444 - in trunk/windstille: lib src	src/navigation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1095">[ date ]</a>
+              <a href="thread.html#1095">[ thread ]</a>
+              <a href="subject.html#1095">[ subject ]</a>
+              <a href="author.html#1095">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-06-16 02:25:16 +0200 (Sat, 16 Jun 2007)
+New Revision: 1443
+
+Modified:
+   trunk/windstille/INSTALL
+   trunk/windstille/src/display/display.cpp
+   trunk/windstille/src/display/display.hpp
+   trunk/windstille/src/math/line.cpp
+   trunk/windstille/src/navigation/navigation_graph.cpp
+   trunk/windstille/src/navigation/navigation_graph.hpp
+   trunk/windstille/src/navigation/node.hpp
+   trunk/windstille/src/navigation_test.cpp
+   trunk/windstille/src/navigation_test.hpp
+Log:
+- turned navigation test into a more or less usable navigation graph editor
+
+Modified: trunk/windstille/INSTALL
+===================================================================
+--- trunk/windstille/INSTALL	2007-06-15 23:22:12 UTC (rev 1442)
++++ trunk/windstille/INSTALL	2007-06-16 00:25:16 UTC (rev 1443)
+@@ -12,6 +12,8 @@
+  * physfs
+  * boost
+  * scons
++ * bison
++ * flex
+ 
+ In most cases these will come with your distribution.
+ 
+
+Modified: trunk/windstille/src/display/display.cpp
+===================================================================
+--- trunk/windstille/src/display/display.cpp	2007-06-15 23:22:12 UTC (rev 1442)
++++ trunk/windstille/src/display/display.cpp	2007-06-16 00:25:16 UTC (rev 1443)
+@@ -48,6 +48,21 @@
+ }
+ 
+ void
++Display::draw_segment(const Line&amp; line, const Color&amp; color)
++{
++  Vector normal = (line.p2 - line.p1);
++
++  normal = Vector(-normal.y, normal.x);
++  normal.normalize();
++  normal *= -32.0f;
++  
++  Vector p3 = line.p1 + 0.5f * (line.p2 - line.p1);
++
++  draw_line(line,   color);
++  draw_line(p3, p3 + normal, Color(0.0f, 1.0f, 1.0f));
++}
++
++void
+ Display::draw_line(const Vector&amp; pos1, const Vector&amp; pos2, const Color&amp; color)
+ {
+   OpenGLState state;
+
+Modified: trunk/windstille/src/display/display.hpp
+===================================================================
+--- trunk/windstille/src/display/display.hpp	2007-06-15 23:22:12 UTC (rev 1442)
++++ trunk/windstille/src/display/display.hpp	2007-06-16 00:25:16 UTC (rev 1443)
+@@ -46,6 +46,9 @@
+   static void fill_rounded_rect(const Rectf&amp; rect, float radius, const Color&amp; color);
+   static void draw_rounded_rect(const Rectf&amp; rect, float radius, const Color&amp; color);
+ 
++  /** Same as draw_line, but in addition draw a normal on top of the line */
++  static void draw_segment(const Line&amp; line, const Color&amp; color);
++
+   static void draw_line(const Line&amp; line, const Color&amp; color);
+   static void draw_line(const Vector&amp; pos1, const Vector&amp; pos2, const Color&amp; color);
+ 
+
+Modified: trunk/windstille/src/math/line.cpp
+===================================================================
+--- trunk/windstille/src/math/line.cpp	2007-06-15 23:22:12 UTC (rev 1442)
++++ trunk/windstille/src/math/line.cpp	2007-06-16 00:25:16 UTC (rev 1443)
+@@ -23,6 +23,7 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;iostream&gt;
+ #include &quot;line.hpp&quot;
+ 
+ Line::Line(const Vector&amp; p1_,
+@@ -86,7 +87,7 @@
+ 
+   float u =
+     ((x3 - x1) * (x2 - x1) + (y3 - y1) * (y2 - y1)) /
+-    length() * length();
++    (length() * length());
+   
+   if (u &lt; 0.0f)
+     {
+@@ -99,9 +100,9 @@
+   else // (u &gt;= 0.0f &amp;&amp; u &lt;= 1.0f)
+     {
+       Vector p4(x1 + u * (x2 - x1),
+-                y1 + u * (y2 - y2));
++                y1 + u * (y2 - y1));
+ 
+-      return (p3 - p4).length();
++      return (p4 - p3).length();
+     }
+ }
+ 
+
+Modified: trunk/windstille/src/navigation/navigation_graph.cpp
+===================================================================
+--- trunk/windstille/src/navigation/navigation_graph.cpp	2007-06-15 23:22:12 UTC (rev 1442)
++++ trunk/windstille/src/navigation/navigation_graph.cpp	2007-06-16 00:25:16 UTC (rev 1443)
+@@ -23,6 +23,8 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;iostream&gt;
++#include &lt;algorithm&gt;
+ #include &quot;display/display.hpp&quot;
+ #include &quot;node.hpp&quot;
+ #include &quot;segment.hpp&quot;
+@@ -45,6 +47,54 @@
+   return node;
+ }
+ 
++void
++NavigationGraph::remove_segment(Segment* segment)
++{
++  // FIXME: Slow
++  Segments::iterator i = std::find(segments.begin(), segments.end(), segment);
++  if (i != segments.end())
++    {
++      segments.erase(i);
++    }
++
++  delete segment;
++}
++
++struct ContainsNode
++{
++  Node* node;
++
++  ContainsNode(Node* node_) : node(node_) {}
++
++  bool operator()(Segment* segment) {
++    return 
++      (segment-&gt;get_node1() == node ||
++       segment-&gt;get_node2() == node);
++  }
++};
++
++void
++NavigationGraph::remove_node(Node* node)
++{
++  // FIXME: Slow
++
++  // Remove all segments that would get invalid by removing the node
++  Segments::iterator i = std::remove_if(segments.begin(), segments.end(), ContainsNode(node));
++  if (i != segments.end())
++    {
++      segments.erase(i, segments.end());
++    }
++  
++  // Remove the node itself 
++  Nodes::iterator j = std::find(nodes.begin(), nodes.end(), node);
++  if (j != nodes.end())
++    {
++      nodes.erase(j);
++    }  
++
++  delete node;
++}
++
+ Segment*
+ NavigationGraph::add_segment(Node* node1, Node* node2)
+ {
+@@ -53,6 +103,18 @@
+   return segment;
+ }
+ 
++void
++NavigationGraph::split_segment(Segment* segment)
++{
++  Node* node1 = segment-&gt;get_node1();
++  Node* node3 = segment-&gt;get_node2();
++  Node* node2 = add_node(0.5f * (node1-&gt;get_pos() + node3-&gt;get_pos()));
++
++  remove_segment(segment);
++  add_segment(node1, node2);  
++  add_segment(node2, node3);  
++}
++
+ std::vector&lt;Segment*&gt;
+ NavigationGraph::find_segments(const Line&amp; line)
+ {
+@@ -116,9 +178,9 @@
+ {
+   for(Segments::iterator i = segments.begin(); i != segments.end(); ++i)
+     {
+-      Display::draw_line((*i)-&gt;get_node1()-&gt;get_pos(),
+-                         (*i)-&gt;get_node2()-&gt;get_pos(),
+-                         Color(1.0f, 0.0f, 0.0f));
++      Display::draw_segment(Line((*i)-&gt;get_node1()-&gt;get_pos(),
++                                 (*i)-&gt;get_node2()-&gt;get_pos()),
++                            Color(1.0f, 0.0f, 0.0f));
+     }
+ 
+   for(Nodes::iterator i = nodes.begin(); i != nodes.end(); ++i)
+
+Modified: trunk/windstille/src/navigation/navigation_graph.hpp
+===================================================================
+--- trunk/windstille/src/navigation/navigation_graph.hpp	2007-06-15 23:22:12 UTC (rev 1442)
++++ trunk/windstille/src/navigation/navigation_graph.hpp	2007-06-16 00:25:16 UTC (rev 1443)
+@@ -51,6 +51,11 @@
+   Node*    add_node(const Vector&amp; pos);
+   Segment* add_segment(Node* node1, Node* node2);
+ 
++  void remove_node(Node* node);
++  void remove_segment(Segment* segment);
++
++  void split_segment(Segment* segment);
++
+   /** Find segments that collide with the given line */
+   std::vector&lt;Segment*&gt; find_segments(const Line&amp; line);
+ 
+
+Modified: trunk/windstille/src/navigation/node.hpp
+===================================================================
+--- trunk/windstille/src/navigation/node.hpp	2007-06-15 23:22:12 UTC (rev 1442)
++++ trunk/windstille/src/navigation/node.hpp	2007-06-16 00:25:16 UTC (rev 1443)
+@@ -45,7 +45,7 @@
+   Node(const Vector&amp; pos_);
+ 
+   Vector get_pos() const { return pos; }
+-
++  void   set_pos(const Vector&amp; p) { pos = p; }
+ private:
+   Node(const Node&amp;);
+   Node&amp; operator=(const Node&amp;);
+
+Modified: trunk/windstille/src/navigation_test.cpp
+===================================================================
+--- trunk/windstille/src/navigation_test.cpp	2007-06-15 23:22:12 UTC (rev 1442)
++++ trunk/windstille/src/navigation_test.cpp	2007-06-16 00:25:16 UTC (rev 1443)
+@@ -34,18 +34,21 @@
+ #include &quot;navigation_test.hpp&quot;
+ 
+ NavigationTest::NavigationTest()
+-  : cursor(400, 300)
++  : cursor(400, 300),
++    selected_segment(0),
++    selected_node(0),
++    node_to_connect(0)
+ {
+   graph = new NavigationGraph();
+ 
+   Node* node1 = graph-&gt;add_node(Vector(100, 200));
+   Node* node2 = graph-&gt;add_node(Vector(300, 400));
+-  Node* node3 = graph-&gt;add_node(Vector(500, 300));
+-  Node* node4 = graph-&gt;add_node(Vector(700, 400));
++  //Node* node3 = graph-&gt;add_node(Vector(500, 300));
++  //Node* node4 = graph-&gt;add_node(Vector(700, 400));
+ 
+   graph-&gt;add_segment(node1, node2);
+-  graph-&gt;add_segment(node2, node3);
+-  graph-&gt;add_segment(node3, node4);
++  //graph-&gt;add_segment(node2, node3);
++  //graph-&gt;add_segment(node3, node4);
+   
+ }
+ 
+@@ -58,13 +61,18 @@
+   Display::fill_rect(Rectf(cursor - Vector(2,2), Sizef(5,5)),  Color(1.0f, 1.0f, 1.0f));
+   Display::draw_circle(cursor, 32.0f, Color(1.0f, 1.0f, 1.0f, 0.5f));
+ 
+-  Node* node = graph-&gt;find_closest_node(cursor, 32.0f);
+-  if (node)
+-    Display::draw_circle(node-&gt;get_pos(), 12.0f, Color(1.0f, 1.0f, 1.0f, 1.0f));
++  if (node_to_connect)
++    {
++      Display::fill_rect(Rectf(node_to_connect-&gt;get_pos() - Vector(2,2), Sizef(5,5)),  
++                         Color(1.0f, 1.0f, 1.0f));
++      Display::draw_line(node_to_connect-&gt;get_pos(), cursor, Color(1.0f, 1.0f, 1.0f, 0.5f));
++    }
+ 
+-  Segment* segment = graph-&gt;find_closest_segment(cursor, 32.0f);
+-  if (segment)
+-    Display::draw_line(segment-&gt;get_line(), Color(1.0f, 1.0f, 1.0f, 1.0f));
++  if (selected_node)
++    Display::draw_circle(selected_node-&gt;get_pos(), 12.0f, Color(1.0f, 1.0f, 1.0f, 1.0f));
++
++  if (selected_segment)
++    Display::draw_line(selected_segment-&gt;get_line(), Color(1.0f, 1.0f, 1.0f, 1.0f));
+ }
+ 
+ void
+@@ -80,7 +88,55 @@
+   cursor.y += controller.get_axis_state(Y_AXIS) * 500.0f * delta;
+ 
+   if (controller.button_was_pressed(PRIMARY_BUTTON))
+-    graph-&gt;add_node(cursor);
++    {
++      if (node_to_connect)
++        {
++          if (selected_node)
++            graph-&gt;add_segment(node_to_connect, selected_node);
++          
++          node_to_connect = 0;
++        }
++      else if (selected_node)
++        {
++          node_to_connect = selected_node;
++        }
++      else if (selected_segment)
++        {
++          graph-&gt;split_segment(selected_segment);
++          selected_segment = 0;
++        }
++      else
++        {
++          graph-&gt;add_node(cursor);
++        }
++    }
++
++  if (controller.get_button_state(TERTIARY_BUTTON))
++    {
++      if (selected_node)
++        {
++          selected_node-&gt;set_pos(cursor);
++        }
++    }
++
++  if (controller.button_was_pressed(PDA_BUTTON))
++    {
++      if (selected_node) {
++        graph-&gt;remove_node(selected_node);
++        selected_node = 0;
++      } 
++      
++      if (selected_segment) {
++        graph-&gt;remove_segment(selected_segment);
++        selected_segment = 0;
++      }      
++    }
++
++  selected_node = graph-&gt;find_closest_node(cursor, 32.0f);
++  if (!selected_node)
++    selected_segment = graph-&gt;find_closest_segment(cursor, 32.0f);
++  else
++    selected_segment = 0;
+ }
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/navigation_test.hpp
+===================================================================
+--- trunk/windstille/src/navigation_test.hpp	2007-06-15 23:22:12 UTC (rev 1442)
++++ trunk/windstille/src/navigation_test.hpp	2007-06-16 00:25:16 UTC (rev 1443)
+@@ -30,6 +30,8 @@
+ 
+ class NavigationGraph;
+ class Connection;
++class Segment;
++class Node;
+ 
+ /** */
+ class NavigationTest : public Screen
+@@ -39,6 +41,11 @@
+   NavigationGraph* graph;
+   Connection* connection;
+ 
++  Segment* selected_segment;
++  Node*    selected_node;
++
++  Node* node_to_connect;
++
+ public:
+   NavigationTest();
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001094.html">[Windstille-commit] r1442 - in trunk/windstille/src: . math	navigation
+</A></li>
+	<LI>Next message: <A HREF="001096.html">[Windstille-commit] r1444 - in trunk/windstille: lib src	src/navigation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1095">[ date ]</a>
+              <a href="thread.html#1095">[ thread ]</a>
+              <a href="subject.html#1095">[ subject ]</a>
+              <a href="author.html#1095">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,1576 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r650 - in trunk/src: . display particles
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r650%20-%20in%20trunk/src%3A%20.%20display%20particles&In-Reply-To=%3C200507152331.j6FNVcXP030825%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000302.html">
+   <LINK REL="Next"  HREF="000304.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r650 - in trunk/src: . display particles</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r650%20-%20in%20trunk/src%3A%20.%20display%20particles&In-Reply-To=%3C200507152331.j6FNVcXP030825%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r650 - in trunk/src: . display particles">grumbel at berlios.de
+       </A><BR>
+    <I>Sat Jul 16 01:31:38 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000302.html">[Windstille-commit] r649 - in trunk/src: . input scripting
+</A></li>
+        <LI>Next message: <A HREF="000304.html">[Windstille-commit] r651 - trunk/data/blender/hero
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#303">[ date ]</a>
+              <a href="thread.html#303">[ thread ]</a>
+              <a href="subject.html#303">[ subject ]</a>
+              <a href="author.html#303">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-07-16 01:31:16 +0200 (Sat, 16 Jul 2005)
+New Revision: 650
+
+Added:
+   trunk/src/particles/
+   trunk/src/particles/Jamfile
+   trunk/src/particles/drawer.hpp
+   trunk/src/particles/particle_system.cpp
+   trunk/src/particles/particle_system.hpp
+   trunk/src/particles/randomizer.hpp
+   trunk/src/particles/spark_drawer.cpp
+   trunk/src/particles/spark_drawer.hpp
+   trunk/src/particles/surface_drawer.cpp
+   trunk/src/particles/surface_drawer.hpp
+Removed:
+   trunk/src/particle_system.cpp
+   trunk/src/particle_system.hpp
+Modified:
+   trunk/src/Jamfile
+   trunk/src/display/drawing_request.hpp
+   trunk/src/game_session.cpp
+Log:
+- seperated particle system into an own directory
+
+Modified: trunk/src/Jamfile
+===================================================================
+--- trunk/src/Jamfile	2005-07-15 20:14:32 UTC (rev 649)
++++ trunk/src/Jamfile	2005-07-15 23:31:16 UTC (rev 650)
+@@ -10,6 +10,7 @@
+ SubInclude TOP src sprite3d ;
+ SubInclude TOP src tinygettext ;
+ SubInclude TOP src collision ;
++SubInclude TOP src particles ;
+ 
+ sources = 
+         animation_obj.cpp
+@@ -58,8 +59,6 @@
+         igel.cpp
+         igel.hpp
+         math.hpp
+-        particle_system.cpp
+-        particle_system.hpp
+         player.cpp
+         player.hpp
+         random.cpp
+@@ -125,6 +124,8 @@
+ 
+ 	$(collision_objects)
+ 
++        $(particles_objects)
++
+         $(sources)
+ ;
+ 
+
+Modified: trunk/src/display/drawing_request.hpp
+===================================================================
+--- trunk/src/display/drawing_request.hpp	2005-07-15 20:14:32 UTC (rev 649)
++++ trunk/src/display/drawing_request.hpp	2005-07-15 23:31:16 UTC (rev 650)
+@@ -21,6 +21,7 @@
+ #define HEADER_DRAWING_REQUEST_HXX
+ 
+ #include &lt;ClanLib/Core/Math/cl_vector.h&gt;
++#include &lt;ClanLib/Core/Math/matrix4x4.h&gt;
+ 
+ class CL_GraphicContext;
+ 
+
+Modified: trunk/src/game_session.cpp
+===================================================================
+--- trunk/src/game_session.cpp	2005-07-15 20:14:32 UTC (rev 649)
++++ trunk/src/game_session.cpp	2005-07-15 23:31:16 UTC (rev 650)
+@@ -42,7 +42,9 @@
+ #include &quot;scripting/wrapper_util.hpp&quot;
+ #include &quot;scripting/wrapper.hpp&quot;
+ #include &quot;input/input_manager.hpp&quot;
+-#include &quot;particle_system.hpp&quot;
++#include &quot;particles/particle_system.hpp&quot;
++#include &quot;particles/spark_drawer.hpp&quot;
++#include &quot;particles/surface_drawer.hpp&quot;
+ #include &quot;script_manager.hpp&quot;
+ #include &quot;sound/sound_manager.hpp&quot;
+ #include &quot;test_object.hpp&quot;
+
+Deleted: trunk/src/particle_system.cpp
+===================================================================
+--- trunk/src/particle_system.cpp	2005-07-15 20:14:32 UTC (rev 649)
++++ trunk/src/particle_system.cpp	2005-07-15 23:31:16 UTC (rev 650)
+@@ -1,390 +0,0 @@
+-//  $Id$
+-//
+-//  Pingus - A free Lemmings clone
+-//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+-//
+-//  This program is free software; you can redistribute it and/or
+-//  modify it under the terms of the GNU General Public License
+-//  as published by the Free Software Foundation; either version 2
+-//  of the License, or (at your option) any later version.
+-//
+-//  This program is distributed in the hope that it will be useful,
+-//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-//  GNU General Public License for more details.
+-//
+-//  You should have received a copy of the GNU General Public License
+-//  along with this program; if not, write to the Free Software
+-//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+-
+-#include &lt;math.h&gt;
+-#include &lt;ClanLib/gl.h&gt;
+-#include &quot;particle_system.hpp&quot;
+-#include &quot;display/scene_context.hpp&quot;
+-#include &quot;random.hpp&quot;
+-
+-class Randomizer 
+-{
+-public:
+-  virtual ~Randomizer() {}
+-  virtual void set_pos(Particle&amp; p) =0;
+-};
+-
+-class PointRandomizer : public Randomizer {
+-public:
+-  void set_pos(Particle&amp; particle) {
+-    particle.x = 0;
+-    particle.y = 0;
+-  }
+-};
+-
+-class RectRandomizer : public Randomizer {
+-public:
+-  float width;
+-  float height;
+-
+-  RectRandomizer(float width_, float height_) 
+-    : width(width_), height(height_) {}
+- 
+-  void set_pos(Particle&amp; p) {
+-    p.x = rnd.drand(-width/2, width/2);
+-    p.y = rnd.drand(-height/2, height/2);
+-  }
+-};
+-
+-class CircleRandomizer : public Randomizer  {
+-public:
+-  float radius;
+-
+-  CircleRandomizer(float radius_) 
+-    : radius(radius_) {}
+-
+-  void set_pos(Particle&amp; p) {
+-    // FIXME: BROKEN!!!!!
+-    p.x = rnd.drand(-radius, radius);
+-    p.y = sqrt((radius*radius) - (p.x*p.x)) * rnd.drand(-1.0f, 1.0f);
+-  }
+-};
+-
+-class LineRandomizer : public Randomizer {
+-public:
+-  float x1, y1;
+-  float x2, y2;
+-
+-  LineRandomizer(float x1_, float y1_, float x2_, float y2_) 
+-    : x1(x1_), y1(y1_), x2(x2_), y2(y2_)
+-  {}
+-
+-  void set_pos(Particle&amp; p) {
+-    float l = rnd.drand();
+-    p.x = x1 + (x2-x1) * l;
+-    p.y = y1 + (y2-y1) * l;
+-  }
+-};
+-
+-SurfaceDrawer::SurfaceDrawer(const CL_Surface&amp; sur)
+-  : surface(sur)
+-{
+-}
+-
+-SurfaceDrawer::~SurfaceDrawer() 
+-{
+-}
+-  
+-void
+-SurfaceDrawer::set_surface(const CL_Surface&amp; sur)
+-{
+-  surface = sur;
+-  surface.set_alignment(origin_center);
+-}
+-
+-void
+-SurfaceDrawer::draw(SceneContext&amp; sc, ParticleSystem&amp; psys) 
+-{          
+-  for(ParticleSystem::Particles::iterator i = psys.begin(); i != psys.end(); ++i)
+-    {
+-      // FIXME: use custom OpenGL here
+-      if (i-&gt;t != -1.0f)
+-        {
+-          float p = 1.0f - psys.get_progress(i-&gt;t);
+-          surface.set_color(CL_Color(int(psys.color_start.get_red()   * p + psys.color_stop.get_red()   * (1.0f - p)),
+-                                     int(psys.color_start.get_green() * p + psys.color_stop.get_green() * (1.0f - p)),
+-                                     int(psys.color_start.get_blue()  * p + psys.color_stop.get_blue()  * (1.0f - p)),
+-                                     int(psys.color_start.get_alpha() * p + psys.color_stop.get_alpha() * (1.0f - p))));
+-
+-          surface.set_scale(psys.size_start + psys.get_progress(i-&gt;t)*(psys.size_stop - psys.size_start),
+-                            psys.size_start + psys.get_progress(i-&gt;t)*(psys.size_stop - psys.size_start));
+-          surface.set_angle(i-&gt;angle);
+-          
+-          sc.color().draw(surface, 
+-                          psys.get_x_pos() + i-&gt;x,
+-                          psys.get_y_pos() + i-&gt;y);
+-        }
+-    }
+-}
+-
+-class SparkDrawerDrawingRequest : public DrawingRequest
+-{
+-private:
+-  ParticleSystem&amp; psys;
+-public:
+-  SparkDrawerDrawingRequest(ParticleSystem&amp; psys_,
+-                            const CL_Vector&amp; pos, const CL_Matrix4x4&amp; modelview = CL_Matrix4x4(true))
+-    : DrawingRequest(pos, modelview),
+-      psys(psys_)
+-  {
+-  }
+-
+-  virtual ~SparkDrawerDrawingRequest() {}
+-  
+-  void draw(CL_GraphicContext* gc) 
+-  {
+-    gc-&gt;push_modelview();
+-    gc-&gt;add_modelview(modelview);
+-
+-    CL_OpenGLState state(gc);
+-    state.set_active();
+-    state.setup_2d();
+-  
+-    glEnable(GL_BLEND);
+-    glBlendFunc( GL_SRC_ALPHA, GL_ONE );
+-    glBegin(GL_LINES);
+-    for(ParticleSystem::Particles::iterator i = psys.begin(); i != psys.end(); ++i)
+-      {
+-        glColor4f(1.0, 1.0, 0, 1.0f-psys.get_progress(i-&gt;t));
+-        glVertex2f(i-&gt;x, i-&gt;y);
+-        glColor4f(0, 0, 0, 0);
+-        glVertex2f(i-&gt;x - i-&gt;v_x/10.0f, i-&gt;y - i-&gt;v_y/10.0f);
+-      }
+-    glEnd();  
+-
+-    gc-&gt;pop_modelview();
+-  }
+-};
+-
+-void
+-SparkDrawer::draw(SceneContext&amp; sc, ParticleSystem&amp; psys) 
+-{
+-  sc.color().draw(new SparkDrawerDrawingRequest(psys, CL_Vector(0, 0, .5f), sc.color().get_modelview()));
+-}
+-
+-ParticleSystem::ParticleSystem()
+-{
+-  randomizer = new PointRandomizer;
+-  drawer     = 0;
+-  x_pos      = 320.0f;
+-  y_pos      = 240.0f;
+-  life_time  = 1.0f;
+-
+-  gravity_x = 0.0f;
+-  gravity_y = -10.0f;
+-
+-  cone_start = 0;
+-  cone_stop  = 2*M_PI;
+-
+-  size_start = 1.0f;
+-  size_stop  = 1.0f;
+-
+-  speed_start = 100.0;
+-  speed_stop  = 200.0f;
+-
+-  color_start = CL_Color(255, 255, 255, 255);
+-  color_stop  = CL_Color(  0,   0,   0,   0);
+-
+-  set_count(70);
+-}
+-
+-ParticleSystem::~ParticleSystem()
+-{
+-  delete randomizer;
+-  delete drawer;
+-}
+-
+-void
+-ParticleSystem::set_drawer(Drawer* drawer_)
+-{
+-  delete drawer;
+-  drawer = drawer_;
+-}
+-  
+-void
+-ParticleSystem::draw(SceneContext&amp; sc)
+-{
+-  if (drawer)
+-    {
+-      drawer-&gt;draw(sc, *this);
+-    }
+-  else
+-    {
+-      std::cout &lt;&lt; &quot;ParticleSystem: No drawer set&quot; &lt;&lt; std::endl;
+-    }
+-}
+-
+-void
+-ParticleSystem::spawn(Particle&amp; particle)
+-{
+-  randomizer-&gt;set_pos(particle);
+-
+-  particle.x   += spawn_x_pos;
+-  particle.y   += spawn_y_pos;
+-
+-  float direction = rnd.drand(cone_start, cone_stop);
+-  float speed     = rnd.drand(speed_start, speed_stop);
+-  particle.v_x    = cos(direction) * speed;
+-  particle.v_y    = sin(direction) * speed;
+-
+-  particle.angle = rnd.drand(360);
+-
+-  particle.t   = std::min(std::max(0.0f, particle.t - life_time), life_time);
+-}
+-
+-void
+-ParticleSystem::update(float delta)
+-{
+-  for(Particles::iterator i = particles.begin(); i != particles.end(); ++i)
+-    {
+-      if (i-&gt;t &gt; life_time)
+-        {
+-          spawn(*i);
+-        }
+-      else
+-        {
+-          i-&gt;t += delta;
+-          
+-          i-&gt;x += i-&gt;v_x * delta;
+-          i-&gt;y += i-&gt;v_y * delta;
+-
+-          i-&gt;v_x += gravity_x;
+-          i-&gt;v_y += gravity_y;
+-        }
+-    }
+-}
+-
+-void
+-ParticleSystem::set_count(int num)
+-{
+-  particles.resize(num);
+-
+-  for(Particles::iterator i = particles.begin(); i != particles.end(); ++i)
+-    {
+-      //i-&gt;t = -1.0f;
+-      spawn(*i);
+-      i-&gt;t = (life_time * (float(i - particles.begin())/particles.size()));
+-    }
+-}
+-  
+-void
+-ParticleSystem::set_bunching(float factor)
+-{
+-  (void) factor; 
+-}
+-
+-void
+-ParticleSystem::set_cycles(float num)
+-{
+-  (void) num;
+-}
+-
+-void
+-ParticleSystem::set_pos(float x, float y)
+-{
+-  x_pos = x;
+-  y_pos = y;
+-}
+-
+-void
+-ParticleSystem::set_spawn_point(float x, float y)
+-{
+-  spawn_x_pos = x;
+-  spawn_y_pos = y;
+-}
+-
+-void
+-ParticleSystem::set_point_distribution()
+-{
+-  delete randomizer;
+-  randomizer = new PointRandomizer();
+-}
+-
+-void
+-ParticleSystem::set_line_distribution(float x1, float y1,
+-                                      float x2, float y2)
+-{
+-  delete randomizer;
+-  randomizer = new LineRandomizer(x1, y1, x2, y2);
+-}
+-
+-void
+-ParticleSystem::set_circle_distribution(float radius)
+-{
+-  delete randomizer;
+-  randomizer = new CircleRandomizer(radius);
+-}
+-
+-void
+-ParticleSystem::set_rect_distribution(float width, float height)
+-{
+-  delete randomizer;
+-  randomizer = new RectRandomizer(width,  height);
+-}
+-
+-void
+-ParticleSystem::set_cone(float start_angle, float stop_angle)
+-{
+-  cone_start = start_angle * M_PI/180.0f;
+-  cone_stop  = stop_angle  * M_PI/180.0f;
+-}
+-
+-void
+-ParticleSystem::set_gravity(float arg_gravity_x, float arg_gravity_y)
+-{
+-  gravity_x = arg_gravity_x;
+-  gravity_y = arg_gravity_y;
+-}
+-
+-void
+-ParticleSystem::set_lifetime(float time)
+-{
+-  life_time = time;
+-}
+-
+-void
+-ParticleSystem::set_size(float from, float to)
+-{
+-  size_start = from;
+-  size_stop  = to;
+-}
+-
+-void
+-ParticleSystem::set_aspect(float from, float to)
+-{
+-  (void) from;
+-  (void) to;
+-}
+-
+-void
+-ParticleSystem::set_color(const CL_Color&amp; color)
+-{
+-  color_start = color;
+-}
+-
+-void
+-ParticleSystem::set_fade_color(const CL_Color&amp; color)
+-{
+-  color_stop = color;
+-}
+-
+-void
+-ParticleSystem::set_speed(float from, float to)
+-{
+-  speed_start = from;
+-  speed_stop  = to;
+-}
+-
+-float
+-ParticleSystem::get_progress(float t)
+-{
+-  return std::max(0.0f, std::min(1.0f, t/life_time));
+-}
+-
+-/* EOF */
+
+Deleted: trunk/src/particle_system.hpp
+===================================================================
+--- trunk/src/particle_system.hpp	2005-07-15 20:14:32 UTC (rev 649)
++++ trunk/src/particle_system.hpp	2005-07-15 23:31:16 UTC (rev 650)
+@@ -1,203 +0,0 @@
+-//  $Id$
+-// 
+-//  Pingus - A free Lemmings clone
+-//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+-//
+-//  This program is free software; you can redistribute it and/or
+-//  modify it under the terms of the GNU General Public License
+-//  as published by the Free Software Foundation; either version 2
+-//  of the License, or (at your option) any later version.
+-//
+-//  This program is distributed in the hope that it will be useful,
+-//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+-//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-//  GNU General Public License for more details.
+-// 
+-//  You should have received a copy of the GNU General Public License
+-//  along with this program; if not, write to the Free Software
+-//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+-
+-#ifndef HEADER_PARTICLE_SYSTEM_HXX
+-#define HEADER_PARTICLE_SYSTEM_HXX
+-
+-#include &lt;ClanLib/display.h&gt;
+-#include &lt;vector&gt;
+-#include &quot;game_object.hpp&quot;
+-
+-class SceneContext;
+-class Randomizer;
+-class Particle;
+-class ParticleSystem;
+-
+-class Drawer
+-{
+-public:
+-  virtual ~Drawer() {}
+-  virtual void draw(SceneContext&amp; sc, ParticleSystem&amp; psys) =0;
+-};
+-
+-class SparkDrawer : public Drawer
+-{
+-public:
+-  void draw(SceneContext&amp; sc, ParticleSystem&amp; psys);
+-};
+-
+-class SurfaceDrawer : public Drawer
+-{
+-private:
+-  CL_Surface surface;
+-  
+-public:
+-  SurfaceDrawer(const CL_Surface&amp; sur);
+-  virtual ~SurfaceDrawer();
+-  
+-  void set_surface(const CL_Surface&amp; sur);
+-  void draw(SceneContext&amp; sc, ParticleSystem&amp; psys);
+-};
+-
+-struct Particle {
+-  /** Position of the particle */
+-  float x;
+-  float y;
+-
+-  /** Velocity of the particle */
+-  float v_x;
+-  float v_y;
+-
+-  /** Rotation angle */
+-  float angle;
+-
+-  /** How long the particle already lifed, -1 means the particle
+-      isn't active and ready to respawn */
+-  float t;
+-};
+-
+-
+-/** */
+-class ParticleSystem : public GameObject
+-{
+-public:
+-  typedef std::vector&lt;Particle&gt; Particles;
+-  typedef Particles::iterator iterator;
+-private:
+-  Particles particles;
+-
+-  float life_time;
+-
+-  /** Places the particle in its initial position */
+-  Randomizer* randomizer;
+-  Drawer* drawer;
+-
+-  float x_pos;
+-  float y_pos;
+-
+-  float spawn_x_pos;
+-  float spawn_y_pos;
+-
+-  float gravity_x;
+-  float gravity_y;
+-  
+-  float cone_start;
+-  float cone_stop;
+-
+-public:
+-  float size_start;
+-  float size_stop;
+-private:
+-  float speed_start;
+-  float speed_stop;
+-
+-public:
+-  CL_Color color_start;
+-  CL_Color color_stop;
+-private:
+-  void spawn(Particle&amp; particle);
+-public:
+-  ParticleSystem();
+-  virtual ~ParticleSystem();
+-
+-  void set_drawer(Drawer*);
+-
+-  /** Draws the particle system to the screen */
+-  virtual void draw(SceneContext&amp; sc);
+-
+-  /** Update the particle system \a delta seconds */
+-  virtual void update(float delta);
+-  
+-  /** Set how many particles will be used */
+-  void set_count(int num);
+-  
+-  /** \a factor == 1 means a constant stream of particles, a value of
+-      0 means all particles will be released at once */
+-  void set_bunching(float factor);
+-
+-  /** Set how often the particle generator restarts itself, value of 0
+-      means it will work forever, a value of 1 would cause all
+-      particles to be emmitted only once */
+-  void set_cycles(float num);
+-
+-  /** The position from which the particles spawn, x,y are in world
+-      coordinates */
+-  void set_spawn_point(float x, float y);
+-
+-  void set_pos(float x, float y);
+-  
+-  /** Causes all particles to spawn from a single point */
+-  void set_point_distribution();
+-
+-  /** Causes all particles to spawn from a line */
+-  void set_line_distribution(float x1, float y1,
+-                             float x2, float y2);
+-
+-  /** Causes particles to not be spawned at a single point, but inside
+-      the given circle */
+-  void set_circle_distribution(float radius);
+-
+-  /** Causes particles to not be spawned at a single point, but inside
+-      the given rectangle */
+-  void set_rect_distribution(float width, float height);
+-
+-  /** Limit the direction into which the new particles spawn by the
+-      given angles, angles are given in degrees */
+-  void set_cone(float start_angle, float stop_angle);
+-
+-  /** The gravitiy that pulls the praticles up/down/left/right */
+-  void set_gravity(float gravity_x, float gravity_y);
+-
+-  /** Set how long the particles will be alive */
+-  void set_lifetime(float time);
+-
+-  /** Set the size of the particles, size will scale \a from to \a to
+-      along their lifetime */
+-  void set_size  (float from, float to);
+-
+-  /** set the aspect ratio from which they will start and end */
+-  void set_aspect(float from, float to);
+-
+-  /** Set the color at which the particles will start */
+-  void set_color(const CL_Color&amp; color);
+-
+-  /** Set the color at which the particles will end */
+-  void set_fade_color(const CL_Color&amp; color);
+-
+-  /** Set the speed of the particles, it will be randomly distributed
+-      from \a from to \a to, direction will be taken from the cone */
+-  void set_speed(float from, float to);
+-
+-  iterator begin() { return particles.begin(); }
+-  iterator end()   { return particles.end(); }
+-
+-  float get_x_pos() { return x_pos; }
+-  float get_y_pos() { return y_pos; } 
+-
+-  /** Returns the how much a particle has progressed, this is
+-      particle.life_time with fade_in/fade_out applied  */
+-  float get_progress(float t);
+-private:
+-  ParticleSystem (const ParticleSystem&amp;);
+-  ParticleSystem&amp; operator= (const ParticleSystem&amp;);
+-};
+-
+-#endif
+-
+-/* EOF */
+
+Added: trunk/src/particles/Jamfile
+===================================================================
+--- trunk/src/particles/Jamfile	2005-07-15 20:14:32 UTC (rev 649)
++++ trunk/src/particles/Jamfile	2005-07-15 23:31:16 UTC (rev 650)
+@@ -0,0 +1,14 @@
++SubDir TOP src particles ;
++
++sources = particle_system.hpp
++          particle_system.cpp
++          drawer.hpp
++          spark_drawer.cpp
++          spark_drawer.hpp
++          surface_drawer.cpp
++          surface_drawer.hpp
++          randomizer.hpp
++;
++
++TRANSLATABLE_SOURCES = [ SearchSource $(sources) ] ;
++particles_objects = [ CompileObjects $(sources) ] ;
+
+Added: trunk/src/particles/drawer.hpp
+===================================================================
+--- trunk/src/particles/drawer.hpp	2005-07-15 20:14:32 UTC (rev 649)
++++ trunk/src/particles/drawer.hpp	2005-07-15 23:31:16 UTC (rev 650)
+@@ -0,0 +1,35 @@
++//  $Id$
++// 
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++// 
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#ifndef HEADER_PARTICLES_DRAWER_HXX
++#define HEADER_PARTICLES_DRAWER_HXX
++
++class SceneContext;
++class ParticleSystem;
++
++class Drawer
++{
++public:
++  virtual ~Drawer() {}
++  virtual void draw(SceneContext&amp; sc, ParticleSystem&amp; psys) =0;
++};
++
++#endif
++
++/* EOF */
+
+Copied: trunk/src/particles/particle_system.cpp (from rev 648, trunk/src/particle_system.cpp)
+===================================================================
+--- trunk/src/particle_system.cpp	2005-07-15 16:59:46 UTC (rev 648)
++++ trunk/src/particles/particle_system.cpp	2005-07-15 23:31:16 UTC (rev 650)
+@@ -0,0 +1,245 @@
++//  $Id$
++//
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++//
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#include &lt;math.h&gt;
++#include &lt;ClanLib/gl.h&gt;
++#include &quot;particle_system.hpp&quot;
++#include &quot;display/scene_context.hpp&quot;
++#include &quot;randomizer.hpp&quot;
++
++ParticleSystem::ParticleSystem()
++{
++  randomizer = new PointRandomizer;
++  drawer     = 0;
++  x_pos      = 320.0f;
++  y_pos      = 240.0f;
++  life_time  = 1.0f;
++
++  gravity_x = 0.0f;
++  gravity_y = -10.0f;
++
++  cone_start = 0;
++  cone_stop  = 2*M_PI;
++
++  size_start = 1.0f;
++  size_stop  = 1.0f;
++
++  speed_start = 100.0;
++  speed_stop  = 200.0f;
++
++  color_start = CL_Color(255, 255, 255, 255);
++  color_stop  = CL_Color(  0,   0,   0,   0);
++
++  set_count(70);
++}
++
++ParticleSystem::~ParticleSystem()
++{
++  delete randomizer;
++  delete drawer;
++}
++
++void
++ParticleSystem::set_drawer(Drawer* drawer_)
++{
++  delete drawer;
++  drawer = drawer_;
++}
++  
++void
++ParticleSystem::draw(SceneContext&amp; sc)
++{
++  if (drawer)
++    {
++      drawer-&gt;draw(sc, *this);
++    }
++  else
++    {
++      std::cout &lt;&lt; &quot;ParticleSystem: No drawer set&quot; &lt;&lt; std::endl;
++    }
++}
++
++void
++ParticleSystem::spawn(Particle&amp; particle)
++{
++  randomizer-&gt;set_pos(particle);
++
++  particle.x   += spawn_x_pos;
++  particle.y   += spawn_y_pos;
++
++  float direction = rnd.drand(cone_start, cone_stop);
++  float speed     = rnd.drand(speed_start, speed_stop);
++  particle.v_x    = cos(direction) * speed;
++  particle.v_y    = sin(direction) * speed;
++
++  particle.angle = rnd.drand(360);
++
++  particle.t   = std::min(std::max(0.0f, particle.t - life_time), life_time);
++}
++
++void
++ParticleSystem::update(float delta)
++{
++  for(Particles::iterator i = particles.begin(); i != particles.end(); ++i)
++    {
++      if (i-&gt;t &gt; life_time)
++        {
++          spawn(*i);
++        }
++      else
++        {
++          i-&gt;t += delta;
++          
++          i-&gt;x += i-&gt;v_x * delta;
++          i-&gt;y += i-&gt;v_y * delta;
++
++          i-&gt;v_x += gravity_x;
++          i-&gt;v_y += gravity_y;
++        }
++    }
++}
++
++void
++ParticleSystem::set_count(int num)
++{
++  particles.resize(num);
++
++  for(Particles::iterator i = particles.begin(); i != particles.end(); ++i)
++    {
++      //i-&gt;t = -1.0f;
++      spawn(*i);
++      i-&gt;t = (life_time * (float(i - particles.begin())/particles.size()));
++    }
++}
++  
++void
++ParticleSystem::set_bunching(float factor)
++{
++  (void) factor; 
++}
++
++void
++ParticleSystem::set_cycles(float num)
++{
++  (void) num;
++}
++
++void
++ParticleSystem::set_pos(float x, float y)
++{
++  x_pos = x;
++  y_pos = y;
++}
++
++void
++ParticleSystem::set_spawn_point(float x, float y)
++{
++  spawn_x_pos = x;
++  spawn_y_pos = y;
++}
++
++void
++ParticleSystem::set_point_distribution()
++{
++  delete randomizer;
++  randomizer = new PointRandomizer();
++}
++
++void
++ParticleSystem::set_line_distribution(float x1, float y1,
++                                      float x2, float y2)
++{
++  delete randomizer;
++  randomizer = new LineRandomizer(x1, y1, x2, y2);
++}
++
++void
++ParticleSystem::set_circle_distribution(float radius)
++{
++  delete randomizer;
++  randomizer = new CircleRandomizer(radius);
++}
++
++void
++ParticleSystem::set_rect_distribution(float width, float height)
++{
++  delete randomizer;
++  randomizer = new RectRandomizer(width,  height);
++}
++
++void
++ParticleSystem::set_cone(float start_angle, float stop_angle)
++{
++  cone_start = start_angle * M_PI/180.0f;
++  cone_stop  = stop_angle  * M_PI/180.0f;
++}
++
++void
++ParticleSystem::set_gravity(float arg_gravity_x, float arg_gravity_y)
++{
++  gravity_x = arg_gravity_x;
++  gravity_y = arg_gravity_y;
++}
++
++void
++ParticleSystem::set_lifetime(float time)
++{
++  life_time = time;
++}
++
++void
++ParticleSystem::set_size(float from, float to)
++{
++  size_start = from;
++  size_stop  = to;
++}
++
++void
++ParticleSystem::set_aspect(float from, float to)
++{
++  (void) from;
++  (void) to;
++}
++
++void
++ParticleSystem::set_color(const CL_Color&amp; color)
++{
++  color_start = color;
++}
++
++void
++ParticleSystem::set_fade_color(const CL_Color&amp; color)
++{
++  color_stop = color;
++}
++
++void
++ParticleSystem::set_speed(float from, float to)
++{
++  speed_start = from;
++  speed_stop  = to;
++}
++
++float
++ParticleSystem::get_progress(float t)
++{
++  return std::max(0.0f, std::min(1.0f, t/life_time));
++}
++
++/* EOF */
+
+Copied: trunk/src/particles/particle_system.hpp (from rev 648, trunk/src/particle_system.hpp)
+===================================================================
+--- trunk/src/particle_system.hpp	2005-07-15 16:59:46 UTC (rev 648)
++++ trunk/src/particles/particle_system.hpp	2005-07-15 23:31:16 UTC (rev 650)
+@@ -0,0 +1,178 @@
++//  $Id$
++// 
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++// 
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#ifndef HEADER_PARTICLE_SYSTEM_HXX
++#define HEADER_PARTICLE_SYSTEM_HXX
++
++#include &lt;ClanLib/display.h&gt;
++#include &lt;vector&gt;
++#include &quot;drawer.hpp&quot;
++#include &quot;game_object.hpp&quot;
++
++class SceneContext;
++class Randomizer;
++class Particle;
++class ParticleSystem;
++
++struct Particle {
++  /** Position of the particle */
++  float x;
++  float y;
++
++  /** Velocity of the particle */
++  float v_x;
++  float v_y;
++
++  /** Rotation angle */
++  float angle;
++
++  /** How long the particle already lifed, -1 means the particle
++      isn't active and ready to respawn */
++  float t;
++};
++
++
++/** */
++class ParticleSystem : public GameObject
++{
++public:
++  typedef std::vector&lt;Particle&gt; Particles;
++  typedef Particles::iterator iterator;
++private:
++  Particles particles;
++
++  float life_time;
++
++  /** Places the particle in its initial position */
++  Randomizer* randomizer;
++  Drawer* drawer;
++
++  float x_pos;
++  float y_pos;
++
++  float spawn_x_pos;
++  float spawn_y_pos;
++
++  float gravity_x;
++  float gravity_y;
++  
++  float cone_start;
++  float cone_stop;
++
++public:
++  float size_start;
++  float size_stop;
++private:
++  float speed_start;
++  float speed_stop;
++
++public:
++  CL_Color color_start;
++  CL_Color color_stop;
++private:
++  void spawn(Particle&amp; particle);
++public:
++  ParticleSystem();
++  virtual ~ParticleSystem();
++
++  void set_drawer(Drawer*);
++
++  /** Draws the particle system to the screen */
++  virtual void draw(SceneContext&amp; sc);
++
++  /** Update the particle system \a delta seconds */
++  virtual void update(float delta);
++  
++  /** Set how many particles will be used */
++  void set_count(int num);
++  
++  /** \a factor == 1 means a constant stream of particles, a value of
++      0 means all particles will be released at once */
++  void set_bunching(float factor);
++
++  /** Set how often the particle generator restarts itself, value of 0
++      means it will work forever, a value of 1 would cause all
++      particles to be emmitted only once */
++  void set_cycles(float num);
++
++  /** The position from which the particles spawn, x,y are in world
++      coordinates */
++  void set_spawn_point(float x, float y);
++
++  void set_pos(float x, float y);
++  
++  /** Causes all particles to spawn from a single point */
++  void set_point_distribution();
++
++  /** Causes all particles to spawn from a line */
++  void set_line_distribution(float x1, float y1,
++                             float x2, float y2);
++
++  /** Causes particles to not be spawned at a single point, but inside
++      the given circle */
++  void set_circle_distribution(float radius);
++
++  /** Causes particles to not be spawned at a single point, but inside
++      the given rectangle */
++  void set_rect_distribution(float width, float height);
++
++  /** Limit the direction into which the new particles spawn by the
++      given angles, angles are given in degrees */
++  void set_cone(float start_angle, float stop_angle);
++
++  /** The gravitiy that pulls the praticles up/down/left/right */
++  void set_gravity(float gravity_x, float gravity_y);
++
++  /** Set how long the particles will be alive */
++  void set_lifetime(float time);
++
++  /** Set the size of the particles, size will scale \a from to \a to
++      along their lifetime */
++  void set_size  (float from, float to);
++
++  /** set the aspect ratio from which they will start and end */
++  void set_aspect(float from, float to);
++
++  /** Set the color at which the particles will start */
++  void set_color(const CL_Color&amp; color);
++
++  /** Set the color at which the particles will end */
++  void set_fade_color(const CL_Color&amp; color);
++
++  /** Set the speed of the particles, it will be randomly distributed
++      from \a from to \a to, direction will be taken from the cone */
++  void set_speed(float from, float to);
++
++  iterator begin() { return particles.begin(); }
++  iterator end()   { return particles.end(); }
++
++  float get_x_pos() { return x_pos; }
++  float get_y_pos() { return y_pos; } 
++
++  /** Returns the how much a particle has progressed, this is
++      particle.life_time with fade_in/fade_out applied  */
++  float get_progress(float t);
++private:
++  ParticleSystem (const ParticleSystem&amp;);
++  ParticleSystem&amp; operator= (const ParticleSystem&amp;);
++};
++
++#endif
++
++/* EOF */
+
+Added: trunk/src/particles/randomizer.hpp
+===================================================================
+--- trunk/src/particles/randomizer.hpp	2005-07-15 20:14:32 UTC (rev 649)
++++ trunk/src/particles/randomizer.hpp	2005-07-15 23:31:16 UTC (rev 650)
+@@ -0,0 +1,86 @@
++//  $Id$
++// 
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++// 
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#ifndef HEADER_RANDOMIZER_HXX
++#define HEADER_RANDOMIZER_HXX
++
++#include &quot;random.hpp&quot;
++
++class Randomizer 
++{
++public:
++  virtual ~Randomizer() {}
++  virtual void set_pos(Particle&amp; p) =0;
++};
++
++class PointRandomizer : public Randomizer {
++public:
++  void set_pos(Particle&amp; particle) {
++    particle.x = 0;
++    particle.y = 0;
++  }
++};
++
++class RectRandomizer : public Randomizer {
++public:
++  float width;
++  float height;
++
++  RectRandomizer(float width_, float height_) 
++    : width(width_), height(height_) {}
++ 
++  void set_pos(Particle&amp; p) {
++    p.x = rnd.drand(-width/2, width/2);
++    p.y = rnd.drand(-height/2, height/2);
++  }
++};
++
++class CircleRandomizer : public Randomizer  {
++public:
++  float radius;
++
++  CircleRandomizer(float radius_) 
++    : radius(radius_) {}
++
++  void set_pos(Particle&amp; p) {
++    // FIXME: BROKEN!!!!!
++    p.x = rnd.drand(-radius, radius);
++    p.y = sqrt((radius*radius) - (p.x*p.x)) * rnd.drand(-1.0f, 1.0f);
++  }
++};
++
++class LineRandomizer : public Randomizer {
++public:
++  float x1, y1;
++  float x2, y2;
++
++  LineRandomizer(float x1_, float y1_, float x2_, float y2_) 
++    : x1(x1_), y1(y1_), x2(x2_), y2(y2_)
++  {}
++
++  void set_pos(Particle&amp; p) {
++    float l = rnd.drand();
++    p.x = x1 + (x2-x1) * l;
++    p.y = y1 + (y2-y1) * l;
++  }
++};
++
++#endif
++
++/* EOF */
+
+Added: trunk/src/particles/spark_drawer.cpp
+===================================================================
+--- trunk/src/particles/spark_drawer.cpp	2005-07-15 20:14:32 UTC (rev 649)
++++ trunk/src/particles/spark_drawer.cpp	2005-07-15 23:31:16 UTC (rev 650)
+@@ -0,0 +1,72 @@
++//  $Id$
++//
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++//
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#include &lt;ClanLib/Display/graphic_context.h&gt;
++#include &lt;ClanLib/Display/surface.h&gt;
++#include &lt;ClanLib/gl.h&gt;
++#include &quot;display/drawing_request.hpp&quot;
++#include &quot;particle_system.hpp&quot;
++#include &quot;spark_drawer.hpp&quot;
++
++class SparkDrawerDrawingRequest : public DrawingRequest
++{
++private:
++  ParticleSystem&amp; psys;
++public:
++  SparkDrawerDrawingRequest(ParticleSystem&amp; psys_,
++                            const CL_Vector&amp; pos, const CL_Matrix4x4&amp; modelview = CL_Matrix4x4(true))
++    : DrawingRequest(pos, modelview),
++      psys(psys_)
++  {
++  }
++
++  virtual ~SparkDrawerDrawingRequest() {}
++  
++  void draw(CL_GraphicContext* gc) 
++  {
++    gc-&gt;push_modelview();
++    gc-&gt;add_modelview(modelview);
++
++    CL_OpenGLState state(gc);
++    state.set_active();
++    state.setup_2d();
++  
++    glEnable(GL_BLEND);
++    glBlendFunc( GL_SRC_ALPHA, GL_ONE );
++    glBegin(GL_LINES);
++    for(ParticleSystem::Particles::iterator i = psys.begin(); i != psys.end(); ++i)
++      {
++        glColor4f(1.0, 1.0, 0, 1.0f-psys.get_progress(i-&gt;t));
++        glVertex2f(i-&gt;x, i-&gt;y);
++        glColor4f(0, 0, 0, 0);
++        glVertex2f(i-&gt;x - i-&gt;v_x/10.0f, i-&gt;y - i-&gt;v_y/10.0f);
++      }
++    glEnd();  
++
++    gc-&gt;pop_modelview();
++  }
++};
++
++void
++SparkDrawer::draw(SceneContext&amp; sc, ParticleSystem&amp; psys) 
++{
++  sc.color().draw(new SparkDrawerDrawingRequest(psys, CL_Vector(0, 0, .5f), sc.color().get_modelview()));
++}
++
++/* EOF */
+
+Added: trunk/src/particles/spark_drawer.hpp
+===================================================================
+--- trunk/src/particles/spark_drawer.hpp	2005-07-15 20:14:32 UTC (rev 649)
++++ trunk/src/particles/spark_drawer.hpp	2005-07-15 23:31:16 UTC (rev 650)
+@@ -0,0 +1,36 @@
++//  $Id$
++// 
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++// 
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#ifndef HEADER_PARTICLES_SPARK_DRAWER_HXX
++#define HEADER_PARTICLES_SPARK_DRAWER_HXX
++
++#include &quot;drawer.hpp&quot;
++
++class SceneContext;
++class ParticleSystem;
++
++class SparkDrawer : public Drawer
++{
++public:
++  void draw(SceneContext&amp; sc, ParticleSystem&amp; psys);
++};
++
++#endif
++
++/* EOF */
+
+Added: trunk/src/particles/surface_drawer.cpp
+===================================================================
+--- trunk/src/particles/surface_drawer.cpp	2005-07-15 20:14:32 UTC (rev 649)
++++ trunk/src/particles/surface_drawer.cpp	2005-07-15 23:31:16 UTC (rev 650)
+@@ -0,0 +1,64 @@
++//  $Id$
++//
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++//
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#include &quot;particle_system.hpp&quot;
++#include &quot;surface_drawer.hpp&quot;
++
++SurfaceDrawer::SurfaceDrawer(const CL_Surface&amp; sur)
++  : surface(sur)
++{
++}
++
++SurfaceDrawer::~SurfaceDrawer() 
++{
++}
++  
++void
++SurfaceDrawer::set_surface(const CL_Surface&amp; sur)
++{
++  surface = sur;
++  surface.set_alignment(origin_center);
++}
++
++void
++SurfaceDrawer::draw(SceneContext&amp; sc, ParticleSystem&amp; psys) 
++{          
++  for(ParticleSystem::Particles::iterator i = psys.begin(); i != psys.end(); ++i)
++    {
++      // FIXME: use custom OpenGL here
++      if (i-&gt;t != -1.0f)
++        {
++          float p = 1.0f - psys.get_progress(i-&gt;t);
++          surface.set_color(CL_Color(int(psys.color_start.get_red()   * p + psys.color_stop.get_red()   * (1.0f - p)),
++                                     int(psys.color_start.get_green() * p + psys.color_stop.get_green() * (1.0f - p)),
++                                     int(psys.color_start.get_blue()  * p + psys.color_stop.get_blue()  * (1.0f - p)),
++                                     int(psys.color_start.get_alpha() * p + psys.color_stop.get_alpha() * (1.0f - p))));
++
++          surface.set_scale(psys.size_start + psys.get_progress(i-&gt;t)*(psys.size_stop - psys.size_start),
++                            psys.size_start + psys.get_progress(i-&gt;t)*(psys.size_stop - psys.size_start));
++          surface.set_angle(i-&gt;angle);
++          
++          sc.color().draw(surface, 
++                          psys.get_x_pos() + i-&gt;x,
++                          psys.get_y_pos() + i-&gt;y);
++        }
++    }
++}
++
++/* EOF */
+
+Added: trunk/src/particles/surface_drawer.hpp
+===================================================================
+--- trunk/src/particles/surface_drawer.hpp	2005-07-15 20:14:32 UTC (rev 649)
++++ trunk/src/particles/surface_drawer.hpp	2005-07-15 23:31:16 UTC (rev 650)
+@@ -0,0 +1,41 @@
++//  $Id$
++// 
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++// 
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#ifndef HEADER_SURFACE_DRAWER_HXX
++#define HEADER_SURFACE_DRAWER_HXX
++
++#include &lt;ClanLib/Display/surface.h&gt;
++#include &quot;drawer.hpp&quot;
++
++class SurfaceDrawer : public Drawer
++{
++private:
++  CL_Surface surface;
++  
++public:
++  SurfaceDrawer(const CL_Surface&amp; sur);
++  virtual ~SurfaceDrawer();
++  
++  void set_surface(const CL_Surface&amp; sur);
++  void draw(SceneContext&amp; sc, ParticleSystem&amp; psys);
++};
++
++#endif
++
++/* EOF */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000302.html">[Windstille-commit] r649 - in trunk/src: . input scripting
+</A></li>
+	<LI>Next message: <A HREF="000304.html">[Windstille-commit] r651 - trunk/data/blender/hero
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#303">[ date ]</a>
+              <a href="thread.html#303">[ thread ]</a>
+              <a href="subject.html#303">[ subject ]</a>
+              <a href="author.html#303">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

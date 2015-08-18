@@ -1,0 +1,304 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r759 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r759%20-%20trunk/src&In-Reply-To=%3C200507251655.j6PGthRw026822%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000411.html">
+   <LINK REL="Next"  HREF="000413.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r759 - trunk/src</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r759%20-%20trunk/src&In-Reply-To=%3C200507251655.j6PGthRw026822%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r759 - trunk/src">grumbel at berlios.de
+       </A><BR>
+    <I>Mon Jul 25 18:55:43 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000411.html">[Windstille-commit] r758 - in trunk/data/blender: . monster
+</A></li>
+        <LI>Next message: <A HREF="000413.html">[Windstille-commit] r760 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#412">[ date ]</a>
+              <a href="thread.html#412">[ thread ]</a>
+              <a href="subject.html#412">[ subject ]</a>
+              <a href="author.html#412">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-07-25 18:55:29 +0200 (Mon, 25 Jul 2005)
+New Revision: 759
+
+Added:
+   trunk/src/baby_xml.cpp
+   trunk/src/baby_xml.hpp
+Modified:
+   trunk/src/Jamfile
+Log:
+- added parser for XML-like strings, will be used for &lt;b&gt;Foo&lt;/b&gt; and such in dialogs
+
+Modified: trunk/src/Jamfile
+===================================================================
+--- trunk/src/Jamfile	2005-07-25 13:21:39 UTC (rev 758)
++++ trunk/src/Jamfile	2005-07-25 16:55:29 UTC (rev 759)
+@@ -17,6 +17,8 @@
+ sources = 
+         animation_obj.cpp
+         animation_obj.hpp
++        baby_xml.cpp
++        baby_xml.hpp
+         bomb.cpp
+         bomb.hpp
+ 	box.cpp
+
+Added: trunk/src/baby_xml.cpp
+===================================================================
+--- trunk/src/baby_xml.cpp	2005-07-25 13:21:39 UTC (rev 758)
++++ trunk/src/baby_xml.cpp	2005-07-25 16:55:29 UTC (rev 759)
+@@ -0,0 +1,140 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &lt;stdexcept&gt;
++#include &quot;baby_xml.hpp&quot;
++
++BabyXML::BabyXML(const std::string&amp; text)
++{
++  State state = START;
++
++  if (!text.empty())
++    {
++      Node node;
++      
++      for(int i = 0; i &lt; int(text.size()); ++i)
++        {
++          switch(state)
++            {
++            case START: // looking for type the next node
++              if (text[i] == '&lt;')
++                {
++                  if (i+1 &lt; int(text.size()) &amp;&amp; text[i+1] == '/')
++                    {
++                      node = Node(Node::END_TAG);
++                      i += 1;
++                    }
++                  else
++                    {
++                      node = Node(Node::START_TAG);
++                    }
++                }
++              else if (text[i] == '&amp;')
++                {
++                  node = Node(Node::ENTITY);
++                }
++              else
++                {
++                  node = Node(Node::TEXT);
++                  node.content += text[i];
++                }
++              state = END;
++              break;
++
++            case END: // looking for end of current node
++              if ((node.type == Node::START_TAG || node.type == Node::END_TAG) &amp;&amp; text[i] == '&gt;')
++                {
++                  nodes.push_back(node);
++                  state = START;
++                }
++              else if (node.type == Node::TEXT &amp;&amp; (text[i] == '&lt;' || text[i] == '&amp;'))
++                {
++                  nodes.push_back(node);
++                  i -= 1;
++                  state = START;
++                }
++              else if (node.type == Node::ENTITY &amp;&amp; text[i] == ';')
++                {
++                  std::string entity;
++                  if (node.content == &quot;quot&quot;)
++                    entity = &quot;\&quot;&quot;;
++                  else if (node.content == &quot;gt&quot;)
++                    entity = &quot;&gt;&quot;;
++                  else if (node.content == &quot;lt&quot;)
++                    entity = &quot;&lt;&quot;;
++                  else
++                    throw std::runtime_error(&quot;Unknown entity: '&quot; + node.content + &quot;'&quot;);
++
++                  if (!nodes.empty() &amp;&amp; nodes.back().type == Node::TEXT)
++                    {
++                      node = nodes.back();
++                      nodes.pop_back();
++                      node.content += entity;
++                    }
++                  else
++                    {
++                      node = Node(Node::TEXT, entity);
++                    }
++                }
++              else
++                {
++                  node.content += text[i];
++                }
++              break;
++            }
++        }
++
++      if (state == END)
++        nodes.push_back(node);
++    }
++}
++
++BabyXML::~BabyXML()
++{
++  
++}
++
++#ifdef TEST_BABY_XML
++#include &lt;iostream&gt;
++
++int main()
++{
++  BabyXML xml(&quot;&lt;strong&gt;Hello &lt;World&gt; &lt;b&gt;&quot;blabla&quot;&lt;/b&gt; Blablub&lt;/strong&gt;&quot;);
++
++  for(BabyXML::iterator i = xml.begin(); i != xml.end(); ++i)
++    {
++      if (i-&gt;type == BabyXML::Node::START_TAG)
++        std::cout &lt;&lt; &quot;STARTTAG: &quot;;
++      else if (i-&gt;type == BabyXML::Node::END_TAG)
++        std::cout &lt;&lt; &quot;ENDTAG: &quot;;
++      else if (i-&gt;type == BabyXML::Node::TEXT)
++        std::cout &lt;&lt; &quot;TEXT: &quot;;
++
++      std::cout &lt;&lt; &quot;'&quot; &lt;&lt; i-&gt;content &lt;&lt; &quot;'&quot; &lt;&lt; std::endl;
++    }
++}
++#endif
++
++/* EOF */
+
+Added: trunk/src/baby_xml.hpp
+===================================================================
+--- trunk/src/baby_xml.hpp	2005-07-25 13:21:39 UTC (rev 758)
++++ trunk/src/baby_xml.hpp	2005-07-25 16:55:29 UTC (rev 759)
+@@ -0,0 +1,65 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_BABY_XML_HXX
++#define HEADER_BABY_XML_HXX
++
++#include &lt;string&gt;
++#include &lt;vector&gt;
++
++/** Parser for a flat XML-like tag soup, it doesn't support recursive
++    structures */
++class BabyXML
++{
++public:
++  class Node
++  {
++  public:
++    enum Type { TEXT, START_TAG, END_TAG, ENTITY } type;
++
++    std::string content;
++    Node() {}
++    Node(Type type_, const std::string&amp; content_ = std::string()) : type(type_), content(content_) {}
++  };
++
++  enum State { START, END } state;
++
++  typedef std::vector&lt;Node&gt; Nodes;
++  typedef Nodes::iterator       iterator;
++  typedef Nodes::const_iterator const_iterator;
++
++  Nodes nodes;
++
++  /** Parse the given \a text and construct the nodes from it */
++  BabyXML(const std::string&amp; text);
++  ~BabyXML();
++
++  iterator begin() { return nodes.begin(); }
++  iterator end()   { return nodes.end(); }
++};
++
++#endif
++
++/* EOF */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000411.html">[Windstille-commit] r758 - in trunk/data/blender: . monster
+</A></li>
+	<LI>Next message: <A HREF="000413.html">[Windstille-commit] r760 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#412">[ date ]</a>
+              <a href="thread.html#412">[ thread ]</a>
+              <a href="subject.html#412">[ subject ]</a>
+              <a href="author.html#412">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

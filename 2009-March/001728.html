@@ -1,0 +1,477 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2731 - in trunk/windstille: . src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2731%20-%20in%20trunk/windstille%3A%20.%20src/editor&In-Reply-To=%3C200903221619.n2MGJUYs026854%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001727.html">
+   <LINK REL="Next"  HREF="001729.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2731 - in trunk/windstille: . src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2731%20-%20in%20trunk/windstille%3A%20.%20src/editor&In-Reply-To=%3C200903221619.n2MGJUYs026854%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2731 - in trunk/windstille: . src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Mar 22 17:19:30 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001727.html">[Windstille-commit] r2730 - in trunk/windstille/src: . editor
+</A></li>
+        <LI>Next message: <A HREF="001729.html">[Windstille-commit] r2732 - in trunk/windstille: . src src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1728">[ date ]</a>
+              <a href="thread.html#1728">[ thread ]</a>
+              <a href="subject.html#1728">[ subject ]</a>
+              <a href="author.html#1728">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-22 17:19:29 +0100 (Sun, 22 Mar 2009)
+New Revision: 2731
+
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/editor_window.hpp
+   trunk/windstille/src/editor/object_tree.cpp
+   trunk/windstille/src/editor/object_tree.hpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+Log:
+Update TreeView when notebook page changes
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-03-22 14:45:35 UTC (rev 2730)
++++ trunk/windstille/TODO	2009-03-22 16:19:29 UTC (rev 2731)
+@@ -481,16 +481,10 @@
+ 
+ * add grid
+ 
+-* share GL context between different sectors, need dummy Context, abuse minimap for that
++* add a way to draw objects to DrawingContext that only does
++  translation, but not rotation and scaling, for use in UIElements,
++  overlay text, etc.
+ 
+-* use SceneContext in WindstilleWidget and setup Physfs,
+-  SurfaceManager, TextureManager and everything else that is needed
+-
+-* add a new layer to SceneContext that is used for UI elements, such
+-  as control handles for scale or rotate, could maybe also used for
+-  use-verbs and stuff. The new layer shall only translate objects, but
+-  not scale or rotate them
+-
+ * implement dialog to change level properties:
+ 
+   - name
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-03-22 14:45:35 UTC (rev 2730)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-03-22 16:19:29 UTC (rev 2731)
+@@ -157,6 +157,7 @@
+ 
+   add_accel_group(ui_manager-&gt;get_accel_group());
+ 
++  notebook.signal_switch_page().connect(sigc::mem_fun(*this, &amp;EditorWindow::on_switch_page));
+ 
+   // Packing
+ 
+@@ -222,6 +223,7 @@
+   windstille-&gt;show();
+   notebook.set_current_page(new_page); 
+ 
++  object_tree.set_model(windstille-&gt;get_sector_model());
+ }
+ 
+ void
+@@ -287,6 +289,9 @@
+   if (page != -1)
+     {
+       notebook.remove_page(page);
++
++      if (!get_windstille_widget())
++        object_tree.set_model(0);
+     }
+ }
+ 
+@@ -356,5 +361,15 @@
+       return static_cast&lt;WindstilleWidget*&gt;(notebook.get_nth_page(page));
+     }
+ }
++
++void
++EditorWindow::on_switch_page(GtkNotebookPage* page, guint page_num)
++{
++  std::cout &lt;&lt; &quot;on_switch_page(&quot; &lt;&lt; page &lt;&lt; &quot;, &quot; &lt;&lt; page_num &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
++  if (get_windstille_widget())
++    object_tree.set_model(get_windstille_widget()-&gt;get_sector_model());
++  else
++    object_tree.set_model(0);
++}
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/editor_window.hpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.hpp	2009-03-22 14:45:35 UTC (rev 2730)
++++ trunk/windstille/src/editor/editor_window.hpp	2009-03-22 16:19:29 UTC (rev 2731)
+@@ -88,6 +88,7 @@
+   void on_zoom_out();
+   void on_zoom_100();
+ 
++  void on_switch_page(GtkNotebookPage* page, guint page_num);
+   void on_tool_select(Glib::RefPtr&lt;Gtk::RadioAction&gt; action, Tool*);
+ 
+   Tool* get_current_tool() const;
+
+Modified: trunk/windstille/src/editor/object_tree.cpp
+===================================================================
+--- trunk/windstille/src/editor/object_tree.cpp	2009-03-22 14:45:35 UTC (rev 2730)
++++ trunk/windstille/src/editor/object_tree.cpp	2009-03-22 16:19:29 UTC (rev 2731)
+@@ -22,55 +22,21 @@
+ #include &lt;gtkmm/treemodel.h&gt;
+ #include &lt;gtkmm/treestore.h&gt;
+ #include &lt;gtkmm/treemodelcolumn.h&gt;
++
++#include &quot;sector_model.hpp&quot;
+ #include &quot;object_tree.hpp&quot;
+ 
+-class ObjectTreeColumns : public Gtk::TreeModel::ColumnRecord
+-{
+-public:
+-  Gtk::TreeModelColumn&lt;Glib::RefPtr&lt;Gdk::Pixbuf&gt; &gt; type;
+-  Gtk::TreeModelColumn&lt;Glib::ustring&gt; name;
+-  Gtk::TreeModelColumn&lt;bool&gt;          visible;
+-
+-  ObjectTreeColumns() {
+-    add(type); 
+-    add(name); 
+-    add(visible); 
+-  }
+-};
+-
+ ObjectTree::ObjectTree()
+   : label(&quot;Scene Tree&quot;, Gtk::ALIGN_LEFT)
+ {
+-  ObjectTreeColumns columns;
+-  Glib::RefPtr&lt;Gtk::TreeStore&gt; list_store = Gtk::TreeStore::create(columns);
+-
+-  Gtk::TreeStore::iterator root = list_store-&gt;append();
+-  (*root)[columns.type]    = Gdk::Pixbuf::create_from_file(&quot;data/editor/type.png&quot;);
+-  (*root)[columns.name]    = Glib::ustring(&quot;Scene&quot;);
+-  (*root)[columns.visible] = false;
+-
+-  for(int i = 0; i &lt; 10; ++i)
+-    {
+-      Gtk::TreeStore::iterator it  = list_store-&gt;append(root-&gt;children());
+-      (*it)[columns.type]    = Gdk::Pixbuf::create_from_file(&quot;data/editor/type.png&quot;);
+-      (*it)[columns.name]    = Glib::ustring(&quot;Hello World&quot;);
+-      (*it)[columns.visible] = false;
+-
+-      Gtk::TreeModel::iterator it2  = list_store-&gt;append(it-&gt;children());
+-      (*it2)[columns.type]    = Gdk::Pixbuf::create_from_file(&quot;data/editor/type.png&quot;);
+-      (*it2)[columns.name]    = Glib::ustring(&quot;Hello World&quot;);
+-      (*it2)[columns.visible] = false;
+-    }
+-
+   //treeview.set_headers_clickable();
+   treeview.set_headers_visible(false);
+   treeview.set_enable_tree_lines();
+-  treeview.set_model(list_store);
+   treeview.set_reorderable();
+ 
+-  treeview.append_column(&quot;Type&quot;, columns.type);
+-  treeview.append_column(&quot;Name&quot;, columns.name);
+-  treeview.append_column_editable(&quot;Visible&quot;, columns.visible);
++  treeview.append_column(&quot;Type&quot;, ObjectTreeColumns::instance().type_icon);
++  treeview.append_column(&quot;Name&quot;, ObjectTreeColumns::instance().name);
++  treeview.append_column_editable(&quot;Visible&quot;, ObjectTreeColumns::instance().visible);
+ 
+   treeview.expand_all();
+ 
+@@ -99,13 +65,6 @@
+   pack_start(label, Gtk::PACK_SHRINK);
+   pack_start(toolbar, Gtk::PACK_SHRINK);
+   add(scrolled);
+-
+-  list_store-&gt;signal_row_changed().connect(sigc::mem_fun(*this, &amp;ObjectTree::on_row_changed));
+-  list_store-&gt;signal_row_deleted().connect(sigc::mem_fun(*this, &amp;ObjectTree::on_row_deleted));
+-  list_store-&gt;signal_row_has_child_toggled().connect(sigc::mem_fun(*this, &amp;ObjectTree::on_row_has_child_toggled));
+-  list_store-&gt;signal_row_inserted().connect(sigc::mem_fun(*this, &amp;ObjectTree::on_row_inserted));
+-  list_store-&gt;signal_rows_reordered().connect(sigc::mem_fun(*this, &amp;ObjectTree::on_rows_reordered));
+-
+   //show_all();
+ }
+ 
+@@ -114,33 +73,17 @@
+ }
+ 
+ void
+-ObjectTree::on_row_changed(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter)
++ObjectTree::set_model(SectorModel* model)
+ {
+-  std::cout &lt;&lt; &quot;ObjectTree:on_row_changed&quot; &lt;&lt; std::endl;
++  if (model)
++    {
++      treeview.set_model(model-&gt;get_objects_tree());
++      treeview.expand_all();
++    }
++  else
++    {
++      treeview.set_model(Glib::RefPtr&lt;Gtk::TreeStore&gt;());
++    }
+ }
+-
+-void
+-ObjectTree::on_row_deleted(const Gtk::TreeModel::Path&amp; path)
+-{
+-  std::cout &lt;&lt; &quot;ObjectTree:on_row_deleted&quot; &lt;&lt; std::endl;
+-}
+-
+-void
+-ObjectTree::on_row_has_child_toggled(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter)
+-{
+-  std::cout &lt;&lt; &quot;ObjectTree:on_row_has_child_toggled&quot; &lt;&lt; std::endl;
+-}
+-
+-void
+-ObjectTree::on_row_inserted(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter)
+-{
+-  std::cout &lt;&lt; &quot;ObjectTree:on_row_inserted&quot; &lt;&lt; std::endl;
+-}
+-
+-void
+-ObjectTree::on_rows_reordered(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter, int* new_order)
+-{
+-  std::cout &lt;&lt; &quot;ObjectTree:on_row_reordered&quot; &lt;&lt; std::endl;
+-}
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/object_tree.hpp
+===================================================================
+--- trunk/windstille/src/editor/object_tree.hpp	2009-03-22 14:45:35 UTC (rev 2730)
++++ trunk/windstille/src/editor/object_tree.hpp	2009-03-22 16:19:29 UTC (rev 2731)
+@@ -27,6 +27,8 @@
+ #include &lt;gtkmm/treemodel.h&gt;
+ #include &lt;gtkmm/actiongroup.h&gt;
+ 
++class SectorModel;
++
+ class ObjectTree : public Gtk::VBox
+ {
+ private:
+@@ -40,13 +42,9 @@
+ public:
+   ObjectTree();
+   virtual ~ObjectTree();
+-  
+-  void on_row_changed(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter);
+-  void on_row_deleted(const Gtk::TreeModel::Path&amp; path);
+-  void on_row_has_child_toggled(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter);
+-  void on_row_inserted(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter);
+-  void on_rows_reordered(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter, int* new_order);
+ 
++  void set_model(SectorModel* model);
++
+ private:
+   ObjectTree(const ObjectTree&amp;);
+   ObjectTree&amp; operator=(const ObjectTree&amp;);
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-03-22 14:45:35 UTC (rev 2730)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-03-22 16:19:29 UTC (rev 2731)
+@@ -16,35 +16,39 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
++#include &lt;iostream&gt;
+ #include &lt;gdkmm/pixbuf.h&gt;
++
+ #include &quot;display/scene_context.hpp&quot;
+ #include &quot;display/surface.hpp&quot;
+ #include &quot;sector_model.hpp&quot;
+ 
+-class ObjectTreeColumns : public Gtk::TreeModel::ColumnRecord
+-{
+-public:
+-  Gtk::TreeModelColumn&lt;Glib::RefPtr&lt;Gdk::Pixbuf&gt; &gt; type_icon;
+-  Gtk::TreeModelColumn&lt;Glib::ustring&gt;              name;
+-  Gtk::TreeModelColumn&lt;bool&gt;                       visible;
+-
+-  ObjectTreeColumns() {
+-    add(type_icon); 
+-    add(name); 
+-    add(visible); 
+-  }
+-};
++ObjectTreeColumns* ObjectTreeColumns::instance_ = 0;
+ 
+ SectorModel::SectorModel()
+-{
+-  ObjectTreeColumns columns;
+-  objects_tree = Gtk::TreeStore::create(columns);
++{  
++  objects_tree = Gtk::TreeStore::create(ObjectTreeColumns::instance());
++
++  root_it = objects_tree-&gt;append();
++  (*root_it)[ObjectTreeColumns::instance().type_icon] = Gdk::Pixbuf::create_from_file(&quot;data/editor/type.png&quot;);
++  (*root_it)[ObjectTreeColumns::instance().name]      = Glib::ustring(&quot;Scene&quot;);
++  (*root_it)[ObjectTreeColumns::instance().visible]   = false;
++
++  objects_tree-&gt;signal_row_changed().connect(sigc::mem_fun(*this, &amp;SectorModel::on_row_changed));
++  objects_tree-&gt;signal_row_deleted().connect(sigc::mem_fun(*this, &amp;SectorModel::on_row_deleted));
++  objects_tree-&gt;signal_row_has_child_toggled().connect(sigc::mem_fun(*this, &amp;SectorModel::on_row_has_child_toggled));
++  objects_tree-&gt;signal_row_inserted().connect(sigc::mem_fun(*this, &amp;SectorModel::on_row_inserted));
++  objects_tree-&gt;signal_rows_reordered().connect(sigc::mem_fun(*this, &amp;SectorModel::on_rows_reordered));
+ }
+ 
+ void
+ SectorModel::add(const Vector2f&amp; obj)
+ {
+   objects.push_back(obj);
++  Gtk::TreeStore::iterator it = objects_tree-&gt;append(root_it-&gt;children());
++  (*it)[ObjectTreeColumns::instance().type_icon] = Gdk::Pixbuf::create_from_file(&quot;data/editor/type.png&quot;);
++  (*it)[ObjectTreeColumns::instance().name]      = Glib::ustring(&quot;Object&quot;);
++  (*it)[ObjectTreeColumns::instance().visible]   = false; 
+ }
+ 
+ void
+@@ -59,4 +63,34 @@
+     }
+ }
+ 
++void
++SectorModel::on_row_changed(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter)
++{
++  std::cout &lt;&lt; &quot;ObjectTree:on_row_changed&quot; &lt;&lt; std::endl;
++}
++
++void
++SectorModel::on_row_deleted(const Gtk::TreeModel::Path&amp; path)
++{
++  std::cout &lt;&lt; &quot;ObjectTree:on_row_deleted&quot; &lt;&lt; std::endl;
++}
++
++void
++SectorModel::on_row_has_child_toggled(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter)
++{
++  std::cout &lt;&lt; &quot;ObjectTree:on_row_has_child_toggled&quot; &lt;&lt; std::endl;
++}
++
++void
++SectorModel::on_row_inserted(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter)
++{
++  std::cout &lt;&lt; &quot;ObjectTree:on_row_inserted&quot; &lt;&lt; std::endl;
++}
++
++void
++SectorModel::on_rows_reordered(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter, int* new_order)
++{
++  std::cout &lt;&lt; &quot;ObjectTree:on_row_reordered&quot; &lt;&lt; std::endl;
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-03-22 14:45:35 UTC (rev 2730)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-03-22 16:19:29 UTC (rev 2731)
+@@ -19,15 +19,43 @@
+ #ifndef HEADER_SECTOR_MODEL_HPP
+ #define HEADER_SECTOR_MODEL_HPP
+ 
++#include &lt;memory&gt;
+ #include &lt;gtkmm/treestore.h&gt;
+ #include &lt;vector&gt;
+ #include &quot;math/vector2f.hpp&quot;
+ 
+ class SceneContext;
++class ObjectTreeColumns;
+ 
++class ObjectTreeColumns : public Gtk::TreeModel::ColumnRecord
++{
++private:
++  static ObjectTreeColumns* instance_;
++
++public:
++  static ObjectTreeColumns&amp; instance() {
++    if (instance_)
++      return *instance_;
++    else
++      return *(instance_ = new ObjectTreeColumns());
++  }
++
++  Gtk::TreeModelColumn&lt;Glib::RefPtr&lt;Gdk::Pixbuf&gt; &gt; type_icon;
++  Gtk::TreeModelColumn&lt;Glib::ustring&gt;              name;
++  Gtk::TreeModelColumn&lt;bool&gt;                       visible;
++
++private:
++  ObjectTreeColumns() {
++    add(type_icon); 
++    add(name); 
++    add(visible); 
++  }
++};
++
+ class SectorModel
+ {
+ private:
++  Gtk::TreeStore::iterator root_it;
+   Glib::RefPtr&lt;Gtk::TreeStore&gt; objects_tree;
+   std::vector&lt;Vector2f&gt; objects;
+ 
+@@ -37,6 +65,16 @@
+   void add(const Vector2f&amp; obj);
+   void draw(SceneContext&amp; sc);
+ 
++  // void select_objects(const Rectf&amp; rect, bool replace_old_selection = true) const;
++
++  Glib::RefPtr&lt;Gtk::TreeStore&gt; get_objects_tree() { return objects_tree; }
++
++  void on_row_changed(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter);
++  void on_row_deleted(const Gtk::TreeModel::Path&amp; path);
++  void on_row_has_child_toggled(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter);
++  void on_row_inserted(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter);
++  void on_rows_reordered(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter, int* new_order);
++
+ private:
+   SectorModel(const SectorModel&amp;);
+   SectorModel&amp; operator=(const SectorModel&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001727.html">[Windstille-commit] r2730 - in trunk/windstille/src: . editor
+</A></li>
+	<LI>Next message: <A HREF="001729.html">[Windstille-commit] r2732 - in trunk/windstille: . src src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1728">[ date ]</a>
+              <a href="thread.html#1728">[ thread ]</a>
+              <a href="subject.html#1728">[ subject ]</a>
+              <a href="author.html#1728">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

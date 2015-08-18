@@ -1,0 +1,512 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3287 - in trunk/windstille: . src/app	src/display src/scenegraph test test/scissor_drawable
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3287%20-%20in%20trunk/windstille%3A%20.%20src/app%0A%09src/display%20src/scenegraph%20test%20test/scissor_drawable&In-Reply-To=%3C200910012301.n91N1WOA004273%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002283.html">
+   <LINK REL="Next"  HREF="002285.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3287 - in trunk/windstille: . src/app	src/display src/scenegraph test test/scissor_drawable</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3287%20-%20in%20trunk/windstille%3A%20.%20src/app%0A%09src/display%20src/scenegraph%20test%20test/scissor_drawable&In-Reply-To=%3C200910012301.n91N1WOA004273%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3287 - in trunk/windstille: . src/app	src/display src/scenegraph test test/scissor_drawable">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Oct  2 01:01:32 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002283.html">[Windstille-commit] r3286 - trunk/windstille/src/scenegraph
+</A></li>
+        <LI>Next message: <A HREF="002285.html">[Windstille-commit] r3288 - trunk/windstille/src/scenegraph
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2284">[ date ]</a>
+              <a href="thread.html#2284">[ thread ]</a>
+              <a href="subject.html#2284">[ subject ]</a>
+              <a href="author.html#2284">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-10-02 01:01:30 +0200 (Fri, 02 Oct 2009)
+New Revision: 3287
+
+Added:
+   trunk/windstille/test/scissor_drawable/
+   trunk/windstille/test/scissor_drawable/scissor_drawable.cpp
+Removed:
+   trunk/windstille/test/SConstruct
+Modified:
+   trunk/windstille/SConscript
+   trunk/windstille/src/app/windstille_main.cpp
+   trunk/windstille/src/display/display.hpp
+   trunk/windstille/src/display/opengl_window.cpp
+   trunk/windstille/src/display/opengl_window.hpp
+   trunk/windstille/src/scenegraph/drawable.hpp
+   trunk/windstille/src/scenegraph/drawable_group.hpp
+   trunk/windstille/src/scenegraph/scissor_drawable.cpp
+   trunk/windstille/src/scenegraph/stencil_drawable.cpp
+Log:
+Some testing with Scissor- and StencilDrawable, removed some dependencies in OpenGLWindow
+
+Modified: trunk/windstille/SConscript
+===================================================================
+--- trunk/windstille/SConscript	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/SConscript	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -344,6 +344,18 @@
+         env.Program(&quot;test_directory&quot;, [&quot;src/util/directory.cpp&quot;], LIBS=['boost_filesystem-mt', self.util_lib])
+         env.Program(&quot;test_easing&quot;, [&quot;src/math/easing.cpp&quot;])
+ 
++        # FIXME: Little dirty, need to clean up the testcase stuff
++        sdl_env = env.Clone()
++        sdl_env.ParseConfig('sdl-config --cflags --libs | sed &quot;s/-I/-isystem/g&quot;')
++                        
++        sdl_env.Program(&quot;test_scissor_drawable&quot;,
++                        [&quot;test/scissor_drawable/scissor_drawable.cpp&quot;],
++                        CPPPATH=sdl_env[&quot;CPPPATH&quot;],
++                        CPPDEFINES=sdl_env[&quot;CPPDEFINES&quot;],
++                        CXXFLAGS=sdl_env[&quot;CXXFLAGS&quot;] + ['-g3', &quot;-O0&quot;],
++                        LIBS=[self.display_lib, self.math_lib, self.util_lib, self.binreloc_lib,
++                              'png', 'GL', 'GLEW', 'SDL_image', 'boost_filesystem-mt'] + sdl_env[&quot;LIBS&quot;])
++
+     def build_windstille_data(self):
+         data_env = self.env.Clone()
+ 
+
+Modified: trunk/windstille/src/app/windstille_main.cpp
+===================================================================
+--- trunk/windstille/src/app/windstille_main.cpp	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/src/app/windstille_main.cpp	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -66,7 +66,9 @@
+     config.parse_args(argc, argv);
+ 
+     {
+-      OpenGLWindow      window;
++      OpenGLWindow      window(Size(config.get_int(&quot;screen-width&quot;), config.get_int(&quot;screen-height&quot;)),
++                               Size(config.get_int(&quot;aspect-width&quot;), config.get_int(&quot;aspect-height&quot;)),
++                               config.get_bool(&quot;fullscreen&quot;), config.get_int(&quot;anti-aliasing&quot;));
+       TTFFontManager    ttffont_manager;
+       Fonts             fonts;
+       Console           console;
+
+Modified: trunk/windstille/src/display/display.hpp
+===================================================================
+--- trunk/windstille/src/display/display.hpp	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/src/display/display.hpp	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -76,8 +76,6 @@
+   static Framebuffer get_framebuffer();
+ 
+   static void save_screenshot(const Pathname&amp; filename);
+-
+-  static void init();
+ };
+ 
+ #endif
+
+Modified: trunk/windstille/src/display/opengl_window.cpp
+===================================================================
+--- trunk/windstille/src/display/opengl_window.cpp	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/src/display/opengl_window.cpp	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -19,6 +19,7 @@
+ #include &quot;display/opengl_window.hpp&quot;
+ 
+ #include &lt;GL/glew.h&gt;
++#include &lt;SDL.h&gt;
+ #include &lt;SDL/SDL_image.h&gt;
+ 
+ #include &quot;util/util.hpp&quot; 
+@@ -26,28 +27,43 @@
+ #include &quot;display/display.hpp&quot;
+ #include &quot;app/config.hpp&quot;
+ 
+-OpenGLWindow::OpenGLWindow()
+-  : m_window(0)
++class OpenGLWindowImpl
+ {
++public:
++  SDL_Surface* m_window;
++  Size         m_size;
++
++  OpenGLWindowImpl() :
++    m_window(0),
++    m_size()
++  {}
++};
++
++OpenGLWindow::OpenGLWindow(const Size&amp; size, const Size&amp; aspect, bool fullscreen, int anti_aliasing)
++  : m_impl(new OpenGLWindowImpl)
++{
++  m_impl-&gt;m_size = size;
++
+   SDL_GL_SetAttribute(SDL_GL_SWAP_CONTROL, 1); // vsync
+   SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1); 
+-  SDL_GL_SetAttribute(SDL_GL_RED_SIZE,   5);
+-  SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 5);
+-  SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,  5);
++  SDL_GL_SetAttribute(SDL_GL_RED_SIZE,     5);
++  SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,   5);
++  SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,    5);
++  SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+ 
+-  if (config.get_int(&quot;anti-aliasing&quot;))
++  if (anti_aliasing)
+   {
+     SDL_GL_SetAttribute( SDL_GL_MULTISAMPLEBUFFERS, 1 ); // boolean value, either it's enabled or not
+-    SDL_GL_SetAttribute( SDL_GL_MULTISAMPLESAMPLES, config.get_int(&quot;anti-aliasing&quot;) ); // 0, 2, or 4 for number of samples
++    SDL_GL_SetAttribute( SDL_GL_MULTISAMPLESAMPLES, anti_aliasing ); // 0, 2, or 4 for number of samples
+   }
+   
+   SDL_WM_SetCaption(&quot;Windstille&quot;, &quot;Windstille&quot;);
+   SDL_WM_SetIcon(IMG_Load(Pathname(&quot;icon.png&quot;).get_sys_path().c_str()), NULL);
+ 
+-  m_window = SDL_SetVideoMode(config.get_int(&quot;screen-width&quot;), config.get_int(&quot;screen-height&quot;),
+-                              0, SDL_OPENGL | (config.get_bool(&quot;fullscreen&quot;) ? SDL_FULLSCREEN : 0));
++  m_impl-&gt;m_window = SDL_SetVideoMode(size.width, size.height,
++                                      0, SDL_OPENGL | (fullscreen ? SDL_FULLSCREEN : 0));
+ 
+-  if (!m_window)
++  if (!m_impl-&gt;m_window)
+   {
+     throw std::runtime_error(&quot;Display:: Couldn't create window&quot;);
+   }
+@@ -64,12 +80,11 @@
+     {
+       std::cout &lt;&lt; &quot;glewInit() successfull&quot; &lt;&lt; std::endl;
+ 
+-      glViewport(0, 0, m_window-&gt;w, m_window-&gt;h);
++      glViewport(0, 0, m_impl-&gt;m_window-&gt;w, m_impl-&gt;m_window-&gt;h);
+       glMatrixMode(GL_PROJECTION);
+       glLoadIdentity();
+ 
+-      Display::aspect_size = Size(config.get_int(&quot;aspect-width&quot;), 
+-                                  config.get_int(&quot;aspect-height&quot;));
++      Display::aspect_size = aspect;
+ 
+       glOrtho(0.0, Display::get_width(), Display::get_height(),
+               0.0, 1000.0, -1000.0);
+@@ -82,7 +97,7 @@
+         glTranslated(0.375f, 0.375f, 0.0);
+       }
+ 
+-      if (config.get_int(&quot;anti-aliasing&quot;))
++      if (anti_aliasing)
+         glEnable(GL_MULTISAMPLE_ARB); 
+ 
+       assert_gl(&quot;setup projection&quot;);
+@@ -94,10 +109,28 @@
+ 
+ OpenGLWindow::~OpenGLWindow()
+ {
+-  // must not free m_window, see:
++  // must not free m_impl-&gt;m_window, see:
+   // <A HREF="http://sdl.beuc.net/sdl.wiki/SDL_SetVideoMode">http://sdl.beuc.net/sdl.wiki/SDL_SetVideoMode</A>
+ } 
+ 
++int  
++OpenGLWindow::get_width()  const
++{
++  return m_impl-&gt;m_window-&gt;w; 
++}
++
++int 
++OpenGLWindow::get_height() const 
++{
++  return m_impl-&gt;m_window-&gt;h; 
++}
++
++Size 
++OpenGLWindow::get_size() const
++{
++  return Size(m_impl-&gt;m_window-&gt;w, m_impl-&gt;m_window-&gt;h); 
++}
++
+ void
+ OpenGLWindow::set_fullscreen(bool fullscreen)
+ {
+@@ -106,9 +139,9 @@
+   if (fullscreen)
+     flags |= SDL_FULLSCREEN;
+ 
+-  m_window = SDL_SetVideoMode(config.get_int(&quot;screen-width&quot;), config.get_int(&quot;screen-height&quot;), 0, flags);
++  m_impl-&gt;m_window = SDL_SetVideoMode(m_impl-&gt;m_size.width, m_impl-&gt;m_size.height, 0, flags);
+ 
+-  if (!m_window)
++  if (!m_impl-&gt;m_window)
+     {
+       throw std::runtime_error(&quot;OpenGLWindow: Couldn't create window&quot;);
+     }
+
+Modified: trunk/windstille/src/display/opengl_window.hpp
+===================================================================
+--- trunk/windstille/src/display/opengl_window.hpp	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/src/display/opengl_window.hpp	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -19,28 +19,31 @@
+ #ifndef HEADER_WINDSTILLE_DISPLAY_OPENGL_WINDOW_HPP
+ #define HEADER_WINDSTILLE_DISPLAY_OPENGL_WINDOW_HPP
+ 
+-#include &lt;SDL.h&gt;
++#include &lt;boost/scoped_ptr.hpp&gt;
+ 
+ #include &quot;util/currenton.hpp&quot;
+ #include &quot;math/size.hpp&quot;
+ 
++class OpenGLWindowImpl;
++
+ class OpenGLWindow : public Currenton&lt;OpenGLWindow&gt;
+ {
+-private:
+-  SDL_Surface* m_window;
+-
+ public:
+-  OpenGLWindow();
++  OpenGLWindow(const Size&amp; size, const Size&amp; aspect, 
++               bool fullscreen = false, int anti_aliasing = 0);
+   ~OpenGLWindow();
+ 
+-  int  get_width()  const { return m_window-&gt;w; }
+-  int  get_height() const { return m_window-&gt;h; }
+-  Size get_size()   const { return Size(m_window-&gt;w, m_window-&gt;h); }
++  int  get_width()  const;
++  int  get_height() const;
++  Size get_size()   const;
+ 
+   void set_fullscreen(bool fullscreen);
+   void set_gamma(float r, float g, float b);
+ 
+ private:
++  boost::scoped_ptr&lt;OpenGLWindowImpl&gt; m_impl;
++
++private:
+   OpenGLWindow(const OpenGLWindow&amp;);
+   OpenGLWindow&amp; operator=(const OpenGLWindow&amp;);
+ };
+
+Modified: trunk/windstille/src/scenegraph/drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/drawable.hpp	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/src/scenegraph/drawable.hpp	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -36,7 +36,8 @@
+   Drawable()
+     : pos(0.0f, 0.0f),
+       z_pos(0.0f),
+-      modelview(Matrix::identity())
++      modelview(Matrix::identity()),
++      render_mask(1) // FIXME: Evil hardcoded constant
+   {}
+ 
+   Drawable(const Vector2f&amp; pos_, float z_pos_ = 0,  const Matrix&amp; modelview_ = Matrix::identity())
+
+Modified: trunk/windstille/src/scenegraph/drawable_group.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/drawable_group.hpp	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/src/scenegraph/drawable_group.hpp	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -37,6 +37,7 @@
+ 
+   void add_drawable(boost::shared_ptr&lt;Drawable&gt; drawable);
+   void remove_drawable(boost::shared_ptr&lt;Drawable&gt; drawable);
++  int  size() const { return static_cast&lt;int&gt;(m_drawables.size()); }
+   
+   void clear();
+ 
+
+Modified: trunk/windstille/src/scenegraph/scissor_drawable.cpp
+===================================================================
+--- trunk/windstille/src/scenegraph/scissor_drawable.cpp	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/src/scenegraph/scissor_drawable.cpp	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -28,6 +28,7 @@
+ void
+ ScissorDrawable::render(unsigned int mask)
+ {
++  std::cout &lt;&lt; &quot;Render&quot; &lt;&lt; std::endl;
+   Display::push_cliprect(m_cliprect);
+   m_drawable_group.render(mask);
+   Display::pop_cliprect();
+
+Modified: trunk/windstille/src/scenegraph/stencil_drawable.cpp
+===================================================================
+--- trunk/windstille/src/scenegraph/stencil_drawable.cpp	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/src/scenegraph/stencil_drawable.cpp	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -38,10 +38,11 @@
+     <A HREF="http://www.opengl.org/documentation/specs/man_pages/hardcopy/GL/html/gl/stencilfunc.html">http://www.opengl.org/documentation/specs/man_pages/hardcopy/GL/html/gl/stencilfunc.html</A>
+     <A HREF="http://www.opengl.org/documentation/specs/man_pages/hardcopy/GL/html/gl/stencilop.html">http://www.opengl.org/documentation/specs/man_pages/hardcopy/GL/html/gl/stencilop.html</A>
+   */
++  glEnable(GL_STENCIL_TEST);
+ 
+   // enable stencil and clear it
+-  glEnable(GL_STENCIL_TEST);
+   glClearStencil(0);
++  glClear(GL_STENCIL_BUFFER_BIT);
+ 
+   // glStencilFunc: set when the test passes or fails 
+   // glStencilOp: set what is done when the test passes/fails
+@@ -49,18 +50,24 @@
+   // render stencil buffer content
+   glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+   glStencilFunc(GL_ALWAYS, 1, 1);
+-  glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
++  glStencilOp(GL_REPLACE, GL_REPLACE, GL_REPLACE);
++
++  glEnable(GL_ALPHA_TEST);
++  glAlphaFunc(GL_GREATER, 0.5f);
+   m_stencil_group.render(~0u);
+-  
++  glDisable(GL_ALPHA_TEST);
++
+   // render framebuffer content
+   glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+   glStencilFunc(GL_EQUAL, 1, 1);
+   glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
++
+   m_drawable_group.render(~0u);
+ 
+   // disable stencil and reset op and func
+   glStencilFunc(GL_ALWAYS, 0, 1);
+   glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
++
+   glDisable(GL_STENCIL_TEST);
+ }
+ 
+
+Deleted: trunk/windstille/test/SConstruct
+===================================================================
+--- trunk/windstille/test/SConstruct	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/test/SConstruct	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -1,5 +0,0 @@
+-env = Environment(CXXFLAGS=['-Wall'], CPPPATH=['../src/'])
+-env.Program('matrix_test',
+-            ['matrix_test.cpp', '../src/math/matrix.cpp'])
+-
+-# EOF #
+
+Added: trunk/windstille/test/scissor_drawable/scissor_drawable.cpp
+===================================================================
+--- trunk/windstille/test/scissor_drawable/scissor_drawable.cpp	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/test/scissor_drawable/scissor_drawable.cpp	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -0,0 +1,88 @@
++#include &lt;iostream&gt;
++#include &lt;sstream&gt;
++#include &lt;stdexcept&gt;
++#include &quot;SDL.h&quot;
++
++#include &quot;display/opengl_window.hpp&quot;
++#include &quot;display/surface.hpp&quot;
++#include &quot;display/surface_manager.hpp&quot;
++#include &quot;display/texture_manager.hpp&quot;
++#include &quot;scenegraph/drawable_group.hpp&quot;
++#include &quot;scenegraph/surface_drawable.hpp&quot;
++#include &quot;scenegraph/scissor_drawable.hpp&quot;
++#include &quot;scenegraph/stencil_drawable.hpp&quot;
++#include &quot;util/pathname.hpp&quot;
++#include &quot;util/system.hpp&quot;
++
++int main()
++{
++  Pathname::set_datadir(&quot;data/&quot;); //System::find_default_datadir());
++  Pathname::set_userdir(System::find_default_userdir());
++
++#ifdef DEBUG
++  // I wanna have usefull backtraces in debug mode
++  Uint32 flags = SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_NOPARACHUTE;
++#else
++  Uint32 flags = SDL_INIT_VIDEO | SDL_INIT_JOYSTICK;
++#endif
++
++  if (SDL_Init(flags) &lt; 0)
++  {
++    std::stringstream msg;
++    msg &lt;&lt; &quot;Couldn't initialize SDL: &quot; &lt;&lt; SDL_GetError();
++    throw std::runtime_error(msg.str());
++  }
++  else
++  {
++    atexit(SDL_Quit);
++    SDL_EnableUNICODE(1);
++  }
++
++  OpenGLWindow window(Size(960, 600),
++                      Size(960, 600));
++  TextureManager    texture_manager;
++  SurfaceManager    surface_manager;
++  DrawableGroup group;
++  
++  int have_stencil = 0xdeadbeaf;
++  SDL_GL_GetAttribute(SDL_GL_STENCIL_SIZE, &amp;have_stencil);
++  std::cout &lt;&lt; &quot;STENCIL: &quot; &lt;&lt; have_stencil &lt;&lt; std::endl;
++  
++  boost::shared_ptr&lt;ScissorDrawable&gt; scissor(new ScissorDrawable(Rect(200, 200, 400, 400)));
++  boost::shared_ptr&lt;StencilDrawable&gt; stencil(new StencilDrawable());
++  boost::shared_ptr&lt;SurfaceDrawable&gt; surface(new SurfaceDrawable(Surface(Pathname(&quot;images/titlescreen.png&quot;)), 
++                                                                 SurfaceDrawingParameters(), 0, Matrix::identity()));
++
++  boost::shared_ptr&lt;SurfaceDrawable&gt; surface2(new SurfaceDrawable(Surface(Pathname(&quot;images/titlescreen.png&quot;)), 
++                                                                  SurfaceDrawingParameters().set_pos(Vector2f(-50.0f, -50.0f)), 0, Matrix::identity()));
++  boost::shared_ptr&lt;SurfaceDrawable&gt; surface3(new SurfaceDrawable(Surface(Pathname(&quot;images/portrait.png&quot;)), 
++                                                                  SurfaceDrawingParameters(), 0, Matrix::identity()));
++  
++  if (0)
++  {
++    scissor-&gt;get_drawable_group().add_drawable(surface);
++    surface2-&gt;set_pos(Vector2f(300.0f, 300.0f));
++    surface3-&gt;set_pos(Vector2f(350.0f, 350.0f));
++    group.add_drawable(scissor);
++  }
++  else
++  {
++    stencil-&gt;get_stencil_group().add_drawable(surface3);
++    stencil-&gt;get_drawable_group().add_drawable(surface);
++
++    group.add_drawable(surface2);
++    group.add_drawable(stencil);
++  }
++
++  for(int i = 0; i &lt; 500; ++i)
++  {
++    std::cout &lt;&lt; &quot;.&quot; &lt;&lt; std::flush;   
++    surface-&gt;get_params().set_pos(Vector2f(i-250, 0));
++    group.render(~0u);
++    SDL_GL_SwapBuffers();
++  }
++
++  return 0;
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/test/scissor_drawable/scissor_drawable.cpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002283.html">[Windstille-commit] r3286 - trunk/windstille/src/scenegraph
+</A></li>
+	<LI>Next message: <A HREF="002285.html">[Windstille-commit] r3288 - trunk/windstille/src/scenegraph
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2284">[ date ]</a>
+              <a href="thread.html#2284">[ thread ]</a>
+              <a href="subject.html#2284">[ subject ]</a>
+              <a href="author.html#2284">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

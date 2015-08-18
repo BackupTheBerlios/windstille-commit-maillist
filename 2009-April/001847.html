@@ -1,0 +1,175 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2850 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2850%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200904021558.n32FwsVg032029%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001846.html">
+   <LINK REL="Next"  HREF="001848.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2850 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2850%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200904021558.n32FwsVg032029%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2850 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Apr  2 17:58:54 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001846.html">[Windstille-commit] r2849 - trunk/windstille/src/util
+</A></li>
+        <LI>Next message: <A HREF="001848.html">[Windstille-commit] r2851 - in trunk/windstille/src: display editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1847">[ date ]</a>
+              <a href="thread.html#1847">[ thread ]</a>
+              <a href="subject.html#1847">[ subject ]</a>
+              <a href="author.html#1847">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-04-02 17:58:54 +0200 (Thu, 02 Apr 2009)
+New Revision: 2850
+
+Modified:
+   trunk/windstille/src/editor/object_selector.cpp
+   trunk/windstille/src/editor/object_selector.hpp
+Log:
+Added ObjectSelector Toolbar
+
+Modified: trunk/windstille/src/editor/object_selector.cpp
+===================================================================
+--- trunk/windstille/src/editor/object_selector.cpp	2009-04-02 15:55:49 UTC (rev 2849)
++++ trunk/windstille/src/editor/object_selector.cpp	2009-04-02 15:58:54 UTC (rev 2850)
+@@ -19,8 +19,11 @@
+ #include &lt;iostream&gt;
+ #include &lt;boost/function.hpp&gt;
+ #include &lt;gtkmm/treeselection.h&gt;
++#include &lt;gtkmm/stock.h&gt;
++#include &lt;gtkmm/toolbar.h&gt;
+ #include &lt;gtkmm/treemodelcolumn.h&gt;
+ 
++#include &quot;editor_window.hpp&quot;
+ #include &quot;object_selector.hpp&quot;
+ 
+ class ObjectIconColumns : public Gtk::TreeModel::ColumnRecord
+@@ -47,9 +50,26 @@
+ 
+ ObjectIconColumns* ObjectIconColumns::instance_ = 0;
+ 
+-ObjectSelector::ObjectSelector()
+-  : label(&quot;Object Selector&quot;, Gtk::ALIGN_LEFT)
++ObjectSelector::ObjectSelector(EditorWindow&amp; editor_)
++  : editor(editor_),
++    label(&quot;Object Selector&quot;, Gtk::ALIGN_LEFT)
+ {
++  Glib::RefPtr&lt;Gtk::UIManager&gt;   ui_manager   = editor.get_ui_manager();
++  Glib::RefPtr&lt;Gtk::ActionGroup&gt; action_group = Gtk::ActionGroup::create();
++
++  action_group-&gt;add(Gtk::Action::create(&quot;ObjectSelectorRefresh&quot;, Gtk::Stock::REFRESH),
++                    sigc::mem_fun(*this, &amp;ObjectSelector::refresh));
++
++  ui_manager-&gt;insert_action_group(action_group);
++
++  ui_manager-&gt;add_ui_from_string(&quot;&lt;ui&gt;&quot;
++                                 &quot;  &lt;toolbar name='ObjectSelectorToolBar'&gt;&quot;
++                                 &quot;    &lt;toolitem action='ObjectSelectorRefresh'/&gt;&quot;
++                                 &quot;  &lt;/toolbar&gt;&quot;
++                                 &quot;&lt;/ui&gt;&quot;);
++
++  Gtk::Toolbar&amp; toolbar = dynamic_cast&lt;Gtk::Toolbar&amp;&gt;(*ui_manager-&gt;get_widget(&quot;/ObjectSelectorToolBar&quot;));
++  
+   list_store = Gtk::ListStore::create(ObjectIconColumns::instance());
+ 
+   // Change background color
+@@ -78,8 +98,9 @@
+ 
+   scrolled.add(iconview);
+   pack_start(label, Gtk::PACK_SHRINK);
++
++  pack_start(toolbar, Gtk::PACK_SHRINK);
+   add(scrolled);
+-  
+   //show_all();
+ }
+ 
+@@ -96,6 +117,12 @@
+   (*it)[ObjectIconColumns::instance().pathname] = pathname;
+   (*it)[ObjectIconColumns::instance().icon]     = icon;
+ }
++
++void
++ObjectSelector::refresh()
++{
++  std::cout &lt;&lt; &quot;Refresh&quot; &lt;&lt; std::endl;
++}
+                     
+ void
+ ObjectSelector::on_drag_begin(const Glib::RefPtr&lt;Gdk::DragContext&gt;&amp; context)
+
+Modified: trunk/windstille/src/editor/object_selector.hpp
+===================================================================
+--- trunk/windstille/src/editor/object_selector.hpp	2009-04-02 15:55:49 UTC (rev 2849)
++++ trunk/windstille/src/editor/object_selector.hpp	2009-04-02 15:58:54 UTC (rev 2850)
+@@ -26,21 +26,27 @@
+ #include &lt;gdkmm/dragcontext.h&gt;
+ #include &lt;gtkmm/iconview.h&gt;
+ 
++class EditorWindow;
++
+ class ObjectSelector : public Gtk::VBox
+ {
+ private:
++  EditorWindow&amp; editor;
++
+   Gtk::Label label;
+   Gtk::ScrolledWindow scrolled;
+   Gtk::IconView iconview;
+   Glib::RefPtr&lt;Gtk::ListStore&gt; list_store;
+   
+ public:
+-  ObjectSelector();
++  ObjectSelector(EditorWindow&amp; editor);
+   virtual ~ObjectSelector();
+ 
+   void add_object(const std::string&amp; pathname,
+                   const Glib::RefPtr&lt;Gdk::Pixbuf&gt;&amp; icon);
+ 
++  void refresh();
++
+ protected:
+   void on_drag_begin(const Glib::RefPtr&lt;Gdk::DragContext&gt;&amp; context);
+   void on_drag_data_get(const Glib::RefPtr&lt;Gdk::DragContext&gt;&amp; context,
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001846.html">[Windstille-commit] r2849 - trunk/windstille/src/util
+</A></li>
+	<LI>Next message: <A HREF="001848.html">[Windstille-commit] r2851 - in trunk/windstille/src: display editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1847">[ date ]</a>
+              <a href="thread.html#1847">[ thread ]</a>
+              <a href="subject.html#1847">[ subject ]</a>
+              <a href="author.html#1847">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

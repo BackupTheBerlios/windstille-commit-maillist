@@ -1,0 +1,180 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2381 - trunk/griv/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2381%20-%20trunk/griv/src&In-Reply-To=%3C200809020118.m821IMsF024159%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001377.html">
+   <LINK REL="Next"  HREF="001379.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2381 - trunk/griv/src</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2381%20-%20trunk/griv/src&In-Reply-To=%3C200809020118.m821IMsF024159%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2381 - trunk/griv/src">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Sep  2 03:18:22 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001377.html">[Windstille-commit] r2380 - trunk/griv/src
+</A></li>
+        <LI>Next message: <A HREF="001379.html">[Windstille-commit] r2382 - branches trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1378">[ date ]</a>
+              <a href="thread.html#1378">[ thread ]</a>
+              <a href="subject.html#1378">[ subject ]</a>
+              <a href="author.html#1378">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-09-02 03:18:20 +0200 (Tue, 02 Sep 2008)
+New Revision: 2381
+
+Modified:
+   trunk/griv/src/galapix.cpp
+   trunk/griv/src/image.cpp
+   trunk/griv/src/image.hpp
+   trunk/griv/src/viewer.cpp
+   trunk/griv/src/workspace.cpp
+   trunk/griv/src/workspace.hpp
+Log:
+Pressing space prints the images currently displayed
+
+Modified: trunk/griv/src/galapix.cpp
+===================================================================
+--- trunk/griv/src/galapix.cpp	2008-09-01 23:20:37 UTC (rev 2380)
++++ trunk/griv/src/galapix.cpp	2008-09-02 01:18:20 UTC (rev 2381)
+@@ -354,7 +354,7 @@
+         Filesystem::generate_jpeg_file_list(*i, filenames);
+ 
+       std::sort(filenames.begin(), filenames.end());
+-      std::cout &lt;&lt; &quot;done&quot; &lt;&lt; std::endl;
++      std::cout &lt;&lt; filenames.size() &lt;&lt; &quot; files found.&quot; &lt;&lt; std::endl;
+ 
+       if (strcmp(argv[1], &quot;view&quot;) == 0)
+         {
+
+Modified: trunk/griv/src/image.cpp
+===================================================================
+--- trunk/griv/src/image.cpp	2008-09-01 23:20:37 UTC (rev 2380)
++++ trunk/griv/src/image.cpp	2008-09-02 01:18:20 UTC (rev 2381)
+@@ -345,6 +345,13 @@
+   std::cout &lt;&lt; &quot;    Job Size:   &quot; &lt;&lt; impl-&gt;jobs.size() &lt;&lt; std::endl;
+ }
+ 
++bool
++Image::overlaps(const Rectf&amp; cliprect) const
++{
++  Rectf image_rect(impl-&gt;pos, Sizef(impl-&gt;file_entry.get_size() * impl-&gt;scale)); // in world coordinates
++  return cliprect.is_overlapped(image_rect);
++}
++
+ void
+ Image::draw(const Rectf&amp; cliprect, float fscale)
+ {
+
+Modified: trunk/griv/src/image.hpp
+===================================================================
+--- trunk/griv/src/image.hpp	2008-09-01 23:20:37 UTC (rev 2380)
++++ trunk/griv/src/image.hpp	2008-09-02 01:18:20 UTC (rev 2381)
+@@ -87,6 +87,8 @@
+ 
+   std::string get_filename() const;
+ 
++  bool overlaps(const Rectf&amp; cliprect) const;
++
+   operator bool() const { return impl.get(); }
+ 
+   /** Syncronized function to require data from other threads */
+
+Modified: trunk/griv/src/viewer.cpp
+===================================================================
+--- trunk/griv/src/viewer.cpp	2008-09-01 23:20:37 UTC (rev 2380)
++++ trunk/griv/src/viewer.cpp	2008-09-02 01:18:20 UTC (rev 2381)
+@@ -142,6 +142,13 @@
+               state.rotate(-90.0f);
+               break;
+ 
++            case SDLK_SPACE:
++              {
++                Rectf cliprect = state.screen2world(Rect(0, 0, Framebuffer::get_width(), Framebuffer::get_height()));
++                workspace.print_images(cliprect);
++              }
++              break;
++
+             case SDLK_UP:
+               state.set_angle(0.0f);
+               break;
+
+Modified: trunk/griv/src/workspace.cpp
+===================================================================
+--- trunk/griv/src/workspace.cpp	2008-09-01 23:20:37 UTC (rev 2380)
++++ trunk/griv/src/workspace.cpp	2008-09-02 01:18:20 UTC (rev 2381)
+@@ -153,5 +153,19 @@
+     }
+   std::cout &lt;&lt; &quot;-------------------------------------------------------&quot; &lt;&lt; std::endl;
+ }
++
++void
++Workspace::print_images(const Rectf&amp; rect)
++{
++  std::cout &lt;&lt; &quot;,-- Visible images --------------------------------------&quot; &lt;&lt; std::endl;
++  for(Images::iterator i = images.begin(); i != images.end(); ++i)
++    {
++      if (i-&gt;overlaps(rect))
++        {
++          std::cout &lt;&lt; &quot;| &quot; &lt;&lt; i-&gt;get_filename() &lt;&lt; std::endl;
++        }
++    }
++  std::cout &lt;&lt; &quot;'--------------------------------------------------------&quot; &lt;&lt; std::endl;
++}
+ 
+ /* EOF */
+
+Modified: trunk/griv/src/workspace.hpp
+===================================================================
+--- trunk/griv/src/workspace.hpp	2008-09-01 23:20:37 UTC (rev 2380)
++++ trunk/griv/src/workspace.hpp	2008-09-02 01:18:20 UTC (rev 2381)
+@@ -44,6 +44,8 @@
+   void clear_cache();
+   void cache_cleanup();
+   void print_info();
++  void print_images(const Rectf&amp; rect);
++
+ private:
+   Workspace (const Workspace&amp;);
+   Workspace&amp; operator= (const Workspace&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001377.html">[Windstille-commit] r2380 - trunk/griv/src
+</A></li>
+	<LI>Next message: <A HREF="001379.html">[Windstille-commit] r2382 - branches trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1378">[ date ]</a>
+              <a href="thread.html#1378">[ thread ]</a>
+              <a href="subject.html#1378">[ subject ]</a>
+              <a href="author.html#1378">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

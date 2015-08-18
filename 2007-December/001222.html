@@ -1,0 +1,366 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1571 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-December/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1571%20-%20trunk/griv&In-Reply-To=%3C200712021605.lB2G5s5i003398%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001221.html">
+   <LINK REL="Next"  HREF="001223.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1571 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1571%20-%20trunk/griv&In-Reply-To=%3C200712021605.lB2G5s5i003398%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1571 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Dec  2 17:05:54 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001221.html">[Windstille-commit] r1570 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001223.html">[Windstille-commit] r1572 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1222">[ date ]</a>
+              <a href="thread.html#1222">[ thread ]</a>
+              <a href="subject.html#1222">[ subject ]</a>
+              <a href="author.html#1222">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-12-02 17:05:52 +0100 (Sun, 02 Dec 2007)
+New Revision: 1571
+
+Added:
+   trunk/griv/software_surface.cpp
+   trunk/griv/software_surface.hpp
+Modified:
+   trunk/griv/SConstruct
+   trunk/griv/image.cpp
+   trunk/griv/large_surface.cpp
+   trunk/griv/large_surface.hpp
+   trunk/griv/surface.cpp
+   trunk/griv/surface.hpp
+Log:
+- wrapped SDL_Surface and added some ref counting
+
+Modified: trunk/griv/SConstruct
+===================================================================
+--- trunk/griv/SConstruct	2007-12-02 14:56:06 UTC (rev 1570)
++++ trunk/griv/SConstruct	2007-12-02 16:05:52 UTC (rev 1571)
+@@ -18,6 +18,7 @@
+                           'image.cpp',
+                           'surface.cpp',
+                           'large_surface.cpp',
++                          'software_surface.cpp',
+                           'thumbnail_store.cpp',
+                           'display.cpp', 
+                           'texture.cpp', 
+
+Modified: trunk/griv/image.cpp
+===================================================================
+--- trunk/griv/image.cpp	2007-12-02 14:56:06 UTC (rev 1570)
++++ trunk/griv/image.cpp	2007-12-02 16:05:52 UTC (rev 1571)
+@@ -28,6 +28,7 @@
+ #include &quot;filesystem.hpp&quot;
+ #include &quot;SDL_image.h&quot;
+ #include &quot;texture.hpp&quot;
++#include &quot;software_surface.hpp&quot;
+ #include &quot;image.hpp&quot;
+ #include &quot;jpeg.hpp&quot;
+ #include &quot;cache.hpp&quot;
+@@ -134,12 +135,12 @@
+           if (!surface_16x16)
+             { // Use surface as the smallest possible surface
+               // FIXME: When somebody is fast this could mean a non 16x16 surface
+-              surface_16x16 = new Surface(received_surface);
++              surface_16x16 = new Surface(boost::shared_ptr&lt;SoftwareSurface&gt;(new SoftwareSurface(received_surface)));
+             }
+           else
+             { // Replace the current surface
+               delete surface;
+-              surface = new LargeSurface(received_surface);
++              surface = new LargeSurface(boost::shared_ptr&lt;SoftwareSurface&gt;(new SoftwareSurface(received_surface)));
+               surface_resolution = received_surface_res;
+             }
+ 
+
+Modified: trunk/griv/large_surface.cpp
+===================================================================
+--- trunk/griv/large_surface.cpp	2007-12-02 14:56:06 UTC (rev 1570)
++++ trunk/griv/large_surface.cpp	2007-12-02 16:05:52 UTC (rev 1571)
+@@ -26,7 +26,7 @@
+ #include &quot;surface.hpp&quot;
+ #include &quot;large_surface.hpp&quot;
+ 
+-LargeSurface::LargeSurface(SDL_Surface* surface)
++LargeSurface::LargeSurface(boost::shared_ptr&lt;SoftwareSurface&gt; surface)
+   : grid(1,1)
+ {
+   grid(0,0) = new Surface(surface);
+
+Modified: trunk/griv/large_surface.hpp
+===================================================================
+--- trunk/griv/large_surface.hpp	2007-12-02 14:56:06 UTC (rev 1570)
++++ trunk/griv/large_surface.hpp	2007-12-02 16:05:52 UTC (rev 1571)
+@@ -37,7 +37,7 @@
+   Grid&lt;Surface*&gt; grid;
+ 
+ public:
+-  LargeSurface(SDL_Surface* surface);
++  LargeSurface(boost::shared_ptr&lt;SoftwareSurface&gt; surface);
+   ~LargeSurface();
+ 
+   void draw(float x, float y, float w, float h);  
+
+Added: trunk/griv/software_surface.cpp
+===================================================================
+--- trunk/griv/software_surface.cpp	2007-12-02 14:56:06 UTC (rev 1570)
++++ trunk/griv/software_surface.cpp	2007-12-02 16:05:52 UTC (rev 1571)
+@@ -0,0 +1,49 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &lt;stdexcept&gt;
++#include &quot;SDL_image.h&quot;
++#include &quot;software_surface.hpp&quot;
++
++SoftwareSurface::SoftwareSurface(const std::string&amp; name)
++{
++  surface = IMG_Load(name.c_str());
++  if (!surface)
++    throw std::runtime_error(&quot;SoftwareSurface: Couldn't load &quot; + name);
++}
++
++SoftwareSurface::SoftwareSurface(SDL_Surface* swsurface)
++{
++  surface = swsurface;
++  if (!surface)
++    throw std::runtime_error(&quot;SoftwareSurface: SoftwareSurface() called with a NULL pointer&quot;);
++}
++
++SoftwareSurface::~SoftwareSurface()
++{
++  SDL_FreeSurface(surface);
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/software_surface.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/software_surface.hpp
+===================================================================
+--- trunk/griv/software_surface.hpp	2007-12-02 14:56:06 UTC (rev 1570)
++++ trunk/griv/software_surface.hpp	2007-12-02 16:05:52 UTC (rev 1571)
+@@ -0,0 +1,54 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_SOFTWARE_SURFACE_HPP
++#define HEADER_SOFTWARE_SURFACE_HPP
++
++#include &quot;SDL.h&quot;
++#include &lt;string&gt;
++
++/** */
++class SoftwareSurface
++{
++private:
++  SDL_Surface* surface;
++  
++public:
++  SoftwareSurface(const std::string&amp; name);
++  SoftwareSurface(SDL_Surface* swsurface);
++  ~SoftwareSurface();
++
++  int get_width() const { return surface-&gt;w; }
++  int get_height() const { return surface-&gt;h; }
++ 
++  SDL_Surface* get_surface() const { return surface; }
++private:
++  SoftwareSurface(const SoftwareSurface&amp;);
++  SoftwareSurface&amp; operator= (const SoftwareSurface&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/software_surface.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/griv/surface.cpp
+===================================================================
+--- trunk/griv/surface.cpp	2007-12-02 14:56:06 UTC (rev 1570)
++++ trunk/griv/surface.cpp	2007-12-02 16:05:52 UTC (rev 1571)
+@@ -27,38 +27,39 @@
+ #include &lt;assert.h&gt;
+ #include &quot;display.hpp&quot;
+ #include &quot;math.hpp&quot;
++#include &quot;software_surface.hpp&quot;
+ #include &quot;surface.hpp&quot;
+ 
+-Surface::Surface(SDL_Surface* surface)
++Surface::Surface(boost::shared_ptr&lt;SoftwareSurface&gt; surface)
+   : surface(surface),
+     texture(0)
+ {
+   assert(surface);
+ 
+-  tex_w = Math::round_to_power_of_two(surface-&gt;w);
+-  tex_h = Math::round_to_power_of_two(surface-&gt;h);
++  tex_w = Math::round_to_power_of_two(surface-&gt;get_width());
++  tex_h = Math::round_to_power_of_two(surface-&gt;get_height());
+ 
+   if (tex_w &lt;= 1024 &amp;&amp; tex_h &lt;= 1024)
+     {
+       texture = new Texture(tex_w, tex_h, 
+-                            surface, 
+-                            0, 0, surface-&gt;w, surface-&gt;h);
++                            surface-&gt;get_surface(), 
++                            0, 0, surface-&gt;get_width(), surface-&gt;get_height());
+     
+-      u = float(surface-&gt;w) / tex_w;
+-      v = float(surface-&gt;h) / tex_h;
++      u = float(surface-&gt;get_width()) / tex_w;
++      v = float(surface-&gt;get_height()) / tex_h;
+ 
+-      aspect = float(surface-&gt;w) / surface-&gt;h;
++      aspect = float(surface-&gt;get_width()) / surface-&gt;get_height();
+     }
+   else
+     {
+-      std::cout &lt;&lt; &quot;Image violates maximum texture size: &quot; &lt;&lt; surface-&gt;w &lt;&lt; &quot;x&quot; &lt;&lt; surface-&gt;h &lt;&lt; std::endl;
++      std::cout &lt;&lt; &quot;Image violates maximum texture size: &quot;
++                &lt;&lt; surface-&gt;get_width() &lt;&lt; &quot;x&quot; &lt;&lt; surface-&gt;get_height() &lt;&lt; std::endl;
+     }
+ }
+ 
+ Surface::~Surface()
+ {
+   delete texture;
+-  SDL_FreeSurface(surface);
+ }
+ 
+ void
+
+Modified: trunk/griv/surface.hpp
+===================================================================
+--- trunk/griv/surface.hpp	2007-12-02 14:56:06 UTC (rev 1570)
++++ trunk/griv/surface.hpp	2007-12-02 16:05:52 UTC (rev 1571)
+@@ -27,14 +27,17 @@
+ #define HEADER_SURFACE_HPP
+ 
+ #include &quot;SDL.h&quot;
++#include &lt;boost/smart_ptr.hpp&gt;
+ #include &quot;texture.hpp&quot;
+ 
++class SoftwareSurface;
++
+ /** */
+ class Surface
+ {
+ private:
+   /** Software backstore for the image */
+-  SDL_Surface* surface;
++  boost::shared_ptr&lt;SoftwareSurface&gt; surface;
+   
+   Texture* texture;
+   int tex_w;
+@@ -46,7 +49,7 @@
+   float aspect;
+ 
+ public:
+-  Surface(SDL_Surface* surface);
++  Surface(boost::shared_ptr&lt;SoftwareSurface&gt;);
+   ~Surface();
+ 
+   void draw(float x, float y, float w, float h);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001221.html">[Windstille-commit] r1570 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001223.html">[Windstille-commit] r1572 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1222">[ date ]</a>
+              <a href="thread.html#1222">[ thread ]</a>
+              <a href="subject.html#1222">[ subject ]</a>
+              <a href="author.html#1222">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

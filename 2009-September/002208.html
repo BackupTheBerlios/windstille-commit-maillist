@@ -1,0 +1,667 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3211 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3211%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909090446.n894k3ao016621%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002207.html">
+   <LINK REL="Next"  HREF="002209.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3211 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3211%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909090446.n894k3ao016621%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3211 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Sep  9 06:46:03 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002207.html">[Windstille-commit] r3210 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="002209.html">[Windstille-commit] r3212 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2208">[ date ]</a>
+              <a href="thread.html#2208">[ thread ]</a>
+              <a href="subject.html#2208">[ subject ]</a>
+              <a href="author.html#2208">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-09 06:45:59 +0200 (Wed, 09 Sep 2009)
+New Revision: 3211
+
+Modified:
+   trunk/windstille/src/editor/document.cpp
+   trunk/windstille/src/editor/document.hpp
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/navgraph_edge_object_model.cpp
+   trunk/windstille/src/editor/navgraph_insert_tool.cpp
+   trunk/windstille/src/editor/navgraph_node_object_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+   trunk/windstille/src/editor/select_tool.cpp
+   trunk/windstille/src/editor/selection.cpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/editor/windstille_widget.hpp
+Log:
+Replaced some pointers with references and changed stuff from raw Command objects to simple Document member function calls
+
+Modified: trunk/windstille/src/editor/document.cpp
+===================================================================
+--- trunk/windstille/src/editor/document.cpp	2009-09-09 04:44:38 UTC (rev 3210)
++++ trunk/windstille/src/editor/document.cpp	2009-09-09 04:45:59 UTC (rev 3211)
+@@ -41,6 +41,16 @@
+ {
+ }
+ 
++Document::Document(const std::string&amp; filename)
++  : m_undo_manager(new UndoManager()),
++    m_sector_model(new SectorModel()),
++    m_selection(Selection::create()),
++    m_control_points(),
++    m_sig_on_change()
++{
++  m_sector_model-&gt;load(filename);
++}
++
+ Document::~Document()
+ {
+ }
+@@ -57,6 +67,16 @@
+   m_undo_manager-&gt;redo();
+ }
+ 
++void
++Document::undo_group_begin()
++{
++}
++
++void
++Document::undo_group_end()
++{
++}
++
+ bool
+ Document::has_undo() const
+ {
+@@ -80,6 +100,13 @@
+ }
+ 
+ void
++Document::execute(const boost::function&lt;void ()&gt;&amp; undo_callback,
++                  const boost::function&lt;void ()&gt;&amp; redo_callback)
++{
++  execute(CommandHandle(new FunctorCommand(undo_callback, redo_callback)));
++}
++
++void
+ Document::layer_add(const Gtk::TreeModel::Path&amp; path)
+ {
+   execute(CommandHandle(new LayerAddCommand(*m_sector_model, path)));
+@@ -411,5 +438,4 @@
+   m_selection-&gt;add_control_points(m_control_points);
+ }
+ 
+-
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/document.hpp
+===================================================================
+--- trunk/windstille/src/editor/document.hpp	2009-09-09 04:44:38 UTC (rev 3210)
++++ trunk/windstille/src/editor/document.hpp	2009-09-09 04:45:59 UTC (rev 3211)
+@@ -20,6 +20,7 @@
+ #define HEADER_WINDSTILLE_EDITOR_DOCUMENT_HPP
+ 
+ #include &lt;boost/scoped_ptr.hpp&gt;
++#include &lt;boost/function.hpp&gt;
+ 
+ #include &quot;editor/selection.hpp&quot;
+ #include &quot;editor/command.hpp&quot;
+@@ -47,17 +48,24 @@
+ 
+ public:
+   Document();
++  Document(const std::string&amp; filename);
+   ~Document();
+ 
+   SectorModel&amp; get_sector_model() const { return *m_sector_model; }
+-  SelectionHandle get_selection() const { return m_selection; }
+ 
+   /* Undo/Redo Handling
+    * @{*/  
+   void undo();
+   void redo();
++
++  void undo_group_begin();
++  void undo_group_end();
++
+   bool has_undo() const;
+   bool has_redo() const;
++
++  void execute(const boost::function&lt;void ()&gt;&amp; undo_callback,
++               const boost::function&lt;void ()&gt;&amp; redo_callback);
+   void execute(CommandHandle cmd);
+   /** @} */
+ 
+@@ -97,6 +105,7 @@
+   void selection_object_properties();
+ 
+   void set_selection(const SelectionHandle&amp; selection);
++  SelectionHandle get_selection() const { return m_selection; }
+   /** @} */
+ 
+   /* Control Point Stuff
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-09-09 04:44:38 UTC (rev 3210)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-09-09 04:45:59 UTC (rev 3211)
+@@ -33,8 +33,6 @@
+ #include &lt;gtkmm/stock.h&gt;
+ #include &lt;gtkmm/separatortoolitem.h&gt;
+ 
+-#include &quot;editor/layer_commands.hpp&quot;
+-#include &quot;editor/undo_manager.hpp&quot;
+ #include &quot;display/scene_context.hpp&quot;
+ #include &quot;editor/windstille_widget.hpp&quot;
+ #include &quot;editor/about_window.hpp&quot;
+@@ -446,8 +444,6 @@
+ void
+ EditorWindow::on_new()
+ {
+-  //std::cout &lt;&lt; &quot;on_new&quot; &lt;&lt; std::endl;
+-
+   // FIXME: We abuse the minimap as our root GLContext
+   WindstilleWidget* wst = Gtk::manage(new WindstilleWidget(*this, glconfig, minimap_widget.get_gl_context()));
+ 
+@@ -456,7 +452,7 @@
+   wst-&gt;show();
+   notebook.set_current_page(new_page);
+ 
+-  layer_manager.set_model(wst-&gt;get_sector_model());
++  layer_manager.set_model(&amp;wst-&gt;get_document().get_sector_model());
+   layer_widget-&gt;update(wst-&gt;get_select_mask());
+ }
+ 
+@@ -527,7 +523,7 @@
+         {
+           std::ofstream out(wst-&gt;get_filename().c_str());
+           FileWriter writer(out);
+-          wst-&gt;get_sector_model()-&gt;write(writer);
++          wst-&gt;get_document().get_sector_model().write(writer);
+           print(&quot;Wrote: &quot; + wst-&gt;get_filename());
+         }
+     }
+@@ -570,7 +566,7 @@
+               std::ofstream out(filename.c_str());
+               FileWriter writer(out);
+ 
+-              wst-&gt;get_sector_model()-&gt;write(writer);
++              wst-&gt;get_document().get_sector_model().write(writer);
+               wst-&gt;set_filename(filename);
+ 
+               notebook.set_tab_label_text(*notebook.get_nth_page(page), Glib::path_get_basename(filename));
+@@ -803,7 +799,7 @@
+ 
+   if (WindstilleWidget* wst = get_windstille_widget())
+     {
+-      layer_manager.set_model(wst-&gt;get_sector_model());
++      layer_manager.set_model(&amp;wst-&gt;get_document().get_sector_model());
+       layer_widget-&gt;update(wst-&gt;get_select_mask());
+ 
+       toggle_color_layer-&gt;set_active(wst-&gt;get_sc()-&gt;get_render_mask() &amp; SceneContext::COLORMAP);
+@@ -897,11 +893,7 @@
+ {
+   if (WindstilleWidget* wst = get_windstille_widget())
+     {
+-      //std::cout &lt;&lt; &quot;Deleting layer: &quot; &lt;&lt; wst &lt;&lt; std::endl;
+-      //wst-&gt;get_sector_model()-&gt;delete_layer(wst-&gt;get_current_layer_path());
+-
+-      CommandHandle cmd(new LayerDeleteCommand(*wst-&gt;get_sector_model(), wst-&gt;get_current_layer_path()));
+-      wst-&gt;execute(cmd);
++      wst-&gt;get_document().layer_remove(wst-&gt;get_current_layer_path());
+       queue_draw();
+     }
+ }
+@@ -911,7 +903,7 @@
+ {
+   if (WindstilleWidget* wst = get_windstille_widget())
+     {
+-      wst-&gt;get_sector_model()-&gt;reverse_layers();
++      wst-&gt;get_document().get_sector_model().reverse_layers();
+     }
+ }
+ 
+@@ -920,12 +912,7 @@
+ {
+   if (WindstilleWidget* wst = get_windstille_widget())
+     {
+-      //std::cout &lt;&lt; &quot;Adding layer&quot; &lt;&lt; std::endl;
+-      //wst-&gt;get_sector_model()-&gt;add_layer(&quot;New Layer&quot;, wst-&gt;get_current_layer_path());
+-
+-      CommandHandle cmd(new LayerAddCommand(*wst-&gt;get_sector_model(), wst-&gt;get_current_layer_path()));
+-      wst-&gt;execute(cmd);
+-
++      wst-&gt;get_document().layer_add(wst-&gt;get_current_layer_path());
+       layer_manager.get_treeview().expand_all();
+     }
+ }
+@@ -968,7 +955,7 @@
+ {
+   if (WindstilleWidget* wst = get_windstille_widget())
+     {
+-      wst-&gt;get_sector_model()-&gt;set_all_visible(v);
++      wst-&gt;get_document().get_sector_model().set_all_visible(v);
+       wst-&gt;queue_draw();
+     }
+ }
+@@ -978,7 +965,7 @@
+ {
+   if (WindstilleWidget* wst = get_windstille_widget())
+     {
+-      wst-&gt;get_sector_model()-&gt;set_all_locked(v);
++      wst-&gt;get_document().get_sector_model().set_all_locked(v);
+       wst-&gt;queue_draw();
+     }
+ }
+
+Modified: trunk/windstille/src/editor/navgraph_edge_object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_edge_object_model.cpp	2009-09-09 04:44:38 UTC (rev 3210)
++++ trunk/windstille/src/editor/navgraph_edge_object_model.cpp	2009-09-09 04:45:59 UTC (rev 3211)
+@@ -33,8 +33,8 @@
+     m_edge()
+ {
+   std::cout &lt;&lt; &quot;Adding edge&quot; &lt;&lt; std::endl;
+-  m_edge = sector.get_nav_graph()-&gt;add_edge(m_lhs-&gt;get_node(),
+-                                            m_rhs-&gt;get_node());
++  m_edge = sector.get_nav_graph().add_edge(m_lhs-&gt;get_node(),
++                                           m_rhs-&gt;get_node());
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/editor/navgraph_insert_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_insert_tool.cpp	2009-09-09 04:44:38 UTC (rev 3210)
++++ trunk/windstille/src/editor/navgraph_insert_tool.cpp	2009-09-09 04:45:59 UTC (rev 3211)
+@@ -26,7 +26,6 @@
+ #include &quot;editor/editor_window.hpp&quot;
+ #include &quot;editor/navgraph_node_object_model.hpp&quot;
+ #include &quot;editor/navgraph_edge_object_model.hpp&quot;
+-#include &quot;editor/object_commands.hpp&quot;
+ 
+ NavgraphInsertTool::NavgraphInsertTool()
+   : mouse_pos(),
+@@ -42,8 +41,8 @@
+ NavgraphInsertTool::mouse_down(GdkEventButton* event, WindstilleWidget&amp; wst)
+ {
+   mouse_pos = wst.get_state().screen_to_world(Vector2f(static_cast&lt;float&gt;(event-&gt;x), static_cast&lt;float&gt;(event-&gt;y)));
+-  NavigationGraph&amp; navgraph = *wst.get_sector_model()-&gt;get_nav_graph();
+-  SectorModel* sector = wst.get_sector_model();
++  NavigationGraph&amp; navgraph = wst.get_document().get_sector_model().get_nav_graph();
++  SectorModel&amp; sector = wst.get_document().get_sector_model();
+ 
+   NodeHandle node = navgraph.find_closest_node(mouse_pos, 16.0f); // FIXME: Radius should scale with zoom
+   EdgeHandle edge = navgraph.find_closest_edge(mouse_pos, 16.0f);
+@@ -54,10 +53,10 @@
+     {
+       if (node)
+       { // connect last node with existing node
+-        NavGraphEdgeObjectModel* edge_obj = new NavGraphEdgeObjectModel(sector-&gt;find_navgraph_node(last_node),
+-                                                                        sector-&gt;find_navgraph_node(node),
+-                                                                        *sector);
+-        wst.execute(CommandHandle(new ObjectAddCommand(wst.get_current_layer(), ObjectModelHandle(edge_obj))));
++        NavGraphEdgeObjectModel* edge_obj = new NavGraphEdgeObjectModel(sector.find_navgraph_node(last_node),
++                                                                        sector.find_navgraph_node(node),
++                                                                        sector);
++        wst.get_document().object_add(wst.get_current_layer(), ObjectModelHandle(edge_obj));
+ 
+         last_node = NodeHandle();
+         connection_node = NodeHandle();
+@@ -65,14 +64,17 @@
+       else
+       { // connect last node with newly created node
+         // FIXME: Make this a GroupCommand
+-        NavGraphNodeObjectModel* obj = new NavGraphNodeObjectModel(mouse_pos, *sector);
++        NavGraphNodeObjectModel* obj = new NavGraphNodeObjectModel(mouse_pos, sector);
+         node = obj-&gt;get_node();
+-        wst.execute(CommandHandle(new ObjectAddCommand(wst.get_current_layer(), ObjectModelHandle(obj))));
++        
++        NavGraphEdgeObjectModel* edge_obj = new NavGraphEdgeObjectModel(sector.find_navgraph_node(last_node),
++                                                                        sector.find_navgraph_node(node), 
++                                                                        sector);
+ 
+-        NavGraphEdgeObjectModel* edge_obj = new NavGraphEdgeObjectModel(sector-&gt;find_navgraph_node(last_node),
+-                                                                        sector-&gt;find_navgraph_node(node), 
+-                                                                        *sector);
+-        wst.execute(CommandHandle(new ObjectAddCommand(wst.get_current_layer(), ObjectModelHandle(edge_obj))));
++        wst.get_document().undo_group_begin();
++        wst.get_document().object_add(wst.get_current_layer(), ObjectModelHandle(obj));
++        wst.get_document().object_add(wst.get_current_layer(), ObjectModelHandle(edge_obj));
++        wst.get_document().undo_group_end();
+ 
+         last_node = NodeHandle();
+       }
+@@ -94,9 +96,9 @@
+       }
+       else
+       {
+-        NavGraphNodeObjectModel* obj = new NavGraphNodeObjectModel(mouse_pos, *sector);
++        NavGraphNodeObjectModel* obj = new NavGraphNodeObjectModel(mouse_pos, sector);
+         last_node = obj-&gt;get_node();
+-        wst.execute(CommandHandle(new ObjectAddCommand(wst.get_current_layer(), ObjectModelHandle(obj))));
++        wst.get_document().object_add(wst.get_current_layer(), ObjectModelHandle(obj));
+               
+         mode = EDGE_MODE;
+       }
+@@ -110,7 +112,7 @@
+ void
+ NavgraphInsertTool::mouse_move(GdkEventMotion* event, WindstilleWidget&amp; wst)
+ {
+-  NavigationGraph&amp; navgraph = *wst.get_sector_model()-&gt;get_nav_graph();
++  NavigationGraph&amp; navgraph = wst.get_document().get_sector_model().get_nav_graph();
+   mouse_pos = wst.get_state().screen_to_world(Vector2f(static_cast&lt;float&gt;(event-&gt;x), static_cast&lt;float&gt;(event-&gt;y)));
+ 
+   {
+@@ -143,7 +145,7 @@
+ NavgraphInsertTool::mouse_up(GdkEventButton* event, WindstilleWidget&amp; wst)
+ {
+   mouse_pos = wst.get_state().screen_to_world(Vector2f(static_cast&lt;float&gt;(event-&gt;x), static_cast&lt;float&gt;(event-&gt;y)));
+-  //NavigationGraph&amp; navgraph = *wst.get_sector_model()-&gt;get_nav_graph();
++  //NavigationGraph&amp; navgraph = *wst.get_sector_model().get_nav_graph();
+ 
+   switch(mode)
+     {
+@@ -160,7 +162,7 @@
+ void
+ NavgraphInsertTool::mouse_right_down(GdkEventButton* /*event*/, WindstilleWidget&amp; wst)
+ {
+-  NavigationGraph&amp; navgraph = *wst.get_sector_model()-&gt;get_nav_graph();
++  NavigationGraph&amp; navgraph = wst.get_document().get_sector_model().get_nav_graph();
+ 
+   NodeHandle node = navgraph.find_closest_node(mouse_pos, 16.0f); // FIXME: Radius should scale with zoom
+   EdgeHandle edge = navgraph.find_closest_edge(mouse_pos, 16.0f);
+
+Modified: trunk/windstille/src/editor/navgraph_node_object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_node_object_model.cpp	2009-09-09 04:44:38 UTC (rev 3210)
++++ trunk/windstille/src/editor/navgraph_node_object_model.cpp	2009-09-09 04:45:59 UTC (rev 3211)
+@@ -28,7 +28,7 @@
+     m_drawable(),
+     m_node()
+ {
+-  m_node = sector.get_nav_graph()-&gt;add_node(pos);
++  m_node = sector.get_nav_graph().add_node(pos);
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-09-09 04:44:38 UTC (rev 3210)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-09-09 04:45:59 UTC (rev 3211)
+@@ -79,7 +79,7 @@
+ private:
+   boost::scoped_ptr&lt;NavigationGraph&gt; nav_graph;
+   boost::scoped_ptr&lt;SceneGraph&gt;      scene_graph;
+-  Glib::RefPtr&lt;Gtk::ListStore&gt; layer_tree;
++  Glib::RefPtr&lt;Gtk::ListStore&gt;       layer_tree;
+   Color ambient_color;
+   
+ public:
+@@ -135,8 +135,8 @@
+                   std::map&lt;ObjectModelHandle, std::string&gt;&amp; parent_table);
+   void write(FileWriter&amp; writer) const;
+ 
+-  NavigationGraph* get_nav_graph() const { return nav_graph.get(); }
+-  SceneGraph*      get_scene_graph() const { return scene_graph.get(); }
++  NavigationGraph&amp; get_nav_graph()   const { return *nav_graph; }
++  SceneGraph&amp;      get_scene_graph() const { return *scene_graph; }
+ 
+   boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; find_navgraph_node(NodeHandle node) const;
+   boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; find_navgraph_edge(EdgeHandle edge) const;
+
+Modified: trunk/windstille/src/editor/select_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/select_tool.cpp	2009-09-09 04:44:38 UTC (rev 3210)
++++ trunk/windstille/src/editor/select_tool.cpp	2009-09-09 04:45:59 UTC (rev 3211)
+@@ -52,7 +52,7 @@
+     }
+   else
+     {  
+-      ObjectModelHandle object = wst.get_sector_model()-&gt;get_object_at(click_pos, wst.get_select_mask());
++      ObjectModelHandle object = wst.get_document().get_sector_model().get_object_at(click_pos, wst.get_select_mask());
+       if (object.get())
+         {
+           if (wst.get_document().get_selection()-&gt;has_object(object))
+@@ -118,7 +118,7 @@
+ 
+   for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
+     {
+-      SnapData snap = wst.get_sector_model()-&gt;snap_object((*i)-&gt;get_bounding_box(), ignore_objects);
++      SnapData snap = wst.get_document().get_sector_model().snap_object((*i)-&gt;get_bounding_box(), ignore_objects);
+       best_snap.merge(snap);
+     }
+               
+@@ -204,12 +204,12 @@
+       rect.normalize();
+       if (event-&gt;state &amp; GDK_SHIFT_MASK)
+         {
+-          SelectionHandle new_selection = wst.get_sector_model()-&gt;get_selection(rect, wst.get_select_mask());
++          SelectionHandle new_selection = wst.get_document().get_sector_model().get_selection(rect, wst.get_select_mask());
+           wst.get_document().get_selection()-&gt;add(new_selection-&gt;begin(), new_selection-&gt;end());
+         }
+       else
+         {
+-          wst.get_document().set_selection(wst.get_sector_model()-&gt;get_selection(rect, wst.get_select_mask()));
++          wst.get_document().set_selection(wst.get_document().get_sector_model().get_selection(rect, wst.get_select_mask()));
+         }
+       wst.queue_draw();
+     }
+
+Modified: trunk/windstille/src/editor/selection.cpp
+===================================================================
+--- trunk/windstille/src/editor/selection.cpp	2009-09-09 04:44:38 UTC (rev 3210)
++++ trunk/windstille/src/editor/selection.cpp	2009-09-09 04:45:59 UTC (rev 3211)
+@@ -19,9 +19,6 @@
+ #include &lt;iostream&gt;
+ #include &lt;boost/bind.hpp&gt;
+ 
+-#include &quot;editor/undo_manager.hpp&quot;
+-#include &quot;editor/group_command.hpp&quot;
+-#include &quot;editor/functor_command.hpp&quot;
+ #include &quot;editor/windstille_widget.hpp&quot;
+ #include &quot;editor/editor_window.hpp&quot;
+ #include &quot;editor/selection.hpp&quot;
+@@ -140,22 +137,18 @@
+ {
+   moving = false;
+ 
+-  boost::shared_ptr&lt;GroupCommand&gt; group_command(new GroupCommand());
+-
++  wst.get_document().undo_group_begin();
+   for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
++  {
++    if (non_moveable_objects.find(*i) == non_moveable_objects.end())
+     {
+-      if (non_moveable_objects.find(*i) == non_moveable_objects.end())
+-        {
+-          //(*i)-&gt;on_move_end(offset);
+-          //(*i)-&gt;set_rel_pos(object_orig_poss[i - objects.begin()]);
+-
+-          group_command-&gt;add(CommandHandle(new FunctorCommand(boost::bind(&amp;ObjectModel::set_rel_pos, *i, object_orig_poss[i - objects.begin()]),
+-                                                              boost::bind(&amp;ObjectModel::set_rel_pos, *i, object_orig_poss[i - objects.begin()] + offset))));
+-        }
++      wst.get_document().execute(boost::bind(&amp;ObjectModel::set_rel_pos, *i, object_orig_poss[i - objects.begin()]),
++                                 boost::bind(&amp;ObjectModel::set_rel_pos, *i, object_orig_poss[i - objects.begin()] + offset));
+     }
++  }
++  wst.get_document().undo_group_end();
+ 
+   non_moveable_objects.clear();
+-  wst.execute(group_command);
+   signal_changed();
+ }
+ 
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-09-09 04:44:38 UTC (rev 3210)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-09-09 04:45:59 UTC (rev 3211)
+@@ -33,9 +33,7 @@
+ #include &quot;editor/editor_window.hpp&quot;
+ #include &quot;editor/scroll_tool.hpp&quot;
+ #include &quot;editor/sector_model.hpp&quot;
+-#include &quot;editor/undo_manager.hpp&quot;
+ #include &quot;editor/group_command.hpp&quot;
+-#include &quot;editor/object_commands.hpp&quot;
+ #include &quot;editor/functor_command.hpp&quot;
+ #include &quot;editor/document.hpp&quot;
+ #include &quot;editor/sprite_object_model.hpp&quot;
+@@ -125,14 +123,6 @@
+ {
+ }
+ 
+-void
+-WindstilleWidget::execute(CommandHandle cmd)
+-{
+-  m_document-&gt;execute(cmd);
+-  EditorWindow::current()-&gt;update_undo_state();
+-  m_document-&gt;get_sector_model().rebuild_scene_graph();
+-}
+-
+ bool
+ WindstilleWidget::on_timeout()
+ {
+@@ -304,7 +294,7 @@
+           EditorWindow::current()-&gt;get_current_tool()-&gt;draw(*sc);
+         }
+ 
+-      compositor-&gt;render(*sc, m_document-&gt;get_sector_model().get_scene_graph(), state);
++      compositor-&gt;render(*sc, &amp;m_document-&gt;get_sector_model().get_scene_graph(), state);
+ 
+       state.pop(*sc);
+ 
+@@ -494,7 +484,7 @@
+     }
+   else
+     {
+-      execute(CommandHandle(new ObjectAddCommand(m_document-&gt;get_sector_model().get_layer(path_), object)));
++      get_document().object_add(m_document-&gt;get_sector_model().get_layer(path_), object);
+     }
+ }
+ 
+@@ -553,19 +543,20 @@
+   EditorWindow::current()-&gt;get_layer_manager().get_treeview().get_cursor(path_, focus_column);
+ 
+   if (!path_.gobj())
+-    {
+-      std::cout &lt;&lt; &quot;WindstilleWidget::get_current_layer_path(): Error: Couldn't get path&quot; &lt;&lt; std::endl;
+-      return Gtk::TreeModel::Path();
+-    }
++  {
++    std::cout &lt;&lt; &quot;WindstilleWidget::get_current_layer_path(): Error: Couldn't get path&quot; &lt;&lt; std::endl;
++    return Gtk::TreeModel::Path();
++  }
+   else
+-    {
+-      return path_;
+-     }
++  {
++    return path_;
++  }
+ }
+ 
+ void
+ WindstilleWidget::on_document_change()
+ {
++  EditorWindow::current()-&gt;update_undo_state();
+   m_document-&gt;get_sector_model().rebuild_scene_graph();
+   queue_draw();
+ }
+@@ -586,8 +577,7 @@
+ WindstilleWidget::load_file(const std::string&amp; filename_)
+ {
+   filename = filename_;
+-  m_document-&gt;get_sector_model().load(filename);
+-  queue_draw();
++  m_document.reset(new Document(filename));
+ }
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/windstille_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.hpp	2009-09-09 04:44:38 UTC (rev 3210)
++++ trunk/windstille/src/editor/windstille_widget.hpp	2009-09-09 04:45:59 UTC (rev 3211)
+@@ -41,11 +41,9 @@
+ #include &quot;editor/layer.hpp&quot;
+ #include &quot;editor/command.hpp&quot;
+ #include &quot;editor/sector_model.hpp&quot;
+-#include &quot;editor/undo_manager.hpp&quot;
+ #include &quot;editor/document.hpp&quot;
+ 
+ class Tool;
+-class UndoManager;
+ class ScrollTool;
+ class SectorModel;
+ class EditorWindow;
+@@ -83,8 +81,6 @@
+ 
+   GraphicContextState&amp; get_state() { return state; }
+ 
+-  void execute(CommandHandle cmd);
+-
+   virtual void on_realize();
+   virtual bool on_timeout();
+   virtual bool on_configure_event(GdkEventConfigure* event);
+@@ -112,7 +108,6 @@
+   void update(float delta);
+ 
+   Document&amp;    get_document() const { return *m_document; }
+-  SectorModel* get_sector_model() const { return &amp;(m_document-&gt;get_sector_model()); }
+   
+   SelectMask&amp; get_select_mask() { return select_mask; }
+ 
+@@ -137,7 +132,6 @@
+   void save_screenshot(const std::string&amp; filename);
+ 
+ private:
+-  void on_selection_change();
+   void on_document_change();
+ 
+ private:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002207.html">[Windstille-commit] r3210 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="002209.html">[Windstille-commit] r3212 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2208">[ date ]</a>
+              <a href="thread.html#2208">[ thread ]</a>
+              <a href="subject.html#2208">[ subject ]</a>
+              <a href="author.html#2208">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

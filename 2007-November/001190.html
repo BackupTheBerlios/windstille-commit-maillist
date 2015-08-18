@@ -1,0 +1,247 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1540 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1540%20-%20trunk/griv&In-Reply-To=%3C200711140001.lAE01UuJ013103%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001189.html">
+   <LINK REL="Next"  HREF="001191.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1540 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1540%20-%20trunk/griv&In-Reply-To=%3C200711140001.lAE01UuJ013103%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1540 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Nov 14 01:01:30 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001189.html">[Windstille-commit] r1539 - branches
+</A></li>
+        <LI>Next message: <A HREF="001191.html">[Windstille-commit] r1541 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1190">[ date ]</a>
+              <a href="thread.html#1190">[ thread ]</a>
+              <a href="subject.html#1190">[ subject ]</a>
+              <a href="author.html#1190">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-14 01:01:30 +0100 (Wed, 14 Nov 2007)
+New Revision: 1540
+
+Modified:
+   trunk/griv/display.cpp
+   trunk/griv/image.cpp
+   trunk/griv/image.hpp
+   trunk/griv/texture.cpp
+   trunk/griv/texture.hpp
+Log:
+OpenGL support now somewhat working, but still rather buggy
+
+Modified: trunk/griv/display.cpp
+===================================================================
+--- trunk/griv/display.cpp	2007-11-13 23:37:35 UTC (rev 1539)
++++ trunk/griv/display.cpp	2007-11-14 00:01:30 UTC (rev 1540)
+@@ -36,7 +36,7 @@
+ void
+ Framebuffer::init()
+ {
+-  XInitThreads();
++  //XInitThreads();
+  
+   std::cout &lt;&lt; &quot;Framebuffer::init()&quot; &lt;&lt; std::endl;
+   if (SDL_Init(SDL_INIT_VIDEO) != 0)
+
+Modified: trunk/griv/image.cpp
+===================================================================
+--- trunk/griv/image.cpp	2007-11-13 23:37:35 UTC (rev 1539)
++++ trunk/griv/image.cpp	2007-11-14 00:01:30 UTC (rev 1540)
+@@ -55,6 +55,7 @@
+   : url(url), 
+     surface(0),
+     texture(0),
++    texture_16x16(0),
+     res(0),
+     image_requested(false)
+ {
+@@ -70,7 +71,6 @@
+ Image::receive(SDL_Surface* new_surface)
+ { 
+   SDL_LockMutex(mutex);
+-  Framebuffer::lock();
+   if (new_surface)
+     {
+       if (surface)
+@@ -86,7 +86,6 @@
+       force_redraw = true;
+     }
+   image_requested = false;
+-  Framebuffer::unlock();
+   SDL_UnlockMutex(mutex);
+ }
+ 
+@@ -94,7 +93,6 @@
+ Image::draw(int x, int y, int res)
+ {
+   SDL_LockMutex(mutex);
+-  Framebuffer::lock();
+   if (x &gt; Framebuffer::get_width() ||
+       y &gt; Framebuffer::get_height() ||
+       x &lt; -res || 
+@@ -136,33 +134,42 @@
+         {
+           if (surface)
+             {
+-              if (!texture)
++              if (!texture || texture-&gt;surface != surface)
+                 {
++                  delete texture;
+                   texture = new Texture(surface);
+-                }
+ 
+-              if (texture)
+-                {
+-                  texture-&gt;bind();
++                  if (!texture_16x16)
++                    texture_16x16 = new Texture(surface);
+                 }
+-              glColor3f(1.0f, 1.0f, 1.0f);
+-              glBegin(GL_QUADS);
+-              glTexCoord2f(0,0);
+-              glVertex2i(x, y);
++            }
+ 
+-              glTexCoord2f(1,0);
+-              glVertex2i(x + surface-&gt;w, y);
++          if (texture)
++            {
++              texture-&gt;bind();
++            }
++          else if (texture_16x16)
++            {
++              texture_16x16-&gt;bind();
++            }
+ 
+-              glTexCoord2f(1,1);
+-              glVertex2i(x + surface-&gt;w, y + surface-&gt;h);
++          glColor3f(1.0f, 1.0f, 1.0f);
++          glBegin(GL_QUADS);
++          glTexCoord2f(0,0);
++          glVertex2i(x, y);
+ 
+-              glTexCoord2f(0,1);
+-              glVertex2i(x, y + surface-&gt;h);
+-              glEnd();
+-            }
++          glTexCoord2f(1,0);
++          glVertex2i(x + res, y);
++
++          glTexCoord2f(1,1);
++          glVertex2i(x + res, y + res);
++
++          glTexCoord2f(0,1);
++          glVertex2i(x, y + res);
++          glEnd();
++            
+         }
+     }
+-  Framebuffer::unlock();
+   SDL_UnlockMutex(mutex);
+ }
+ 
+
+Modified: trunk/griv/image.hpp
+===================================================================
+--- trunk/griv/image.hpp	2007-11-13 23:37:35 UTC (rev 1539)
++++ trunk/griv/image.hpp	2007-11-14 00:01:30 UTC (rev 1540)
+@@ -70,9 +70,9 @@
+ 
+   std::string url;
+ 
+-  SDL_Surface* surface_16x16;
+   SDL_Surface* surface;
+   Texture*     texture;
++  Texture*     texture_16x16;
+   int res;
+   bool image_requested;
+ 
+
+Modified: trunk/griv/texture.cpp
+===================================================================
+--- trunk/griv/texture.cpp	2007-11-13 23:37:35 UTC (rev 1539)
++++ trunk/griv/texture.cpp	2007-11-14 00:01:30 UTC (rev 1540)
+@@ -25,11 +25,13 @@
+ 
+ #include &lt;iostream&gt;
+ #include &lt;stdexcept&gt;
++#include &lt;string.h&gt;
+ #include &quot;display.hpp&quot;
+ #include &quot;texture.hpp&quot;
+ 
+ Texture::Texture(SDL_Surface* surface)
+-  : handle(0)
++  : surface(surface),
++    handle(0)
+ {
+   glGenTextures(1, &amp;handle);
+ 
+@@ -70,8 +72,9 @@
+ 
+   {
+     int res = std::max(surface-&gt;w, surface-&gt;h);
+-    std::cout &lt;&lt; &quot;Res: &quot; &lt;&lt; res &lt;&lt; std::endl;
++    //std::cout &lt;&lt; &quot;Res: &quot; &lt;&lt; res &lt;&lt; std::endl;
+     unsigned char dummy[res*res*3];
++    memset(dummy, 0, res*res*3);
+     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB,
+                  res,
+                  res,
+
+Modified: trunk/griv/texture.hpp
+===================================================================
+--- trunk/griv/texture.hpp	2007-11-13 23:37:35 UTC (rev 1539)
++++ trunk/griv/texture.hpp	2007-11-14 00:01:30 UTC (rev 1540)
+@@ -33,6 +33,8 @@
+ /** */
+ class Texture
+ {
++public:
++  SDL_Surface* surface;
+ private:
+   GLuint handle;
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001189.html">[Windstille-commit] r1539 - branches
+</A></li>
+	<LI>Next message: <A HREF="001191.html">[Windstille-commit] r1541 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1190">[ date ]</a>
+              <a href="thread.html#1190">[ thread ]</a>
+              <a href="subject.html#1190">[ subject ]</a>
+              <a href="author.html#1190">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

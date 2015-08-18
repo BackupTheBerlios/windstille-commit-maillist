@@ -1,0 +1,582 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1528 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1528%20-%20trunk/griv&In-Reply-To=%3C200711122025.lACKPt9R024339%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001177.html">
+   <LINK REL="Next"  HREF="001179.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1528 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1528%20-%20trunk/griv&In-Reply-To=%3C200711122025.lACKPt9R024339%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1528 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Nov 12 21:25:55 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001177.html">[Windstille-commit] r1527 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001179.html">[Windstille-commit] r1529 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1178">[ date ]</a>
+              <a href="thread.html#1178">[ thread ]</a>
+              <a href="subject.html#1178">[ subject ]</a>
+              <a href="author.html#1178">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-12 21:25:52 +0100 (Mon, 12 Nov 2007)
+New Revision: 1528
+
+Added:
+   trunk/griv/griv.hpp
+   trunk/griv/image.hpp
+   trunk/griv/loader.cpp
+   trunk/griv/loader.hpp
+   trunk/griv/loading_1024.jpg
+   trunk/griv/loading_128.jpg
+   trunk/griv/loading_16.jpg
+   trunk/griv/loading_256.jpg
+   trunk/griv/loading_32.jpg
+   trunk/griv/loading_512.jpg
+   trunk/griv/loading_64.jpg
+Modified:
+   trunk/griv/SConstruct
+   trunk/griv/griv.cpp
+Log:
+- splitted code in a few more files
+
+Modified: trunk/griv/SConstruct
+===================================================================
+--- trunk/griv/SConstruct	2007-11-12 12:15:57 UTC (rev 1527)
++++ trunk/griv/SConstruct	2007-11-12 20:25:52 UTC (rev 1528)
+@@ -3,6 +3,6 @@
+ env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O0&quot;], LIBS=['SDL_image'])
+ env.ParseConfig(&quot;sdl-config --libs --cflags&quot;)
+ 
+-env.Program('griv', 'griv.cpp')
++env.Program('griv', ['griv.cpp', 'loader.cpp'])
+ 
+ # EOF #
+
+Modified: trunk/griv/griv.cpp
+===================================================================
+--- trunk/griv/griv.cpp	2007-11-12 12:15:57 UTC (rev 1527)
++++ trunk/griv/griv.cpp	2007-11-12 20:25:52 UTC (rev 1528)
+@@ -13,10 +13,14 @@
+ #include &quot;SDL.h&quot;
+ #include &quot;SDL_image.h&quot;
+ 
++#include &quot;loader.hpp&quot;
++#include &quot;image.hpp&quot;
++
+ SDL_Surface* screen = 0;
+ int x_offset = 0;
+ int y_offset = 0;
+ std::string config_home;
++bool force_redraw = false;
+ 
+ bool is_directory(const std::string&amp; pathname)
+ {
+@@ -69,57 +73,6 @@
+   return std::string(buf, len);
+ }
+ 
+-struct Image
+-{
+-  std::string uid;
+-  SDL_Surface* surface;
+-  int res;
+-  
+-  Image(const std::string&amp; uid) 
+-    : uid(uid),
+-      surface(0),
+-      res(0)
+-  {
+-  }
+-
+-  void draw(int x, int y, int res)
+-  {
+-    if (x &gt; screen-&gt;w ||
+-        y &gt; screen-&gt;h ||
+-        x &lt; -res || 
+-        y &lt; -res)
+-      {
+-        if (0)
+-          if (surface)
+-            {
+-              SDL_FreeSurface(surface);
+-              surface = 0;
+-            }
+-      }
+-    else
+-      {
+-        if (surface == 0 || res != this-&gt;res)
+-          {
+-            std::ostringstream out;
+-            out &lt;&lt; config_home &lt;&lt; &quot;/.griv/&quot; &lt;&lt; res &lt;&lt; &quot;/&quot; &lt;&lt; uid &lt;&lt; &quot;.jpg&quot;;
+-            surface = IMG_Load(out.str().c_str());
+-            //std::cout &lt;&lt; &quot;Loading: &quot; &lt;&lt; out.str() &lt;&lt; std::endl;
+-            this-&gt;res = res;
+-          }
+-
+-        if (surface != 0)
+-          {
+-            SDL_Rect dstrect;
+-
+-            dstrect.x = x;
+-            dstrect.y = y;
+-
+-            SDL_BlitSurface(surface, NULL, screen, &amp;dstrect);
+-          }
+-      }
+-  }
+-};
+-
+ class Workspace
+ {
+ public:
+@@ -214,9 +167,9 @@
+   
+   Uint32 flags = 0;
+   
+-  if (1)
++  if (0)
+     {
+-      flags |= SDL_FULLSCREEN;
++      //flags |= SDL_FULLSCREEN;
+       screen = SDL_SetVideoMode(1152, 864, 0, flags);
+     }
+   else
+@@ -257,6 +210,11 @@
+                 exit(1);
+                 break;
+ 
++              case SDL_VIDEORESIZE:
++                screen = SDL_SetVideoMode(event.resize.w, event.resize.h, 0, SDL_RESIZABLE);
++                force_redraw = true;
++                break;
++
+               case SDL_KEYDOWN:
+                 if (event.key.keysym.sym == SDLK_ESCAPE)
+                   {
+@@ -270,6 +228,7 @@
+                       flags |= SDL_FULLSCREEN;
+                     
+                     screen = SDL_SetVideoMode(1152, 864, 0, flags);
++                    force_redraw = true;
+                   }
+                 else if (event.key.keysym.sym == SDLK_SPACE)
+                   {
+@@ -322,8 +281,8 @@
+ 
+       if (workspace.res != old_res ||
+           old_x_offset != x_offset ||
+-          old_y_offset != y_offset
+-          )
++          old_y_offset != y_offset ||
++          force_redraw)
+         {
+           SDL_FillRect(screen, NULL, SDL_MapRGB(screen-&gt;format, 0, 0, 0));
+           workspace.draw();
+@@ -332,6 +291,7 @@
+           old_res = workspace.res;
+           old_x_offset = x_offset;
+           old_y_offset = y_offset;
++          force_redraw = false;
+         }
+       else
+         {
+
+Added: trunk/griv/griv.hpp
+===================================================================
+--- trunk/griv/griv.hpp	2007-11-12 12:15:57 UTC (rev 1527)
++++ trunk/griv/griv.hpp	2007-11-12 20:25:52 UTC (rev 1528)
+@@ -0,0 +1,37 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_GRIV_HPP
++#define HEADER_GRIV_HPP
++
++#include &lt;SDL.h&gt;
++#include &lt;string&gt;
++
++extern SDL_Surface* screen;
++extern std::string config_home;
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/griv.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/image.hpp
+===================================================================
+--- trunk/griv/image.hpp	2007-11-12 12:15:57 UTC (rev 1527)
++++ trunk/griv/image.hpp	2007-11-12 20:25:52 UTC (rev 1528)
+@@ -0,0 +1,96 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_IMAGE_HPP
++#define HEADER_IMAGE_HPP
++
++#include &lt;sstream&gt;
++#include &quot;loader.hpp&quot;
++#include &quot;griv.hpp&quot;
++
++class Image
++{
++public:
++  std::string uid;
++  SDL_Surface* surface;
++  int res;
++  
++  Image(const std::string&amp; uid) 
++    : uid(uid),
++      surface(0),
++      res(0)
++  {
++  }
++
++  void receive(SDL_Surface* new_surface)
++  {
++    if (surface)
++      SDL_FreeSurface(surface);    
++    
++    surface = new_surface;
++  }
++
++  void draw(int x, int y, int res)
++  {
++    if (x &gt; screen-&gt;w ||
++        y &gt; screen-&gt;h ||
++        x &lt; -res || 
++        y &lt; -res)
++      {
++        if (0)
++          if (surface)
++            {
++              SDL_FreeSurface(surface);
++              surface = 0;
++            }
++      }
++    else
++      {
++        if (surface == 0 || res != this-&gt;res)
++          {
++            std::ostringstream out;
++            out &lt;&lt; config_home &lt;&lt; &quot;/.griv/&quot; &lt;&lt; res &lt;&lt; &quot;/&quot; &lt;&lt; uid &lt;&lt; &quot;.jpg&quot;;
++            loader.request(out.str(), this);
++            //surface = IMG_Load(out.str().c_str());
++            //std::cout &lt;&lt; &quot;Loading: &quot; &lt;&lt; out.str() &lt;&lt; std::endl;
++            this-&gt;res = res;
++          }
++
++        if (surface != 0)
++          {
++            SDL_Rect dstrect;
++
++            dstrect.x = x;
++            dstrect.y = y;
++
++            SDL_BlitSurface(surface, NULL, screen, &amp;dstrect);
++          }
++      }
++  }
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/image.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/loader.cpp
+===================================================================
+--- trunk/griv/loader.cpp	2007-11-12 12:15:57 UTC (rev 1527)
++++ trunk/griv/loader.cpp	2007-11-12 20:25:52 UTC (rev 1528)
+@@ -0,0 +1,47 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &quot;SDL_image.h&quot;
++#include &quot;image.hpp&quot;
++#include &quot;loader.hpp&quot;
++
++Loader loader;
++
++Loader::Loader()
++{
++}
++
++Loader::~Loader()
++{
++}
++
++void
++Loader::request(const std::string&amp; filename, Image* receiver)
++{
++  SDL_Surface* surface = IMG_Load(filename.c_str());
++  receiver-&gt;receive(surface);
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/loader.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/loader.hpp
+===================================================================
+--- trunk/griv/loader.hpp	2007-11-12 12:15:57 UTC (rev 1527)
++++ trunk/griv/loader.hpp	2007-11-12 20:25:52 UTC (rev 1528)
+@@ -0,0 +1,51 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_LOADER_HPP
++#define HEADER_LOADER_HPP
++
++#include &lt;string&gt;
++
++class Image;
++
++/** */
++class Loader
++{
++private:
++public:
++  Loader();
++  ~Loader();
++
++  void request(const std::string&amp; filename, Image* receiver);
++private:
++  Loader (const Loader&amp;);
++  Loader&amp; operator= (const Loader&amp;);
++};
++
++extern Loader loader;
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/loader.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/loading_1024.jpg
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/griv/loading_1024.jpg
+___________________________________________________________________
+Name: svn:mime-type
+   + image/jpeg
+
+Added: trunk/griv/loading_128.jpg
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/griv/loading_128.jpg
+___________________________________________________________________
+Name: svn:mime-type
+   + image/jpeg
+
+Added: trunk/griv/loading_16.jpg
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/griv/loading_16.jpg
+___________________________________________________________________
+Name: svn:mime-type
+   + image/jpeg
+
+Added: trunk/griv/loading_256.jpg
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/griv/loading_256.jpg
+___________________________________________________________________
+Name: svn:mime-type
+   + image/jpeg
+
+Added: trunk/griv/loading_32.jpg
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/griv/loading_32.jpg
+___________________________________________________________________
+Name: svn:mime-type
+   + image/jpeg
+
+Added: trunk/griv/loading_512.jpg
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/griv/loading_512.jpg
+___________________________________________________________________
+Name: svn:mime-type
+   + image/jpeg
+
+Added: trunk/griv/loading_64.jpg
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/griv/loading_64.jpg
+___________________________________________________________________
+Name: svn:mime-type
+   + image/jpeg
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001177.html">[Windstille-commit] r1527 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001179.html">[Windstille-commit] r1529 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1178">[ date ]</a>
+              <a href="thread.html#1178">[ thread ]</a>
+              <a href="subject.html#1178">[ subject ]</a>
+              <a href="author.html#1178">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

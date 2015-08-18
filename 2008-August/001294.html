@@ -1,0 +1,2725 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2274 - in trunk/griv: . new new/math
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2274%20-%20in%20trunk/griv%3A%20.%20new%20new/math&In-Reply-To=%3C200808052026.m75KQCRu003245%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="001295.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2274 - in trunk/griv: . new new/math</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2274%20-%20in%20trunk/griv%3A%20.%20new%20new/math&In-Reply-To=%3C200808052026.m75KQCRu003245%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2274 - in trunk/griv: . new new/math">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Aug  5 22:26:12 CEST 2008</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="001295.html">[Windstille-commit] r2275 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1294">[ date ]</a>
+              <a href="thread.html#1294">[ thread ]</a>
+              <a href="subject.html#1294">[ subject ]</a>
+              <a href="author.html#1294">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-05 22:26:11 +0200 (Tue, 05 Aug 2008)
+New Revision: 2274
+
+Added:
+   trunk/griv/new/
+   trunk/griv/new/SConstruct
+   trunk/griv/new/TODO
+   trunk/griv/new/file_database.cpp
+   trunk/griv/new/file_database.hpp
+   trunk/griv/new/griv.cpp
+   trunk/griv/new/griv.hpp
+   trunk/griv/new/math.cpp
+   trunk/griv/new/math.hpp
+   trunk/griv/new/math/
+   trunk/griv/new/math/origin.cpp
+   trunk/griv/new/math/origin.hpp
+   trunk/griv/new/math/rect.cpp
+   trunk/griv/new/math/rect.hpp
+   trunk/griv/new/math/size.cpp
+   trunk/griv/new/math/size.hpp
+   trunk/griv/new/math/vector2f.cpp
+   trunk/griv/new/math/vector2f.hpp
+   trunk/griv/new/math/vector2i.cpp
+   trunk/griv/new/math/vector2i.hpp
+   trunk/griv/new/math/vector3f.cpp
+   trunk/griv/new/math/vector3f.hpp
+   trunk/griv/new/software_surface.cpp
+   trunk/griv/new/software_surface.hpp
+   trunk/griv/new/tile_database.cpp
+   trunk/griv/new/tile_database.hpp
+   trunk/griv/new/url.cpp
+   trunk/griv/new/url.hpp
+Log:
+Started reimplementation of griv
+
+
+Property changes on: trunk/griv/new
+___________________________________________________________________
+Name: svn:ignore
+   + griv
+
+
+Added: trunk/griv/new/SConstruct
+===================================================================
+--- trunk/griv/new/SConstruct	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/SConstruct	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,18 @@
++# Zoomable Image Viewer
++griv_env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O2&quot;, &quot;-g&quot;], 
++                       LIBS=['freeimage', 'jpeg', 'mhash', 'GL', 'GLU'])
++griv_env.ParseConfig(&quot;sdl-config --libs --cflags&quot;)
++griv_env.ParseConfig(&quot;pkg-config sqlite3 --libs --cflags&quot;)
++griv_env.Program('griv', [
++        'math.cpp',
++        'math/size.cpp',
++        'math/rect.cpp',
++        'math/vector2i.cpp',
++        'math/vector2f.cpp',
++        'software_surface.cpp',
++        'url.cpp',
++        'file_database.cpp',
++        'tile_database.cpp',
++        'griv.cpp'])
++
++# EOF #
+
+Added: trunk/griv/new/TODO
+===================================================================
+--- trunk/griv/new/TODO	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/TODO	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,8 @@
++[[ Griv ToDo ]]
++
++* SQLite Backend
++* SoftwareSurface: load from memory, save to memory
++* all GL stuff
++
++
++# EOF #
+\ No newline at end of file
+
+Added: trunk/griv/new/file_database.cpp
+===================================================================
+--- trunk/griv/new/file_database.cpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/file_database.cpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,107 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &lt;iostream&gt;
++#include &quot;file_database.hpp&quot;
++
++FileDatabase::FileDatabase(sqlite3* db)
++  : db(db)
++{
++  if (sqlite3_prepare_v2(db,
++                         &quot;INSERT OR REPLACE INTO files (filename, md5, filesize, width, height, mtime)&quot;
++                         &quot;           VALUES (      ?1,  ?2,       ?3,    ?4,     ?5,    ?6);&quot;, -1, &amp;store_stmt,  0)
++      != SQLITE_OK)
++    {
++      fprintf(stderr, &quot;Something went wrong2: %s\n&quot;, sqlite3_errmsg(db));
++    }
++  
++  if (sqlite3_prepare_v2(db, &quot;SELECT * FROM files WHERE filename = ?1&quot;, -1, &amp;get_by_file_id_stmt,  0))
++    {
++      fprintf(stderr, &quot;Something went wrong2: %s\n&quot;, sqlite3_errmsg(db));      
++    }
++
++  if (sqlite3_prepare_v2(db, &quot;SELECT * FROM files WHERE rowid = ?1&quot;,  -1, &amp;get_by_file_id_stmt,  0))
++    {
++      fprintf(stderr, &quot;Something went wrong2: %s\n&quot;, sqlite3_errmsg(db));      
++    }
++
++}
++  
++int
++FileDatabase::store_file_entry(const std::string&amp; filename, const std::string&amp; md5, size_t filesize, int width, int height, int mtime)
++{
++  sqlite3_bind_blob(store_stmt, 1, filename.c_str(), filename.size(), SQLITE_STATIC);
++  sqlite3_bind_text(store_stmt, 2, md5.c_str(), -1, SQLITE_STATIC); 
++  sqlite3_bind_int (store_stmt, 3, filesize); // filesize
++  sqlite3_bind_int (store_stmt, 4, width);    // width
++  sqlite3_bind_int (store_stmt, 5, height);   // height
++  sqlite3_bind_int (store_stmt, 6, 0);        // mtime
++
++  // execute
++  int rc = sqlite3_step(store_stmt);
++  if (rc != SQLITE_DONE)
++    {
++      std::cout &lt;&lt; &quot;Something went wrong: &quot; &lt;&lt; sqlite3_errmsg(db) &lt;&lt; std::endl;
++    }
++  else
++    {
++      std::cout &lt;&lt; &quot;added &quot; &lt;&lt; filename &lt;&lt; std::endl;
++    }
++
++  sqlite3_reset(store_stmt);
++  sqlite3_clear_bindings(store_stmt);  
++
++  return 0; // row_id
++}
++
++FileEntry
++FileDatabase::get_file_entry(const std::string&amp; filename)
++{
++  sqlite3_bind_text(get_by_filename_stmt, 1, filename.c_str(), -1, SQLITE_STATIC);
++
++  // execute
++  int rc = sqlite3_step(get_by_filename_stmt);
++  if (rc != SQLITE_DONE)
++    {
++      std::cout &lt;&lt; &quot;Something went wrong: &quot; &lt;&lt; sqlite3_errmsg(db) &lt;&lt; std::endl;
++    }
++  else
++    {
++      std::cout &lt;&lt; &quot;added &quot; &lt;&lt; filename &lt;&lt; std::endl;
++    }
++
++  sqlite3_reset(get_by_filename_stmt);
++  sqlite3_clear_bindings(get_by_filename_stmt);  
++  return FileEntry();
++}
++
++FileEntry
++FileDatabase::get_file_entry(uint32_t file_id)
++{
++  sqlite3_bind_int(get_by_file_id_stmt, 1, file_id);
++  return FileEntry();
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/file_database.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/file_database.hpp
+===================================================================
+--- trunk/griv/new/file_database.hpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/file_database.hpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,64 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_FILE_DATABASE_HPP
++#define HEADER_FILE_DATABASE_HPP
++
++#include &lt;sqlite3.h&gt;
++#include &lt;string&gt;
++
++struct FileEntry 
++{
++  std::string filename; // 
++  uint32_t    mtime;    // mtime of the file
++  int         width;    // image width
++  int         height;   // image height
++};
++
++/** */
++class FileDatabase
++{
++private:
++  sqlite3* db;
++  sqlite3_stmt* store_stmt;
++  sqlite3_stmt* get_by_filename_stmt;
++  sqlite3_stmt* get_by_file_id_stmt;
++  
++public:
++  FileDatabase(sqlite3* db);
++  
++  int store_file_entry(const std::string&amp; filename, const std::string&amp; md5, size_t filesize, int width, int height, int mtime);
++
++  FileEntry get_file_entry(const std::string&amp; filename);
++  FileEntry get_file_entry(uint32_t file_id);
++
++private:
++  FileDatabase (const FileDatabase&amp;);
++  FileDatabase&amp; operator= (const FileDatabase&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/file_database.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/griv.cpp
+===================================================================
+--- trunk/griv/new/griv.cpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/griv.cpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,114 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &lt;sstream&gt;
++#include &lt;stdexcept&gt;
++#include &lt;iostream&gt;
++#include &lt;string&gt;
++#include &lt;vector&gt;
++#include &quot;FreeImage.h&quot;
++
++#include &quot;math/size.hpp&quot;
++#include &quot;math/rect.hpp&quot;
++#include &quot;math/vector2i.hpp&quot;
++#include &quot;url.hpp&quot;
++#include &quot;software_surface.hpp&quot;
++#include &quot;griv.hpp&quot;
++
++Griv::Griv()
++{
++  FreeImage_Initialise();
++}
++
++Griv::~Griv()
++{
++  FreeImage_DeInitialise();
++}
++
++int
++Griv::main(int argc, char** argv)
++{
++  std::vector&lt;std::string&gt; rest;
++
++  for(int i = 1; i &lt; argc; ++i)
++    {
++      if (argv[i][0] == '-')
++        { // option
++          
++        }
++      else
++        { // rest
++          rest.push_back(argv[i]);
++        }
++    }
++
++  for(std::vector&lt;std::string&gt;::size_type i = 0; i &lt; rest.size(); ++i)
++    {
++      // Generate Image Tiles
++      SoftwareSurface surface(rest[i]);
++      
++      int scale = 0;
++
++      do
++        {
++          if (scale != 0)
++            {
++              surface = surface.scale(Size(surface.get_width()/2, 
++                                           surface.get_height()/2));
++            }
++
++          for(int y = 0; y &lt;= surface.get_height()/256; ++y)
++            for(int x = 0; x &lt;= surface.get_width()/256; ++x)
++              {
++                std::ostringstream out;
++                out &lt;&lt; &quot;/tmp/out/tile-&quot; &lt;&lt; scale &lt;&lt; &quot;-&quot; &lt;&lt; y &lt;&lt; &quot;+&quot; &lt;&lt; x &lt;&lt; &quot;.jpg&quot;;
++
++                SoftwareSurface croped_surface = surface.crop(Rect(Vector2i(x * 256, y * 256),
++                                                                   Size(256, 256)));
++                croped_surface.save(out.str());
++              }
++
++          scale += 1;
++        } while (surface.get_width() &gt; 32 ||
++                 surface.get_height() &gt; 32);
++    }
++
++  return 0;
++}
++
++int main(int argc, char** argv)
++{
++  try 
++    {
++      Griv app;
++      return app.main(argc, argv);
++    }
++  catch(std::exception&amp; err) 
++    {
++      std::cout &lt;&lt; &quot;Exception: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
++    }
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/griv.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/griv.hpp
+===================================================================
+--- trunk/griv/new/griv.hpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/griv.hpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,41 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_GRIV_HPP
++#define HEADER_GRIV_HPP
++
++class Griv
++{
++private:
++public:
++  Griv();
++  ~Griv();
++
++  int main(int argc, char** argv);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/griv.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/math/origin.cpp
+===================================================================
+--- trunk/griv/new/math/origin.cpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/math/origin.cpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,92 @@
++/*
++**  ClanLib SDK
++**  Copyright (c) 1997-2005 The ClanLib Team
++**
++**  This software is provided 'as-is', without any express or implied
++**  warranty.  In no event will the authors be held liable for any damages
++**  arising from the use of this software.
++**
++**  Permission is granted to anyone to use this software for any purpose,
++**  including commercial applications, and to alter it and redistribute it
++**  freely, subject to the following restrictions:
++**
++**  1. The origin of this software must not be misrepresented; you must not
++**     claim that you wrote the original software. If you use this software
++**     in a product, an acknowledgment in the product documentation would be
++**     appreciated but is not required.
++**  2. Altered source versions must be plainly marked as such, and must not be
++**     misrepresented as being the original software.
++**  3. This notice may not be removed or altered from any source distribution.
++**
++**  Note: Some of the libraries ClanLib may link to may have additional
++**  requirements or restrictions.
++**
++**  File Author(s):
++**
++**    Magnus Norddahl
++**    (if your name is missing here, please add it)
++*/
++
++#include &quot;origin.hpp&quot;
++
++Origin string2origin(const std::string&amp; str)
++{
++  if (str == &quot;top_left&quot;)
++    return origin_top_left;
++  else if (str == &quot;top_center&quot;)
++    return origin_top_center;
++  else if (str == &quot;top_right&quot;)
++    return origin_top_right;
++  else if (str == &quot;center_left&quot;)
++    return origin_center_left;
++  else if (str == &quot;center&quot;)
++    return origin_center;
++  else if (str == &quot;center_right&quot;)
++    return origin_center_right;
++  else if (str == &quot;bottom_left&quot;)
++    return origin_bottom_left;
++  else if (str == &quot;bottom_center&quot;)
++    return origin_bottom_center;
++  else if (str == &quot;bottom_right&quot;)
++    return origin_bottom_right;
++  else 
++    return origin_top_left;
++}
++
++Vector2i calc_origin(Origin origin, const Size &amp;size)
++{
++  switch(origin)
++    {
++    case origin_top_left:
++    default:
++      return Vector2i(0, 0);
++      break;
++    case origin_top_center:
++      return Vector2i(size.width / 2, 0);
++      break;
++    case origin_top_right:
++      return Vector2i(size.width, 0);
++      break;
++    case origin_center_left:
++      return Vector2i(0, size.height / 2);
++      break;
++    case origin_center:
++      return Vector2i(size.width / 2, size.height / 2);
++      break;
++    case origin_center_right:
++      return Vector2i(size.width, size.height / 2);
++      break;
++    case origin_bottom_left:
++      return Vector2i(0, size.height);
++      break;
++    case origin_bottom_center:
++      return Vector2i(size.width / 2, size.height);
++      break;
++    case origin_bottom_right:
++      return Vector2i(size.width, size.height);
++      break;
++    }
++}
++
++/* EOF */
++
+
+
+Property changes on: trunk/griv/new/math/origin.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/math/origin.hpp
+===================================================================
+--- trunk/griv/new/math/origin.hpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/math/origin.hpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,64 @@
++/*
++**  ClanLib SDK
++**  Copyright (c) 1997-2005 The ClanLib Team
++**
++**  This software is provided 'as-is', without any express or implied
++**  warranty.  In no event will the authors be held liable for any damages
++**  arising from the use of this software.
++**
++**  Permission is granted to anyone to use this software for any purpose,
++**  including commercial applications, and to alter it and redistribute it
++**  freely, subject to the following restrictions:
++**
++**  1. The origin of this software must not be misrepresented; you must not
++**     claim that you wrote the original software. If you use this software
++**     in a product, an acknowledgment in the product documentation would be
++**     appreciated but is not required.
++**  2. Altered source versions must be plainly marked as such, and must not be
++**     misrepresented as being the original software.
++**  3. This notice may not be removed or altered from any source distribution.
++**
++**  Note: Some of the libraries ClanLib may link to may have additional
++**  requirements or restrictions.
++**
++**  File Author(s):
++**
++**    Magnus Norddahl
++**    (if your name is missing here, please add it)
++*/
++
++//! clanCore=&quot;Math&quot;
++//! header=core.h
++
++#ifndef header_origin
++#define header_origin
++
++#if _MSC_VER &gt; 1000
++#pragma once
++#endif
++
++#include &lt;string&gt;
++#include &quot;vector2i.hpp&quot;
++#include &quot;size.hpp&quot;
++
++//: Alignment origins.
++//- !group=Core/Math!
++//- !header=core.h!
++enum Origin
++{
++	origin_top_left,
++	origin_top_center,
++	origin_top_right,
++	origin_center_left,
++	origin_center,
++	origin_center_right,
++	origin_bottom_left,
++	origin_bottom_center,
++	origin_bottom_right
++};
++
++Origin string2origin(const std::string&amp; str);
++
++Vector2i calc_origin(Origin origin, const Size&amp; size);
++
++#endif
+
+
+Property changes on: trunk/griv/new/math/origin.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/math/rect.cpp
+===================================================================
+--- trunk/griv/new/math/rect.cpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/math/rect.cpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,42 @@
++/*
++**  ClanLib SDK
++**  Copyright (c) 1997-2005 The ClanLib Team
++**
++**  This software is provided 'as-is', without any express or implied
++**  warranty.  In no event will the authors be held liable for any damages
++**  arising from the use of this software.
++**
++**  Permission is granted to anyone to use this software for any purpose,
++**  including commercial applications, and to alter it and redistribute it
++**  freely, subject to the following restrictions:
++**
++**  1. The origin of this software must not be misrepresented; you must not
++**     claim that you wrote the original software. If you use this software
++**     in a product, an acknowledgment in the product documentation would be
++**     appreciated but is not required.
++**  2. Altered source versions must be plainly marked as such, and must not be
++**     misrepresented as being the original software.
++**  3. This notice may not be removed or altered from any source distribution.
++**
++**  Note: Some of the libraries ClanLib may link to may have additional
++**  requirements or restrictions.
++**
++**  File Author(s):
++**
++**    Magnus Norddahl
++**    (if your name is missing here, please add it)
++*/
++
++#include &lt;iostream&gt;
++#include &quot;rect.hpp&quot;
++
++#define cl_min(a,b) ((a &lt; b) ? a : b)
++#define cl_max(a,b) ((a &gt; b) ? a : b)
++
++std::ostream&amp; operator&lt;&lt;(std::ostream&amp; s, const Rect&amp; rect)
++{
++  return s &lt;&lt; &quot;Rect(&quot; &lt;&lt; rect.left &lt;&lt; &quot;, &quot; &lt;&lt; rect.top &lt;&lt; &quot;, &quot;
++           &lt;&lt; rect.right &lt;&lt; &quot;, &quot; &lt;&lt; rect.bottom &lt;&lt; &quot;)&quot;;
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/math/rect.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/math/rect.hpp
+===================================================================
+--- trunk/griv/new/math/rect.hpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/math/rect.hpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,359 @@
++/*
++**  ClanLib SDK
++**  Copyright (c) 1997-2005 The ClanLib Team
++**
++**  This software is provided 'as-is', without any express or implied
++**  warranty.  In no event will the authors be held liable for any damages
++**  arising from the use of this software.
++**
++**  Permission is granted to anyone to use this software for any purpose,
++**  including commercial applications, and to alter it and redistribute it
++**  freely, subject to the following restrictions:
++**
++**  1. The origin of this software must not be misrepresented; you must not
++**     claim that you wrote the original software. If you use this software
++**     in a product, an acknowledgment in the product documentation would be
++**     appreciated but is not required.
++**  2. Altered source versions must be plainly marked as such, and must not be
++**     misrepresented as being the original software.
++**  3. This notice may not be removed or altered from any source distribution.
++**
++**  Note: Some of the libraries ClanLib may link to may have additional
++**  requirements or restrictions.
++**
++**  File Author(s):
++**
++**    Magnus Norddahl
++**    (if your name is missing here, please add it)
++*/
++
++#ifndef __MATH_RECT_HPP__
++#define __MATH_RECT_HPP__
++
++#include &lt;iosfwd&gt;
++#include &quot;origin.hpp&quot;
++#include &quot;vector3f.hpp&quot;
++#include &quot;size.hpp&quot;
++
++class Rectf;
++
++//: 2D (left,top,right,bottom) rectangle structure.
++//- !group=Core/Math!
++//- !header=core.h!
++class Rect
++{
++  //! Construction:
++public:
++  //: Constructs an rectangle.
++  //param left: Initial left position of rectangle.
++  //param top: Initial top position of rectangle.
++  //param right: Initial right position of rectangle.
++  //param bottom: Initial bottom position of rectangle.
++  //param point: Initial top-left position of rectangle.
++  //param size: Initial size of rectangle.
++  //param rect: Initial rectangle position and size.
++  Rect() { left = right = top = bottom = 0; }
++
++  explicit Rect(const Rectf&amp; rect);
++
++  Rect(int new_left, int new_top, int new_right, int new_bottom)
++  { left = new_left; top = new_top; right = new_right; bottom = new_bottom; }
++
++  Rect(const Vector2i &amp;p, const Size &amp;size)
++  { left = p.x; top = p.y; right = left + size.width; bottom = top + size.height; }
++
++  Rect(const Rect &amp;rect)
++  { left = rect.left; top = rect.top; right = rect.right; bottom = rect.bottom; }
++
++  // Moves each edge b away from the center, thus width = old_width + 2*b
++  Rect grow(int b) const {
++    return Rect(left   - b, 
++                top    - b,
++                right  + b,
++                bottom + b);
++  }
++
++  //: Rect += Rect operator.
++  Rect &amp;operator+=(const Rect &amp;r)
++  { left += r.left; top += r.top; right += r.right; bottom += r.bottom; return *this; }
++
++  //: Rect -= Rect operator.
++  Rect &amp;operator-=(const Rect &amp;r)
++  { left -= r.left; top -= r.top; right -= r.right; bottom -= r.bottom; return *this; }
++	
++  //: Rect += Point operator.
++  Rect &amp;operator+=(const Vector2i &amp;p)
++  { left += p.x; top += p.y; right += p.x; bottom += p.y; return *this; }
++
++  //: Rect -= Point operator.
++  Rect &amp;operator-=(const Vector2i &amp;p)
++  { left -= p.x; top -= p.y; right -= p.x; bottom -= p.y; return *this; }
++
++  //: Rect + Rect operator.
++  Rect operator+(const Rect &amp;r) const
++  { return Rect(left + r.left, top + r.top, right + r.right, bottom + r.bottom); }
++
++  //: Rect - Rect operator.
++  Rect operator-(const Rect &amp;r) const
++  { return Rect(left - r.left, top - r.top, right - r.right, bottom - r.bottom); }
++
++  //: Rect + Point operator.
++  Rect operator+(const Vector2i &amp;p) const
++  { return Rect(left + p.x, top + p.y, right + p.x, bottom + p.y); }
++
++  //: Rect - Point operator.
++  Rect operator-(const Vector2i &amp;p) const
++  { return Rect(left - p.x, top - p.y, right - p.x, bottom - p.y); }
++
++  //: Rect == Rect operator.
++  bool operator==(const Rect &amp;r) const
++  { return (left == r.left &amp;&amp; top == r.top &amp;&amp; right == r.right &amp;&amp; bottom &amp;&amp; r.bottom); }
++
++  //: Rect != Rect operator.
++  bool operator!=(const Rect &amp;r) const
++  { return (left != r.left || top != r.top || right != r.right || bottom != r.bottom); }
++
++  //! Attributes:
++public:
++  //: X1-coordinate.
++  int left;
++	
++  //: Y1-coordinate.
++  int top;
++	
++  //: X2-coordinate.
++  int right;
++	
++  //: Y2-coordinate.
++  int bottom;
++	
++  //: Returns the width of the rectangle.
++  int get_width() const { return right - left; }
++	
++  //: Returns the height of the rectangle.
++  int get_height() const { return bottom - top; }
++
++  //: Returns the size of the rectangle.
++  Size get_size() const { return Size(right - left, bottom - top); }
++	
++  //: Returns true if point is inside the rectangle.
++  bool is_inside(const Vector2i &amp;p) const { return (p.x &gt;= left &amp;&amp; p.y &gt;= top &amp;&amp; p.x &lt;= right &amp;&amp; p.y &lt;= bottom); }
++
++  //: Returns true if rectangle passed is overlapping or inside this rectangle.
++  bool is_overlapped(const Rect &amp;r) const 
++  {
++    return (r.left &lt; right &amp;&amp; r.right &gt; left &amp;&amp; r.top &lt; bottom &amp;&amp; r.bottom &gt; top);
++  }
++
++  bool is_normal() const 
++  {
++    return left &lt;= right &amp;&amp; top &lt;= bottom;
++  }
++
++  //! Operations:
++public:
++  //: Sets the size of the rectangle, maintaining top/left position.
++  void set_size(const Size &amp;size)
++  {
++    right = left + size.width;
++    bottom = top + size.height;
++  }
++
++  //: Calculates and returns the union of two rectangles.
++  Rect calc_union(const Rect &amp;rect)
++  {
++    Rect result;
++    if (left   &gt; rect.left)   result.left   = left;   else result.left   = rect.left;
++    if (right  &lt; rect.right)  result.right  = right;  else result.right  = rect.right;
++    if (top    &gt; rect.top)    result.top    = top;    else result.top    = rect.top;
++    if (bottom &lt; rect.bottom) result.bottom = bottom; else result.bottom = rect.bottom;
++    return result;
++  }
++
++  //: Normalize rectangle. Ensures that left is less than right and top is less than bottom.
++  void normalize()
++  {
++    if (left &gt; right)
++      {
++        int temp = right;
++        right = left;
++        left = temp;
++      }
++
++    if (top &gt; bottom)
++      {
++        int temp = bottom;
++        bottom = top;
++        top = temp;
++      }
++  }
++	
++  //: Applies an origin and offset pair to this rectangle
++  //param origin: The new origin to adjust to from default upper-left position
++  //param x, y: Offsets applied negatively to each corner of the rectangle
++  void apply_alignment(Origin origin, int x, int y)
++  {
++    Vector2i offset = calc_origin(origin, get_size());
++    offset.x -= x;
++    offset.y -= y;
++		
++    left += offset.x;
++    top += offset.y;
++    right += offset.x;
++    bottom += offset.y;
++  }
++};
++
++//: 2D (left,top,right,bottom) floating point rectangle structure.
++class Rectf
++{
++  //! Construction:
++public:
++  //: Constructs an rectangle.
++  //param left: Initial left position of rectangle.
++  //param top: Initial top position of rectangle.
++  //param right: Initial right position of rectangle.
++  //param bottom: Initial bottom position of rectangle.
++  //param point: Initial top-left position of rectangle.
++  //param size: Initial size of rectangle.
++  //param rect: Initial rectangle position and size.
++  Rectf() { left = right = top = bottom = 0.0f; }
++
++  Rectf(const Rect&amp; rect)
++    : left(static_cast&lt;float&gt;(rect.left)), 
++      top(static_cast&lt;float&gt;(rect.top)), 
++      right(static_cast&lt;float&gt;(rect.right)), 
++      bottom(static_cast&lt;float&gt;(rect.bottom))
++  {}
++
++  Rectf(float new_left, float new_top, float new_right, float new_bottom)
++  { left = new_left; top = new_top; right = new_right; bottom = new_bottom; }
++
++  Rectf(const Vector3f &amp;p, const Sizef &amp;size)
++  { left = p.x; top = p.y; right = left + size.width; bottom = top + size.height; }
++
++  Rectf(const Rectf &amp;rect)
++  { left = rect.left; top = rect.top; right = rect.right; bottom = rect.bottom; }
++
++  //: Rect += Rect operator.
++  Rectf &amp;operator+=(const Rectf &amp;r)
++  { left += r.left; top += r.top; right += r.right; bottom += r.bottom; return *this; }
++
++  //: Rect -= Rect operator.
++  Rectf &amp;operator-=(const Rectf &amp;r)
++  { left -= r.left; top -= r.top; right -= r.right; bottom -= r.bottom; return *this; }
++	
++  //: Rect += Point operator.
++  Rectf &amp;operator+=(const Vector3f &amp;p)
++  { left += p.x; top += p.y; right += p.x; bottom += p.y; return *this; }
++
++  //: Rect -= Point operator.
++  Rectf &amp;operator-=(const Vector3f &amp;p)
++  { left -= p.x; top -= p.y; right -= p.x; bottom -= p.y; return *this; }
++
++  //: Rect + Rect operator.
++  Rectf operator+(const Rectf &amp;r) const
++  { return Rectf(left + r.left, top + r.top, right + r.right, bottom + r.bottom); }
++
++  //: Rect - Rect operator.
++  Rectf operator-(const Rectf &amp;r) const
++  { return Rectf(left - r.left, top - r.top, right - r.right, bottom - r.bottom); }
++
++  //: Rect + Point operator.
++  Rectf operator+(const Vector3f &amp;p) const
++  { return Rectf(left + p.x, top + p.y, right + p.x, bottom + p.y); }
++
++  //: Rect - Point operator.
++  Rectf operator-(const Vector3f &amp;p) const
++  { return Rectf(left - p.x, top - p.y, right - p.x, bottom - p.y); }
++
++  //: Rect == Rect operator.
++  bool operator==(const Rectf &amp;r) const
++  { return (left == r.left &amp;&amp; top == r.top &amp;&amp; right == r.right &amp;&amp; bottom &amp;&amp; r.bottom); }
++
++  //: Rect != Rect operator.
++  bool operator!=(const Rect &amp;r) const
++  { return (left != r.left || top != r.top || right != r.right || bottom != r.bottom); }
++
++  //! Attributes:
++public:
++  //: X1-coordinate.
++  float left;
++	
++  //: Y1-coordinate.
++  float top;
++	
++  //: X2-coordinate.
++  float right;
++	
++  //: Y2-coordinate.
++  float bottom;
++	
++  //: Returns the width of the rectangle.
++  float get_width() const { return right - left; }
++	
++  //: Returns the height of the rectangle.
++  float get_height() const { return bottom - top; }
++
++  //: Returns the size of the rectangle.
++  Sizef get_size() const { return Sizef(right - left, bottom - top); }
++	
++  //: Returns true if point is inside the rectangle.
++  bool is_inside(const Vector3f &amp;p) const { return (p.x &gt;= left &amp;&amp; p.y &gt;= top &amp;&amp; p.x &lt;= right &amp;&amp; p.y &lt;= bottom); }
++	
++  //: Returns true if rectangle passed is overlapping or inside this rectangle.
++  bool is_overlapped(const Rectf &amp;r) const 
++  {
++    return (r.left &lt; right &amp;&amp; r.right &gt; left &amp;&amp; r.top &lt; bottom &amp;&amp; r.bottom &gt; top);
++  }
++	
++  //! Operations:
++public:
++  //: Sets the size of the rectangle, maintaining top/left position.
++  void set_size(const Size &amp;size)
++  {
++    right = left + size.width;
++    bottom = top + size.height;
++  }
++
++  //: Calculates and returns the union of two rectangles.
++  Rectf calc_union(const Rectf &amp;rect)
++  {
++    Rectf result;
++    if (left   &gt; rect.left)   result.left   = left;   else result.left   = rect.left;
++    if (right  &lt; rect.right)  result.right  = right;  else result.right  = rect.right;
++    if (top    &gt; rect.top)    result.top    = top;    else result.top    = rect.top;
++    if (bottom &lt; rect.bottom) result.bottom = bottom; else result.bottom = rect.bottom;
++    return result;
++  }
++
++  //: Normalize rectangle. Ensures that left&lt;right and top&lt;bottom.
++  void normalize()
++  {
++    if (left &gt; right)
++      std::swap(left, right);
++    
++    if (top &gt; bottom)
++      std::swap(top, bottom);
++  }
++
++  // Moves each edge f away from the center, thus width = old_width + 2*f
++  Rectf grow(float f) const {
++    return Rectf(left   - f, 
++                 top    - f,
++                 right  + f,
++                 bottom + f);
++  }
++};
++
++inline Rect::Rect(const Rectf&amp; rect)
++  : left(static_cast&lt;int&gt;(rect.left)), 
++    top(static_cast&lt;int&gt;(rect.top)), 
++    right(static_cast&lt;int&gt;(rect.right)), 
++    bottom(static_cast&lt;int&gt;(rect.bottom))
++{}
++
++std::ostream&amp; operator&lt;&lt;(std::ostream&amp; s, const Rect&amp; r);
++
++#endif
++
+
+
+Property changes on: trunk/griv/new/math/rect.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/math/size.cpp
+===================================================================
+--- trunk/griv/new/math/size.cpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/math/size.cpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,33 @@
++/*
++**  ClanLib SDK
++**  Copyright (c) 1997-2005 The ClanLib Team
++**
++**  This software is provided 'as-is', without any express or implied
++**  warranty.  In no event will the authors be held liable for any damages
++**  arising from the use of this software.
++**
++**  Permission is granted to anyone to use this software for any purpose,
++**  including commercial applications, and to alter it and redistribute it
++**  freely, subject to the following restrictions:
++**
++**  1. The origin of this software must not be misrepresented; you must not
++**     claim that you wrote the original software. If you use this software
++**     in a product, an acknowledgment in the product documentation would be
++**     appreciated but is not required.
++**  2. Altered source versions must be plainly marked as such, and must not be
++**     misrepresented as being the original software.
++**  3. This notice may not be removed or altered from any source distribution.
++**
++**  Note: Some of the libraries ClanLib may link to may have additional
++**  requirements or restrictions.
++**/
++
++#include &lt;iostream&gt;
++#include &quot;size.hpp&quot;
++
++std::ostream&amp; operator&lt;&lt;(std::ostream&amp; os, const Size&amp; size)
++{
++  return os &lt;&lt; &quot;Size(&quot; &lt;&lt; size.width &lt;&lt; &quot;, &quot; &lt;&lt; size.height &lt;&lt; &quot;)&quot;;
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/math/size.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/math/size.hpp
+===================================================================
+--- trunk/griv/new/math/size.hpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/math/size.hpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,166 @@
++/*
++**  ClanLib SDK
++**  Copyright (c) 1997-2005 The ClanLib Team
++**
++**  This software is provided 'as-is', without any express or implied
++**  warranty.  In no event will the authors be held liable for any damages
++**  arising from the use of this software.
++**
++**  Permission is granted to anyone to use this software for any purpose,
++**  including commercial applications, and to alter it and redistribute it
++**  freely, subject to the following restrictions:
++**
++**  1. The origin of this software must not be misrepresented; you must not
++**     claim that you wrote the original software. If you use this software
++**     in a product, an acknowledgment in the product documentation would be
++**     appreciated but is not required.
++**  2. Altered source versions must be plainly marked as such, and must not be
++**     misrepresented as being the original software.
++**  3. This notice may not be removed or altered from any source distribution.
++**
++**  Note: Some of the libraries ClanLib may link to may have additional
++**  requirements or restrictions.
++**
++**  File Author(s):
++**
++**    Magnus Norddahl
++**    (if your name is missing here, please add it)
++*/
++
++//! clanCore=&quot;Math&quot;
++//! header=core.h
++
++#ifndef HEADER_MATH_SIZE_HPP
++#define HEADER_MATH_SIZE_HPP
++
++#if _MSC_VER &gt; 1000
++#pragma once
++#endif
++
++#include &lt;iosfwd&gt;
++
++class Sizef;
++
++//: 2D (width,height) size structure.
++//- !group=Core/Math!
++//- !header=core.h!
++class Size
++{
++//! Construction:
++public:
++	//: Constructs a size structure.
++	//param width: Initial width of size structure.
++	//param height: Initial height of size structure.
++	//param size: Size structure to construct this one from.
++	Size() : width(0), height(0) { return; }
++
++	Size(int width, int height)
++	: width(width), height(height) { }
++
++	Size(const Size &amp;s)
++	{ width = s.width; height = s.height; }
++
++	explicit Size(const Sizef&amp; s);
++
++//! Attributes:
++public:
++	//: Size width.
++	int width;
++
++	//: Size height.
++	int height;
++
++//! Operations:
++public:
++	//: Size += Size operator.
++	Size &amp;operator+=(const Size &amp;s)
++	{ width += s.width; height += s.height; return *this; }
++
++	//: Size -= Size operator.
++	Size &amp;operator-=(const Size &amp;s)
++	{ width -= s.width; height -= s.height; return *this; }
++	
++	//: Size + Size operator.
++	Size operator+(const Size &amp;s) const
++	{ return Size(width + s.width, height + s.height); }
++
++	//: Size - Size operator.
++	Size operator-(const Size &amp;s) const
++	{ return Size(width - s.width, height - s.height); }
++
++	//: Size == Size operator (deep compare).
++	bool operator==(const Size &amp;s) const
++	{ return (width == s.width) &amp;&amp; (height == s.height); }
++
++	//: Size != Size operator (deep compare).
++	bool operator!=(const Size &amp;s) const
++	{ return (width != s.width) || (height != s.height); }
++  
++	int get_area() const { return width * height; }
++};
++
++//: 2D (width,height) floating point size structure.
++class Sizef
++{
++//! Construction:
++public:
++	//: Constructs a size structure.
++	//param width: Initial width of size structure.
++	//param height: Initial height of size structure.
++	//param size: Size structure to construct this one from.
++	Sizef() : width(0.f), height(0.f) { return; }
++
++	Sizef(const Size&amp; s) 
++          : width(static_cast&lt;float&gt;(s.width)),
++            height(static_cast&lt;float&gt;(s.height))
++	{}
++
++	Sizef(float width, float height)
++	: width(width), height(height) { }
++
++	Sizef(const Sizef &amp;s)
++	{ width = s.width; height = s.height; }
++
++//! Attributes:
++public:
++	//: Size width.
++	float width;
++
++	//: Size height.
++	float height;
++
++//! Operations:
++public:
++	//: Size += Size operator.
++	Sizef &amp;operator+=(const Sizef &amp;s)
++	{ width += s.width; height += s.height; return *this; }
++
++	//: Size -= Size operator.
++	Sizef &amp;operator-=(const Sizef &amp;s)
++	{ width -= s.width; height -= s.height; return *this; }
++	
++	//: Size + Size operator.
++	Sizef operator+(const Sizef &amp;s) const
++	{ return Sizef(width + s.width, height + s.height); }
++
++	//: Size - Size operator.
++	Sizef operator-(const Sizef &amp;s) const
++	{ return Sizef(width - s.width, height - s.height); }
++
++	//: Size == Size operator (deep compare).
++	bool operator==(const Sizef &amp;s) const
++	{ return (width == s.width) &amp;&amp; (height == s.height); }
++
++	//: Size != Size operator (deep compare).
++	bool operator!=(const Size &amp;s) const
++	{ return (width != s.width) || (height != s.height); }
++};
++
++inline Size::Size(const Sizef&amp; s)
++	: width(static_cast&lt;int&gt;(s.width)),
++	  height(static_cast&lt;int&gt;(s.height))
++{}
++
++std::ostream&amp; operator&lt;&lt;(std::ostream&amp; os, const Size&amp; size);
++
++#endif
+
+
+Property changes on: trunk/griv/new/math/size.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/math/vector2f.cpp
+===================================================================
+--- trunk/griv/new/math/vector2f.cpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/math/vector2f.cpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,54 @@
++
++//  SuperTux -  A Jump'n Run
++//  Copyright (C) 2004 Matthias Braun &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">matze at braunis.de</A>
++//
++//  This program is free software: you can redistribute it and/or modify
++//  it under the terms of the GNU General Public License as published by
++//  the Free Software Foundation, either version 3 of the License, or
++//  (at your option) any later version.
++//  
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++//  
++//  You should have received a copy of the GNU General Public License
++//  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++
++#include &lt;iostream&gt;
++#include &quot;../math.hpp&quot;
++#include &quot;vector2f.hpp&quot;
++
++void
++Vector2f::normalize()
++{
++  float mag = magnitude();
++  x /= mag;
++  y /= mag;
++}
++
++Vector2f Vector2f::unit() const
++{
++  return *this / magnitude();
++}
++
++float
++Vector2f::magnitude() const
++{
++  return Math::sqrt(x*x + y*y);
++}
++
++Vector2f
++Vector2f::rotate(float angle) const
++{
++  float len = magnitude();
++  return Vector2f(len * Math::cos(angle), len * Math::sin(angle));
++}
++
++std::ostream&amp; operator&lt;&lt;(std::ostream&amp; s, const Vector2f&amp; v)
++{
++  s &lt;&lt; &quot;Vector2f(&quot; &lt;&lt; v.x &lt;&lt; &quot;, &quot; &lt;&lt; v.y &lt;&lt; &quot;)&quot;;
++  return s;
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/math/vector2f.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/math/vector2f.hpp
+===================================================================
+--- trunk/griv/new/math/vector2f.hpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/math/vector2f.hpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,137 @@
++
++//  SuperTux -  A Jump'n Run
++//  Copyright (C) 2004 Matthias Braun &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">matze at braunis.de</A>&gt;
++//
++//  This program is free software: you can redistribute it and/or modify
++//  it under the terms of the GNU General Public License as published by
++//  the Free Software Foundation, either version 3 of the License, or
++//  (at your option) any later version.
++//  
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++//  
++//  You should have received a copy of the GNU General Public License
++//  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++
++#ifndef SUPERTUX_VECTOR_H
++#define SUPERTUX_VECTOR_H
++
++#include &lt;iosfwd&gt;
++#include &quot;vector2i.hpp&quot;
++
++/** Simple two dimensional vector. */
++class Vector2f
++{
++public:
++  Vector2f(float nx, float ny)
++    : x(nx), y(ny)
++  { }
++  Vector2f(const Vector2f&amp; other)
++    : x(other.x), y(other.y)
++  { }
++  Vector2f(const Vector2i&amp; other)
++    : x(static_cast&lt;float&gt;(other.x)), 
++      y(static_cast&lt;float&gt;(other.y))
++  {}
++  Vector2f()
++    : x(0), y(0)
++  { }
++
++  bool operator ==(const Vector2f&amp; other) const
++  {
++    return x == other.x &amp;&amp; y == other.y;
++  }
++
++  bool operator !=(const Vector2f&amp; other) const
++  {
++    return !(x == other.x &amp;&amp; y == other.y);
++  }
++
++  const Vector2f&amp; operator=(const Vector2f&amp; other)
++  {
++    x = other.x;
++    y = other.y;
++    return *this;
++  }
++
++  Vector2f operator+(const Vector2f&amp; other) const
++  {
++    return Vector2f(x + other.x, y + other.y);
++  }
++
++  Vector2f operator-(const Vector2f&amp; other) const
++  {
++    return Vector2f(x - other.x, y - other.y);
++  }
++
++  Vector2f operator*(float s) const
++  {
++    return Vector2f(x * s, y * s);
++  }
++
++  Vector2f operator/(float s) const
++  {
++    return Vector2f(x / s, y / s);
++  }
++
++  Vector2f operator-() const
++  {
++    return Vector2f(-x, -y);
++  }
++
++  const Vector2f&amp; operator +=(const Vector2f&amp; other)
++  {
++    x += other.x;
++    y += other.y;
++    return *this;
++  }
++
++  const Vector2f&amp; operator -=(const Vector2f&amp; other)
++  {
++    x -= other.x;
++    y -= other.y;
++    return *this;
++  }
++
++  const Vector2f&amp; operator *=(float val)
++  {
++    x *= val;
++    y *= val;
++    return *this;
++  }
++
++  const Vector2f&amp; operator /=(float val)
++  {
++    x /= val;
++    y /= val;
++    return *this;
++  }
++
++  /** Takes angle in radian and returns a copy of the vector rotated
++      by \a angle */
++  Vector2f rotate(float angle) const;
++
++  /// Scalar product of 2 vectors
++  float operator*(const Vector2f&amp; other) const
++  {
++    return x*other.x + y*other.y;
++  }
++
++  float magnitude() const;
++  float length() const { return magnitude(); }
++
++  Vector2f unit() const;
++  void normalize();
++
++  // ... add the other operators as needed, I'm too lazy now ...
++
++  float x, y; // leave this public, get/set methods just give me headaches
++  // for such simple stuff :)
++};
++
++std::ostream&amp; operator&lt;&lt;(std::ostream&amp; s, const Vector2f&amp; v);
++
++#endif
++
+
+
+Property changes on: trunk/griv/new/math/vector2f.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/math/vector2i.cpp
+===================================================================
+--- trunk/griv/new/math/vector2i.cpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/math/vector2i.cpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,31 @@
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software: you can redistribute it and/or modify
++//  it under the terms of the GNU General Public License as published by
++//  the Free Software Foundation, either version 3 of the License, or
++//  (at your option) any later version.
++//  
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++//  
++//  You should have received a copy of the GNU General Public License
++//  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++
++#include &lt;iostream&gt;
++#include &quot;vector2f.hpp&quot;
++#include &quot;vector2i.hpp&quot;
++
++Vector2i::Vector2i(const Vector2f&amp; v)
++  : x(int(v.x)), y(int(v.y))
++{}
++
++std::ostream&amp; operator&lt;&lt;(std::ostream&amp; s, const Vector2i&amp; v)
++{
++  s &lt;&lt; &quot;Vector2i(&quot; &lt;&lt; v.x &lt;&lt; &quot;, &quot; &lt;&lt; v.y &lt;&lt; &quot;)&quot;;
++  return s;
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/math/vector2i.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/math/vector2i.hpp
+===================================================================
+--- trunk/griv/new/math/vector2i.hpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/math/vector2i.hpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,91 @@
++ //  Pingus - A free Lemmings clone
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software: you can redistribute it and/or modify
++//  it under the terms of the GNU General Public License as published by
++//  the Free Software Foundation, either version 3 of the License, or
++//  (at your option) any later version.
++//  
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++//  
++//  You should have received a copy of the GNU General Public License
++//  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++
++#ifndef HEADER_VECTOR2_HPP
++#define HEADER_VECTOR2_HPP
++
++#include &lt;iosfwd&gt;
++
++class Vector2f;
++
++/** */
++class Vector2i
++{
++public:
++  int x;
++  int y;
++
++  Vector2i()
++    : x(0), y(0) {}
++
++  explicit Vector2i(const Vector2f&amp; v);
++
++  Vector2i(int x_, int y_) 
++    : x(x_), y(y_) {}
++
++
++  Vector2i operator+ (const Vector2i&amp; add) const
++  {
++    return Vector2i(x + add.x, y + add.y);
++  }
++
++  Vector2i operator- () const
++  {
++    return Vector2i(-x, -y);
++  }
++
++  Vector2i operator- (const Vector2i&amp; sub) const
++  {
++    return Vector2i(x - sub.x, y - sub.y);
++  }
++
++  Vector2i operator* (int  mul) const
++  {
++    return Vector2i(x * mul, y * mul);
++  }
++
++  Vector2i&amp; operator+= (const Vector2i&amp; add)
++  {
++    x += add.x;
++    y += add.y;
++    return *this;
++  }
++
++  Vector2i&amp; operator-= (const Vector2i&amp; sub)
++  {
++    x -= sub.x;
++    y -= sub.y;
++    return *this;
++  }
++
++  Vector2i&amp; operator*= (int mul)
++  {
++    x *= mul;
++    y *= mul;
++    return *this;
++  }
++
++  bool operator== (const Vector2i&amp; other) const
++  {
++    return (other.x == x &amp;&amp; other.y == y);
++  }
++};
++
++std::ostream&amp; operator&lt;&lt;(std::ostream&amp; s, const Vector2i&amp; v);
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/math/vector2i.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/math/vector3f.cpp
+===================================================================
+--- trunk/griv/new/math/vector3f.cpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/math/vector3f.cpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,172 @@
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2000 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software: you can redistribute it and/or modify
++//  it under the terms of the GNU General Public License as published by
++//  the Free Software Foundation, either version 3 of the License, or
++//  (at your option) any later version.
++//  
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++//  
++//  You should have received a copy of the GNU General Public License
++//  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++
++#include &lt;iostream&gt;
++#include &quot;math.hpp&quot;
++#include &quot;vector3f.hpp&quot;
++#include &quot;vector2f.hpp&quot;
++
++Vector3f::Vector3f(float x_, float y_, float z_) : x(x_), y(y_), z(z_)
++{
++}
++
++Vector3f::Vector3f(const Vector3f&amp; old) : x(old.x), y(old.y), z(old.z)
++{
++}
++
++Vector3f::Vector3f(const Vector2f&amp; old) : x(old.x), y(old.y), z(0)
++{
++}
++
++Vector3f::Vector3f(const Vector2i&amp; old) : x(float(old.x)), y(float(old.y)), z(0)
++{
++}
++
++Vector3f&amp;
++Vector3f::operator= (const Vector3f&amp; old)
++{
++  if (this != &amp;old)
++    {
++      x = old.x;
++      y = old.y;
++      z = old.z;
++    }
++
++  return *this;
++}
++
++Vector3f
++Vector3f::operator- () const
++{
++  return Vector3f(-x, -y, -z);
++}
++
++Vector3f
++Vector3f::operator+ (const Vector3f&amp; add) const
++{
++  return Vector3f(x + add.x, y + add.y, z + add.z);
++}
++
++Vector3f
++Vector3f::operator- (const Vector3f&amp; sub) const
++{
++  return Vector3f(x - sub.x, y - sub.y, z - sub.z);
++}
++
++Vector3f
++Vector3f::operator* (float mul) const
++{
++  return Vector3f(mul * x, mul * y, mul * z);
++}
++
++Vector3f&amp;
++Vector3f::operator+= (const Vector3f&amp; add)
++{
++  x += add.x;
++  y += add.y;
++  z += add.z;
++  return *this;
++}
++
++Vector3f&amp;
++Vector3f::operator-= (const Vector3f&amp; sub)
++{
++  x -= sub.x;
++  y -= sub.y;
++  z -= sub.z;
++  return *this;
++}
++
++Vector3f&amp;
++Vector3f::operator*= (float mul)
++{
++  x *= mul;
++  y *= mul;
++  z *= mul;
++  return *this;
++}
++
++void
++Vector3f::normalize ()
++{
++  float f = Math::sqrt(x * x + y * y + z * z);
++
++  if (f)
++    {
++      x /= f;
++      y /= f;
++      z /= f;
++    }
++}
++
++float
++Vector3f::length() const
++{
++  return Math::sqrt(x * x + y * y + z * z);
++}
++
++Vector3f
++Vector3f::rotate (float angle, const Vector3f&amp; pos) const
++{
++  const float s = Math::sin(angle);
++  const float c = Math::cos(angle);
++
++  return Vector3f(  x * (pos.x * pos.x * (1-c) + c)
++                + y * (pos.x * pos.y * (1-c) - pos.z *s)
++		+ z * (pos.x * pos.z * (1-c) + pos.y *s),
++
++		  x * (pos.y * pos.x * (1-c) + pos.z *s)
++		+ y * (pos.y * pos.y * (1-c) + c)
++		+ z * (pos.y * pos.z * (1-c) - pos.x *s),
++
++		  x * (pos.x * pos.z * (1-c) - pos.y *s)
++		+ y * (pos.y * pos.z * (1-c) + pos.x *s)
++		+ z * (pos.z * pos.z * (1-c) + c)
++	       );
++}
++
++float
++Vector3f::distance(const Vector3f&amp; a, const Vector3f&amp; b)
++{
++  float x = b.x - a.x;
++  float y = b.y - a.y;
++  float z = b.z - a.z;
++
++  return Math::abs(Math::sqrt((x * x) + (y * y) + (z * z)));
++}
++
++float
++Vector3f::distance2d(const Vector3f&amp; a, const Vector3f&amp; b)
++{
++  float x = b.x - a.x;
++  float y = b.y - a.y;
++
++  return Math::abs(Math::sqrt((x * x) + (y * y)));
++}
++
++Vector3f
++Vector3f::interpolate(const Vector3f&amp; a, const Vector3f&amp; b, float perc)
++{
++  Vector3f c = b - a;
++  return a + (c * perc);
++}
++
++std::ostream&amp; operator&lt;&lt;(std::ostream&amp; os, const Vector3f&amp; v)
++{
++  return os &lt;&lt; &quot;Vector3f(&quot; &lt;&lt; v.x &lt;&lt; &quot;, &quot; &lt;&lt; v.y &lt;&lt; &quot;, &quot; &lt;&lt; v.z &lt;&lt; &quot;)&quot;;
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/math/vector3f.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/math/vector3f.hpp
+===================================================================
+--- trunk/griv/new/math/vector3f.hpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/math/vector3f.hpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,68 @@
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2000 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software: you can redistribute it and/or modify
++//  it under the terms of the GNU General Public License as published by
++//  the Free Software Foundation, either version 3 of the License, or
++//  (at your option) any later version.
++//  
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++//  
++//  You should have received a copy of the GNU General Public License
++//  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++
++#ifndef HEADER_PINGUS_MATH_VECTOR3F_HPP
++#define HEADER_PINGUS_MATH_VECTOR3F_HPP
++
++#include &lt;iosfwd&gt;
++
++class Vector2f;
++class Vector2i;
++
++class Vector3f
++{
++public:
++  float x;
++  float y;
++  float z;
++
++public:
++  explicit Vector3f (float x_=0, float y_=0, float z_=0);
++
++  Vector3f (const Vector3f&amp; old);
++  Vector3f (const Vector2f&amp; old);
++  Vector3f (const Vector2i&amp; old);
++  Vector3f&amp; operator= (const Vector3f&amp; old);
++
++  Vector3f operator- () const;
++
++  Vector3f operator+ (const Vector3f&amp; add) const;
++  Vector3f operator- (const Vector3f&amp; sub) const;
++  Vector3f operator* (       float  mul) const;
++
++  Vector3f&amp; operator+= (const Vector3f&amp; add);
++  Vector3f&amp; operator-= (const Vector3f&amp; sub);
++  Vector3f&amp; operator*= (      float   mul);
++
++  void normalize ();
++
++  float length() const;
++
++  Vector3f rotate (float angle, const Vector3f&amp; pos) const;
++
++  static float distance(const Vector3f&amp; a, const Vector3f&amp; b);
++  static float distance2d(const Vector3f&amp; a, const Vector3f&amp; b);
++
++  /** Calculate a position between a and b, relative to the value of
++      \a perc (perc == 0 -&gt; a, perc == 1.0 -&gt; b) */
++  static Vector3f interpolate(const Vector3f&amp; a, const Vector3f&amp; b, float perc);
++};
++
++std::ostream&amp; operator&lt;&lt; (std::ostream&amp; os, const Vector3f&amp; v);
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/math/vector3f.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/math.cpp
+===================================================================
+--- trunk/griv/new/math.cpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/math.cpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,98 @@
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2000 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software: you can redistribute it and/or modify
++//  it under the terms of the GNU General Public License as published by
++//  the Free Software Foundation, either version 3 of the License, or
++//  (at your option) any later version.
++//  
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++//  
++//  You should have received a copy of the GNU General Public License
++//  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++
++#include &lt;math.h&gt;
++#include &quot;math.hpp&quot;
++
++namespace Math {
++
++float abs(float v)
++{
++  return ::fabs(v);
++}
++
++float sin(float a)
++{
++  return ::sinf(a);
++}
++
++float cos(float a)
++{
++  return ::cosf(a);
++}
++
++float sqrt(float a)
++{
++  return ::sqrt(a);
++}
++
++float mod(float x, float y)
++{
++  return ::fmodf(x, y);
++}
++
++float floor(float x)
++{
++  return ::floorf(x);
++}
++
++float atan2(float x, float y)
++{
++  return ::atan2(x, y);
++}
++
++static char num2hex[] = &quot;0123456789abcdef&quot;;
++
++std::string float2string(float value)
++{
++  std::string str(2*sizeof(float), '0');
++
++  for(size_t i = 0; i &lt; sizeof(float); ++i)
++    {
++      char v = reinterpret_cast&lt;char*&gt;(&amp;value)[i];
++      str[2*i + 0] = num2hex[(v &amp; 0xf0) &gt;&gt; 4];
++      str[2*i + 1] = num2hex[v &amp; 0x0f];
++    }
++  return str;
++}
++
++static char hex2int(char c)
++{
++  if (c &gt;= '0' &amp;&amp; c &lt;= '9')
++    return c - '0';
++  else if (c &gt;= 'a' &amp;&amp; c &lt;= 'f')
++    return c - 'a' + 0xa;
++  else
++    return 0;    
++}
++
++float string2float(const std::string&amp; str)
++{
++  assert(str.size() == 2*sizeof(float));
++
++  float value;
++  for(size_t i = 0; i &lt; sizeof(float); ++i)
++    {
++      char&amp; v = reinterpret_cast&lt;char*&gt;(&amp;value)[i];
++      v = (hex2int(str[2*i+0]) &lt;&lt; 4) | hex2int(str[2*i+1]);
++    }
++
++  return value;
++}
++
++} // namespace Math
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/math.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/math.hpp
+===================================================================
+--- trunk/griv/new/math.hpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/math.hpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,105 @@
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2000 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software: you can redistribute it and/or modify
++//  it under the terms of the GNU General Public License as published by
++//  the Free Software Foundation, either version 3 of the License, or
++//  (at your option) any later version.
++//  
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++//  
++//  You should have received a copy of the GNU General Public License
++//  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++
++#ifndef HEADER_PINGUS_MATH_HPP
++#define HEADER_PINGUS_MATH_HPP
++
++#include &lt;assert.h&gt;
++#include &lt;stdlib.h&gt;
++#include &lt;string&gt;
++
++/** A collection of small math helper functions, some of them might be
++    equal in functionality to standard STL functions, but provided
++    here for portability and broken STL implementations
++
++    @brief A collection of mathematical helper functions */
++namespace Math {
++
++const float pi   = 3.14159265358979323846f;	/* pi */
++const float pi_2 = 1.57079632679489661923f;	/* pi/2 */
++
++// Win32 defines these are defines already, so we have to undef them
++#ifdef min
++#undef min
++#endif
++#ifdef max
++#undef max
++#endif
++
++template&lt;class T&gt;
++T min (const T&amp; a, const T&amp; b)
++{
++  if (a &lt; b)
++    return a;
++  else
++    return b;
++}
++
++template&lt;class T&gt;
++T max (const T&amp; a, const T&amp; b)
++{
++  if (a &gt; b)
++    return a;
++  else
++    return b;
++}
++
++template&lt;class T&gt;
++T clamp (const T&amp; low, const T&amp; v, const T&amp; high)
++{
++  assert(low &lt;= high);
++  return max((low), min((v), (high)));
++}
++
++inline
++float frand()
++{
++  return rand() / (RAND_MAX + 1.0f);
++}
++
++inline
++bool rand_bool()
++{
++  return rand()%2 == 0;
++}
++
++inline int round (float f)
++{
++  if (f &gt;= 0.0f)
++    return int(f + 0.5f);
++  else
++    return int(f - 0.5f);
++}
++
++float abs(float v);
++float sin(float a);
++float cos(float a);
++float sqrt(float a);
++float mod(float x, float y);
++float floor(float x);
++float atan2(float x, float y);
++
++/** Write out the raw bits of a float as hex */
++std::string float2string(float value);
++
++/** Restore the raw bits of a float from a string */
++float string2float(const std::string&amp; str);
++
++} // namespace Math
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/math.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/software_surface.cpp
+===================================================================
+--- trunk/griv/new/software_surface.cpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/software_surface.cpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,170 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &lt;assert.h&gt;
++#include &lt;iostream&gt;
++#include &lt;stdexcept&gt;
++#include &quot;FreeImage.h&quot;
++
++#include &quot;math.hpp&quot;
++#include &quot;math/rect.hpp&quot;
++#include &quot;math/size.hpp&quot;
++
++#include &quot;url.hpp&quot;
++#include &quot;software_surface.hpp&quot;
++
++class SoftwareSurfaceImpl
++{
++public:
++  FIBITMAP* bitmap;
++  
++  SoftwareSurfaceImpl(const std::string&amp; filename)
++  {
++    FREE_IMAGE_FORMAT format = FreeImage_GetFileType(filename.c_str(), 0);
++    FIBITMAP* tmpimg = FreeImage_Load(format, filename.c_str());
++
++    if (!tmpimg)
++      {
++        throw std::runtime_error(&quot;SoftwareSurface: Couldn't load &quot; + filename);
++      }
++    else
++      {
++        { // Convert to 24bit
++          bitmap = FreeImage_ConvertTo24Bits(tmpimg);
++          FreeImage_Unload(tmpimg);
++        }
++
++        assert(FreeImage_GetImageType(bitmap) == FIT_BITMAP);
++        assert(FreeImage_GetBPP(bitmap) == 24);
++ 
++        // FIXME: Insert some assert() for colormask here
++
++#if 0
++        SDL_Surface* surface = SDL_CreateRGBSurface(SDL_SWSURFACE, width, height, 32,
++                                                    FI_RGBA_RED_MASK,
++                                                    FI_RGBA_GREEN_MASK,
++                                                    FI_RGBA_BLUE_MASK,
++                                                    FI_RGBA_ALPHA_MASK);
++      
++        SDL_LockSurface(surface);
++        uint8_t* src = FreeImage_GetBits(img);
++        uint8_t* dst = static_cast&lt;uint8_t*&gt;(surface-&gt;pixels);
++        for(int y = 0; y &lt; height; ++y)
++          {
++            memcpy(dst + surface-&gt;pitch*y, src + pitch*y, width*4);
++          }
++        SDL_UnlockSurface(surface);
++#endif 
++      }
++  }
++
++  SoftwareSurfaceImpl(FIBITMAP* bitmap_)
++    : bitmap(bitmap_)
++  {    
++  }
++
++  ~SoftwareSurfaceImpl() 
++  {
++    FreeImage_Unload(bitmap);
++  }
++};
++
++SoftwareSurface::SoftwareSurface()
++{
++}
++
++SoftwareSurface::SoftwareSurface(FIBITMAP* bitmap)
++  : impl(new SoftwareSurfaceImpl(bitmap))
++{  
++}
++
++SoftwareSurface::SoftwareSurface(const std::string&amp; filename)
++ : impl(new SoftwareSurfaceImpl(filename))
++{
++}
++
++SoftwareSurface::~SoftwareSurface()
++{
++}
++
++SoftwareSurface
++SoftwareSurface::scale(const Size&amp; size) const
++{
++  FIBITMAP* img = FreeImage_Rescale(impl-&gt;bitmap, size.width, size.height, FILTER_BOX);
++  if (!img)
++    throw std::runtime_error(&quot;SoftwareSurface: Couldn't scale image&quot;);
++  else
++    return SoftwareSurface(img);
++}
++
++SoftwareSurface
++SoftwareSurface::crop(const Rect&amp; rect) const
++{
++  FIBITMAP* img = FreeImage_Copy(impl-&gt;bitmap, 
++                                 rect.left,  rect.top, 
++                                 Math::min(rect.right,  get_width()),
++                                 Math::min(rect.bottom, get_height()));
++  if (!img)
++    throw std::runtime_error(&quot;SoftwareSurface: Couldn't crop image&quot;);
++  else
++    return SoftwareSurface(img);
++}
++
++int
++SoftwareSurface::get_width()  const
++{
++  return FreeImage_GetWidth(impl-&gt;bitmap); 
++}
++
++int
++SoftwareSurface::get_height() const
++{
++  return FreeImage_GetHeight(impl-&gt;bitmap);    
++}
++
++int
++SoftwareSurface::get_pitch()  const
++{
++  return FreeImage_GetPitch(impl-&gt;bitmap);  
++}
++
++void
++SoftwareSurface::save(const std::string&amp; filename) const
++{
++  std::cout &lt;&lt; &quot;Saving &quot; &lt;&lt; impl-&gt;bitmap &lt;&lt; &quot; &quot; &lt;&lt; get_width() &lt;&lt; &quot;x&quot; &lt;&lt; get_height() &lt;&lt; &quot; to &quot; &lt;&lt; filename &lt;&lt; std::endl;
++  if (!FreeImage_Save(FIF_JPEG, impl-&gt;bitmap, filename.c_str(), 0))
++    {
++      throw std::runtime_error(&quot;SoftwareSurface: Couldn't save image to &quot; + filename);
++    }
++}
++
++// FreeImage_OpenMemory(BYTE *data FI_DEFAULT(0), DWORD size_in_bytes FI_DEFAULT(0));
++// hmem = FreeImage_OpenMemory();
++// FreeImage_SaveToMemory(fif, dib, hmem, 0);
++// FreeImage_CloseMemory(hmem);
++// FreeImage_AcquireMemory(FIMEMORY *stream, BYTE **data, DWORD* size_in_bytes);
++
++  
++/* EOF */
+
+
+Property changes on: trunk/griv/new/software_surface.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/software_surface.hpp
+===================================================================
+--- trunk/griv/new/software_surface.hpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/software_surface.hpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,60 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_SOFTWARE_SURFACE_HPP
++#define HEADER_SOFTWARE_SURFACE_HPP
++
++#include &lt;boost/shared_ptr.hpp&gt;
++#include &quot;FreeImage.h&quot;
++
++class URL;
++class Rect;
++class Size;
++class SoftwareSurfaceImpl;
++
++class SoftwareSurface
++{
++public:
++  SoftwareSurface();
++  SoftwareSurface(const std::string&amp; filename);
++  SoftwareSurface(FIBITMAP* bitmap);
++  ~SoftwareSurface();
++
++  int get_width()  const;
++  int get_height() const;
++  int get_pitch()  const;
++
++  SoftwareSurface scale(const Size&amp; size) const;
++  SoftwareSurface crop(const Rect&amp; rect) const;
++
++  void save(const std::string&amp; filename) const;
++
++private:
++  boost::shared_ptr&lt;SoftwareSurfaceImpl&gt; impl;
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/software_surface.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/tile_database.cpp
+===================================================================
+--- trunk/griv/new/tile_database.cpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/tile_database.cpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,45 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &quot;tile_database.hpp&quot;
++
++TileDatabase::TileDatabase()
++{
++  
++}
++
++SoftwareSurface
++TileDatabase::get_tile(uint32_t file_id, int tile_size, int scale, int x, int y)
++{
++  return SoftwareSurface();
++}
++
++void
++TileDatabase::store_tile(uint32_t file_id, int tile_size, int scale, int x, int y, const SoftwareSurface&amp; surface)
++{
++  
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/tile_database.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/tile_database.hpp
+===================================================================
+--- trunk/griv/new/tile_database.hpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/tile_database.hpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,51 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_TILE_DATABASE_HPP
++#define HEADER_TILE_DATABASE_HPP
++
++#include &lt;sqlite3.h&gt;
++#include &quot;software_surface.hpp&quot;
++
++/** */
++class TileDatabase
++{
++private:
++  
++
++public:
++  TileDatabase();
++  
++  SoftwareSurface get_tile(uint32_t file_id, int tile_size, int scale, int x, int y);
++  void store_tile(uint32_t file_id, int tile_size, int scale, int x, int y, const SoftwareSurface&amp; surface);
++  
++private:
++  TileDatabase (const TileDatabase&amp;);
++  TileDatabase&amp; operator= (const TileDatabase&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/tile_database.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/url.cpp
+===================================================================
+--- trunk/griv/new/url.cpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/url.cpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,39 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &quot;url.hpp&quot;
++
++URL::URL(const std::string&amp; url_)
++  : url(url_)
++{
++}
++
++std::string
++URL::get_filename() const
++{
++  return url;
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/url.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/url.hpp
+===================================================================
+--- trunk/griv/new/url.hpp	2008-07-01 01:25:04 UTC (rev 2273)
++++ trunk/griv/new/url.hpp	2008-08-05 20:26:11 UTC (rev 2274)
+@@ -0,0 +1,45 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_URL_HPP
++#define HEADER_URL_HPP
++
++#include &lt;string&gt;
++
++/** */
++class URL
++{
++private:
++  std::string url;
++
++public:
++  URL(const std::string&amp; url);
++
++  std::string get_filename() const;
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/url.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="001295.html">[Windstille-commit] r2275 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1294">[ date ]</a>
+              <a href="thread.html#1294">[ thread ]</a>
+              <a href="subject.html#1294">[ subject ]</a>
+              <a href="author.html#1294">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

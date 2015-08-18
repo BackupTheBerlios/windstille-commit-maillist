@@ -1,0 +1,558 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2728 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2728%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200903221409.n2ME9hUZ010849%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001724.html">
+   <LINK REL="Next"  HREF="001726.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2728 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2728%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200903221409.n2ME9hUZ010849%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2728 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Mar 22 15:09:43 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001724.html">[Windstille-commit] r2727 - trunk/windstille/src/math
+</A></li>
+        <LI>Next message: <A HREF="001726.html">[Windstille-commit] r2729 - trunk/windstille/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1725">[ date ]</a>
+              <a href="thread.html#1725">[ thread ]</a>
+              <a href="subject.html#1725">[ subject ]</a>
+              <a href="author.html#1725">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-22 15:09:42 +0100 (Sun, 22 Mar 2009)
+New Revision: 2728
+
+Modified:
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/editor_window.hpp
+   trunk/windstille/src/editor/scroll_tool.cpp
+   trunk/windstille/src/editor/scroll_tool.hpp
+   trunk/windstille/src/editor/select_tool.cpp
+   trunk/windstille/src/editor/select_tool.hpp
+   trunk/windstille/src/editor/tool.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/editor/windstille_widget.hpp
+   trunk/windstille/src/editor/zoom_tool.cpp
+   trunk/windstille/src/editor/zoom_tool.hpp
+Log:
+Implemented Tool switching
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-03-22 12:35:11 UTC (rev 2727)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-03-22 14:09:42 UTC (rev 2728)
+@@ -19,6 +19,7 @@
+ #include &lt;iostream&gt;
+ #include &lt;gtkmm/filechooserdialog.h&gt;
+ #include &lt;gtkmm/actiongroup.h&gt;
++#include &lt;gtkmm/radioaction.h&gt;
+ #include &lt;gtkmm/icontheme.h&gt;
+ #include &lt;gtkmm/uimanager.h&gt;
+ #include &lt;gtkmm/toolbar.h&gt;
+@@ -27,11 +28,20 @@
+ #include &quot;windstille_widget.hpp&quot;
+ #include &quot;about_window.hpp&quot;
+ #include &quot;editor_window.hpp&quot;
++#include &quot;zoom_tool.hpp&quot;
++#include &quot;select_tool.hpp&quot;
+ 
++EditorWindow* EditorWindow::current_ = 0;
++
+ EditorWindow::EditorWindow(const Glib::RefPtr&lt;const Gdk::GL::Config&gt;&amp; glconfig_)
+   : minimap_widget(glconfig_),
+-    glconfig(glconfig_)
++    glconfig(glconfig_),
++    select_tool(new SelectTool()),
++    zoom_tool(new ZoomTool()),
++    current_tool(select_tool.get())
+ {
++  current_ = this;
++
+   set_title(&quot;Windstille Editor&quot;);
+   set_default_size(1024, 768);
+ 
+@@ -56,6 +66,11 @@
+     &quot;      &lt;menuitem action='ZoomOut'/&gt;&quot;
+     &quot;      &lt;menuitem action='Zoom100'/&gt;&quot;
+     &quot;    &lt;/menu&gt;&quot;
++    &quot;    &lt;menu action='MenuTools'&gt;&quot;
++    &quot;      &lt;menuitem action='SelectTool'/&gt;&quot;
++    &quot;      &lt;menuitem action='NodeTool'/&gt;&quot;
++    &quot;      &lt;menuitem action='ZoomTool'/&gt;&quot;
++    &quot;    &lt;/menu&gt;&quot;
+     &quot;    &lt;menu action='MenuHelp'&gt;&quot;
+     &quot;      &lt;menuitem action='About'/&gt;&quot;
+     &quot;    &lt;/menu&gt;&quot;
+@@ -123,10 +138,16 @@
+ 
+   // Tools
+   action_group-&gt;add(Gtk::Action::create(&quot;MenuTools&quot;,  &quot;_Tools&quot;));
+-  action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;SelectTool&quot;, &quot;select_tool&quot;, &quot;Select Tool&quot;, &quot;Select Tool&quot;));
+-  action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;NodeTool&quot;,   &quot;node_tool&quot;,   &quot;Node Tool&quot;, &quot;Node Tool&quot;));
+-  action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;ZoomTool&quot;,   &quot;zoom_tool&quot;,   &quot;Zoom Tool&quot;, &quot;Zoom Tool&quot;));
++  Gtk::RadioButtonGroup tool_group;
++  
++  select_tool_action = Gtk::RadioAction::create_with_icon_name(tool_group, &quot;SelectTool&quot;, &quot;select_tool&quot;, &quot;Select Tool&quot;, &quot;Select Tool&quot;);
++  node_tool_action = Gtk::RadioAction::create_with_icon_name(tool_group, &quot;NodeTool&quot;,   &quot;node_tool&quot;,   &quot;Node Tool&quot;, &quot;Node Tool&quot;);
++  zoom_tool_action = Gtk::RadioAction::create_with_icon_name(tool_group, &quot;ZoomTool&quot;,   &quot;zoom_tool&quot;,   &quot;Zoom Tool&quot;, &quot;Zoom Tool&quot;);
+ 
++  action_group-&gt;add(select_tool_action, sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::on_tool_select), select_tool_action, select_tool.get()));
++  action_group-&gt;add(node_tool_action,   sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::on_tool_select), node_tool_action, select_tool.get()));
++  action_group-&gt;add(zoom_tool_action,   sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::on_tool_select), zoom_tool_action, zoom_tool.get()));
++
+   // signal_size_allocate().connect (sigc::mem_fun (*this, &amp;EditorWindow::on_window_size_allocate), false);
+   // signal_realize().connect (sigc::mem_fun (*this, &amp;EditorWindow::on_window_realize));
+ 
+@@ -172,6 +193,7 @@
+ 
+ EditorWindow::~EditorWindow()
+ {
++  current_ = 0;
+ }
+ 
+ void
+@@ -305,6 +327,22 @@
+     wst-&gt;on_zoom_100();
+ }
+ 
++void
++EditorWindow::on_tool_select(Glib::RefPtr&lt;Gtk::RadioAction&gt; action, Tool* tool)
++{
++  std::cout &lt;&lt; &quot;on_tool_select()&quot; &lt;&lt; action-&gt;get_active() &lt;&lt; std::endl;
++  if (action-&gt;get_active())
++    {
++      current_tool = tool;
++    }
++}
++
++Tool*
++EditorWindow::get_current_tool() const
++{
++  return current_tool;
++}
++
+ WindstilleWidget*
+ EditorWindow::get_windstille_widget()
+ {
+
+Modified: trunk/windstille/src/editor/editor_window.hpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.hpp	2009-03-22 12:35:11 UTC (rev 2727)
++++ trunk/windstille/src/editor/editor_window.hpp	2009-03-22 14:09:42 UTC (rev 2728)
+@@ -19,6 +19,7 @@
+ #ifndef HEADER_WINDSTILLE_EDITOR_EDITOR_WINDOW_HPP
+ #define HEADER_WINDSTILLE_EDITOR_EDITOR_WINDOW_HPP
+ 
++#include &lt;memory&gt;
+ #include &lt;gtkmm/box.h&gt;
+ #include &lt;gtkmm/statusbar.h&gt;
+ #include &lt;gtkmm/textview.h&gt;
+@@ -30,11 +31,19 @@
+ #include &quot;object_selector.hpp&quot;
+ #include &quot;object_tree.hpp&quot;
+ 
++class Tool;
+ class WindstilleWidget;
++class SelectTool;
++class ZoomTool;
+ 
+ class EditorWindow : public Gtk::Window
+ {
+ private:
++  static EditorWindow* current_;
++public:
++  static EditorWindow* current() { return current_; }
++
++private:
+   Gtk::VBox   vbox;
+   Gtk::VBox   sidebar_vbox;
+   Gtk::HBox   hbox;
+@@ -51,7 +60,15 @@
+   Glib::RefPtr&lt;Gtk::ActionGroup&gt; action_group;
+   Glib::RefPtr&lt;Gdk::GL::Context&gt; share_list;
+   Glib::RefPtr&lt;const Gdk::GL::Config&gt;  glconfig;
++  
++  Glib::RefPtr&lt;Gtk::RadioAction&gt; select_tool_action;
++  Glib::RefPtr&lt;Gtk::RadioAction&gt; node_tool_action;
++  Glib::RefPtr&lt;Gtk::RadioAction&gt; zoom_tool_action;
+ 
++  std::auto_ptr&lt;SelectTool&gt; select_tool;
++  std::auto_ptr&lt;ZoomTool&gt;   zoom_tool;
++  Tool* current_tool;
++  
+ public:
+   EditorWindow(const Glib::RefPtr&lt;const Gdk::GL::Config&gt;&amp; glconfig);
+   virtual ~EditorWindow();
+@@ -71,6 +88,9 @@
+   void on_zoom_out();
+   void on_zoom_100();
+ 
++  void on_tool_select(Glib::RefPtr&lt;Gtk::RadioAction&gt; action, Tool*);
++
++  Tool* get_current_tool() const;
+   WindstilleWidget* get_windstille_widget();
+   
+ private:
+
+Modified: trunk/windstille/src/editor/scroll_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/scroll_tool.cpp	2009-03-22 12:35:11 UTC (rev 2727)
++++ trunk/windstille/src/editor/scroll_tool.cpp	2009-03-22 14:09:42 UTC (rev 2728)
+@@ -25,30 +25,30 @@
+ }
+ 
+ bool
+-ScrollTool::mouse_down(GdkEventButton* event, WindstilleWidget* wst)
++ScrollTool::mouse_down(GdkEventButton* event, WindstilleWidget&amp; wst)
+ {
+-  orig_state = wst-&gt;get_state().clone();
++  orig_state = wst.get_state().clone();
+   orig_click = orig_state.screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
+   
+   return true;
+ }
+ 
+ bool
+-ScrollTool::mouse_move(GdkEventMotion* event, WindstilleWidget* wst)
++ScrollTool::mouse_move(GdkEventMotion* event, WindstilleWidget&amp; wst)
+ {
+   Vector2f offset = orig_click - orig_state.screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
+ 
+-  wst-&gt;get_state().set_pos(orig_state.get_pos() + offset);
++  wst.get_state().set_pos(orig_state.get_pos() + offset);
+ 
+   return true;
+ }
+ 
+ bool
+-ScrollTool::mouse_up(GdkEventButton* event, WindstilleWidget* wst)
++ScrollTool::mouse_up(GdkEventButton* event, WindstilleWidget&amp; wst)
+ {
+   Vector2f offset = orig_click - orig_state.screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
+ 
+-  wst-&gt;get_state().set_pos(orig_state.get_pos() + offset);
++  wst.get_state().set_pos(orig_state.get_pos() + offset);
+ 
+   return true;
+ }
+
+Modified: trunk/windstille/src/editor/scroll_tool.hpp
+===================================================================
+--- trunk/windstille/src/editor/scroll_tool.hpp	2009-03-22 12:35:11 UTC (rev 2727)
++++ trunk/windstille/src/editor/scroll_tool.hpp	2009-03-22 14:09:42 UTC (rev 2728)
+@@ -32,9 +32,9 @@
+ public:
+   ScrollTool();
+ 
+-  virtual bool mouse_down(GdkEventButton* event, WindstilleWidget* wst);
+-  virtual bool mouse_move(GdkEventMotion* event, WindstilleWidget* wst);
+-  virtual bool mouse_up(GdkEventButton* event, WindstilleWidget* wst);
++  virtual bool mouse_down(GdkEventButton* event, WindstilleWidget&amp; wst);
++  virtual bool mouse_move(GdkEventMotion* event, WindstilleWidget&amp; wst);
++  virtual bool mouse_up(GdkEventButton* event, WindstilleWidget&amp; wst);
+ 
+ private:
+   ScrollTool(const ScrollTool&amp;);
+
+Modified: trunk/windstille/src/editor/select_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/select_tool.cpp	2009-03-22 12:35:11 UTC (rev 2727)
++++ trunk/windstille/src/editor/select_tool.cpp	2009-03-22 14:09:42 UTC (rev 2728)
+@@ -26,17 +26,17 @@
+ }
+ 
+ bool
+-SelectTool::mouse_down (GdkEventButton* event, WindstilleWidget* wst)
++SelectTool::mouse_down (GdkEventButton* event, WindstilleWidget&amp; wst)
+ {
+-  click_pos = wst-&gt;get_state().screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
++  click_pos = wst.get_state().screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
+   rect_valid = false;
+   return true;
+ }
+ 
+ bool
+-SelectTool::mouse_move(GdkEventMotion* event, WindstilleWidget* wst)
++SelectTool::mouse_move(GdkEventMotion* event, WindstilleWidget&amp; wst)
+ {
+-  Vector2f pos = wst-&gt;get_state().screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
++  Vector2f pos = wst.get_state().screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
+ 
+   rect.left   = click_pos.x;
+   rect.top    = click_pos.y;
+@@ -48,7 +48,7 @@
+ }
+ 
+ bool
+-SelectTool::mouse_up(GdkEventButton* event, WindstilleWidget* wst)
++SelectTool::mouse_up(GdkEventButton* event, WindstilleWidget&amp; wst)
+ {
+   // Select objects
+   rect_valid = false;
+
+Modified: trunk/windstille/src/editor/select_tool.hpp
+===================================================================
+--- trunk/windstille/src/editor/select_tool.hpp	2009-03-22 12:35:11 UTC (rev 2727)
++++ trunk/windstille/src/editor/select_tool.hpp	2009-03-22 14:09:42 UTC (rev 2728)
+@@ -32,9 +32,9 @@
+ public:
+   SelectTool();
+   
+-  bool mouse_down (GdkEventButton* event, WindstilleWidget* wst);
+-  bool mouse_move(GdkEventMotion* event, WindstilleWidget* wst);
+-  bool mouse_up(GdkEventButton* event, WindstilleWidget* wst);
++  bool mouse_down (GdkEventButton* event, WindstilleWidget&amp; wst);
++  bool mouse_move(GdkEventMotion* event, WindstilleWidget&amp; wst);
++  bool mouse_up(GdkEventButton* event, WindstilleWidget&amp; wst);
+   void draw(SceneContext&amp; sc);
+ 
+ private:
+
+Modified: trunk/windstille/src/editor/tool.hpp
+===================================================================
+--- trunk/windstille/src/editor/tool.hpp	2009-03-22 12:35:11 UTC (rev 2727)
++++ trunk/windstille/src/editor/tool.hpp	2009-03-22 14:09:42 UTC (rev 2728)
+@@ -29,9 +29,9 @@
+   Tool() {}
+   virtual ~Tool() {}
+ 
+-  virtual bool mouse_down (GdkEventButton* event, WindstilleWidget* wst) = 0;
+-  virtual bool mouse_move(GdkEventMotion* event, WindstilleWidget* wst) = 0;
+-  virtual bool mouse_up(GdkEventButton* event, WindstilleWidget* wst) = 0;
++  virtual bool mouse_down (GdkEventButton* event, WindstilleWidget&amp; wst) = 0;
++  virtual bool mouse_move(GdkEventMotion* event, WindstilleWidget&amp; wst) = 0;
++  virtual bool mouse_up(GdkEventButton* event, WindstilleWidget&amp; wst) = 0;
+   virtual void draw(SceneContext&amp; sc) {}
+ 
+ private:
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-03-22 12:35:11 UTC (rev 2727)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-03-22 14:09:42 UTC (rev 2728)
+@@ -19,29 +19,23 @@
+ #include &lt;GL/glew.h&gt;
+ #include &lt;GL/gl.h&gt;
+ #include &lt;GL/glu.h&gt;
+-
+ #include &lt;gtkmm.h&gt;
+ 
+-
+ #include &quot;sprite2d/sprite.hpp&quot;
+ #include &quot;display/texture_manager.hpp&quot;
+ #include &quot;display/surface_manager.hpp&quot;
+ #include &quot;display/opengl_state.hpp&quot;
+-
+ #include &quot;display/surface.hpp&quot;
+ #include &quot;windstille_widget.hpp&quot;
++#include &quot;editor_window.hpp&quot;
+ #include &quot;scroll_tool.hpp&quot;
+-#include &quot;zoom_tool.hpp&quot;
+-#include &quot;select_tool.hpp&quot;
+ 
+ bool lib_init = false;
+ 
+ WindstilleWidget::WindstilleWidget(const Glib::RefPtr&lt;const Gdk::GL::Config&gt;&amp;  glconfig,
+                                    const Glib::RefPtr&lt;const Gdk::GL::Context&gt;&amp; share_list)
+-  : current_tool(0),
+-    scroll_tool(new ScrollTool()),
+-    select_tool(new SelectTool()),
+-    zoom_tool(new ZoomTool())
++  : active_tool(0),
++    scroll_tool(new ScrollTool())
+ {
+   set_gl_capability(glconfig, share_list);
+ 
+@@ -178,8 +172,8 @@
+               sc-&gt;color().draw(surface, i-&gt;x+50, i-&gt;y+50);
+             }
+ 
+-          if (current_tool)
+-            current_tool-&gt;draw(*sc);
++          if (active_tool)
++            active_tool-&gt;draw(*sc);
+ 
+           sc-&gt;render();
+ 
+@@ -220,13 +214,13 @@
+   //ewer-&gt;on_mouse_button_down(Vector2i(event-&gt;x, event-&gt;y), event-&gt;button);
+   if (event-&gt;button == 1)
+     {
+-      current_tool = select_tool.get();
+-      select_tool-&gt;mouse_down(event, this);
++      active_tool = EditorWindow::current()-&gt;get_current_tool();
++      active_tool-&gt;mouse_down(event, *this);
+     }
+   else if (event-&gt;button == 2)
+     {
+-      current_tool = scroll_tool.get();
+-      scroll_tool-&gt;mouse_down(event, this);
++      active_tool = scroll_tool.get();
++      active_tool-&gt;mouse_down(event, *this);
+     }
+ 
+   return false;
+@@ -235,11 +229,11 @@
+ bool
+ WindstilleWidget::mouse_move(GdkEventMotion* event)
+ {
+-  std::cout &lt;&lt; &quot;Motion: &quot; &lt;&lt; event-&gt;x &lt;&lt; &quot;, &quot; &lt;&lt; event-&gt;y &lt;&lt; std::endl;
++  //std::cout &lt;&lt; &quot;Motion: &quot; &lt;&lt; event-&gt;x &lt;&lt; &quot;, &quot; &lt;&lt; event-&gt;y &lt;&lt; std::endl;
+   
+-  if (current_tool)
++  if (active_tool)
+     {
+-      current_tool-&gt;mouse_move(event, this);
++      active_tool-&gt;mouse_move(event, *this);
+       queue_draw();
+     }
+   
+@@ -249,18 +243,18 @@
+ bool
+ WindstilleWidget::mouse_up(GdkEventButton* event)
+ {
+-  current_tool = 0;
++  active_tool = 0;
+ 
+   std::cout &lt;&lt; &quot;Button Release: &quot; &lt;&lt; event-&gt;x &lt;&lt; &quot;, &quot; &lt;&lt; event-&gt;y &lt;&lt; &quot; - &quot; &lt;&lt; event-&gt;button &lt;&lt; std::endl;
+   //viewer-&gt;on_mouse_button_up(Vector2i(event-&gt;x, event-&gt;y), event-&gt;button);
+   if (event-&gt;button == 1)
+     {
+-      select_tool-&gt;mouse_down(event, this);
++      EditorWindow::current()-&gt;get_current_tool()-&gt;mouse_up(event, *this);
+       queue_draw();
+     }
+   else if (event-&gt;button == 2)
+     {
+-      scroll_tool-&gt;mouse_up(event, this);
++      scroll_tool-&gt;mouse_up(event, *this);
+       queue_draw();
+     }
+   return false;
+
+Modified: trunk/windstille/src/editor/windstille_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.hpp	2009-03-22 12:35:11 UTC (rev 2727)
++++ trunk/windstille/src/editor/windstille_widget.hpp	2009-03-22 14:09:42 UTC (rev 2728)
+@@ -35,8 +35,6 @@
+ 
+ class Tool;
+ class ScrollTool;
+-class SelectTool;
+-class ZoomTool;
+ 
+ /** OpenGL drawing area into which the Windstille game will be
+     embedded */
+@@ -48,10 +46,8 @@
+   GraphicContextState   state;
+   std::vector&lt;Vector2f&gt; objects;
+   std::auto_ptr&lt;SceneContext&gt; sc;
+-  Tool* current_tool;
++  Tool* active_tool;
+   std::auto_ptr&lt;ScrollTool&gt; scroll_tool;
+-  std::auto_ptr&lt;SelectTool&gt; select_tool;
+-  std::auto_ptr&lt;ZoomTool&gt;   zoom_tool;
+ 
+ public:
+   WindstilleWidget(const Glib::RefPtr&lt;const Gdk::GL::Config&gt;&amp; glconfig,
+
+Modified: trunk/windstille/src/editor/zoom_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/zoom_tool.cpp	2009-03-22 12:35:11 UTC (rev 2727)
++++ trunk/windstille/src/editor/zoom_tool.cpp	2009-03-22 14:09:42 UTC (rev 2728)
+@@ -26,17 +26,17 @@
+ }
+ 
+ bool
+-ZoomTool::mouse_down (GdkEventButton* event, WindstilleWidget* wst)
++ZoomTool::mouse_down (GdkEventButton* event, WindstilleWidget&amp; wst)
+ {
+-  click_pos = wst-&gt;get_state().screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
++  click_pos = wst.get_state().screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
+   rect_valid = false;
+   return true;
+ }
+ 
+ bool
+-ZoomTool::mouse_move(GdkEventMotion* event, WindstilleWidget* wst)
++ZoomTool::mouse_move(GdkEventMotion* event, WindstilleWidget&amp; wst)
+ {
+-  Vector2f pos = wst-&gt;get_state().screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
++  Vector2f pos = wst.get_state().screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
+ 
+   rect.left   = click_pos.x;
+   rect.top    = click_pos.y;
+@@ -48,9 +48,12 @@
+ }
+ 
+ bool
+-ZoomTool::mouse_up(GdkEventButton* event, WindstilleWidget* wst)
++ZoomTool::mouse_up(GdkEventButton* event, WindstilleWidget&amp; wst)
+ {
+   // Zoom objects
++  std::cout &lt;&lt; &quot;Zoom To: &quot; &lt;&lt; rect &lt;&lt; std::endl;
++  rect.normalize();
++  wst.get_state().zoom_to(rect);
+   rect_valid = false;
+   return true;
+ }
+
+Modified: trunk/windstille/src/editor/zoom_tool.hpp
+===================================================================
+--- trunk/windstille/src/editor/zoom_tool.hpp	2009-03-22 12:35:11 UTC (rev 2727)
++++ trunk/windstille/src/editor/zoom_tool.hpp	2009-03-22 14:09:42 UTC (rev 2728)
+@@ -32,9 +32,9 @@
+ public:
+   ZoomTool();
+   
+-  bool mouse_down (GdkEventButton* event, WindstilleWidget* wst);
+-  bool mouse_move(GdkEventMotion* event, WindstilleWidget* wst);
+-  bool mouse_up(GdkEventButton* event, WindstilleWidget* wst);
++  bool mouse_down (GdkEventButton* event, WindstilleWidget&amp; wst);
++  bool mouse_move(GdkEventMotion* event, WindstilleWidget&amp; wst);
++  bool mouse_up(GdkEventButton* event, WindstilleWidget&amp; wst);
+   void draw(SceneContext&amp; sc);
+ 
+ private:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001724.html">[Windstille-commit] r2727 - trunk/windstille/src/math
+</A></li>
+	<LI>Next message: <A HREF="001726.html">[Windstille-commit] r2729 - trunk/windstille/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1725">[ date ]</a>
+              <a href="thread.html#1725">[ thread ]</a>
+              <a href="subject.html#1725">[ subject ]</a>
+              <a href="author.html#1725">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

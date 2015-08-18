@@ -1,0 +1,1311 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3207 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3207%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909090037.n890bRXk018645%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002203.html">
+   <LINK REL="Next"  HREF="002205.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3207 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3207%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909090037.n890bRXk018645%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3207 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Sep  9 02:37:27 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002203.html">[Windstille-commit] r3206 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="002205.html">[Windstille-commit] r3208 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2204">[ date ]</a>
+              <a href="thread.html#2204">[ thread ]</a>
+              <a href="subject.html#2204">[ subject ]</a>
+              <a href="author.html#2204">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-09 02:37:20 +0200 (Wed, 09 Sep 2009)
+New Revision: 3207
+
+Modified:
+   trunk/windstille/src/editor/document.cpp
+   trunk/windstille/src/editor/document.hpp
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/editor_window.hpp
+   trunk/windstille/src/editor/select_tool.cpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/editor/windstille_widget.hpp
+Log:
+Moving more things into Document, breaking stuff along the way
+
+Modified: trunk/windstille/src/editor/document.cpp
+===================================================================
+--- trunk/windstille/src/editor/document.cpp	2009-09-08 23:22:14 UTC (rev 3206)
++++ trunk/windstille/src/editor/document.cpp	2009-09-09 00:37:20 UTC (rev 3207)
+@@ -18,12 +18,26 @@
+ 
+ #include &quot;editor/document.hpp&quot;
+ 
++#include &lt;boost/bind.hpp&gt;
++
++#include &quot;editor/selection.hpp&quot;
+ #include &quot;editor/undo_manager.hpp&quot;
+ #include &quot;editor/sector_model.hpp&quot;
++#include &quot;editor/editor_window.hpp&quot;
++#include &quot;editor/object_model.hpp&quot;
++#include &quot;editor/decal_object_model.hpp&quot;
+ 
++#include &quot;editor/group_command.hpp&quot;
++#include &quot;editor/object_commands.hpp&quot;
++#include &quot;editor/functor_command.hpp&quot;
++#include &quot;editor/layer_commands.hpp&quot;
++
+ Document::Document()
+   : m_undo_manager(new UndoManager()),
+-    m_sector_model(new SectorModel())
++    m_sector_model(new SectorModel()),
++    m_selection(Selection::create()),
++    m_control_points(),
++    m_sig_on_change()
+ {
+ }
+ 
+@@ -34,11 +48,326 @@
+ void
+ Document::undo()
+ {
++  m_undo_manager-&gt;undo();
+ }
+ 
+ void
+ Document::redo()
+ {
++  m_undo_manager-&gt;redo();
+ }
+ 
++void
++Document::execute(CommandHandle cmd)
++{
++  // FIXME: All stuff should be routed through this
++  m_undo_manager-&gt;execute(cmd);
++  EditorWindow::current()-&gt;update_undo_state();
++  m_sector_model-&gt;rebuild_scene_graph();
++  m_sig_on_change();
++}
++
++void
++Document::selection_raise()
++{
++  for(Selection::iterator i = m_selection-&gt;begin(); i != m_selection-&gt;end(); ++i)
++    {
++      m_sector_model-&gt;raise(*i);
++    }
++
++  m_sig_on_change();
++}
++
++void
++Document::selection_lower()
++{
++  for(Selection::reverse_iterator i = m_selection-&gt;rbegin(); i != m_selection-&gt;rend(); ++i)
++    {
++      m_sector_model-&gt;lower(*i);
++    }
++
++  m_sig_on_change();
++}
++
++void
++Document::selection_raise_to_top()
++{
++  for(Selection::reverse_iterator i = m_selection-&gt;rbegin(); i != m_selection-&gt;rend(); ++i)
++    {
++      m_sector_model-&gt;raise_to_top(*i);
++    }
++
++  m_sig_on_change();
++}
++
++void
++Document::selection_lower_to_bottom()
++{
++  for(Selection::iterator i = m_selection-&gt;begin(); i != m_selection-&gt;end(); ++i)
++    {
++      m_sector_model-&gt;lower_to_bottom(*i);
++    }
++
++  m_sig_on_change();
++}
++
++void
++Document::selection_vflip()
++{
++  if (!m_selection-&gt;empty())
++    {
++      boost::shared_ptr&lt;GroupCommand&gt; group_command(new GroupCommand());
++
++      if (m_selection-&gt;size() &gt; 1)
++        {
++          const Vector2f&amp; center = m_selection-&gt;get_bounding_box().get_center();
++          for(Selection::iterator i = m_selection-&gt;begin(); i != m_selection-&gt;end(); ++i)
++            {
++              Vector2f pos = (*i)-&gt;get_world_pos();
++          
++              pos.y = center.y + (center.y - pos.y);
++          
++              //(*i)-&gt;set_world_pos(pos);
++              group_command-&gt;add(CommandHandle(new FunctorCommand(boost::bind(&amp;ObjectModel::set_world_pos, *i, (*i)-&gt;get_world_pos()),
++                                                                  boost::bind(&amp;ObjectModel::set_world_pos, *i, pos))));
++            }
++        }
++
++      for(Selection::iterator i = m_selection-&gt;begin(); i != m_selection-&gt;end(); ++i)
++        {
++          //(*i)-&gt;set_vflip(!(*i)-&gt;get_vflip());
++          group_command-&gt;add(CommandHandle(new FunctorCommand(boost::bind(&amp;ObjectModel::set_vflip, *i,  (*i)-&gt;get_vflip()),
++                                                              boost::bind(&amp;ObjectModel::set_vflip, *i, !(*i)-&gt;get_vflip()))));
++        }
++
++      execute(group_command);
++    }
++}
++
++void
++Document::selection_hflip()
++{
++  if (!m_selection-&gt;empty())
++    {
++      boost::shared_ptr&lt;GroupCommand&gt; group_command(new GroupCommand());
++
++      if (m_selection-&gt;size() &gt; 1)
++        {
++          const Vector2f&amp; center = m_selection-&gt;get_bounding_box().get_center();
++          for(Selection::iterator i = m_selection-&gt;begin(); i != m_selection-&gt;end(); ++i)
++            {
++              Vector2f pos = (*i)-&gt;get_world_pos();
++          
++              pos.x = center.x + (center.x - pos.x);
++          
++              //(*i)-&gt;set_world_pos(pos);
++              group_command-&gt;add(CommandHandle(new FunctorCommand(boost::bind(&amp;ObjectModel::set_world_pos, *i, (*i)-&gt;get_world_pos()),
++                                                                  boost::bind(&amp;ObjectModel::set_world_pos, *i, pos))));
++            }
++        }
++
++      for(Selection::iterator i = m_selection-&gt;begin(); i != m_selection-&gt;end(); ++i)
++        {
++          //(*i)-&gt;set_hflip(!(*i)-&gt;get_hflip());
++          group_command-&gt;add(CommandHandle(new FunctorCommand(boost::bind(&amp;ObjectModel::set_hflip, *i,  (*i)-&gt;get_hflip()),
++                                                              boost::bind(&amp;ObjectModel::set_hflip, *i, !(*i)-&gt;get_hflip()))));
++        }
++
++      execute(group_command);
++    }
++}
++
++void
++Document::selection_connect_parent()
++{
++  if (m_selection-&gt;size() &gt;= 2)
++    {
++      boost::shared_ptr&lt;GroupCommand&gt; group_command(new GroupCommand());
++
++      ObjectModelHandle parent = *m_selection-&gt;begin();
++
++      Selection::iterator i = m_selection-&gt;begin();
++      ++i;
++      for(; i != m_selection-&gt;end(); ++i)
++        {
++          //(*i)-&gt;set_parent(parent);
++          group_command-&gt;add(CommandHandle(new FunctorCommand(boost::bind(&amp;ObjectModel::set_parent, *i, (*i)-&gt;get_parent(), true),
++                                                              boost::bind(&amp;ObjectModel::set_parent, *i, parent, true))));
++        }
++
++      execute(group_command);
++    }
++}
++
++void
++Document::selection_clear_parent()
++{
++  boost::shared_ptr&lt;GroupCommand&gt; group_command(new GroupCommand());
++
++  for(Selection::iterator i = m_selection-&gt;begin(); i != m_selection-&gt;end(); ++i)
++    {
++      //(*i)-&gt;set_parent(ObjectModelHandle());
++      group_command-&gt;add(CommandHandle(new FunctorCommand(boost::bind(&amp;ObjectModel::set_parent, *i, (*i)-&gt;get_parent(), true),
++                                                          boost::bind(&amp;ObjectModel::set_parent, *i, ObjectModelHandle(), true))));
++    }
++
++  execute(group_command);
++}
++
++void
++Document::selection_duplicate()
++{
++  boost::shared_ptr&lt;GroupCommand&gt; group_command(new GroupCommand());
++  std::map&lt;ObjectModelHandle, ObjectModelHandle&gt; parent_map;
++
++  SelectionHandle new_selection = Selection::create();
++  for(Selection::reverse_iterator i = m_selection-&gt;rbegin(); i != m_selection-&gt;rend(); ++i)
++    {
++      LayerHandle layer = m_sector_model-&gt;get_layer(*i);
++      ObjectModelHandle obj = (*i)-&gt;clone();
++
++      parent_map[*i] = obj;
++
++      if (!layer)
++        {
++          EditorWindow::current()-&gt;print(&quot;Couldn't find parent layer while duplicating&quot;);
++        }
++      else
++        {
++          // Move clone a litte to make it more obvious that something happened
++          obj-&gt;set_rel_pos(obj-&gt;get_rel_pos() + Vector2f(32.0f, 32.0f));
++          new_selection-&gt;add(obj);
++
++          //layer-&gt;add(obj);
++          group_command-&gt;add(CommandHandle(new ObjectAddCommand(layer, obj)));
++        }
++    }
++
++  // Second pass to set the parents to the cloned objects
++  for(Selection::iterator i = new_selection-&gt;begin(); i != new_selection-&gt;end(); ++i)
++    {
++      if ((*i)-&gt;get_parent())
++        {
++          std::map&lt;ObjectModelHandle, ObjectModelHandle&gt;::iterator it = parent_map.find((*i)-&gt;get_parent());
++          
++          if (it == parent_map.end())
++            {
++              // When the parent wasn't part of the selection, leave
++              // the parent untouched
++            }
++          else
++            {
++              (*i)-&gt;set_parent(it-&gt;second);
++            }
++        }
++    }
++
++  execute(group_command);
++  set_selection(new_selection);
++}
++
++void
++Document::selection_reset_rotation()
++{
++  boost::shared_ptr&lt;GroupCommand&gt; group_command(new GroupCommand());
++
++  for(Selection::iterator i = m_selection-&gt;begin(); i != m_selection-&gt;end(); ++i)
++    {
++      DecalObjectModel* decal = dynamic_cast&lt;DecalObjectModel*&gt;(i-&gt;get());
++
++      if (decal)
++        {
++          //decal-&gt;set_angle(0.0f);
++          group_command-&gt;add(CommandHandle(new FunctorCommand(boost::bind(&amp;DecalObjectModel::set_angle, decal, decal-&gt;get_angle()),
++                                                              boost::bind(&amp;DecalObjectModel::set_angle, decal, 0.0f))));
++        }
++    }
++
++  on_selection_change();
++  execute(group_command);
++}
++
++void
++Document::selection_object_properties()
++{
++  std::cout &lt;&lt; &quot;Display Dialog&quot; &lt;&lt; std::endl;
++}
++
++void
++Document::selection_reset_scale()
++{
++  boost::shared_ptr&lt;GroupCommand&gt; group_command(new GroupCommand());
++
++ for(Selection::iterator i = m_selection-&gt;begin(); i != m_selection-&gt;end(); ++i)
++    {
++      DecalObjectModel* decal = dynamic_cast&lt;DecalObjectModel*&gt;(i-&gt;get());
++      if (decal)
++        {
++          //decal-&gt;set_scale(Vector2f(1.0f, 1.0f));
++          group_command-&gt;add(CommandHandle(new FunctorCommand(boost::bind(&amp;DecalObjectModel::set_scale, decal, decal-&gt;get_scale()),
++                                                              boost::bind(&amp;DecalObjectModel::set_scale, decal, Vector2f(1.0f, 1.0f)))));
++        }
++    }
++
++ on_selection_change();
++ execute(group_command);
++}
++
++void
++Document::selection_delete()
++{
++  boost::shared_ptr&lt;GroupCommand&gt; group_cmd(new GroupCommand());
++  for(Selection::iterator i = m_selection-&gt;begin(); i != m_selection-&gt;end(); ++i)
++    {
++      group_cmd-&gt;add(CommandHandle(new ObjectRemoveCommand(*m_sector_model, *i)));
++    }
++  execute(group_cmd);
++  m_selection-&gt;clear();
++}
++
++void
++Document::set_selection(const SelectionHandle&amp; selection)
++{
++  m_selection = selection;
++  m_selection-&gt;signal_changed.connect(sigc::mem_fun(*this, &amp;Document::on_selection_change));
++  on_selection_change();
++}
++
++void
++Document::on_selection_change()
++{
++  m_control_points.clear();
++
++  if (!m_selection-&gt;is_moving())
++    {
++      m_selection-&gt;add_control_points(m_control_points);
++    }
++}
++
++ControlPointHandle
++Document::get_control_point(const Vector2f&amp; pos) const
++{
++  for(std::vector&lt;ControlPointHandle&gt;::const_iterator i = m_control_points.begin();  
++      i != m_control_points.end(); ++i)
++    {
++      if ((*i)-&gt;get_bounding_box().is_inside(pos))
++        return *i;
++    }
++  return ControlPointHandle();
++}
++
++void
++Document::clear_control_points()
++{
++  m_control_points.clear();
++}
++
++void
++Document::create_control_points()
++{
++  m_control_points.clear();
++  m_selection-&gt;add_control_points(m_control_points);
++}
++
++
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/document.hpp
+===================================================================
+--- trunk/windstille/src/editor/document.hpp	2009-09-08 23:22:14 UTC (rev 3206)
++++ trunk/windstille/src/editor/document.hpp	2009-09-09 00:37:20 UTC (rev 3207)
+@@ -21,25 +21,72 @@
+ 
+ #include &lt;boost/scoped_ptr.hpp&gt;
+ 
++#include &quot;editor/selection.hpp&quot;
++#include &quot;editor/command.hpp&quot;
++
+ class UndoManager;
+ class SectorModel;
+ 
++/**
++ *  Document wraps SectorModel with undo/redo functionality and
++ *  provides data and functions for editing that are not part of the
++ *  central data, such as selections.
++ */
+ class Document // FIXME: name is not so great
+ {
+ private:
+   boost::scoped_ptr&lt;UndoManager&gt; m_undo_manager;
+   boost::scoped_ptr&lt;SectorModel&gt; m_sector_model;
+ 
++  SelectionHandle m_selection;
++
++  std::vector&lt;ControlPointHandle&gt; m_control_points;
++
++  sigc::signal&lt;void&gt; m_sig_on_change;
++
+ public:
+   Document();
+   ~Document();
+ 
+   UndoManager&amp; get_undo_manager() const { return *m_undo_manager; }
+   SectorModel&amp; get_sector_model() const { return *m_sector_model; }
++  SelectionHandle get_selection() const { return m_selection; }
+ 
+   void undo();
+   void redo();
++  void execute(CommandHandle cmd);
++  
++  void selection_raise();
++  void selection_lower();
+ 
++  void selection_raise_to_top();
++  void selection_lower_to_bottom();
++
++  void selection_vflip();
++  void selection_hflip();
++
++  void selection_connect_parent();
++  void selection_clear_parent();
++  
++  void selection_duplicate();
++  void selection_delete();
++
++  void selection_reset_rotation();
++  void selection_reset_scale();
++
++  void selection_object_properties();
++
++  void set_selection(const SelectionHandle&amp; selection);
++
++  void on_selection_change();
++
++  ControlPointHandle get_control_point(const Vector2f&amp; pos) const;
++
++  void clear_control_points();
++  void create_control_points();
++
++  sigc::signal&lt;void&gt;&amp; signal_on_change() { return m_sig_on_change; }
++
+ private:
+   Document(const Document&amp;);
+   Document&amp; operator=(const Document&amp;);
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-09-08 23:22:14 UTC (rev 3206)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-09-09 00:37:20 UTC (rev 3207)
+@@ -44,6 +44,7 @@
+ #include &quot;editor/navgraph_insert_tool.hpp&quot;
+ #include &quot;editor/sector_model.hpp&quot;
+ #include &quot;editor/layer_widget.hpp&quot;
++#include &quot;editor/document.hpp&quot;
+ 
+ #include &quot;editor/editor_window.hpp&quot;
+ 
+@@ -276,38 +277,38 @@
+                     sigc::mem_fun(*this, &amp;EditorWindow::on_select_all));
+ 
+   action_group-&gt;add(Gtk::Action::create(&quot;Delete&quot;,      Gtk::Stock::DELETE),
+-                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_windstille_widget), &amp;WindstilleWidget::selection_delete));
++                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_document), &amp;Document::selection_delete));
+   action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;Duplicate&quot;, &quot;duplicate&quot;, &quot;Duplicate Object&quot;, &quot;Duplicate Object&quot;),
+                     Gtk::AccelKey(GDK_d, Gdk::CONTROL_MASK),
+-                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_windstille_widget), &amp;WindstilleWidget::selection_duplicate));
++                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_document), &amp;Document::selection_duplicate));
+ 
+   action_group-&gt;add(Gtk::Action::create(&quot;MenuObject&quot;,    &quot;_Object&quot;));
+   action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;RaiseObjectToTop&quot;, &quot;object_raise_to_top&quot;, &quot;Raise To Top&quot;, &quot;Raise Object to Top&quot;),
+-                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_windstille_widget), &amp;WindstilleWidget::selection_raise_to_top));
++                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_document), &amp;Document::selection_raise_to_top));
+   action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;RaiseObject&quot;, &quot;object_raise&quot;, &quot;Raise&quot;, &quot;Raise Object&quot;),
+-                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_windstille_widget), &amp;WindstilleWidget::selection_raise));
++                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_document), &amp;Document::selection_raise));
+   action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;LowerObject&quot;, &quot;object_lower&quot;, &quot;Lower&quot;, &quot;Lower Object&quot;),
+-                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_windstille_widget), &amp;WindstilleWidget::selection_lower));                    
++                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_document), &amp;Document::selection_lower));                    
+   action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;LowerObjectToBottom&quot;, &quot;object_lower_to_bottom&quot;, &quot;Lower To Bottom&quot;, &quot;Lower Object to Bottom&quot;),
+-                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_windstille_widget), &amp;WindstilleWidget::selection_lower_to_bottom));
++                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_document), &amp;Document::selection_lower_to_bottom));
+ 
+   action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;ConnectParent&quot;, &quot;connect_parent&quot;, &quot;Connect Parent&quot;, &quot;Connect Parent&quot;),
+-                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_windstille_widget), &amp;WindstilleWidget::selection_connect_parent));
++                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_document), &amp;Document::selection_connect_parent));
+   action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;ClearParent&quot;, &quot;clear_parent&quot;, &quot;Clear Parent&quot;, &quot;Clear Parent&quot;),
+-                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_windstille_widget), &amp;WindstilleWidget::selection_clear_parent));
++                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_document), &amp;Document::selection_clear_parent));
+ 
+   action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;ResetRotation&quot;, &quot;reload&quot;, &quot;Reset Rotation&quot;, &quot;Reset Rotation&quot;),
+-                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_windstille_widget), &amp;WindstilleWidget::selection_reset_rotation));
++                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_document), &amp;Document::selection_reset_rotation));
+   action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;ResetScale&quot;, &quot;reload&quot;, &quot;Reset Scale&quot;, &quot;Reset Scale&quot;),
+-                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_windstille_widget), &amp;WindstilleWidget::selection_reset_scale));
++                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_document), &amp;Document::selection_reset_scale));
+ 
+   action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;ObjectProperties&quot;, &quot;properties&quot;, &quot;Object Properties&quot;, &quot;Object Properties&quot;),
+-                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_windstille_widget), &amp;WindstilleWidget::selection_object_properties));
++                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_document), &amp;Document::selection_object_properties));
+ 
+   action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;HFlipObject&quot;, &quot;object_hflip&quot;, &quot;Horizontal Flip&quot;, &quot;Horizontal Flip&quot;),
+-                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_windstille_widget), &amp;WindstilleWidget::selection_hflip));
++                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_document), &amp;Document::selection_hflip));
+   action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;VFlipObject&quot;, &quot;object_vflip&quot;, &quot;Vertical Flip&quot;, &quot;Vertical Flip&quot;),
+-                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_windstille_widget), &amp;WindstilleWidget::selection_vflip));
++                    sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_document), &amp;Document::selection_vflip));
+ 
+   action_group-&gt;add(Gtk::Action::create(&quot;MenuView&quot;,    &quot;_View&quot;));
+   action_group-&gt;add(Gtk::Action::create(&quot;Zoom100&quot;,     Gtk::Stock::ZOOM_100),
+@@ -695,7 +696,7 @@
+ {
+   if (WindstilleWidget* wst = get_windstille_widget())
+     {
+-      wst-&gt;undo();
++      wst-&gt;get_document().undo();
+       update_undo_state();
+       queue_draw();
+     }
+@@ -706,7 +707,7 @@
+ {
+   if (WindstilleWidget* wst = get_windstille_widget())
+     {
+-      wst-&gt;redo();
++      wst-&gt;get_document().redo();
+       update_undo_state();
+       queue_draw();
+     }
+@@ -823,12 +824,12 @@
+ }
+ 
+ void
+-EditorWindow::call_with_windstille_widget(void (WindstilleWidget::*func)())
++EditorWindow::call_with_document(void (Document::*func)())
+ {
+   WindstilleWidget* wst = get_windstille_widget();
+   if (wst)
+     {
+-      (wst-&gt;*func)();
++      (wst-&gt;get_document().*func)();
+     }
+ }
+ 
+@@ -876,8 +877,8 @@
+ {
+   if (WindstilleWidget* wst = get_windstille_widget())
+     {
+-      clipboard = wst-&gt;get_selection()-&gt;clone();
+-      wst-&gt;selection_delete();
++      clipboard = wst-&gt;get_document().get_selection()-&gt;clone();
++      wst-&gt;get_document().selection_delete();
+       queue_draw();
+     }
+ }
+@@ -887,7 +888,7 @@
+ {
+   if (WindstilleWidget* wst = get_windstille_widget())
+     {
+-      clipboard = wst-&gt;get_selection()-&gt;clone();
++      clipboard = wst-&gt;get_document().get_selection()-&gt;clone();
+     }
+ }
+ 
+@@ -942,7 +943,7 @@
+               layer-&gt;add(*i);
+             }
+ 
+-          wst-&gt;set_selection(clipboard);
++          wst-&gt;get_document().set_selection(clipboard);
+           clipboard = clipboard-&gt;clone();
+           queue_draw();
+         }
+@@ -958,7 +959,7 @@
+       LayerHandle layer = wst-&gt;get_current_layer();
+       SelectionHandle selection = Selection::create();
+       selection-&gt;add(layer-&gt;begin(), layer-&gt;end());
+-      wst-&gt;set_selection(selection);
++      wst-&gt;get_document().set_selection(selection);
+     }
+ }
+ 
+
+Modified: trunk/windstille/src/editor/editor_window.hpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.hpp	2009-09-08 23:22:14 UTC (rev 3206)
++++ trunk/windstille/src/editor/editor_window.hpp	2009-09-09 00:37:20 UTC (rev 3207)
+@@ -34,6 +34,7 @@
+ #include &quot;editor/minimap_widget.hpp&quot;
+ #include &quot;editor/object_selector.hpp&quot;
+ #include &quot;editor/layer_manager.hpp&quot;
++#include &quot;editor/document.hpp&quot;
+ 
+ class Tool;
+ class WindstilleWidget;
+@@ -148,7 +149,7 @@
+   /** Queue a file to be loaded once the editor is full realized */
+   void queue_for_load(const std::string&amp; filename);
+ 
+-  void call_with_windstille_widget(void (WindstilleWidget::*func)());
++  void call_with_document(void (Document::*func)());
+ 
+   void on_recent_file(const Glib::RefPtr&lt;Gtk::RecentAction&gt;&amp; recent_action);
+   
+
+Modified: trunk/windstille/src/editor/select_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/select_tool.cpp	2009-09-08 23:22:14 UTC (rev 3206)
++++ trunk/windstille/src/editor/select_tool.cpp	2009-09-09 00:37:20 UTC (rev 3207)
+@@ -43,11 +43,11 @@
+   start_time = event-&gt;time;
+   click_pos = wst.get_state().screen_to_world(Vector2f(static_cast&lt;float&gt;(event-&gt;x), static_cast&lt;float&gt;(event-&gt;y)));
+ 
+-  ctrl_point = wst.get_control_point(click_pos);
++  ctrl_point = wst.get_document().get_control_point(click_pos);
+   if (ctrl_point)
+     {
+       mode = CONTROL_DRAG_MODE;
+-      wst.clear_control_points();
++      wst.get_document().clear_control_points();
+       ctrl_point-&gt;on_move_start(event);
+     }
+   else
+@@ -55,30 +55,30 @@
+       ObjectModelHandle object = wst.get_sector_model()-&gt;get_object_at(click_pos, wst.get_select_mask());
+       if (object.get())
+         {
+-          if (wst.get_selection()-&gt;has_object(object))
++          if (wst.get_document().get_selection()-&gt;has_object(object))
+             {
+-              selection = wst.get_selection();
++              selection = wst.get_document().get_selection();
+               if (event-&gt;state &amp; GDK_SHIFT_MASK)
+                 {
+                   selection-&gt;remove(object);
+                 }
+               else
+                 {
+-                  selection = wst.get_selection();
++                  selection = wst.get_document().get_selection();
+                 }
+             }
+           else
+             {
+               if (event-&gt;state &amp; GDK_SHIFT_MASK)
+                 {
+-                  selection = wst.get_selection();
++                  selection = wst.get_document().get_selection();
+                   selection-&gt;add(object);
+                 }
+               else
+                 {
+                   selection = Selection::create();
+                   selection-&gt;add(object);
+-                  wst.set_selection(selection);
++                  wst.get_document().set_selection(selection);
+                 }
+             }
+       
+@@ -175,7 +175,7 @@
+   if (mode == CONTROL_DRAG_MODE)
+     {
+       ctrl_point-&gt;on_move_end(event, pos - click_pos);
+-      wst.create_control_points();
++      wst.get_document().create_control_points();
+       wst.queue_draw();
+     }
+   else if (mode == OBJECT_DRAG_MODE)
+@@ -205,11 +205,11 @@
+       if (event-&gt;state &amp; GDK_SHIFT_MASK)
+         {
+           SelectionHandle new_selection = wst.get_sector_model()-&gt;get_selection(rect, wst.get_select_mask());
+-          wst.get_selection()-&gt;add(new_selection-&gt;begin(), new_selection-&gt;end());
++          wst.get_document().get_selection()-&gt;add(new_selection-&gt;begin(), new_selection-&gt;end());
+         }
+       else
+         {
+-          wst.set_selection(wst.get_sector_model()-&gt;get_selection(rect, wst.get_select_mask()));
++          wst.get_document().set_selection(wst.get_sector_model()-&gt;get_selection(rect, wst.get_select_mask()));
+         }
+       wst.queue_draw();
+     }
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-09-08 23:22:14 UTC (rev 3206)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-09-09 00:37:20 UTC (rev 3207)
+@@ -47,14 +47,13 @@
+                                    const Glib::RefPtr&lt;const Gdk::GL::Config&gt;&amp;  glconfig,
+                                    const Glib::RefPtr&lt;const Gdk::GL::Context&gt;&amp; share_list)
+   : editor(editor_),
+-    document(new Document),
++    m_document(new Document),
+     filename(),
+     control_points(),
+     state(),
+     compositor(),
+     sc(),
+     scroll_tool(new ScrollTool),
+-    selection(),
+     map_type(DecalObjectModel::COLORMAP),
+     background_pattern(),
+     select_mask(1),
+@@ -119,7 +118,7 @@
+   targets.push_back(Gtk::TargetEntry(&quot;application/x-windstille-decal&quot;));
+   drag_dest_set(targets, Gtk::DEST_DEFAULT_ALL, Gdk::ACTION_COPY);
+ 
+-  set_selection(Selection::create());
++  m_document-&gt;signal_on_change().connect(sigc::mem_fun(this, &amp;WindstilleWidget::on_document_change));
+ }
+ 
+ WindstilleWidget::~WindstilleWidget()
+@@ -129,9 +128,9 @@
+ void
+ WindstilleWidget::execute(CommandHandle cmd)
+ {
+-  document-&gt;get_undo_manager().execute(cmd);
++  m_document-&gt;get_undo_manager().execute(cmd);
+   EditorWindow::current()-&gt;update_undo_state();
+-  document-&gt;get_sector_model().rebuild_scene_graph();
++  m_document-&gt;get_sector_model().rebuild_scene_graph();
+ }
+ 
+ bool
+@@ -256,7 +255,7 @@
+ WindstilleWidget::update(float delta)
+ {
+   std::cout &lt;&lt; this &lt;&lt; &quot; WindstilleWidget::update(&quot; &lt;&lt; delta &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
+-  document-&gt;get_sector_model().update(delta);
++  m_document-&gt;get_sector_model().update(delta);
+   queue_draw();
+ }
+ 
+@@ -267,7 +266,7 @@
+     {
+       state.push(*sc);
+       
+-      sc-&gt;light().fill_screen(document-&gt;get_sector_model().get_ambient_color());
++      sc-&gt;light().fill_screen(m_document-&gt;get_sector_model().get_ambient_color());
+ 
+       if (draw_background_pattern)
+         {
+@@ -280,15 +279,15 @@
+         }
+ 
+       if (draw_only_active_layers)
+-        document-&gt;get_sector_model().draw(*sc, SelectMask());
++        m_document-&gt;get_sector_model().draw(*sc, SelectMask());
+       else
+-        document-&gt;get_sector_model().draw(*sc, select_mask);
++        m_document-&gt;get_sector_model().draw(*sc, select_mask);
+ 
+-      if (!selection-&gt;empty())
++      if (!m_document-&gt;get_selection()-&gt;empty())
+         {
+-          for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
++          for(Selection::iterator i = m_document-&gt;get_selection()-&gt;begin(); i != m_document-&gt;get_selection()-&gt;end(); ++i)
+             {
+-              (*i)-&gt;draw_select(*sc, i == selection-&gt;begin());
++              (*i)-&gt;draw_select(*sc, i == m_document-&gt;get_selection()-&gt;begin());
+             }
+ 
+           //sc-&gt;control().draw_rect(selection-&gt;get_bounding_box(), Color(1.0f, 1.0f, 1.0f, 1.0f));
+@@ -305,7 +304,7 @@
+           EditorWindow::current()-&gt;get_current_tool()-&gt;draw(*sc);
+         }
+ 
+-      compositor-&gt;render(*sc, document-&gt;get_sector_model().get_scene_graph(), state);
++      compositor-&gt;render(*sc, m_document-&gt;get_sector_model().get_scene_graph(), state);
+ 
+       state.pop(*sc);
+ 
+@@ -317,274 +316,6 @@
+     }
+ }
+ 
+-void
+-WindstilleWidget::undo()
+-{
+-  document-&gt;get_undo_manager().undo();
+-}
+-
+-void
+-WindstilleWidget::redo()
+-{
+-  document-&gt;get_undo_manager().redo();
+-}
+-
+-void
+-WindstilleWidget::selection_raise()
+-{
+-  for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
+-    {
+-      document-&gt;get_sector_model().raise(*i);
+-    }
+-  queue_draw();
+-}
+-
+-void
+-WindstilleWidget::selection_lower()
+-{
+-  for(Selection::reverse_iterator i = selection-&gt;rbegin(); i != selection-&gt;rend(); ++i)
+-    {
+-      document-&gt;get_sector_model().lower(*i);
+-    }
+-  queue_draw();
+-}
+-
+-void
+-WindstilleWidget::selection_raise_to_top()
+-{
+-  for(Selection::reverse_iterator i = selection-&gt;rbegin(); i != selection-&gt;rend(); ++i)
+-    {
+-      document-&gt;get_sector_model().raise_to_top(*i);
+-    }
+-  queue_draw();
+-}
+-
+-void
+-WindstilleWidget::selection_lower_to_bottom()
+-{
+-  for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
+-    {
+-      document-&gt;get_sector_model().lower_to_bottom(*i);
+-    }
+-  queue_draw();
+-}
+-
+-void
+-WindstilleWidget::selection_vflip()
+-{
+-  if (!selection-&gt;empty())
+-    {
+-      boost::shared_ptr&lt;GroupCommand&gt; group_command(new GroupCommand());
+-
+-      if (selection-&gt;size() &gt; 1)
+-        {
+-          const Vector2f&amp; center = selection-&gt;get_bounding_box().get_center();
+-          for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
+-            {
+-              Vector2f pos = (*i)-&gt;get_world_pos();
+-          
+-              pos.y = center.y + (center.y - pos.y);
+-          
+-              //(*i)-&gt;set_world_pos(pos);
+-              group_command-&gt;add(CommandHandle(new FunctorCommand(boost::bind(&amp;ObjectModel::set_world_pos, *i, (*i)-&gt;get_world_pos()),
+-                                                                  boost::bind(&amp;ObjectModel::set_world_pos, *i, pos))));
+-            }
+-        }
+-
+-      for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
+-        {
+-          //(*i)-&gt;set_vflip(!(*i)-&gt;get_vflip());
+-          group_command-&gt;add(CommandHandle(new FunctorCommand(boost::bind(&amp;ObjectModel::set_vflip, *i,  (*i)-&gt;get_vflip()),
+-                                                              boost::bind(&amp;ObjectModel::set_vflip, *i, !(*i)-&gt;get_vflip()))));
+-        }
+-
+-      execute(group_command);
+-    }
+-}
+-
+-void
+-WindstilleWidget::selection_hflip()
+-{
+-  if (!selection-&gt;empty())
+-    {
+-      boost::shared_ptr&lt;GroupCommand&gt; group_command(new GroupCommand());
+-
+-      if (selection-&gt;size() &gt; 1)
+-        {
+-          const Vector2f&amp; center = selection-&gt;get_bounding_box().get_center();
+-          for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
+-            {
+-              Vector2f pos = (*i)-&gt;get_world_pos();
+-          
+-              pos.x = center.x + (center.x - pos.x);
+-          
+-              //(*i)-&gt;set_world_pos(pos);
+-              group_command-&gt;add(CommandHandle(new FunctorCommand(boost::bind(&amp;ObjectModel::set_world_pos, *i, (*i)-&gt;get_world_pos()),
+-                                                                  boost::bind(&amp;ObjectModel::set_world_pos, *i, pos))));
+-            }
+-        }
+-
+-      for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
+-        {
+-          //(*i)-&gt;set_hflip(!(*i)-&gt;get_hflip());
+-          group_command-&gt;add(CommandHandle(new FunctorCommand(boost::bind(&amp;ObjectModel::set_hflip, *i,  (*i)-&gt;get_hflip()),
+-                                                              boost::bind(&amp;ObjectModel::set_hflip, *i, !(*i)-&gt;get_hflip()))));
+-        }
+-
+-      execute(group_command);
+-    }
+-}
+-
+-void
+-WindstilleWidget::selection_connect_parent()
+-{
+-  if (selection-&gt;size() &gt;= 2)
+-    {
+-      boost::shared_ptr&lt;GroupCommand&gt; group_command(new GroupCommand());
+-
+-      ObjectModelHandle parent = *selection-&gt;begin();
+-
+-      Selection::iterator i = selection-&gt;begin();
+-      ++i;
+-      for(; i != selection-&gt;end(); ++i)
+-        {
+-          //(*i)-&gt;set_parent(parent);
+-          group_command-&gt;add(CommandHandle(new FunctorCommand(boost::bind(&amp;ObjectModel::set_parent, *i, (*i)-&gt;get_parent(), true),
+-                                                              boost::bind(&amp;ObjectModel::set_parent, *i, parent, true))));
+-        }
+-
+-      execute(group_command);
+-    }
+-}
+-
+-void
+-WindstilleWidget::selection_clear_parent()
+-{
+-  boost::shared_ptr&lt;GroupCommand&gt; group_command(new GroupCommand());
+-
+-  for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
+-    {
+-      //(*i)-&gt;set_parent(ObjectModelHandle());
+-      group_command-&gt;add(CommandHandle(new FunctorCommand(boost::bind(&amp;ObjectModel::set_parent, *i, (*i)-&gt;get_parent(), true),
+-                                                          boost::bind(&amp;ObjectModel::set_parent, *i, ObjectModelHandle(), true))));
+-    }
+-
+-  execute(group_command);
+-}
+-
+-void
+-WindstilleWidget::selection_duplicate()
+-{
+-  boost::shared_ptr&lt;GroupCommand&gt; group_command(new GroupCommand());
+-  std::map&lt;ObjectModelHandle, ObjectModelHandle&gt; parent_map;
+-
+-  SelectionHandle new_selection = Selection::create();
+-  for(Selection::reverse_iterator i = selection-&gt;rbegin(); i != selection-&gt;rend(); ++i)
+-    {
+-      LayerHandle layer = document-&gt;get_sector_model().get_layer(*i);
+-      ObjectModelHandle obj = (*i)-&gt;clone();
+-
+-      parent_map[*i] = obj;
+-
+-      if (!layer)
+-        {
+-          EditorWindow::current()-&gt;print(&quot;Couldn't find parent layer while duplicating&quot;);
+-        }
+-      else
+-        {
+-          // Move clone a litte to make it more obvious that something happened
+-          obj-&gt;set_rel_pos(obj-&gt;get_rel_pos() + Vector2f(32.0f, 32.0f));
+-          new_selection-&gt;add(obj);
+-
+-          //layer-&gt;add(obj);
+-          group_command-&gt;add(CommandHandle(new ObjectAddCommand(layer, obj)));
+-        }
+-    }
+-
+-  // Second pass to set the parents to the cloned objects
+-  for(Selection::iterator i = new_selection-&gt;begin(); i != new_selection-&gt;end(); ++i)
+-    {
+-      if ((*i)-&gt;get_parent())
+-        {
+-          std::map&lt;ObjectModelHandle, ObjectModelHandle&gt;::iterator it = parent_map.find((*i)-&gt;get_parent());
+-          
+-          if (it == parent_map.end())
+-            {
+-              // When the parent wasn't part of the selection, leave
+-              // the parent untouched
+-            }
+-          else
+-            {
+-              (*i)-&gt;set_parent(it-&gt;second);
+-            }
+-        }
+-    }
+-
+-  execute(group_command);
+-  set_selection(new_selection);
+-}
+-
+-void
+-WindstilleWidget::selection_reset_rotation()
+-{
+-  boost::shared_ptr&lt;GroupCommand&gt; group_command(new GroupCommand());
+-
+-  for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
+-    {
+-      DecalObjectModel* decal = dynamic_cast&lt;DecalObjectModel*&gt;(i-&gt;get());
+-
+-      if (decal)
+-        {
+-          //decal-&gt;set_angle(0.0f);
+-          group_command-&gt;add(CommandHandle(new FunctorCommand(boost::bind(&amp;DecalObjectModel::set_angle, decal, decal-&gt;get_angle()),
+-                                                              boost::bind(&amp;DecalObjectModel::set_angle, decal, 0.0f))));
+-        }
+-    }
+-
+-  on_selection_change();
+-  execute(group_command);
+-}
+-
+-void
+-WindstilleWidget::selection_object_properties()
+-{
+-  std::cout &lt;&lt; &quot;Display Dialog&quot; &lt;&lt; std::endl;
+-}
+-
+-void
+-WindstilleWidget::selection_reset_scale()
+-{
+-  boost::shared_ptr&lt;GroupCommand&gt; group_command(new GroupCommand());
+-
+- for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
+-    {
+-      DecalObjectModel* decal = dynamic_cast&lt;DecalObjectModel*&gt;(i-&gt;get());
+-      if (decal)
+-        {
+-          //decal-&gt;set_scale(Vector2f(1.0f, 1.0f));
+-          group_command-&gt;add(CommandHandle(new FunctorCommand(boost::bind(&amp;DecalObjectModel::set_scale, decal, decal-&gt;get_scale()),
+-                                                              boost::bind(&amp;DecalObjectModel::set_scale, decal, Vector2f(1.0f, 1.0f)))));
+-        }
+-    }
+-
+- on_selection_change();
+- execute(group_command);
+-}
+-
+-void
+-WindstilleWidget::selection_delete()
+-{
+-  boost::shared_ptr&lt;GroupCommand&gt; group_cmd(new GroupCommand());
+-  for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
+-    {
+-      group_cmd-&gt;add(CommandHandle(new ObjectRemoveCommand(document-&gt;get_sector_model(), *i)));
+-    }
+-
+-  execute(group_cmd);
+-  selection-&gt;clear();
+-  queue_draw();
+-}
+-
+ bool
+ WindstilleWidget::scroll(GdkEventScroll* ev)
+ {
+@@ -598,7 +329,7 @@
+     }
+   return false;
+ }
+-
++
+ bool
+ WindstilleWidget::mouse_down(GdkEventButton* ev)
+ {
+@@ -684,7 +415,7 @@
+         break;
+ 
+       case GDK_d:
+-        selection_duplicate();
++        m_document-&gt;selection_duplicate();
+         break;
+ 
+       case GDK_s:
+@@ -692,7 +423,7 @@
+         break;
+ 
+       case GDK_Delete:
+-        selection_delete();
++        m_document-&gt;selection_delete();
+         break;
+ 
+       case GDK_Left:
+@@ -763,7 +494,7 @@
+     }
+   else
+     {
+-      execute(CommandHandle(new ObjectAddCommand(document-&gt;get_sector_model().get_layer(path_), object)));
++      execute(CommandHandle(new ObjectAddCommand(m_document-&gt;get_sector_model().get_layer(path_), object)));
+     }
+ }
+ 
+@@ -796,20 +527,6 @@
+   queue_draw();
+ }
+ 
+-void
+-WindstilleWidget::set_selection(const SelectionHandle&amp; selection_)
+-{
+-  selection = selection_;
+-  selection-&gt;signal_changed.connect(sigc::mem_fun(*this, &amp;WindstilleWidget::on_selection_change));
+-  on_selection_change();
+-}
+-
+-SelectionHandle
+-WindstilleWidget::get_selection() const
+-{
+-  return selection;
+-}
+-
+ LayerHandle
+ WindstilleWidget::get_current_layer()
+ {
+@@ -824,7 +541,7 @@
+     }
+   else
+     {
+-      return document-&gt;get_sector_model().get_layer(path_);  
++      return m_document-&gt;get_sector_model().get_layer(path_);  
+     }
+ }
+ 
+@@ -847,44 +564,13 @@
+ }
+ 
+ void
+-WindstilleWidget::on_selection_change()
++WindstilleWidget::on_document_change()
+ {
+-  control_points.clear();
+-
+-  if (!selection-&gt;is_moving())
+-    {
+-      selection-&gt;add_control_points(control_points);
+-    }
+-  
++  m_document-&gt;get_sector_model().rebuild_scene_graph();
+   queue_draw();
+ }
+ 
+-ControlPointHandle
+-WindstilleWidget::get_control_point(const Vector2f&amp; pos) const
+-{
+-  for(std::vector&lt;ControlPointHandle&gt;::const_iterator i = control_points.begin();  
+-      i != control_points.end(); ++i)
+-    {
+-      if ((*i)-&gt;get_bounding_box().is_inside(pos))
+-        return *i;
+-    }
+-  return ControlPointHandle();
+-}
+-
+ void
+-WindstilleWidget::clear_control_points()
+-{
+-  control_points.clear();
+-}
+-
+-void
+-WindstilleWidget::create_control_points()
+-{
+-  control_points.clear();
+-  selection-&gt;add_control_points(control_points);
+-}
+-
+-void
+ WindstilleWidget::save_screenshot(const std::string&amp; filename_)
+ {
+   Glib::RefPtr&lt;Gdk::GL::Window&gt; glwindow = get_gl_window();
+@@ -900,7 +586,7 @@
+ WindstilleWidget::load_file(const std::string&amp; filename_)
+ {
+   filename = filename_;
+-  document-&gt;get_sector_model().load(filename);
++  m_document-&gt;get_sector_model().load(filename);
+   queue_draw();
+ }
+ 
+
+Modified: trunk/windstille/src/editor/windstille_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.hpp	2009-09-08 23:22:14 UTC (rev 3206)
++++ trunk/windstille/src/editor/windstille_widget.hpp	2009-09-09 00:37:20 UTC (rev 3207)
+@@ -59,7 +59,7 @@
+ private:
+   EditorWindow&amp; editor;
+ 
+-  boost::scoped_ptr&lt;Document&gt; document;
++  boost::scoped_ptr&lt;Document&gt; m_document;
+ 
+   std::string filename;
+   std::vector&lt;ControlPointHandle&gt; control_points;
+@@ -68,7 +68,6 @@
+   boost::scoped_ptr&lt;Compositor&gt; compositor;
+   boost::scoped_ptr&lt;SceneContext&gt; sc;
+   boost::scoped_ptr&lt;ScrollTool&gt; scroll_tool;
+-  SelectionHandle selection;
+   DecalObjectModel::MapType map_type;
+   Texture background_pattern;
+   SelectMask select_mask;
+@@ -112,34 +111,10 @@
+   void draw();
+   void update(float delta);
+ 
+-  void undo();
+-  void redo();
++  Document&amp;    get_document() const { return *m_document; }
++  SectorModel* get_sector_model() const { return &amp;(m_document-&gt;get_sector_model()); }
++  UndoManager* get_undo_manager() const { return &amp;(m_document-&gt;get_undo_manager()); }
+ 
+-  void selection_raise();
+-  void selection_lower();
+-
+-  void selection_raise_to_top();
+-  void selection_lower_to_bottom();
+-
+-  void selection_vflip();
+-  void selection_hflip();
+-
+-  void selection_connect_parent();
+-  void selection_clear_parent();
+-  
+-  void selection_duplicate();
+-  void selection_delete();
+-
+-  void selection_reset_rotation();
+-  void selection_reset_scale();
+-
+-  void selection_object_properties();
+-
+-  SectorModel* get_sector_model() const { return &amp;(document-&gt;get_sector_model()); }
+-  UndoManager* get_undo_manager() const { return &amp;(document-&gt;get_undo_manager()); }
+-  void set_selection(const SelectionHandle&amp; selection);
+-  SelectionHandle get_selection() const;
+-
+   SelectMask&amp; get_select_mask() { return select_mask; }
+ 
+   SceneContext* get_sc() const { return sc.get(); }
+@@ -160,12 +135,8 @@
+   std::string get_filename() const { return filename; }
+   void set_filename(const std::string&amp; filename_) { filename = filename_; }
+ 
+-  ControlPointHandle get_control_point(const Vector2f&amp; pos) const;
+-
+-  void clear_control_points();
+-  void create_control_points();
+-
+   void on_selection_change();
++  void on_document_change();
+ 
+   void save_screenshot(const std::string&amp; filename);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002203.html">[Windstille-commit] r3206 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="002205.html">[Windstille-commit] r3208 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2204">[ date ]</a>
+              <a href="thread.html#2204">[ thread ]</a>
+              <a href="subject.html#2204">[ subject ]</a>
+              <a href="author.html#2204">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

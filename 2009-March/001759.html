@@ -1,0 +1,262 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2762 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2762%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200903251519.n2PFJwEM016303%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001758.html">
+   <LINK REL="Next"  HREF="001760.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2762 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2762%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200903251519.n2PFJwEM016303%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2762 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Mar 25 16:19:58 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001758.html">[Windstille-commit] r2761 - in trunk/windstille: . src/editor
+</A></li>
+        <LI>Next message: <A HREF="001760.html">[Windstille-commit] r2763 - in trunk/windstille: . src src/editor	src/util
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1759">[ date ]</a>
+              <a href="thread.html#1759">[ thread ]</a>
+              <a href="subject.html#1759">[ subject ]</a>
+              <a href="author.html#1759">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-25 16:19:57 +0100 (Wed, 25 Mar 2009)
+New Revision: 2762
+
+Modified:
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+   trunk/windstille/src/editor/select_tool.cpp
+   trunk/windstille/src/editor/select_tool.hpp
+   trunk/windstille/src/editor/snap_data.hpp
+Log:
+Implemented snapping of selections with more then one object
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-03-25 05:59:13 UTC (rev 2761)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-03-25 15:19:57 UTC (rev 2762)
+@@ -179,40 +179,20 @@
+ }
+ 
+ SnapData
+-SectorModel::snap_object(const ObjectModelHandle&amp; object) const
++SectorModel::snap_object(const Rectf&amp; rect, const std::set&lt;ObjectModelHandle&gt;&amp; ignore_objects) const
+ {
+-  float min_x_offset = std::numeric_limits&lt;float&gt;::max();
+-  float min_y_offset = std::numeric_limits&lt;float&gt;::max();
++  //float min_x_offset = std::numeric_limits&lt;float&gt;::max();
++  //float min_y_offset = std::numeric_limits&lt;float&gt;::max();
+   SnapData best_snap;
+ 
+-  const Rectf&amp; rect = object-&gt;get_bounding_box();
+-
+   // Find the smallest snap offset
+   for(Objects::const_reverse_iterator i = objects.rbegin(); i != objects.rend(); ++i)
+     {
+-      if (object != *i)
++      // object is not in the list of objects to ignore
++      if (ignore_objects.find(*i) == ignore_objects.end())
+         {
+           SnapData snap = (*i)-&gt;snap_object(rect);
+-
+-          if (snap.x_set)
+-            {
+-              if (snap.offset.x &lt; min_x_offset)
+-                {
+-                  min_x_offset = snap.offset.x;
+-                  best_snap.offset.x = snap.offset.x;
+-                  best_snap.x_set = true;
+-                }
+-            }
+-
+-          if (snap.y_set)
+-            {
+-              if (snap.offset.y &lt; min_y_offset)
+-                {
+-                  min_y_offset = snap.offset.y;
+-                  best_snap.offset.y = snap.offset.y;
+-                  best_snap.y_set = true;
+-                }
+-            }
++          best_snap.merge(snap);
+         }
+     }
+ 
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-03-25 05:59:13 UTC (rev 2761)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-03-25 15:19:57 UTC (rev 2762)
+@@ -19,6 +19,7 @@
+ #ifndef HEADER_SECTOR_MODEL_HPP
+ #define HEADER_SECTOR_MODEL_HPP
+ 
++#include &lt;set&gt;
+ #include &lt;memory&gt;
+ #include &lt;gtkmm/treestore.h&gt;
+ #include &lt;vector&gt;
+@@ -90,7 +91,7 @@
+   void raise(ObjectModelHandle object);
+   void lower(ObjectModelHandle object);
+ 
+-  SnapData snap_object(const ObjectModelHandle&amp; object) const;
++  SnapData snap_object(const Rectf&amp; object, const std::set&lt;ObjectModelHandle&gt;&amp; ignore_objects) const;
+ 
+   void write(lisp::Writer&amp; writer) const;
+ 
+
+Modified: trunk/windstille/src/editor/select_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/select_tool.cpp	2009-03-25 05:59:13 UTC (rev 2761)
++++ trunk/windstille/src/editor/select_tool.cpp	2009-03-25 15:19:57 UTC (rev 2762)
+@@ -78,6 +78,21 @@
+   return true;
+ }
+ 
++Vector2f
++SelectTool::process_snap(WindstilleWidget&amp; wst)
++{
++  std::set&lt;ObjectModelHandle&gt; objects(selection-&gt;begin(), selection-&gt;end());
++  SnapData best_snap;
++
++  for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
++    {
++      SnapData snap = wst.get_sector_model()-&gt;snap_object((*i)-&gt;get_bounding_box(), objects);
++      best_snap.merge(snap);
++    }
++              
++  return best_snap.offset;
++ }
++
+ bool
+ SelectTool::mouse_move(GdkEventMotion* event, WindstilleWidget&amp; wst)
+ {
+@@ -86,13 +101,10 @@
+   if (mode == DRAG_MODE)
+     {
+       selection-&gt;on_move_update(pos - click_pos);
+-
+-      if ((event-&gt;state &amp; GDK_CONTROL_MASK) &amp;&amp; selection-&gt;size() == 1)
++      
++      if (event-&gt;state &amp; GDK_CONTROL_MASK)
+         {
+-          SnapData snap = wst.get_sector_model()-&gt;snap_object(*selection-&gt;begin());
+-          
+-          if (snap.x_set || snap.y_set)
+-            selection-&gt;on_move_update(pos - click_pos + snap.offset);
++          selection-&gt;on_move_update(pos - click_pos + process_snap(wst));
+         }
+     }
+   else if (mode == SELECT_MODE)
+@@ -115,17 +127,15 @@
+   if (mode == DRAG_MODE)
+     {
+       selection-&gt;on_move_update(pos - click_pos);
+-
+-      Vector2f p = pos - click_pos;
+-      if ((event-&gt;state &amp; GDK_CONTROL_MASK) &amp;&amp; selection-&gt;size() == 1)
++      
++      if (event-&gt;state &amp; GDK_CONTROL_MASK)
+         {
+-          SnapData snap = wst.get_sector_model()-&gt;snap_object(*selection-&gt;begin());
+-          
+-          if (snap.x_set || snap.y_set)
+-            p += snap.offset;
++          selection-&gt;on_move_end(pos - click_pos + process_snap(wst));
+         }
+-      
+-      selection-&gt;on_move_end(p);
++      else
++        {
++          selection-&gt;on_move_end(pos - click_pos);
++        }
+     }
+   else if (mode == SELECT_MODE)
+     {
+
+Modified: trunk/windstille/src/editor/select_tool.hpp
+===================================================================
+--- trunk/windstille/src/editor/select_tool.hpp	2009-03-25 05:59:13 UTC (rev 2761)
++++ trunk/windstille/src/editor/select_tool.hpp	2009-03-25 15:19:57 UTC (rev 2762)
+@@ -35,7 +35,9 @@
+     DRAG_MODE,
+     NO_MODE
+   } mode;
+-  
++
++  Vector2f process_snap(WindstilleWidget&amp; wst);
++
+ public:
+   SelectTool();
+   
+
+Modified: trunk/windstille/src/editor/snap_data.hpp
+===================================================================
+--- trunk/windstille/src/editor/snap_data.hpp	2009-03-25 05:59:13 UTC (rev 2761)
++++ trunk/windstille/src/editor/snap_data.hpp	2009-03-25 15:19:57 UTC (rev 2762)
+@@ -31,6 +31,23 @@
+       x_set(false),
+       y_set(false)
+   {}
++  
++  void merge(const SnapData&amp; rhs) 
++  {
++    if (((x_set &amp;&amp; rhs.x_set) &amp;&amp; (rhs.offset.x &lt; offset.x)) ||
++        (!x_set &amp;&amp; rhs.x_set))
++      {
++        offset.x = rhs.offset.x;
++        x_set = true;
++      }
++
++    if (((y_set &amp;&amp; rhs.y_set) &amp;&amp; (rhs.offset.y &lt; offset.y)) ||
++        (!y_set &amp;&amp; rhs.y_set))
++      {
++        offset.y = rhs.offset.y;
++        y_set = true;
++      }
++  }
+ };
+ 
+ #endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001758.html">[Windstille-commit] r2761 - in trunk/windstille: . src/editor
+</A></li>
+	<LI>Next message: <A HREF="001760.html">[Windstille-commit] r2763 - in trunk/windstille: . src src/editor	src/util
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1759">[ date ]</a>
+              <a href="thread.html#1759">[ thread ]</a>
+              <a href="subject.html#1759">[ subject ]</a>
+              <a href="author.html#1759">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

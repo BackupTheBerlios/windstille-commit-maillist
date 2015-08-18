@@ -1,0 +1,238 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3250 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3250%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909142156.n8ELual3021621%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002246.html">
+   <LINK REL="Next"  HREF="002248.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3250 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3250%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909142156.n8ELual3021621%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3250 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Sep 14 23:56:36 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002246.html">[Windstille-commit] r3249 - trunk/windstille/src/navigation
+</A></li>
+        <LI>Next message: <A HREF="002248.html">[Windstille-commit] r3251 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2247">[ date ]</a>
+              <a href="thread.html#2247">[ thread ]</a>
+              <a href="subject.html#2247">[ subject ]</a>
+              <a href="author.html#2247">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-14 23:56:35 +0200 (Mon, 14 Sep 2009)
+New Revision: 3250
+
+Modified:
+   trunk/windstille/src/editor/object_model.cpp
+   trunk/windstille/src/editor/object_model.hpp
+   trunk/windstille/src/editor/select_tool.cpp
+Log:
+Moved grid snapping into ObjectModel, so objects can override the behaviour
+
+Modified: trunk/windstille/src/editor/object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/object_model.cpp	2009-09-14 21:55:59 UTC (rev 3249)
++++ trunk/windstille/src/editor/object_model.cpp	2009-09-14 21:56:35 UTC (rev 3250)
+@@ -188,7 +188,65 @@
+     return true;
+ }
+ 
++static float float_snap_to_grid(float v, float grid)
++{
++  return (roundf(v / grid) * grid) - v;
++}
++
+ SnapData
++ObjectModel::snap_to_grid(float grid_size) const
++{
++  const float snap_threshold = 16.0f;
++
++  const Rectf&amp; r = get_bounding_box();
++
++  Rectf snap_rect(float_snap_to_grid(r.left,   grid_size),
++                  float_snap_to_grid(r.top,    grid_size),
++                  float_snap_to_grid(r.right,  grid_size),
++                  float_snap_to_grid(r.bottom, grid_size));
++
++  SnapData best_snap;
++
++  {
++    SnapData snap;
++
++    if (fabs(snap_rect.left) &lt; snap_threshold)
++    {
++      snap.x_set = true;
++      snap.offset.x = snap_rect.left;
++    }
++
++    if (fabs(snap_rect.top) &lt; snap_threshold)
++    {
++      snap.y_set = true;
++      snap.offset.y = snap_rect.top;
++    }
++      
++    best_snap.merge(snap);
++  }
++
++  {
++    SnapData snap;
++
++    if (fabs(snap_rect.right) &lt; snap_threshold)
++    {
++      snap.x_set = true;
++      snap.offset.x = snap_rect.right;
++    }
++
++    if (fabs(snap_rect.bottom) &lt; snap_threshold)
++    {
++      snap.y_set = true;
++      snap.offset.y = snap_rect.bottom;
++    }
++      
++    best_snap.merge(snap);
++  }
++
++  return best_snap;
++}
++
++SnapData
+ ObjectModel::snap_object(const Rectf&amp; in) const
+ {
+   const Rectf&amp; rect = get_bounding_box();
+
+Modified: trunk/windstille/src/editor/object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/object_model.hpp	2009-09-14 21:55:59 UTC (rev 3249)
++++ trunk/windstille/src/editor/object_model.hpp	2009-09-14 21:56:35 UTC (rev 3250)
+@@ -65,6 +65,7 @@
+   virtual void   set_select_mask(const SelectMask&amp; select_mask_) { select_mask = select_mask_; }
+ 
+   SnapData snap_object(const Rectf&amp; rect) const;
++  SnapData snap_to_grid(float grid_size) const;
+ 
+   virtual bool get_hflip() const { return false; }
+   virtual bool get_vflip() const { return false; }
+
+Modified: trunk/windstille/src/editor/select_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/select_tool.cpp	2009-09-14 21:55:59 UTC (rev 3249)
++++ trunk/windstille/src/editor/select_tool.cpp	2009-09-14 21:56:35 UTC (rev 3250)
+@@ -98,75 +98,14 @@
+   wst.queue_draw();
+ }
+ 
+-static float snap_to_grid(float v, int grid)
+-{
+-    int v_i = static_cast&lt;int&gt;(v);
+-    int rounded = v_i / grid * grid;
+-    int left  = rounded;
+-    int right = rounded + ((v &gt;= 0) ? grid : -grid);
+-
+-    if (abs(left - v_i) &lt; abs(right - v_i))
+-    {
+-      return static_cast&lt;float&gt;(left) - v;
+-    }
+-    else
+-    {
+-      return static_cast&lt;float&gt;(right) - v;
+-    }
+-}
+-
+ Vector2f
+ SelectTool::process_grid_snap(WindstilleWidget&amp; wst)
+ {
+-  const int grid_width = 128;
+-  const float snap_distance = 16.0f;
+   SnapData best_snap;
+ 
+-  // Snap to the 64x64 grid
+   for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
+   {
+-    const Rectf&amp; r = (*i)-&gt;get_bounding_box();
+-
+-    Rectf snap_rect(snap_to_grid(r.left,   grid_width),
+-                    snap_to_grid(r.top,    grid_width),
+-                    snap_to_grid(r.right,  grid_width),
+-                    snap_to_grid(r.bottom, grid_width));
+-
+-    {
+-      SnapData snap;
+-
+-      if (fabs(snap_rect.left) &lt; snap_distance)
+-      {
+-        snap.x_set = true;
+-        snap.offset.x = snap_rect.left;
+-      }
+-
+-      if (fabs(snap_rect.top) &lt; snap_distance)
+-      {
+-        snap.y_set = true;
+-        snap.offset.y = snap_rect.top;
+-      }
+-      
+-      best_snap.merge(snap);
+-    }
+-
+-    {
+-      SnapData snap;
+-
+-      if (fabs(snap_rect.right) &lt; snap_distance)
+-      {
+-        snap.x_set = true;
+-        snap.offset.x = snap_rect.right;
+-      }
+-
+-      if (fabs(snap_rect.bottom) &lt; snap_distance)
+-      {
+-        snap.y_set = true;
+-        snap.offset.y = snap_rect.bottom;
+-      }
+-      
+-      best_snap.merge(snap);
+-    }
++    best_snap.merge((*i)-&gt;snap_to_grid(128));
+   }
+    
+   return best_snap.offset;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002246.html">[Windstille-commit] r3249 - trunk/windstille/src/navigation
+</A></li>
+	<LI>Next message: <A HREF="002248.html">[Windstille-commit] r3251 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2247">[ date ]</a>
+              <a href="thread.html#2247">[ thread ]</a>
+              <a href="subject.html#2247">[ subject ]</a>
+              <a href="author.html#2247">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

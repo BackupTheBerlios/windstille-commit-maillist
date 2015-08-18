@@ -1,0 +1,295 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2324 - trunk/griv/new
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2324%20-%20trunk/griv/new&In-Reply-To=%3C200808141401.m7EE1Njn009319%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001320.html">
+   <LINK REL="Next"  HREF="001336.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2324 - trunk/griv/new</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2324%20-%20trunk/griv/new&In-Reply-To=%3C200808141401.m7EE1Njn009319%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2324 - trunk/griv/new">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Aug 14 16:01:23 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001320.html">[Windstille-commit] r2300 - trunk/griv/new
+</A></li>
+        <LI>Next message: <A HREF="001336.html">[Windstille-commit] r2325 - in trunk/griv/new: . math
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1321">[ date ]</a>
+              <a href="thread.html#1321">[ thread ]</a>
+              <a href="subject.html#1321">[ subject ]</a>
+              <a href="author.html#1321">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-14 16:01:22 +0200 (Thu, 14 Aug 2008)
+New Revision: 2324
+
+Modified:
+   trunk/griv/new/database_thread.cpp
+   trunk/griv/new/database_thread.hpp
+   trunk/griv/new/file_database.cpp
+   trunk/griv/new/file_database.hpp
+   trunk/griv/new/griv.cpp
+   trunk/griv/new/tile_database.cpp
+   trunk/griv/new/tile_database.hpp
+Log:
+Display all files in the database when none are given on the command line
+
+Modified: trunk/griv/new/database_thread.cpp
+===================================================================
+--- trunk/griv/new/database_thread.cpp	2008-08-14 01:27:09 UTC (rev 2323)
++++ trunk/griv/new/database_thread.cpp	2008-08-14 14:01:22 UTC (rev 2324)
+@@ -33,6 +33,7 @@
+ 
+ enum DatabaseMessageType 
+ {
++  DATABASE_ALL_FILES_MESSAGE,
+   DATABASE_FILE_MESSAGE,
+   DATABASE_TILE_MESSAGE,
+   DATABASE_STORE_TILE_MESSAGE
+@@ -84,7 +85,18 @@
+       callback(callback)
+   {}
+ };
++
++class AllFilesDatabaseMessage : public DatabaseMessage
++{
++public:
++  boost::function&lt;void (FileEntry)&gt; callback;
+ 
++  AllFilesDatabaseMessage(const boost::function&lt;void (FileEntry)&gt;&amp; callback)
++    : DatabaseMessage(DATABASE_ALL_FILES_MESSAGE),
++      callback(callback)
++  {
++  }
++};
+ 
+ class StoreTileDatabaseMessage : public DatabaseMessage
+ {
+@@ -124,6 +136,12 @@
+ }
+ 
+ void
++DatabaseThread::request_all_files(const boost::function&lt;void (FileEntry)&gt;&amp; callback)
++{
++  queue.push(new AllFilesDatabaseMessage(callback));
++}
++
++void
+ DatabaseThread::store_tile(const Tile&amp; tile)
+ {
+   queue.push(new StoreTileDatabaseMessage(tile));
+@@ -190,6 +208,18 @@
+                 }
+                 break;
+ 
++              case DATABASE_ALL_FILES_MESSAGE:
++                {
++                  AllFilesDatabaseMessage* all_files_msg = static_cast&lt;AllFilesDatabaseMessage*&gt;(msg);
++                  std::vector&lt;FileEntry&gt; entries;
++                  file_db.get_file_entries(entries);
++                  for(std::vector&lt;FileEntry&gt;::iterator i = entries.begin(); i != entries.end(); ++i)
++                    {
++                      all_files_msg-&gt;callback(*i);
++                    }
++                }
++                break;
++
+               case DATABASE_TILE_MESSAGE:
+                 {
+                   TileDatabaseMessage* tile_msg = static_cast&lt;TileDatabaseMessage*&gt;(msg);
+
+Modified: trunk/griv/new/database_thread.hpp
+===================================================================
+--- trunk/griv/new/database_thread.hpp	2008-08-14 01:27:09 UTC (rev 2323)
++++ trunk/griv/new/database_thread.hpp	2008-08-14 14:01:22 UTC (rev 2324)
+@@ -60,6 +60,7 @@
+   
+   void request_tile(int fileid, int tilescale, int x, int y, const boost::function&lt;void (Tile)&gt;&amp; callback);
+   void request_file(const std::string&amp; filename, const boost::function&lt;void (FileEntry)&gt;&amp; callback);
++  void request_all_files(const boost::function&lt;void (FileEntry)&gt;&amp; callback);
+ 
+   void store_tile(const Tile&amp; tile);
+ 
+
+Modified: trunk/griv/new/file_database.cpp
+===================================================================
+--- trunk/griv/new/file_database.cpp	2008-08-14 01:27:09 UTC (rev 2323)
++++ trunk/griv/new/file_database.cpp	2008-08-14 14:01:22 UTC (rev 2324)
+@@ -42,6 +42,7 @@
+   : db(db),
+     store_stmt(db),
+     get_by_filename_stmt(db),
++    get_all_stmt(db),
+     get_by_file_id_stmt(db)
+ {
+   db-&gt;exec(&quot;CREATE TABLE IF NOT EXISTS files (&quot;
+@@ -58,6 +59,7 @@
+   store_stmt.prepare(&quot;INSERT INTO files (filename, md5, filesize, width, height, mtime) VALUES (?1, ?2, ?3, ?4, ?5, ?6);&quot;);
+   get_by_filename_stmt.prepare(&quot;SELECT * FROM files WHERE filename = ?1;&quot;);
+   get_by_file_id_stmt.prepare(&quot;SELECT * FROM files WHERE rowid = ?1;&quot;);
++  get_all_stmt.prepare(&quot;SELECT * FROM files&quot;);
+ }
+  
+ FileDatabase::~FileDatabase()
+@@ -128,6 +130,26 @@
+ }
+ 
+ void
++FileDatabase::get_file_entries(std::vector&lt;FileEntry&gt;&amp; entries)
++{
++  SQLiteReader reader = get_all_stmt.execute_query();
++
++  while (reader.next())  
++    {
++      FileEntry entry;
++      entry.fileid      = reader.get_int (0);
++      entry.filename    = reader.get_text(1);
++      entry.md5         = reader.get_text(2);
++      entry.filesize    = reader.get_int (3);
++      entry.size.width  = reader.get_int (4);
++      entry.size.height = reader.get_int (5);
++      entry.mtime       = reader.get_int (6);
++
++      entries.push_back(entry);
++    }
++}
++
++void
+ FileDatabase::delete_file_entry(uint32_t fileid)
+ {
+   // DELETE FROM files WHERE fileid = ?fileid
+@@ -138,5 +160,12 @@
+ {
+   // UPDATE files SET mtime = ?entry.get_mtime() WHERE fileid = ?entry.fileid
+ }
++
++void
++FileDatabase::check()
++{
++  //SQLiteStatement file_exist_stmt;
++  //file_exist.prepare(&quot;SELECT INTO files (filename, md5, filesize, width, height, mtime) VALUES (?1, ?2, ?3, ?4, ?5, ?6);&quot;);
++}
+ 
+ /* EOF */
+
+Modified: trunk/griv/new/file_database.hpp
+===================================================================
+--- trunk/griv/new/file_database.hpp	2008-08-14 01:27:09 UTC (rev 2323)
++++ trunk/griv/new/file_database.hpp	2008-08-14 14:01:22 UTC (rev 2324)
+@@ -59,6 +59,7 @@
+   SQLiteConnection* db;
+   SQLiteStatement store_stmt;
+   SQLiteStatement get_by_filename_stmt;
++  SQLiteStatement get_all_stmt;
+   SQLiteStatement get_by_file_id_stmt;
+ 
+   int  store_file_entry(FileEntry&amp; entry);
+@@ -80,7 +81,10 @@
+       @return true if lookup was successful, false otherwise, in which case entry stays untouched
+   */
+   bool get_file_entry(const std::string&amp; filename, FileEntry* entry);
++  void get_file_entries(std::vector&lt;FileEntry&gt;&amp; entries);
+ 
++  void check();
++
+ private:
+   FileDatabase (const FileDatabase&amp;);
+   FileDatabase&amp; operator= (const FileDatabase&amp;);
+
+Modified: trunk/griv/new/griv.cpp
+===================================================================
+--- trunk/griv/new/griv.cpp	2008-08-14 01:27:09 UTC (rev 2323)
++++ trunk/griv/new/griv.cpp	2008-08-14 14:01:22 UTC (rev 2324)
+@@ -109,10 +109,18 @@
+   database_thread.start();
+   tile_generator_thread.start();
+ 
+-  for(std::vector&lt;std::string&gt;::size_type i = 0; i &lt; filenames.size(); ++i)
++  if (filenames.empty())
+     {
+-      database_thread.request_file(filenames[i], boost::bind(&amp;ViewerThread::receive_file, &amp;viewer_thread, _1));
++      // When no files are given, display everything in the database
++      database_thread.request_all_files(boost::bind(&amp;ViewerThread::receive_file, &amp;viewer_thread, _1));
+     }
++  else
++    {
++      for(std::vector&lt;std::string&gt;::size_type i = 0; i &lt; filenames.size(); ++i)
++        {
++          database_thread.request_file(filenames[i], boost::bind(&amp;ViewerThread::receive_file, &amp;viewer_thread, _1));
++        }
++    }
+ 
+   viewer_thread.run();
+ 
+
+Modified: trunk/griv/new/tile_database.cpp
+===================================================================
+--- trunk/griv/new/tile_database.cpp	2008-08-14 01:27:09 UTC (rev 2323)
++++ trunk/griv/new/tile_database.cpp	2008-08-14 14:01:22 UTC (rev 2324)
+@@ -93,5 +93,11 @@
+ 
+   store_stmt.execute();
+ }
++
++void
++TileDatabase::check()
++{
+   
++}
++  
+ /* EOF */
+
+Modified: trunk/griv/new/tile_database.hpp
+===================================================================
+--- trunk/griv/new/tile_database.hpp	2008-08-14 01:27:09 UTC (rev 2323)
++++ trunk/griv/new/tile_database.hpp	2008-08-14 14:01:22 UTC (rev 2324)
+@@ -51,7 +51,7 @@
+   
+   bool get_tile(uint32_t file_id, int scale, int x, int y, Tile&amp; tile);
+   void store_tile(const Tile&amp; tile);
+-  
++  void check();
+ private:
+   TileDatabase (const TileDatabase&amp;);
+   TileDatabase&amp; operator= (const TileDatabase&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001320.html">[Windstille-commit] r2300 - trunk/griv/new
+</A></li>
+	<LI>Next message: <A HREF="001336.html">[Windstille-commit] r2325 - in trunk/griv/new: . math
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1321">[ date ]</a>
+              <a href="thread.html#1321">[ thread ]</a>
+              <a href="subject.html#1321">[ subject ]</a>
+              <a href="author.html#1321">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

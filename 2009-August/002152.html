@@ -1,0 +1,307 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3155 - in trunk/windstille/src: display editor	screen
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3155%20-%20in%20trunk/windstille/src%3A%20display%20editor%0A%09screen&In-Reply-To=%3C200908311309.n7VD9Rsg009066%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002151.html">
+   <LINK REL="Next"  HREF="002153.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3155 - in trunk/windstille/src: display editor	screen</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3155%20-%20in%20trunk/windstille/src%3A%20display%20editor%0A%09screen&In-Reply-To=%3C200908311309.n7VD9Rsg009066%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3155 - in trunk/windstille/src: display editor	screen">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Aug 31 15:09:27 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002151.html">[Windstille-commit] r3154 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="002153.html">[Windstille-commit] r3156 - in trunk/windstille/src: display font
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2152">[ date ]</a>
+              <a href="thread.html#2152">[ thread ]</a>
+              <a href="subject.html#2152">[ subject ]</a>
+              <a href="author.html#2152">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-08-31 15:09:26 +0200 (Mon, 31 Aug 2009)
+New Revision: 3155
+
+Modified:
+   trunk/windstille/src/display/compositor.cpp
+   trunk/windstille/src/display/compositor.hpp
+   trunk/windstille/src/display/display.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/screen/game_session.cpp
+   trunk/windstille/src/screen/particle_viewer.cpp
+   trunk/windstille/src/screen/sprite3dview.cpp
+Log:
+Compositor now holds the screen size, added Control layer to the with framebuffer_object rendering path
+
+Modified: trunk/windstille/src/display/compositor.cpp
+===================================================================
+--- trunk/windstille/src/display/compositor.cpp	2009-08-31 12:49:58 UTC (rev 3154)
++++ trunk/windstille/src/display/compositor.cpp	2009-08-31 13:09:26 UTC (rev 3155)
+@@ -42,27 +42,29 @@
+     Framebuffer tmp;
+     Framebuffer lightmap;   
+ 
+-    Framebuffers() 
+-      : screen  (GL_TEXTURE_RECTANGLE_ARB, Display::get_width(), Display::get_height()),
+-        tmp     (GL_TEXTURE_RECTANGLE_ARB, Display::get_width(), Display::get_height()),
+-        lightmap(GL_TEXTURE_RECTANGLE_ARB, Display::get_width()/LIGHTMAP_DIV, Display::get_height()/LIGHTMAP_DIV)
++    Framebuffers(const Size&amp; size) 
++      : screen  (GL_TEXTURE_RECTANGLE_ARB, size.width, size.height),
++        tmp     (GL_TEXTURE_RECTANGLE_ARB, size.width, size.height),
++        lightmap(GL_TEXTURE_RECTANGLE_ARB, size.width / LIGHTMAP_DIV, size.height / LIGHTMAP_DIV)
+     {
+     }
+   };
+   
+   boost::scoped_ptr&lt;Framebuffers&gt; framebuffers;
+   Surface lightmap;
++  Size m_size;
+ 
+-  CompositorImpl()
++  CompositorImpl(const Size&amp; size)
+     : //framebuffers(0),
+-      framebuffers(new Framebuffers()),
+-      lightmap(Display::get_width()  / LIGHTMAP_DIV,
+-               Display::get_height() / LIGHTMAP_DIV)
++      framebuffers(new Framebuffers(size)),
++      lightmap(size.width  / LIGHTMAP_DIV,
++               size.height / LIGHTMAP_DIV),
++      m_size(size)
+   {}
+ };
+ 
+-Compositor::Compositor()
+-  : impl(new CompositorImpl())
++Compositor::Compositor(const Size&amp; size)
++  : impl(new CompositorImpl(size))
+ {
+ }
+ 
+@@ -117,7 +119,7 @@
+     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+ 
+     glPushMatrix();
+-    glTranslatef(0.0f, static_cast&lt;float&gt;(Display::get_height() - (Display::get_height() / LIGHTMAP_DIV)), 0.0f);
++    glTranslatef(0.0f, static_cast&lt;float&gt;(impl-&gt;m_size.height - (impl-&gt;m_size.height / LIGHTMAP_DIV)), 0.0f);
+     glScalef(1.0f / LIGHTMAP_DIV, 1.0f / LIGHTMAP_DIV, 1.0f);
+     sc.light().render(*this);
+ 
+@@ -176,7 +178,11 @@
+   }
+ 
+   if (sc.get_render_mask() &amp; SceneContext::CONTROLMAP)
++  {
++    Display::push_framebuffer(impl-&gt;framebuffers-&gt;screen);
+     sc.control().render(*this);
++    Display::pop_framebuffer();
++  }
+ 
+   if (1) 
+   {
+@@ -200,13 +206,13 @@
+     glVertex2f(0, 0);
+ 
+     glTexCoord2f(uv.right, uv.bottom);
+-    glVertex2f(static_cast&lt;float&gt;(Display::get_width()), 0);
++    glVertex2f(static_cast&lt;float&gt;(impl-&gt;m_size.width), 0);
+ 
+     glTexCoord2f(uv.right, uv.top);
+-    glVertex2f(static_cast&lt;float&gt;(Display::get_width()), static_cast&lt;float&gt;(Display::get_height()));
++    glVertex2f(static_cast&lt;float&gt;(impl-&gt;m_size.width), static_cast&lt;float&gt;(impl-&gt;m_size.height));
+ 
+     glTexCoord2f(uv.left, uv.top);
+-    glVertex2f(0.0f, static_cast&lt;float&gt;(Display::get_height()));
++    glVertex2f(0.0f, static_cast&lt;float&gt;(impl-&gt;m_size.height));
+ 
+     glEnd();
+   }
+@@ -222,10 +228,10 @@
+ Compositor::render_without_framebuffers(SceneContext&amp; sc, SceneGraph* sg, const GraphicContextState&amp; gc_state)
+ {
+   // Resize Lightmap, only needed in the editor, FIXME: move this into a 'set_size()' call
+-  if (impl-&gt;lightmap.get_width()  != Display::get_width() /LIGHTMAP_DIV ||
+-      impl-&gt;lightmap.get_height() != Display::get_height()/LIGHTMAP_DIV)
++  if (impl-&gt;lightmap.get_width()  != impl-&gt;m_size.width /LIGHTMAP_DIV ||
++      impl-&gt;lightmap.get_height() != impl-&gt;m_size.height/LIGHTMAP_DIV)
+   {
+-    impl-&gt;lightmap = Surface(Display::get_width()/LIGHTMAP_DIV, Display::get_height()/LIGHTMAP_DIV);
++    impl-&gt;lightmap = Surface(impl-&gt;m_size.width / LIGHTMAP_DIV, impl-&gt;m_size.height / LIGHTMAP_DIV);
+   }
+ 
+   if (sc.get_render_mask() &amp; SceneContext::LIGHTMAPSCREEN)
+@@ -234,7 +240,7 @@
+     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+ 
+     glPushMatrix();
+-    glTranslatef(0.0f, static_cast&lt;float&gt;(Display::get_height()) - static_cast&lt;float&gt;(Display::get_height()/LIGHTMAP_DIV), 0.0f);
++    glTranslatef(0.0f, static_cast&lt;float&gt;(impl-&gt;m_size.height) - static_cast&lt;float&gt;(impl-&gt;m_size.height/LIGHTMAP_DIV), 0.0f);
+     glScalef(1.0f / LIGHTMAP_DIV, 1.0f / LIGHTMAP_DIV, 1.0f);
+     sc.light().render(*this);
+     glPopMatrix();
+@@ -242,7 +248,7 @@
+     if (sg)
+     {
+       glPushMatrix();
+-      glTranslatef(0.0f, static_cast&lt;float&gt;(Display::get_height()) - static_cast&lt;float&gt;(Display::get_height()/LIGHTMAP_DIV), 0.0f);
++      glTranslatef(0.0f, static_cast&lt;float&gt;(impl-&gt;m_size.height) - static_cast&lt;float&gt;(impl-&gt;m_size.height/LIGHTMAP_DIV), 0.0f);
+       glScalef(1.0f / LIGHTMAP_DIV, 1.0f / LIGHTMAP_DIV, 1.0f);
+       glMultMatrixf(gc_state.get_matrix().matrix);
+       sg-&gt;draw(Texture(), SceneContext::LIGHTMAP);
+@@ -258,7 +264,7 @@
+ 
+       glCopyTexSubImage2D(GL_TEXTURE_2D, 0,
+                           0, 0, 
+-                          0, 0, //Display::get_height() - impl-&gt;lightmap.get_height(),
++                          0, 0, //impl-&gt;m_size.height - impl-&gt;lightmap.get_height(),
+                           static_cast&lt;GLsizei&gt;(impl-&gt;lightmap.get_width()), 
+                           static_cast&lt;GLsizei&gt;(impl-&gt;lightmap.get_height()));
+     }
+
+Modified: trunk/windstille/src/display/compositor.hpp
+===================================================================
+--- trunk/windstille/src/display/compositor.hpp	2009-08-31 12:49:58 UTC (rev 3154)
++++ trunk/windstille/src/display/compositor.hpp	2009-08-31 13:09:26 UTC (rev 3155)
+@@ -26,11 +26,12 @@
+ class GraphicContextState;
+ class SceneContext;
+ class SceneGraph;
++class Size;
+ 
+ class Compositor
+ {
+ public:
+-  Compositor();
++  Compositor(const Size&amp; size);
+   ~Compositor();
+ 
+   void render(SceneContext&amp; sc, SceneGraph* sg, const GraphicContextState&amp; state);
+
+Modified: trunk/windstille/src/display/display.hpp
+===================================================================
+--- trunk/windstille/src/display/display.hpp	2009-08-31 12:49:58 UTC (rev 3154)
++++ trunk/windstille/src/display/display.hpp	2009-08-31 13:09:26 UTC (rev 3155)
+@@ -23,6 +23,7 @@
+ 
+ #include &quot;math/quad.hpp&quot;
+ #include &quot;math/line.hpp&quot;
++#include &quot;math/size.hpp&quot;
+ #include &quot;display/color.hpp&quot;
+ #include &quot;display/framebuffer.hpp&quot;
+ 
+@@ -63,6 +64,8 @@
+   static int  get_width();
+   static int  get_height();
+ 
++  static Size get_size() { return Size(get_width(), get_height()); }
++
+   static void push_cliprect(const Rect&amp; rect);
+   static void pop_cliprect();
+ 
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-08-31 12:49:58 UTC (rev 3154)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-08-31 13:09:26 UTC (rev 3155)
+@@ -174,7 +174,7 @@
+       if (!sc.get())
+         {
+           sc.reset(new SceneContext());
+-          compositor.reset(new Compositor());
++          compositor.reset(new Compositor(Size(get_width(), get_height())));
+           sc-&gt;set_render_mask(sc-&gt;get_render_mask() &amp; ~SceneContext::LIGHTMAP);
+         }
+       
+@@ -209,7 +209,7 @@
+     {
+       if (compositor.get())
+       {
+-        compositor.reset(new Compositor());
++        compositor.reset(new Compositor(Size(ev-&gt;width, ev-&gt;height)));
+       }
+ 
+       glViewport(0, 0, get_width(), get_height());
+
+Modified: trunk/windstille/src/screen/game_session.cpp
+===================================================================
+--- trunk/windstille/src/screen/game_session.cpp	2009-08-31 12:49:58 UTC (rev 3154)
++++ trunk/windstille/src/screen/game_session.cpp	2009-08-31 13:09:26 UTC (rev 3155)
+@@ -76,7 +76,8 @@
+   Screen* current_gui;
+ 
+   GameSessionImpl() 
+-    : sc(),
++    : compositor(Size(Display::get_width(), Display::get_height())),
++      sc(),
+       fadeout_value(),
+       fade_time(),
+       sector(),
+
+Modified: trunk/windstille/src/screen/particle_viewer.cpp
+===================================================================
+--- trunk/windstille/src/screen/particle_viewer.cpp	2009-08-31 12:49:58 UTC (rev 3154)
++++ trunk/windstille/src/screen/particle_viewer.cpp	2009-08-31 13:09:26 UTC (rev 3155)
+@@ -28,7 +28,7 @@
+ #include &quot;util/sexpr_file_reader.hpp&quot;
+ 
+ ParticleViewer::ParticleViewer()
+-  : compositor(),
++  : compositor(Display::get_size()),
+     sc(),
+     systems(),
+     background(Pathname(&quot;images/greychess.sprite&quot;)),
+
+Modified: trunk/windstille/src/screen/sprite3dview.cpp
+===================================================================
+--- trunk/windstille/src/screen/sprite3dview.cpp	2009-08-31 12:49:58 UTC (rev 3154)
++++ trunk/windstille/src/screen/sprite3dview.cpp	2009-08-31 13:09:26 UTC (rev 3155)
+@@ -25,7 +25,7 @@
+ #include &quot;display/graphic_context_state.hpp&quot;
+ 
+ Sprite3DView::Sprite3DView()
+-  : compositor(),
++  : compositor(Display::get_size()),
+     sc(),
+     sprite(),
+     actions(),
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002151.html">[Windstille-commit] r3154 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="002153.html">[Windstille-commit] r3156 - in trunk/windstille/src: display font
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2152">[ date ]</a>
+              <a href="thread.html#2152">[ thread ]</a>
+              <a href="subject.html#2152">[ subject ]</a>
+              <a href="author.html#2152">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

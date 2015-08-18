@@ -1,0 +1,238 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r538 - in trunk: . contrib data/3dsprites docs src/sprite3d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r538%20-%20in%20trunk%3A%20.%20contrib%20data/3dsprites%20docs%20src/sprite3d&In-Reply-To=%3C200507041217.j64CHroc026867%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000193.html">
+   <LINK REL="Next"  HREF="000195.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r538 - in trunk: . contrib data/3dsprites docs src/sprite3d</H1>
+    <B>Matthias Braun at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r538%20-%20in%20trunk%3A%20.%20contrib%20data/3dsprites%20docs%20src/sprite3d&In-Reply-To=%3C200507041217.j64CHroc026867%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r538 - in trunk: . contrib data/3dsprites docs src/sprite3d">matzebraun at berlios.de
+       </A><BR>
+    <I>Mon Jul  4 14:17:53 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000193.html">[Windstille-commit] r537 - in trunk/src: . math scripting sprite3d
+</A></li>
+        <LI>Next message: <A HREF="000195.html">[Windstille-commit] r539 - in trunk/src: . scripting sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#194">[ date ]</a>
+              <a href="thread.html#194">[ thread ]</a>
+              <a href="subject.html#194">[ subject ]</a>
+              <a href="author.html#194">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: matzebraun
+Date: 2005-07-04 14:17:50 +0200 (Mon, 04 Jul 2005)
+New Revision: 538
+
+Added:
+   trunk/docs/
+   trunk/docs/models.txt
+   trunk/docs/wsprite_fileformat.txt
+Removed:
+   trunk/contrib/wsprite_fileformat.txt
+Modified:
+   trunk/contrib/windstille_export.py
+   trunk/data/3dsprites/heroken.wsprite
+   trunk/src/sprite3d/sprite3d.cpp
+Log:
+add description about how models should be done in blender, fix exporter to transform blender axis to windstille axis
+
+Modified: trunk/contrib/windstille_export.py
+===================================================================
+--- trunk/contrib/windstille_export.py	2005-07-04 11:56:00 UTC (rev 537)
++++ trunk/contrib/windstille_export.py	2005-07-04 12:17:50 UTC (rev 538)
+@@ -7,7 +7,7 @@
+ Tip: 'Export meshes/actions to windstille format'
+ &quot;&quot;&quot;
+ 
+-##  $Id$
++##  $Id: windstille_main.hxx,v 1.4 2003/11/07 13:00:39 grumbel Exp $
+ ## 
+ ##  Windstille - A Jump'n Shoot Game
+ ##  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+@@ -28,7 +28,9 @@
+ 
+ # Simple Python script that shows how to export animations from
+ # Blender
+-# Put it in your $HOME/.blender/scripts directory
++# Put this script in your $HOME/.blender/scripts directory.
++#
++# See windstille/docs/models.txt for more details
+ 
+ import struct
+ import Blender
+@@ -121,11 +123,13 @@
+       else:
+         facecount += 1
+ 
++    # normals
+     for face in data.faces:
+-      bodydata += struct.pack(&quot;=fff&quot;, face.normal[0], face.normal[1], face.normal[2])
++      bodydata += struct.pack(&quot;=fff&quot;, face.normal[1], -face.normal[2], face.normal[0])
+       if len(face.v) == 4:
+-        bodydata += struct.pack(&quot;=fff&quot;, face.normal[0], face.normal[1], face.normal[2])
++        bodydata += struct.pack(&quot;=fff&quot;, face.normal[1], -face.normal[2], face.normal[0])
+ 
++    # uv coords per vertex
+     for uv in uvs:
+       bodydata += struct.pack(&quot;=ff&quot;, uv[0], 1.0-uv[1])
+ 
+@@ -161,9 +165,9 @@
+     file.write(struct.pack(&quot;=64sH&quot;, action.getName(), resultframes))
+    
+     frs = 0
+-    for frame in xrange(1, numframes+1, SAMPLEFRAMES):
++    for frame in range(1, numframes+1, SAMPLEFRAMES):
+       frs += 1
+-      Blender.Set(&quot;curframe&quot;, frame.__int__())
++      Blender.Set(&quot;curframe&quot;, float(frame))
+       for obj in Blender.Object.Get():
+         data = obj.getData()
+         if (type(data) is not Blender.Types.NMeshType) or not data.faces:                 continue
+@@ -172,6 +176,7 @@
+         data = Blender.NMesh.GetRawFromObject(obj.getName())
+         vertexmap = objvertmaps[obj.getName()]
+         m = obj.getMatrix()
++        # action/frame/mesh/vertices
+         for nv in vertexmap:
+           v = data.verts[nv]
+           t = [0, 0, 0]
+@@ -181,8 +186,7 @@
+           t[0] *= ZOOM
+           t[1] *= ZOOM
+           t[2] *= ZOOM
+-          file.write(struct.pack(&quot;=fff&quot;, t[0], t[1], t[2]))
+-    print frs
++          file.write(struct.pack(&quot;=fff&quot;, t[1], -t[2], t[0]))
+ 
+ def fs_callback(filename):
+   export(filename)
+
+Deleted: trunk/contrib/wsprite_fileformat.txt
+===================================================================
+--- trunk/contrib/wsprite_fileformat.txt	2005-07-04 11:56:00 UTC (rev 537)
++++ trunk/contrib/wsprite_fileformat.txt	2005-07-04 12:17:50 UTC (rev 538)
+@@ -1,25 +0,0 @@
+-Header
+-char magic[4] (= W3DS)
+-uint16_t mesh_count
+-uint16_t action_count
+-
+-Mesh Header
+-char texturename[64]
+-uint16_t triangle_count
+-uint16_t vertex_count
+-
+-Data after mesh header:
+-uint16_t vertexnum, edge per triangle
+-float normal[3] per triangle
+-float texcoord[2] per vertex
+-
+-Action Header
+-char name[64]
+-uint16_t frame_count
+-
+-Data per action:
+-for all frames:
+-  for all meshes:
+-    for all vertices:
+-      float x, y, z
+-
+
+Modified: trunk/data/3dsprites/heroken.wsprite
+===================================================================
+(Binary files differ)
+
+Added: trunk/docs/models.txt
+===================================================================
+--- trunk/docs/models.txt	2005-07-04 11:56:00 UTC (rev 537)
++++ trunk/docs/models.txt	2005-07-04 12:17:50 UTC (rev 538)
+@@ -0,0 +1,22 @@
++Notes about blender models:
++
++- 1 blender unit corresponds to 32pixels in game
++  (if you use the default 800x600 game resolution)
++- When looking at a character turned left from the side, coordinate axes are:
++    z -&gt; up
++    y -&gt; right
++    x -&gt; back
++  (the exporter will convert these to windstille coordinates which are
++   x-&gt;right, y -&gt; down, z -&gt; back)
++- Each blender object should use exactly 1 texture on all it's faces.
++- You should animate your models with armatures. The exporter will grab all
++  defined actions for the armature and export these. You are only allowed to
++  have 1 armature object in the scene at the moment (but this armature can have
++  multiple bones of course)
++- Only for information you don't have to care about this: UVs in blender are
++    u -&gt; right
++    v -&gt; up
++  UVs in windstille are
++    u -&gt; right
++    v -&gt; down
++
+
+Copied: trunk/docs/wsprite_fileformat.txt (from rev 536, trunk/contrib/wsprite_fileformat.txt)
+
+Modified: trunk/src/sprite3d/sprite3d.cpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d.cpp	2005-07-04 11:56:00 UTC (rev 537)
++++ trunk/src/sprite3d/sprite3d.cpp	2005-07-04 12:17:50 UTC (rev 538)
+@@ -127,9 +127,6 @@
+ {
+   assert_gl(&quot;before render_frame&quot;);
+   
+-  static float angle = 0;
+-  angle += 1;
+-  
+   CL_OpenGLState state(gc);
+   state.set_active();
+   state.setup_2d();
+@@ -137,8 +134,6 @@
+   glPushMatrix();
+   glMultMatrixd(modelview);
+   glTranslatef(pos.x, pos.y, pos.z);
+-  // just a test
+-  glRotatef(angle, 0, 1.0, 0);
+   
+   glClear(GL_DEPTH_BUFFER_BIT);
+   glEnable(GL_DEPTH_TEST);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000193.html">[Windstille-commit] r537 - in trunk/src: . math scripting sprite3d
+</A></li>
+	<LI>Next message: <A HREF="000195.html">[Windstille-commit] r539 - in trunk/src: . scripting sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#194">[ date ]</a>
+              <a href="thread.html#194">[ thread ]</a>
+              <a href="subject.html#194">[ subject ]</a>
+              <a href="author.html#194">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,713 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2348 - trunk/griv/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2348%20-%20trunk/griv/src&In-Reply-To=%3C200808212030.m7LKUqwJ019921%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001344.html">
+   <LINK REL="Next"  HREF="001346.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2348 - trunk/griv/src</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2348%20-%20trunk/griv/src&In-Reply-To=%3C200808212030.m7LKUqwJ019921%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2348 - trunk/griv/src">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Aug 21 22:30:52 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001344.html">[Windstille-commit] r2347 - in trunk/griv: . src
+</A></li>
+        <LI>Next message: <A HREF="001346.html">[Windstille-commit] r2349 - trunk/griv/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1345">[ date ]</a>
+              <a href="thread.html#1345">[ thread ]</a>
+              <a href="subject.html#1345">[ subject ]</a>
+              <a href="author.html#1345">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-21 22:30:51 +0200 (Thu, 21 Aug 2008)
+New Revision: 2348
+
+Added:
+   trunk/griv/src/file_entry.cpp
+   trunk/griv/src/file_entry.hpp
+   trunk/griv/src/tile_entry.hpp
+Modified:
+   trunk/griv/src/database_thread.cpp
+   trunk/griv/src/database_thread.hpp
+   trunk/griv/src/file_database.cpp
+   trunk/griv/src/file_database.hpp
+   trunk/griv/src/griv.cpp
+   trunk/griv/src/tile_database.cpp
+   trunk/griv/src/tile_database.hpp
+   trunk/griv/src/tile_generator.cpp
+   trunk/griv/src/tile_generator.hpp
+   trunk/griv/src/tile_generator_thread.cpp
+   trunk/griv/src/tile_generator_thread.hpp
+   trunk/griv/src/viewer_thread.cpp
+   trunk/griv/src/viewer_thread.hpp
+Log:
+Moved FileEntry and TileEntry to their own files
+
+Modified: trunk/griv/src/database_thread.cpp
+===================================================================
+--- trunk/griv/src/database_thread.cpp	2008-08-21 17:00:20 UTC (rev 2347)
++++ trunk/griv/src/database_thread.cpp	2008-08-21 20:30:51 UTC (rev 2348)
+@@ -60,11 +60,11 @@
+   int tilescale;
+   int x;
+   int y;
+-  boost::function&lt;void (Tile)&gt; callback;
++  boost::function&lt;void (TileEntry)&gt; callback;
+ 
+   TileDatabaseMessage(const JobHandle&amp; job_handle,
+                       int fileid, int tilescale, int x, int y,
+-                      const boost::function&lt;void (Tile)&gt;&amp; callback)
++                      const boost::function&lt;void (TileEntry)&gt;&amp; callback)
+     : DatabaseMessage(DATABASE_TILE_MESSAGE),
+       job_handle(job_handle),
+       fileid(fileid),
+@@ -104,9 +104,9 @@
+ class StoreTileDatabaseMessage : public DatabaseMessage
+ {
+ public:
+-  Tile tile;
++  TileEntry tile;
+ 
+-  StoreTileDatabaseMessage(const Tile&amp; tile)
++  StoreTileDatabaseMessage(const TileEntry&amp; tile)
+     : DatabaseMessage(DATABASE_STORE_TILE_MESSAGE),
+       tile(tile)
+   {}
+@@ -127,7 +127,7 @@
+ }
+ 
+ JobHandle
+-DatabaseThread::request_tile(int fileid, int tilescale, int x, int y, const boost::function&lt;void (Tile)&gt;&amp; callback)
++DatabaseThread::request_tile(int fileid, int tilescale, int x, int y, const boost::function&lt;void (TileEntry)&gt;&amp; callback)
+ {
+   JobHandle job_handle;
+   queue.push(new TileDatabaseMessage(job_handle, fileid, tilescale, x, y, callback));
+@@ -147,7 +147,7 @@
+ }
+ 
+ void
+-DatabaseThread::store_tile(const Tile&amp; tile)
++DatabaseThread::store_tile(const TileEntry&amp; tile)
+ {
+   queue.push(new StoreTileDatabaseMessage(tile));
+ }
+@@ -231,7 +231,7 @@
+ 
+                   if (!tile_msg-&gt;job_handle.is_aborted())
+                     {
+-                      Tile tile;
++                      TileEntry tile;
+                       if (tile_db.get_tile(tile_msg-&gt;fileid, tile_msg-&gt;tilescale, tile_msg-&gt;x, tile_msg-&gt;y, tile))
+                         {
+                           tile_msg-&gt;callback(tile);
+@@ -249,7 +249,9 @@
+ 
+                           tile_msg-&gt;job_handle.finish();
+                           // Need to send loading command back
+-                          //TileGeneratorThread::request_tile(fileid, x, y, tilescale);
++                          //TileGeneratorThread::request_tile(tile_msg-&gt;fileid, tile_msg-&gt;x, tile_msg-&gt;y, tile_msg-&gt;tilescale, 
++                          //                                  tile_msg-&gt;job_handle, 
++                          //                                  tile_msg-&gt;callback);
+                         }
+                     }
+                 }
+
+Modified: trunk/griv/src/database_thread.hpp
+===================================================================
+--- trunk/griv/src/database_thread.hpp	2008-08-21 17:00:20 UTC (rev 2347)
++++ trunk/griv/src/database_thread.hpp	2008-08-21 20:30:51 UTC (rev 2348)
+@@ -29,8 +29,8 @@
+ #include &lt;boost/function.hpp&gt;
+ #include &lt;string&gt;
+ #include &quot;thread_message_queue.hpp&quot;
+-#include &quot;file_database.hpp&quot;
+-#include &quot;tile_database.hpp&quot;
++#include &quot;file_entry.hpp&quot;
++#include &quot;tile_entry.hpp&quot;
+ #include &quot;job_handle.hpp&quot;
+ #include &quot;thread.hpp&quot;
+ 
+@@ -59,11 +59,11 @@
+   
+   void stop();
+   
+-  JobHandle request_tile(int fileid, int tilescale, int x, int y, const boost::function&lt;void (Tile)&gt;&amp; callback);
++  JobHandle request_tile(int fileid, int tilescale, int x, int y, const boost::function&lt;void (TileEntry)&gt;&amp; callback);
+   void request_file(const std::string&amp; filename, const boost::function&lt;void (FileEntry)&gt;&amp; callback);
+   void request_all_files(const boost::function&lt;void (FileEntry)&gt;&amp; callback);
+ 
+-  void store_tile(const Tile&amp; tile);
++  void store_tile(const TileEntry&amp; tile);
+ 
+ private:
+   DatabaseThread (const DatabaseThread&amp;);
+
+Modified: trunk/griv/src/file_database.cpp
+===================================================================
+--- trunk/griv/src/file_database.cpp	2008-08-21 17:00:20 UTC (rev 2347)
++++ trunk/griv/src/file_database.cpp	2008-08-21 20:30:51 UTC (rev 2348)
+@@ -31,13 +31,9 @@
+ #include &quot;jpeg.hpp&quot;
+ #include &quot;filesystem.hpp&quot;
+ #include &quot;software_surface.hpp&quot;
++#include &quot;file_entry.hpp&quot;
+ #include &quot;file_database.hpp&quot;
+ 
+-std::ostream&amp; operator&lt;&lt;(std::ostream&amp; os, const FileEntry&amp; entry)
+-{
+-  return os &lt;&lt; &quot;filename: &quot; &lt;&lt; entry.filename &lt;&lt; &quot; size: &quot;&lt;&lt; entry.size;
+-}
+-
+ FileDatabase::FileDatabase(SQLiteConnection* db)
+   : db(db),
+     store_stmt(db),
+
+Modified: trunk/griv/src/file_database.hpp
+===================================================================
+--- trunk/griv/src/file_database.hpp	2008-08-21 17:00:20 UTC (rev 2347)
++++ trunk/griv/src/file_database.hpp	2008-08-21 20:30:51 UTC (rev 2348)
+@@ -33,17 +33,7 @@
+ #include &quot;sqlite.hpp&quot;
+ #include &quot;math/size.hpp&quot;
+ 
+-struct FileEntry 
+-{
+-  int         fileid;
+-  std::string filename; // 
+-  std::string md5;      //
+-  int         filesize; //
+-  uint32_t    mtime;    // mtime of the file
+-  Size        size;
+-};
+-
+-std::ostream&amp; operator&lt;&lt;(std::ostream&amp; os, const FileEntry&amp; entry);
++class FileEntry;
+ 
+ /** The FileDatabase keeps a record of all files that have been
+     view. It keeps information on the last modification time and
+
+Added: trunk/griv/src/file_entry.cpp
+===================================================================
+--- trunk/griv/src/file_entry.cpp	2008-08-21 17:00:20 UTC (rev 2347)
++++ trunk/griv/src/file_entry.cpp	2008-08-21 20:30:51 UTC (rev 2348)
+@@ -0,0 +1,34 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &lt;iostream&gt;
++#include &quot;file_entry.hpp&quot;
++
++std::ostream&amp; operator&lt;&lt;(std::ostream&amp; os, const FileEntry&amp; entry)
++{
++  return os &lt;&lt; &quot;filename: &quot; &lt;&lt; entry.filename &lt;&lt; &quot; size: &quot;&lt;&lt; entry.size;
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/src/file_entry.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/src/file_entry.hpp
+===================================================================
+--- trunk/griv/src/file_entry.hpp	2008-08-21 17:00:20 UTC (rev 2347)
++++ trunk/griv/src/file_entry.hpp	2008-08-21 20:30:51 UTC (rev 2348)
+@@ -0,0 +1,48 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_FILE_ENTRY_HPP
++#define HEADER_FILE_ENTRY_HPP
++
++#include &lt;stdint.h&gt;
++#include &lt;string&gt;
++#include &quot;math/size.hpp&quot;
++
++class FileEntry 
++{
++public:
++  int         fileid;
++  std::string filename; // 
++  std::string md5;      //
++  int         filesize; //
++  uint32_t    mtime;    // mtime of the file
++  Size        size;
++};
++
++std::ostream&amp; operator&lt;&lt;(std::ostream&amp; os, const FileEntry&amp; entry);
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/src/file_entry.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/griv/src/griv.cpp
+===================================================================
+--- trunk/griv/src/griv.cpp	2008-08-21 17:00:20 UTC (rev 2347)
++++ trunk/griv/src/griv.cpp	2008-08-21 20:30:51 UTC (rev 2348)
+@@ -169,10 +169,16 @@
+         }
+       else
+         {
++          // FIXME: Insert some checks if the tile already exist
++
+           // Generate Image Tiles
+-          std::cout &lt;&lt; &quot;Generating tiles for &quot; &lt;&lt; filenames[i]  &lt;&lt; std::endl;         
+-          tile_generator.generate_quick(entry,
+-                                        boost::bind(&amp;TileDatabase::store_tile, &amp;tile_db, _1));
++          std::cout &lt;&lt; &quot;Generating tiles for &quot; &lt;&lt; filenames[i]  &lt;&lt; std::endl;
++          try {
++            tile_generator.generate_quick(entry,
++                                          boost::bind(&amp;TileDatabase::store_tile, &amp;tile_db, _1));
++          } catch(std::exception&amp; err) {
++            std::cout &lt;&lt; err.what() &lt;&lt; std::endl;
++          }
+         }
+     }
+ }
+
+Modified: trunk/griv/src/tile_database.cpp
+===================================================================
+--- trunk/griv/src/tile_database.cpp	2008-08-21 17:00:20 UTC (rev 2347)
++++ trunk/griv/src/tile_database.cpp	2008-08-21 20:30:51 UTC (rev 2348)
+@@ -25,12 +25,14 @@
+ 
+ #include &lt;sstream&gt;
+ #include &quot;SDL.h&quot;
++#include &quot;tile_entry.hpp&quot;
+ #include &quot;tile_database.hpp&quot;
+ 
+ TileDatabase::TileDatabase(SQLiteConnection* db)
+   : db(db),
+     store_stmt(db),
+-    get_stmt(db)
++    get_stmt(db),
++    has_stmt(db)
+ {
+   db-&gt;exec(&quot;CREATE TABLE IF NOT EXISTS tiles (&quot;
+            &quot;fileid  INTEGER, &quot; // link to to files.rowid
+@@ -42,13 +44,36 @@
+ 
+   db-&gt;exec(&quot;CREATE INDEX IF NOT EXISTS tiles_index ON tiles ( fileid, x, y, scale );&quot;);
+ 
++  // FIXME: This is brute force and doesn't handle collisions
+   store_stmt.prepare(&quot;INSERT into tiles (fileid, scale, x, y, data) VALUES (?1, ?2, ?3, ?4, ?5);&quot;);
++
+   get_stmt.prepare(&quot;SELECT * FROM tiles WHERE fileid = ?1 AND scale = ?2 AND x = ?3 AND y = ?4;&quot;);
++  has_stmt.prepare(&quot;SELECT (rowid) FROM tiles WHERE fileid = ?1 AND scale = ?2 AND x = ?3 AND y = ?4;&quot;);
+ }
+ 
+ bool
+-TileDatabase::get_tile(uint32_t fileid, int scale, int x, int y, Tile&amp; tile)
++TileDatabase::has_tile(uint32_t fileid, Vector2i&amp; pos, int scale)
+ {
++  has_stmt.bind_int(1, fileid);
++  has_stmt.bind_int(2, scale);
++  has_stmt.bind_int(3, pos.x);
++  has_stmt.bind_int(4, pos.y);
++
++  SQLiteReader reader = has_stmt.execute_query();
++
++  if (reader.next())
++    {
++      return true;
++    }  
++  else
++    {
++      return false;
++    }
++}
++
++bool
++TileDatabase::get_tile(uint32_t fileid, int scale, int x, int y, TileEntry&amp; tile)
++{
+   //SDL_Delay(100);
+ 
+   get_stmt.bind_int(1, fileid);
+@@ -72,12 +97,14 @@
+     }
+   else
+     {
++      // Tile missing
++
+       return false;
+     }
+ }
+ 
+ void
+-TileDatabase::store_tile(const Tile&amp; tile)
++TileDatabase::store_tile(const TileEntry&amp; tile)
+ {
+   Blob blob = tile.surface.get_jpeg_data();
+ 
+
+Modified: trunk/griv/src/tile_database.hpp
+===================================================================
+--- trunk/griv/src/tile_database.hpp	2008-08-21 17:00:20 UTC (rev 2347)
++++ trunk/griv/src/tile_database.hpp	2008-08-21 20:30:51 UTC (rev 2348)
+@@ -27,30 +27,25 @@
+ #define HEADER_TILE_DATABASE_HPP
+ 
+ #include &quot;sqlite.hpp&quot;
++#include &quot;math/vector2i.hpp&quot;
+ #include &quot;software_surface.hpp&quot;
+ 
+-struct Tile
+-{
+-  int fileid;
+-  int scale;
+-  int x;
+-  int y;
+-  SoftwareSurface surface;
+-};
+-
+-/** */
++class TileEntry;
++
+ class TileDatabase
+ {
+ private:
+   SQLiteConnection* db;
+   SQLiteStatement store_stmt;
+   SQLiteStatement get_stmt;
++  SQLiteStatement has_stmt;
+ 
+ public:
+   TileDatabase(SQLiteConnection* db);
+   
+-  bool get_tile(uint32_t file_id, int scale, int x, int y, Tile&amp; tile);
+-  void store_tile(const Tile&amp; tile);
++  bool has_tile(uint32_t file_id, Vector2i&amp; pos, int scale);
++  bool get_tile(uint32_t file_id, int scale, int x, int y, TileEntry&amp; tile);
++  void store_tile(const TileEntry&amp; tile);
+   void check();
+ private:
+   TileDatabase (const TileDatabase&amp;);
+
+Added: trunk/griv/src/tile_entry.hpp
+===================================================================
+--- trunk/griv/src/tile_entry.hpp	2008-08-21 17:00:20 UTC (rev 2347)
++++ trunk/griv/src/tile_entry.hpp	2008-08-21 20:30:51 UTC (rev 2348)
+@@ -0,0 +1,46 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_TILE_ENTRY_HPP
++#define HEADER_TILE_ENTRY_HPP
++
++#include &quot;math/vector2i.hpp&quot;
++#include &quot;software_surface.hpp&quot;
++
++class TileEntry
++{
++public:
++  int fileid;
++  int scale;
++  int x, y;
++  SoftwareSurface surface;
++
++  TileEntry()
++  {}
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/src/tile_entry.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/griv/src/tile_generator.cpp
+===================================================================
+--- trunk/griv/src/tile_generator.cpp	2008-08-21 17:00:20 UTC (rev 2347)
++++ trunk/griv/src/tile_generator.cpp	2008-08-21 20:30:51 UTC (rev 2348)
+@@ -27,8 +27,8 @@
+ #include &quot;math/size.hpp&quot;
+ #include &quot;math/rect.hpp&quot;
+ #include &quot;jpeg.hpp&quot;
+-#include &quot;file_database.hpp&quot;
+-#include &quot;tile_database.hpp&quot;
++#include &quot;file_entry.hpp&quot;
++#include &quot;tile_entry.hpp&quot;
+ #include &quot;tile_generator.hpp&quot;
+ 
+ TileGenerator::TileGenerator()
+@@ -41,7 +41,7 @@
+ 
+ void
+ TileGenerator::generate_all(int fileid, const SoftwareSurface&amp; surface_, 
+-                            const boost::function&lt;void (Tile)&gt;&amp; callback)
++                            const boost::function&lt;void (TileEntry)&gt;&amp; callback)
+ {
+   int scale = 0;
+ 
+@@ -61,7 +61,7 @@
+             SoftwareSurface croped_surface = surface.crop(Rect(Vector2i(x * 256, y * 256),
+                                                                Size(256, 256)));
+ 
+-            Tile tile;
++            TileEntry tile;
+             tile.fileid = fileid;
+             tile.scale  = scale;
+             tile.x = x;
+@@ -80,14 +80,14 @@
+ 
+ void
+ TileGenerator::generate_all(int fileid, const std::string&amp; filename,
+-                            const boost::function&lt;void (Tile)&gt;&amp; callback)
++                            const boost::function&lt;void (TileEntry)&gt;&amp; callback)
+ {
+   generate_all(fileid, SoftwareSurface::from_file(filename), callback);
+ }
+ 
+ void
+ TileGenerator::generate_quick(const FileEntry&amp; entry,
+-                              const boost::function&lt;void (Tile)&gt;&amp; callback)
++                              const boost::function&lt;void (TileEntry)&gt;&amp; callback)
+ {
+   // Find scale at which the image fits on one tile
+   int width  = entry.size.width;
+@@ -121,7 +121,7 @@
+     {
+       //std::cout &lt;&lt; scale &lt;&lt; &quot; size: &quot; &lt;&lt; surface.get_size() &lt;&lt; std::endl;
+ 
+-      Tile tile;
++      TileEntry tile;
+       tile.fileid  = entry.fileid;
+       tile.scale   = scale;
+       tile.x       = 0;
+
+Modified: trunk/griv/src/tile_generator.hpp
+===================================================================
+--- trunk/griv/src/tile_generator.hpp	2008-08-21 17:00:20 UTC (rev 2347)
++++ trunk/griv/src/tile_generator.hpp	2008-08-21 20:30:51 UTC (rev 2348)
+@@ -44,13 +44,13 @@
+   /** Slow brute force approach to generate tiles, works with all
+       image formats */
+   void generate_all(int fileid, const SoftwareSurface&amp; surface,
+-                    const boost::function&lt;void (Tile)&gt;&amp; callback);
++                    const boost::function&lt;void (TileEntry)&gt;&amp; callback);
+ 
+   void generate_all(int fileid, const std::string&amp; filename,
+-                    const boost::function&lt;void (Tile)&gt;&amp; callback);
++                    const boost::function&lt;void (TileEntry)&gt;&amp; callback);
+ 
+   void generate_quick(const FileEntry&amp; entry,
+-                      const boost::function&lt;void (Tile)&gt;&amp; callback);
++                      const boost::function&lt;void (TileEntry)&gt;&amp; callback);
+ 
+ private:
+   TileGenerator (const TileGenerator&amp;);
+
+Modified: trunk/griv/src/tile_generator_thread.cpp
+===================================================================
+--- trunk/griv/src/tile_generator_thread.cpp	2008-08-21 17:00:20 UTC (rev 2347)
++++ trunk/griv/src/tile_generator_thread.cpp	2008-08-21 20:30:51 UTC (rev 2348)
+@@ -53,7 +53,7 @@
+ }
+ 
+ void
+-TileGeneratorThread::request_tile(int fileid, const std::string&amp; filename, int x, int y, int scale)
++TileGeneratorThread::request_tile(int fileid, const std::string&amp; filename, const Vector2i&amp; pos, int scale)
+ {
+   // Do some magic to group tile request for the same fileid
+ }
+@@ -65,7 +65,7 @@
+ }
+ 
+ void
+-TileGeneratorThread::receive_tile(const Tile&amp; tile)
++TileGeneratorThread::receive_tile(const TileEntry&amp; tile)
+ {
+   DatabaseThread::current()-&gt;store_tile(tile);
+ }
+
+Modified: trunk/griv/src/tile_generator_thread.hpp
+===================================================================
+--- trunk/griv/src/tile_generator_thread.hpp	2008-08-21 17:00:20 UTC (rev 2347)
++++ trunk/griv/src/tile_generator_thread.hpp	2008-08-21 20:30:51 UTC (rev 2348)
+@@ -56,9 +56,9 @@
+   void stop();
+ 
+   void request_tiles(int fileid, const std::string&amp; filename);
+-  void request_tile (int fileid, const std::string&amp; filename, int x, int y, int scale);
++  void request_tile (int fileid, const std::string&amp; filename, const Vector2i&amp; pos, int scale);
+ 
+-  void receive_tile(const Tile&amp; tile);
++  void receive_tile(const TileEntry&amp; tile);
+   
+ private:
+   TileGeneratorThread (const TileGeneratorThread&amp;);
+
+Modified: trunk/griv/src/viewer_thread.cpp
+===================================================================
+--- trunk/griv/src/viewer_thread.cpp	2008-08-21 17:00:20 UTC (rev 2347)
++++ trunk/griv/src/viewer_thread.cpp	2008-08-21 20:30:51 UTC (rev 2348)
+@@ -51,7 +51,7 @@
+ }
+ 
+ void
+-ViewerThread::receive_tile(const Image&amp; image, const Tile&amp; tile)
++ViewerThread::receive_tile(const Image&amp; image, const TileEntry&amp; tile)
+ {
+   TileMessage msg;
+   
+
+Modified: trunk/griv/src/viewer_thread.hpp
+===================================================================
+--- trunk/griv/src/viewer_thread.hpp	2008-08-21 17:00:20 UTC (rev 2347)
++++ trunk/griv/src/viewer_thread.hpp	2008-08-21 20:30:51 UTC (rev 2348)
+@@ -31,16 +31,16 @@
+ 
+ #include &quot;image.hpp&quot;
+ #include &quot;job_handle.hpp&quot;
+-#include &quot;tile_database.hpp&quot;
++#include &quot;tile_entry.hpp&quot;
+ 
+ class FileEntry;
+ class Image;
+-class Tile;
++class TileEntry;
+ 
+ struct TileMessage
+ {
+-  Image image;
+-  Tile  tile;
++  Image     image;
++  TileEntry tile;
+ };
+ 
+ class ViewerThread
+@@ -61,7 +61,7 @@
+   int run();
+ 
+   void receive_file(const FileEntry&amp; entry);
+-  void receive_tile(const Image&amp; image, const Tile&amp; tile);
++  void receive_tile(const Image&amp; image, const TileEntry&amp; tile);
+ 
+   JobHandle request_tile(int fileid, int tilescale, int x, int y, const Image&amp; image);
+ private:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001344.html">[Windstille-commit] r2347 - in trunk/griv: . src
+</A></li>
+	<LI>Next message: <A HREF="001346.html">[Windstille-commit] r2349 - trunk/griv/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1345">[ date ]</a>
+              <a href="thread.html#1345">[ thread ]</a>
+              <a href="subject.html#1345">[ subject ]</a>
+              <a href="author.html#1345">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

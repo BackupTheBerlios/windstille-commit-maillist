@@ -1,0 +1,165 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3236 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3236%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909122102.n8CL2tEn006765%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002232.html">
+   <LINK REL="Next"  HREF="002234.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3236 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3236%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909122102.n8CL2tEn006765%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3236 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Sep 12 23:02:55 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002232.html">[Windstille-commit] r3235 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="002234.html">[Windstille-commit] r3237 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2233">[ date ]</a>
+              <a href="thread.html#2233">[ thread ]</a>
+              <a href="subject.html#2233">[ subject ]</a>
+              <a href="author.html#2233">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-12 23:02:54 +0200 (Sat, 12 Sep 2009)
+New Revision: 3236
+
+Modified:
+   trunk/windstille/src/editor/decal_object_model.cpp
+   trunk/windstille/src/editor/decal_object_model.hpp
+Log:
+Use SurfaceDrawable instead of SurfaceQuadDrawable
+
+
+Modified: trunk/windstille/src/editor/decal_object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/decal_object_model.cpp	2009-09-12 15:37:56 UTC (rev 3235)
++++ trunk/windstille/src/editor/decal_object_model.cpp	2009-09-12 21:02:54 UTC (rev 3236)
+@@ -18,17 +18,16 @@
+ 
+ #include &lt;iostream&gt;
+ 
+-#include &quot;util/file_reader.hpp&quot;
++#include &quot;display/drawing_parameters.hpp&quot;
++#include &quot;display/scene_context.hpp&quot;
+ #include &quot;display/surface.hpp&quot;
+-#include &quot;display/drawing_parameters.hpp&quot;
+ #include &quot;display/surface_drawing_parameters.hpp&quot;
+-#include &quot;display/surface_drawing_parameters.hpp&quot;
+-#include &quot;display/scene_context.hpp&quot;
++#include &quot;editor/decal_rotate_control_point.hpp&quot;
+ #include &quot;editor/decal_scale_control_point.hpp&quot;
+-#include &quot;editor/decal_rotate_control_point.hpp&quot;
+-#include &quot;scenegraph/surface_quad_drawable.hpp&quot;
++#include &quot;editor/sector_model.hpp&quot;
+ #include &quot;scenegraph/scene_graph.hpp&quot;
+-#include &quot;editor/sector_model.hpp&quot;
++#include &quot;scenegraph/surface_drawable.hpp&quot;
++#include &quot;util/file_reader.hpp&quot;
+ 
+ #include &quot;editor/decal_object_model.hpp&quot;
+ 
+@@ -272,10 +271,14 @@
+   if (!m_drawable)
+   {
+     // FIXME: Could recycle the drawable, instead of allocating a new one each time
+-    m_drawable.reset(new SurfaceQuadDrawable(surface, Vector2f(), Quad(get_bounding_box()),
+-                                             DrawingParameters(), 0.0f,
+-                                             Matrix::identity()));
+-    
++    m_drawable.reset(new SurfaceDrawable(surface, 
++                                         SurfaceDrawingParameters()
++                                         .set_hflip(hflip)
++                                         .set_vflip(vflip)
++                                         .set_scale(scale)
++                                         .set_angle(angle),
++                                         0.0f, Matrix::identity()));
++
+     switch(type)
+     {
+       case COLORMAP:     
+@@ -304,9 +307,18 @@
+ {
+   if (m_drawable)
+   {
+-    Quad quad(get_bounding_box());
+-    quad.rotate(angle);
+-    m_drawable-&gt;set_quad(quad);
++    Vector2f center_offset(-surface.get_width() /2,
++                           -surface.get_height()/2);
++
++    center_offset.x *= scale.x;
++    center_offset.y *= scale.y;
++
++    m_drawable-&gt;get_params()
++      .set_pos(get_world_pos() + center_offset)
++      .set_hflip(hflip)
++      .set_vflip(vflip)
++      .set_scale(scale)
++      .set_angle(angle);
+   }
+ }
+ 
+
+Modified: trunk/windstille/src/editor/decal_object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/decal_object_model.hpp	2009-09-12 15:37:56 UTC (rev 3235)
++++ trunk/windstille/src/editor/decal_object_model.hpp	2009-09-12 21:02:54 UTC (rev 3236)
+@@ -25,7 +25,7 @@
+ #include &quot;display/software_surface.hpp&quot;
+ #include &quot;editor/object_model.hpp&quot;
+ 
+-class SurfaceQuadDrawable;
++class SurfaceDrawable;
+ 
+ class DecalObjectModel : public ObjectModel
+ {
+@@ -48,7 +48,7 @@
+   bool hflip;
+   bool vflip;
+ 
+-  boost::shared_ptr&lt;SurfaceQuadDrawable&gt; m_drawable;
++  boost::shared_ptr&lt;SurfaceDrawable&gt; m_drawable;
+ 
+ public:
+   DecalObjectModel(const FileReader&amp; reader);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002232.html">[Windstille-commit] r3235 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="002234.html">[Windstille-commit] r3237 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2233">[ date ]</a>
+              <a href="thread.html#2233">[ thread ]</a>
+              <a href="subject.html#2233">[ subject ]</a>
+              <a href="author.html#2233">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

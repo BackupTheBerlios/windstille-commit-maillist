@@ -1,0 +1,330 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r670 - in trunk/src: . glutil input scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r670%20-%20in%20trunk/src%3A%20.%20glutil%20input%20scripting&In-Reply-To=%3C200507182038.j6IKcKPp019124%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000322.html">
+   <LINK REL="Next"  HREF="000324.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r670 - in trunk/src: . glutil input scripting</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r670%20-%20in%20trunk/src%3A%20.%20glutil%20input%20scripting&In-Reply-To=%3C200507182038.j6IKcKPp019124%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r670 - in trunk/src: . glutil input scripting">grumbel at berlios.de
+       </A><BR>
+    <I>Mon Jul 18 22:38:20 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000322.html">[Windstille-commit] r669 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000324.html">[Windstille-commit] r671 - in trunk: data/levels data/scripts src src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#323">[ date ]</a>
+              <a href="thread.html#323">[ thread ]</a>
+              <a href="subject.html#323">[ subject ]</a>
+              <a href="author.html#323">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-07-18 22:38:19 +0200 (Mon, 18 Jul 2005)
+New Revision: 670
+
+Modified:
+   trunk/src/Jamfile
+   trunk/src/dialog_manager.hpp
+   trunk/src/game_session.cpp
+   trunk/src/game_session.hpp
+   trunk/src/glutil/texture_manager.hpp
+   trunk/src/input/controller.cpp
+   trunk/src/input/controller.hpp
+   trunk/src/scripting/interface.cpp
+   trunk/src/scripting/interface.hpp
+   trunk/src/scripting/wrapper.cpp
+Log:
+- added class to handle answers/questions/conversations, ie. show a list of items from which the user can select one
+
+Modified: trunk/src/Jamfile
+===================================================================
+--- trunk/src/Jamfile	2005-07-18 18:16:44 UTC (rev 669)
++++ trunk/src/Jamfile	2005-07-18 20:38:19 UTC (rev 670)
+@@ -35,6 +35,8 @@
+         console.hpp
+         controller_def.cpp
+         controller_def.hpp
++        conversation.hpp
++        conversation.cpp
+         default_shoot.cpp
+         default_shoot.hpp
+         dialog_manager.cpp
+
+Modified: trunk/src/dialog_manager.hpp
+===================================================================
+--- trunk/src/dialog_manager.hpp	2005-07-18 18:16:44 UTC (rev 669)
++++ trunk/src/dialog_manager.hpp	2005-07-18 20:38:19 UTC (rev 670)
+@@ -65,10 +65,11 @@
+   void add_dialog(int alignment, const std::string&amp; portrait);
+   void add_question(const std::string&amp; text);
+   void add_answer(const std::string&amp; answer);
+-  int dialog_answer() const {return current_choice;}
+-  int dialog_answer();
++  int  dialog_answer() const {return current_choice;}
++  int  dialog_answer();
+   void remove_dialog();
+   void clear();
++
+ private:
+   DialogManager (const DialogManager&amp;);
+   DialogManager&amp; operator= (const DialogManager&amp;);
+
+Modified: trunk/src/game_session.cpp
+===================================================================
+--- trunk/src/game_session.cpp	2005-07-18 18:16:44 UTC (rev 669)
++++ trunk/src/game_session.cpp	2005-07-18 20:38:19 UTC (rev 670)
+@@ -47,6 +47,7 @@
+ #include &quot;particles/surface_drawer.hpp&quot;
+ #include &quot;script_manager.hpp&quot;
+ #include &quot;sound/sound_manager.hpp&quot;
++#include &quot;conversation.hpp&quot;
+ #include &quot;test_object.hpp&quot;
+ 
+ #include &quot;game_session.hpp&quot;
+@@ -67,7 +68,8 @@
+   view = new View();  
+   energiebar = new Energiebar();
+   dialog_manager = new DialogManager();
+-  
++  conversation  = new Conversation();
++
+   filename = arg_filename;
+   change_sector();
+ }
+@@ -77,6 +79,7 @@
+   delete energiebar;
+   delete view;
+   delete dialog_manager;
++  delete conversation;
+   delete world;
+ }
+ 
+@@ -110,6 +113,8 @@
+   if (control_state == DIALOG)
+     dialog_manager-&gt;draw(); 
+   
++  conversation-&gt;draw();
++
+   control_dialog.set_alignment(origin_bottom_right);
+   control_dialog.draw(800-16, 600-16);
+ }
+@@ -208,6 +213,7 @@
+         }
+       break;
+     }
++  conversation-&gt;update(delta);
+   
+   if (CL_Keyboard::get_keycode(CL_KEY_ESCAPE))
+     quit();
+
+Modified: trunk/src/game_session.hpp
+===================================================================
+--- trunk/src/game_session.hpp	2005-07-18 18:16:44 UTC (rev 669)
++++ trunk/src/game_session.hpp	2005-07-18 20:38:19 UTC (rev 670)
+@@ -37,6 +37,7 @@
+ class Sector;
+ class Player;
+ class DialogManager;
++class Conversation;
+ 
+ class GameSession : public Windstille::Screen
+ {
+@@ -52,6 +53,7 @@
+   View* view;
+   Energiebar* energiebar;
+   DialogManager* dialog_manager;
++  Conversation*  conversation;
+ 
+   enum { FADEIN, RUNNING, FADEOUT } fade_state;
+   enum { DIALOG, GAME } control_state;
+
+Modified: trunk/src/glutil/texture_manager.hpp
+===================================================================
+--- trunk/src/glutil/texture_manager.hpp	2005-07-18 18:16:44 UTC (rev 669)
++++ trunk/src/glutil/texture_manager.hpp	2005-07-18 20:38:19 UTC (rev 670)
+@@ -22,7 +22,6 @@
+ 
+ private:
+   Texture* create(SDL_Surface* surface);
+-  Texture* create(CL_PixelBuffer* buffer);
+   
+   typedef std::map&lt;std::string, Texture*&gt; Textures;
+   Textures textures;
+
+Modified: trunk/src/input/controller.cpp
+===================================================================
+--- trunk/src/input/controller.cpp	2005-07-18 18:16:44 UTC (rev 669)
++++ trunk/src/input/controller.cpp	2005-07-18 20:38:19 UTC (rev 670)
+@@ -87,4 +87,17 @@
+   events = lst;
+ }
+ 
++bool
++Controller::button_pressed(int name)
++{
++  for(InputEventLst::iterator i = events.begin(); i != events.end(); ++i)
++    {
++      if (i-&gt;type == BUTTON_EVENT &amp;&amp; i-&gt;button.name == name &amp;&amp; i-&gt;button.down)
++        {
++          return true;
++        }
++    }
++  return false;
++}
++
+ /* EOF */
+
+Modified: trunk/src/input/controller.hpp
+===================================================================
+--- trunk/src/input/controller.hpp	2005-07-18 18:16:44 UTC (rev 669)
++++ trunk/src/input/controller.hpp	2005-07-18 20:38:19 UTC (rev 670)
+@@ -52,6 +52,10 @@
+ 
+   InputEventLst get_events() const;
+   void set_events(const InputEventLst&amp; lst);
++
++  /** Convenience function that searches for a button down event for
++      the given button */
++  bool button_pressed(int name);
+ };
+ 
+ #endif
+
+Modified: trunk/src/scripting/interface.cpp
+===================================================================
+--- trunk/src/scripting/interface.cpp	2005-07-18 18:16:44 UTC (rev 669)
++++ trunk/src/scripting/interface.cpp	2005-07-18 20:38:19 UTC (rev 670)
+@@ -4,6 +4,7 @@
+ #include &quot;sound/sound_manager.hpp&quot;
+ #include &quot;game_session.hpp&quot;
+ #include &quot;dialog_manager.hpp&quot;
++#include &quot;conversation.hpp&quot;
+ #include &quot;script_manager.hpp&quot;
+ #include &quot;sector.hpp&quot;
+ #include &quot;serialize.hpp&quot;
+@@ -129,4 +130,14 @@
+   game_speed = v;
+ }
+ 
++void conversation_add(const std::string&amp; text)
++{
++  Conversation::current()-&gt;add(text);
+ }
++
++void conversation_show()
++{
++  Conversation::current()-&gt;show();
++}
++
++}
+
+Modified: trunk/src/scripting/interface.hpp
+===================================================================
+--- trunk/src/scripting/interface.hpp	2005-07-18 18:16:44 UTC (rev 669)
++++ trunk/src/scripting/interface.hpp	2005-07-18 20:38:19 UTC (rev 670)
+@@ -33,6 +33,9 @@
+ void show_dialog(HSQUIRRELVM vm, float fadein_time) __suspend;
+ void hide_dialog(float fadeout_time);
+ 
++void conversation_add(const std::string&amp; text);
++void conversation_show();
++
+ bool run_before(HSQUIRRELVM vm);
+ 
+ // for testing
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2005-07-18 18:16:44 UTC (rev 669)
++++ trunk/src/scripting/wrapper.cpp	2005-07-18 20:38:19 UTC (rev 670)
+@@ -349,6 +349,25 @@
+   return 0;
+ }
+ 
++static int conversation_add_wrapper(HSQUIRRELVM v)
++{
++  const char* arg0;
++  sq_getstring(v, 2, &amp;arg0);
++  
++  Scripting::conversation_add(arg0);
++  
++  return 0;
++}
++
++static int conversation_show_wrapper(HSQUIRRELVM v)
++{
++  (void) v;
++  
++  Scripting::conversation_show();
++  
++  return 0;
++}
++
+ static int run_before_wrapper(HSQUIRRELVM v)
+ {
+   HSQUIRRELVM arg0 = v;
+@@ -576,6 +595,22 @@
+     throw SquirrelError(v, msg.str());
+   }
+ 
++  sq_pushstring(v, &quot;conversation_add&quot;, -1);
++  sq_newclosure(v, &amp;conversation_add_wrapper, 0);
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'conversation_add'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  sq_pushstring(v, &quot;conversation_show&quot;, -1);
++  sq_newclosure(v, &amp;conversation_show_wrapper, 0);
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'conversation_show'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
+   sq_pushstring(v, &quot;run_before&quot;, -1);
+   sq_newclosure(v, &amp;run_before_wrapper, 0);
+   if(sq_createslot(v, -3) &lt; 0) {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000322.html">[Windstille-commit] r669 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000324.html">[Windstille-commit] r671 - in trunk: data/levels data/scripts src src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#323">[ date ]</a>
+              <a href="thread.html#323">[ thread ]</a>
+              <a href="subject.html#323">[ subject ]</a>
+              <a href="author.html#323">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,170 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3288 - trunk/windstille/src/scenegraph
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3288%20-%20trunk/windstille/src/scenegraph&In-Reply-To=%3C200910021657.n92GvAed024777%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002284.html">
+   <LINK REL="Next"  HREF="002286.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3288 - trunk/windstille/src/scenegraph</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3288%20-%20trunk/windstille/src/scenegraph&In-Reply-To=%3C200910021657.n92GvAed024777%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3288 - trunk/windstille/src/scenegraph">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Oct  2 18:57:10 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002284.html">[Windstille-commit] r3287 - in trunk/windstille: . src/app	src/display src/scenegraph test test/scissor_drawable
+</A></li>
+        <LI>Next message: <A HREF="002286.html">[Windstille-commit] r3289 - in trunk/windstille/src: display	scenegraph
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2285">[ date ]</a>
+              <a href="thread.html#2285">[ thread ]</a>
+              <a href="subject.html#2285">[ subject ]</a>
+              <a href="author.html#2285">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-10-02 18:57:08 +0200 (Fri, 02 Oct 2009)
+New Revision: 3288
+
+Modified:
+   trunk/windstille/src/scenegraph/scissor_drawable.cpp
+   trunk/windstille/src/scenegraph/stencil_drawable.cpp
+Log:
+Hacked together some support for recursive stenciling
+
+Modified: trunk/windstille/src/scenegraph/scissor_drawable.cpp
+===================================================================
+--- trunk/windstille/src/scenegraph/scissor_drawable.cpp	2009-10-01 23:01:30 UTC (rev 3287)
++++ trunk/windstille/src/scenegraph/scissor_drawable.cpp	2009-10-02 16:57:08 UTC (rev 3288)
+@@ -20,7 +20,7 @@
+ #include &quot;display/display.hpp&quot;
+ 
+ ScissorDrawable::ScissorDrawable(const Rect&amp; cliprect) :
+-  m_cliprect(cliprect),
++  m_cliprect(cliprect), // FIXME: should we keep cliprect in world space instead of screen space?
+   m_drawable_group()
+ {
+ }
+
+Modified: trunk/windstille/src/scenegraph/stencil_drawable.cpp
+===================================================================
+--- trunk/windstille/src/scenegraph/stencil_drawable.cpp	2009-10-01 23:01:30 UTC (rev 3287)
++++ trunk/windstille/src/scenegraph/stencil_drawable.cpp	2009-10-02 16:57:08 UTC (rev 3288)
+@@ -18,6 +18,8 @@
+ 
+ #include &quot;stencil_drawable.hpp&quot;
+ 
++int g_stencil_enabled = 0;
++
+ StencilDrawable::StencilDrawable() :
+   m_stencil_group(),
+   m_drawable_group()
+@@ -27,30 +29,28 @@
+ void
+ StencilDrawable::render(unsigned int mask)
+ {
+-  // FIXME: untested code
++  if (g_stencil_enabled == 0)
++  {
++    g_stencil_enabled = 1;
+ 
+-  // FIXME: this wouldn't work with recursive stencils, maybe solvable
+-  // by doing some cleverer stuff with glStencilFunc and glStencilOp
+-  // (i.e. increment on each recursion and then test on the recursion
+-  // depth count)
++    glEnable(GL_STENCIL_TEST);
+ 
+-  /*
+-    <A HREF="http://www.opengl.org/documentation/specs/man_pages/hardcopy/GL/html/gl/stencilfunc.html">http://www.opengl.org/documentation/specs/man_pages/hardcopy/GL/html/gl/stencilfunc.html</A>
+-    <A HREF="http://www.opengl.org/documentation/specs/man_pages/hardcopy/GL/html/gl/stencilop.html">http://www.opengl.org/documentation/specs/man_pages/hardcopy/GL/html/gl/stencilop.html</A>
+-  */
+-  glEnable(GL_STENCIL_TEST);
++    // enable stencil and clear it
++    glClearStencil(0);
++    glClear(GL_STENCIL_BUFFER_BIT);
++  }
++  else
++  {
++    g_stencil_enabled += 1;
++  }
+ 
+-  // enable stencil and clear it
+-  glClearStencil(0);
+-  glClear(GL_STENCIL_BUFFER_BIT);
+-
+   // glStencilFunc: set when the test passes or fails 
+   // glStencilOp: set what is done when the test passes/fails
+ 
+   // render stencil buffer content
+   glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+   glStencilFunc(GL_ALWAYS, 1, 1);
+-  glStencilOp(GL_REPLACE, GL_REPLACE, GL_REPLACE);
++  glStencilOp(GL_KEEP, GL_KEEP, GL_INCR);
+ 
+   glEnable(GL_ALPHA_TEST);
+   glAlphaFunc(GL_GREATER, 0.5f);
+@@ -59,16 +59,21 @@
+ 
+   // render framebuffer content
+   glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+-  glStencilFunc(GL_EQUAL, 1, 1);
++  glStencilFunc(GL_EQUAL, g_stencil_enabled, g_stencil_enabled);
+   glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+ 
+   m_drawable_group.render(~0u);
+ 
+-  // disable stencil and reset op and func
+-  glStencilFunc(GL_ALWAYS, 0, 1);
+-  glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
++  g_stencil_enabled -= 1;
+ 
+-  glDisable(GL_STENCIL_TEST);
++  if (g_stencil_enabled == 0)
++  {
++    // disable stencil and reset op and func
++    glStencilFunc(GL_ALWAYS, 0, 1);
++    glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
++
++    glDisable(GL_STENCIL_TEST);
++  }
+ }
+ 
+ /* EOF */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002284.html">[Windstille-commit] r3287 - in trunk/windstille: . src/app	src/display src/scenegraph test test/scissor_drawable
+</A></li>
+	<LI>Next message: <A HREF="002286.html">[Windstille-commit] r3289 - in trunk/windstille/src: display	scenegraph
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2285">[ date ]</a>
+              <a href="thread.html#2285">[ thread ]</a>
+              <a href="subject.html#2285">[ subject ]</a>
+              <a href="author.html#2285">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

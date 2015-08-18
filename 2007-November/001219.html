@@ -1,0 +1,599 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1568 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1568%20-%20trunk/griv&In-Reply-To=%3C200711231507.lANF79uS025685%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001218.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1568 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1568%20-%20trunk/griv&In-Reply-To=%3C200711231507.lANF79uS025685%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1568 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Nov 23 16:07:09 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001218.html">[Windstille-commit] r1567 - trunk/griv
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1219">[ date ]</a>
+              <a href="thread.html#1219">[ thread ]</a>
+              <a href="subject.html#1219">[ subject ]</a>
+              <a href="author.html#1219">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-23 16:07:08 +0100 (Fri, 23 Nov 2007)
+New Revision: 1568
+
+Added:
+   trunk/griv/thumb_cache.cpp
+   trunk/griv/thumb_cache.hpp
+Modified:
+   trunk/griv/TODO
+   trunk/griv/filesystem.cpp
+   trunk/griv/filesystem.hpp
+   trunk/griv/griv.cpp
+   trunk/griv/image.cpp
+   trunk/griv/image.hpp
+Log:
+- added command line handling
+- added reading of URL list from file
+
+Modified: trunk/griv/TODO
+===================================================================
+--- trunk/griv/TODO	2007-11-22 23:59:56 UTC (rev 1567)
++++ trunk/griv/TODO	2007-11-23 15:07:08 UTC (rev 1568)
+@@ -25,12 +25,12 @@
+ - write fast file system routines, use readdir(), d_type instead of
+   stat to check for a directory
+ 
++- add support for filesets, i.e. files that contain a list of urls
++
+ 
+ Cache Files:
+ ============
+ 
+-
+-
+ struct FileEntry {
+        std::string filename_md5;
+        std::string md5;
+@@ -43,7 +43,6 @@
+ struct ThumbnailEntry {
+        char        rgb[16*16*3];
+ };
+-
+ 
+ Misc Stuff:
+ ===========
+
+Modified: trunk/griv/filesystem.cpp
+===================================================================
+--- trunk/griv/filesystem.cpp	2007-11-22 23:59:56 UTC (rev 1567)
++++ trunk/griv/filesystem.cpp	2007-11-23 15:07:08 UTC (rev 1568)
+@@ -23,6 +23,7 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;fstream&gt;
+ #include &lt;dirent.h&gt;
+ #include &lt;errno.h&gt;
+ #include &lt;iostream&gt;
+@@ -342,4 +343,20 @@
+   return realpath_fast(pathname);
+ }
+ 
++void
++Filesystem::readlines_from_file(const std::string&amp; pathname, std::vector&lt;std::string&gt;&amp; lst)
++{
++  std::ifstream in(pathname.c_str());
++
++  if (!in)
++    throw std::runtime_error(&quot;Couldn't open file: &quot; + pathname);
++  
++  std::string line;
++  while(std::getline(in, line))
++   {
++     lst.push_back(line);
++   }
++  in.close();
++}
++
+ /* EOF */
+
+Modified: trunk/griv/filesystem.hpp
+===================================================================
+--- trunk/griv/filesystem.hpp	2007-11-22 23:59:56 UTC (rev 1567)
++++ trunk/griv/filesystem.hpp	2007-11-23 15:07:08 UTC (rev 1568)
+@@ -42,6 +42,8 @@
+ 
+   static void open_directory_recursivly(const std::string&amp; pathname, std::vector&lt;std::string&gt;&amp; lst);
+ 
++  static void readlines_from_file(const std::string&amp; pathname, std::vector&lt;std::string&gt;&amp; lst);
++
+   static std::string getxattr(const std::string&amp; pathname);
+   static std::string get_home() { return home_directory; }
+ 
+
+Modified: trunk/griv/griv.cpp
+===================================================================
+--- trunk/griv/griv.cpp	2007-11-22 23:59:56 UTC (rev 1567)
++++ trunk/griv/griv.cpp	2007-11-23 15:07:08 UTC (rev 1568)
+@@ -11,6 +11,7 @@
+ #include &quot;workspace.hpp&quot;
+ #include &quot;loader.hpp&quot;
+ #include &quot;image.hpp&quot;
++#include &quot;command_line.hpp&quot;
+ #include &quot;cache.hpp&quot;
+ 
+ float x_offset = 0.0f;
+@@ -115,11 +116,21 @@
+                 std::cout &lt;&lt; &quot;Drawing grid: &quot; &lt;&lt; draw_grid &lt;&lt; &quot; &quot; &lt;&lt; grid_size &lt;&lt; std::endl;
+                 force_redraw = true;
+               }
+-            else if (event.key.keysym.sym == SDLK_p)
++            else if (event.key.keysym.sym == SDLK_t)
+               {
+                 grid_color = !grid_color;
+                 force_redraw = true;
+               }
++            else if (event.key.keysym.sym == SDLK_p)
++              {
++                std::cout &lt;&lt; &quot;---------------------------------------------------------&quot; &lt;&lt; std::endl;
++                for(int i = 0; i &lt; int(workspace-&gt;images.size()); ++i)
++                  {
++                    if (workspace-&gt;images[i]-&gt;is_visible())
++                      std::cout &lt;&lt; workspace-&gt;images[i]-&gt;url &lt;&lt; std::endl;
++                  }
++                std::cout &lt;&lt; &quot;---------------------------------------------------------&quot; &lt;&lt; std::endl;
++              }
+             else if (event.key.keysym.sym == SDLK_h)
+               {
+                 highquality = !highquality;
+@@ -324,99 +335,146 @@
+ int
+ Griv::main(int argc, char** argv)
+ {
+-  Filesystem::init();
++  try {
++    std::cout &lt;&lt; &quot;Processing command line arguments... &quot; &lt;&lt; std::flush;
++    CommandLine argp;
++      
++    argp.add_usage(&quot;[OPTION]... [FILE]...&quot;);
++    argp.add_doc(&quot;Griv - A ZUI image viewer\n&quot;);
++    argp.add_option('f', &quot;file&quot;, &quot;FILE&quot;, &quot;Load URL list from FILE&quot;);
++    argp.add_option('h', &quot;help&quot;, &quot;&quot;, &quot;Print this help&quot;);
+ 
+-  std::cout &lt;&lt; &quot;Loading cache... &quot; &lt;&lt; std::flush;
+-  cache = new Cache(Filesystem::get_home() + &quot;/.griv/cache/file.cache&quot;);
++    try {
++      argp.parse_args(argc, argv);
++    } catch(std::exception&amp; err) {
++      std::cout &lt;&lt; &quot;Error: CommandLine: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
++      exit(EXIT_FAILURE);
++    }
++
++    std::vector&lt;std::string&gt; url_list;
++    std::vector&lt;std::string&gt; pathnames;
++    while(argp.next())
++      {
++        switch(argp.get_key())
++          {
++            case 'h':
++              argp.print_help();
++              exit(EXIT_SUCCESS);
++              break;
++
++            case 'f':
++              Filesystem::readlines_from_file(argp.get_argument(), url_list);
++              break;
++
++            case CommandLine::REST_ARG:
++              pathnames.push_back(argp.get_argument());
++              break;
++
++            default:
++              std::cout &lt;&lt; &quot;Unhandled argument: &quot; &lt;&lt; argp.get_key() &lt;&lt; std::endl;
++              exit(EXIT_FAILURE);
++              break;
++          }
++      };
++    std::cout &lt;&lt; &quot;done&quot; &lt;&lt; std::endl;    
++
++    std::cout &lt;&lt; &quot;Init filesystem... &quot; &lt;&lt; std::flush;
++    Filesystem::init();
+     std::cout &lt;&lt; &quot;done&quot; &lt;&lt; std::endl;
+ 
+-  std::cout &lt;&lt; &quot;Generating file list... &quot; &lt;&lt; std::flush;
+-  std::vector&lt;std::string&gt; file_list;
+-  for(int i = 1; i &lt; argc; ++i)
+-      Filesystem::generate_jpeg_file_list(argv[i], file_list);
+-  std::cout &lt;&lt; &quot;done&quot; &lt;&lt; std::endl;
++    std::cout &lt;&lt; &quot;Loading cache... &quot; &lt;&lt; std::flush;
++    cache = new Cache(Filesystem::get_home() + &quot;/.griv/cache/file.cache&quot;);
++    std::cout &lt;&lt; &quot;done&quot; &lt;&lt; std::endl;
+ 
+-  Framebuffer::init();
++    std::cout &lt;&lt; &quot;Generating url list... &quot; &lt;&lt; std::flush;
++    for(std::vector&lt;std::string&gt;::iterator i = pathnames.begin(); i != pathnames.end(); ++i)
++      Filesystem::generate_jpeg_file_list(*i, url_list);
++    std::cout &lt;&lt; &quot;done&quot; &lt;&lt; std::endl;
++
++    Framebuffer::init();
+   
+-  workspace = new Workspace();
++    workspace = new Workspace();
+ 
+-  for(std::vector&lt;std::string&gt;::iterator i = file_list.begin(); i != file_list.end(); ++i)
+-    {
+-      workspace-&gt;add(*i);
+-      if ((i - file_list.begin() + 1) % 13 == 0)
+-        std::cout &lt;&lt; &quot;Adding images to workspace... &quot; 
+-                  &lt;&lt; (i - file_list.begin() + 1) &lt;&lt; &quot;/&quot; &lt;&lt; file_list.size() 
+-                  &lt;&lt; &quot;\r&quot; &lt;&lt; std::flush;
+-    }
+-  std::cout &lt;&lt; &quot;done&quot; &lt;&lt; std::endl;
++    for(std::vector&lt;std::string&gt;::iterator i = url_list.begin(); i != url_list.end(); ++i)
++      {
++        workspace-&gt;add(*i);
++        if ((i - url_list.begin() + 1) % 29 == 0)
++          std::cout &lt;&lt; &quot;Adding images to workspace... &quot; 
++                    &lt;&lt; (i - url_list.begin() + 1) &lt;&lt; &quot;/&quot; &lt;&lt; url_list.size() 
++                    &lt;&lt; &quot;\r&quot; &lt;&lt; std::flush;
++      }
++    std::cout &lt;&lt; &quot;done&quot; &lt;&lt; std::endl;
+   
+-  std::cout &lt;&lt; &quot;Saving cache&quot; &lt;&lt; std::endl;
+-  cache-&gt;save(Filesystem::get_home() + &quot;/.griv/cache/file.cache&quot;);
++    std::cout &lt;&lt; &quot;Saving cache&quot; &lt;&lt; std::endl;
++    cache-&gt;save(Filesystem::get_home() + &quot;/.griv/cache/file.cache&quot;);
+ 
+-  workspace-&gt;layout(4,3);
+-  std::cout &lt;&lt; &quot; done&quot; &lt;&lt; std::endl;
++    workspace-&gt;layout(4,3);
++    std::cout &lt;&lt; &quot; done&quot; &lt;&lt; std::endl;
+ 
+-  std::cout &lt;&lt; workspace-&gt;size() &lt;&lt; &quot; images scanned&quot; &lt;&lt; std::endl;
++    std::cout &lt;&lt; workspace-&gt;size() &lt;&lt; &quot; images scanned&quot; &lt;&lt; std::endl;
+ 
+-  {
+-    int w = int(sqrt(4 * workspace-&gt;size() / 3));
+-    x_offset = (-w/2) * 4;
+-    y_offset = (-(w*3/4)/2) * 4;
+-  }
++    {
++      int w = int(sqrt(4 * workspace-&gt;size() / 3));
++      x_offset = (-w/2) * 4;
++      y_offset = (-(w*3/4)/2) * 4;
++    }
+   
+-  drag_n_drop = false;
+-  old_res = -1;
+-  old_x_offset = -1;
+-  old_y_offset = -1;
+-  next_redraw = 0;
++    drag_n_drop = false;
++    old_res = -1;
++    old_x_offset = -1;
++    old_y_offset = -1;
++    next_redraw = 0;
+ 
+-  loader.start_thread();
++    loader.start_thread();
+ 
+-  Uint32 ticks = SDL_GetTicks();
+-  while(true)
+-    {
+-      Uint32 cticks = SDL_GetTicks();
+-      int delta = cticks - ticks;
+-      if (delta &gt; 0)
+-        {
+-          ticks = cticks;
+-          process_events(delta / 1000.0f);
++    Uint32 ticks = SDL_GetTicks();
++    while(true)
++      {
++        Uint32 cticks = SDL_GetTicks();
++        int delta = cticks - ticks;
++        if (delta &gt; 0)
++          {
++            ticks = cticks;
++            process_events(delta / 1000.0f);
+ 
+-          if (workspace-&gt;res != old_res ||
+-              old_x_offset != x_offset ||
+-              old_y_offset != y_offset ||
+-              (force_redraw &amp;&amp; (next_redraw &lt; SDL_GetTicks() || loader.empty())) ||
+-              workspace-&gt;reorganize)
+-            {
+-              force_redraw = false;
++            if (workspace-&gt;res != old_res ||
++                old_x_offset != x_offset ||
++                old_y_offset != y_offset ||
++                (force_redraw &amp;&amp; (next_redraw &lt; SDL_GetTicks() || loader.empty())) ||
++                workspace-&gt;reorganize)
++              {
++                force_redraw = false;
+ 
+-              Framebuffer::clear();
+-              workspace-&gt;update(delta / 1000.0f);
+-              workspace-&gt;draw();
++                Framebuffer::clear();
++                workspace-&gt;update(delta / 1000.0f);
++                workspace-&gt;draw();
+               
+-              if (draw_grid)
+-                gl_draw_grid(grid_size);
++                if (draw_grid)
++                  gl_draw_grid(grid_size);
+ 
+-              Framebuffer::flip();
++                Framebuffer::flip();
+ 
+-              old_res = workspace-&gt;res;
+-              old_x_offset = x_offset;
+-              old_y_offset = y_offset;
+-              next_redraw = SDL_GetTicks() + 1000;
+-            }
+-          else
+-            {
+-              SDL_Delay(5);
+-            }
+-        }
+-    }
++                old_res = workspace-&gt;res;
++                old_x_offset = x_offset;
++                old_y_offset = y_offset;
++                next_redraw = SDL_GetTicks() + 1000;
++              }
++            else
++              {
++                SDL_Delay(5);
++              }
++          }
++      }
+ 
+-  loader.stop_thread();
++    loader.stop_thread();
+ 
+-  delete workspace;
++    delete workspace;
+ 
+-  Framebuffer::deinit();
+-  Filesystem::deinit();
++    Framebuffer::deinit();
++    Filesystem::deinit();
++  } catch(std::exception&amp; err) {
++    std::cout &lt;&lt; &quot;ERROR: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
++  }
+ 
+   return 0;
+ }
+
+Modified: trunk/griv/image.cpp
+===================================================================
+--- trunk/griv/image.cpp	2007-11-22 23:59:56 UTC (rev 1567)
++++ trunk/griv/image.cpp	2007-11-23 15:07:08 UTC (rev 1568)
+@@ -48,7 +48,8 @@
+     x_pos(0),
+     y_pos(0),
+     last_x_pos(0),
+-    last_y_pos(0)
++    last_y_pos(0),
++    visible(false)
+ {
+   // FIXME: Slow, make this in a seperate thread
+   const FileEntry* entry = cache-&gt;get_entry(url);
+@@ -104,6 +105,7 @@
+       x &lt; -res || 
+       y &lt; -res)
+     { // Image out of screen
++      visible = false;
+       if (surface &amp;&amp; surface-&gt;get_resolution() &gt;= 512) // keep small images around a while longer
+         {
+           delete surface;
+@@ -112,7 +114,7 @@
+     }
+   else
+     { // image on screen
+-
++      visible = true;
+       // Handle loading when resolution changed
+       if (surface == 0 || 
+           round_res(int(res)) != surface-&gt;get_resolution())
+
+Modified: trunk/griv/image.hpp
+===================================================================
+--- trunk/griv/image.hpp	2007-11-22 23:59:56 UTC (rev 1567)
++++ trunk/griv/image.hpp	2007-11-23 15:07:08 UTC (rev 1568)
+@@ -62,6 +62,8 @@
+   float target_x_pos;
+   float target_y_pos;
+ 
++  bool visible;
++
+ public:
+   Image(const std::string&amp; url);
+   ~Image();
+@@ -72,6 +74,8 @@
+ 
+   int round_res(int res);
+   void set_pos(float x, float y);
++
++  bool is_visible() const { return visible; }
+ };
+ 
+ #endif
+
+Added: trunk/griv/thumb_cache.cpp
+===================================================================
+--- trunk/griv/thumb_cache.cpp	2007-11-22 23:59:56 UTC (rev 1567)
++++ trunk/griv/thumb_cache.cpp	2007-11-23 15:07:08 UTC (rev 1568)
+@@ -0,0 +1,55 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &quot;thumb_cache.hpp&quot;
++
++ThumbCache::ThumbCache(const std::string&amp; filename)
++{
++  in = std::ifstream(filename.c_str(), std::ios::in | std::ios::binary);
++}
++
++ThumbCache::~ThumbCache()
++{
++}
++
++SDL_Surface*
++ThumbCache::get(int offset)
++{
++  
++}
++
++void
++ThumbCache::add(SDL_Surface* surface)
++{
++  
++}
++
++void
++ThumbCache::save(const std::string&amp; filename)
++{
++  
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/thumb_cache.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/thumb_cache.hpp
+===================================================================
+--- trunk/griv/thumb_cache.hpp	2007-11-22 23:59:56 UTC (rev 1567)
++++ trunk/griv/thumb_cache.hpp	2007-11-23 15:07:08 UTC (rev 1568)
+@@ -0,0 +1,53 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_THUMB_CACHE_HPP
++#define HEADER_THUMB_CACHE_HPP
++
++#include &lt;fstream&gt;
++
++/** */
++class ThumbCache
++{
++private:
++  std::ifstream in;
++  
++public:
++  ThumbCache(const std::string&amp; filename);
++  ~ThumbCache();
++
++  SDL_Surface* get(int offset);
++  void add(SDL_Surface* surface);
++  
++  void save(const std::string&amp; filename);
++
++private:
++  ThumbCache (const ThumbCache&amp;);
++  ThumbCache&amp; operator= (const ThumbCache&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/thumb_cache.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001218.html">[Windstille-commit] r1567 - trunk/griv
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1219">[ date ]</a>
+              <a href="thread.html#1219">[ thread ]</a>
+              <a href="subject.html#1219">[ subject ]</a>
+              <a href="author.html#1219">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,184 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1508 - in trunk/windstille/src: . math
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1508%20-%20in%20trunk/windstille/src%3A%20.%20math&In-Reply-To=%3C200706241034.l5OAY6Rt013866%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001158.html">
+   <LINK REL="Next"  HREF="001160.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1508 - in trunk/windstille/src: . math</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1508%20-%20in%20trunk/windstille/src%3A%20.%20math&In-Reply-To=%3C200706241034.l5OAY6Rt013866%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1508 - in trunk/windstille/src: . math">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Jun 24 12:34:06 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001158.html">[Windstille-commit] r1507 - in trunk/windstille/src: . armature
+</A></li>
+        <LI>Next message: <A HREF="001160.html">[Windstille-commit] r1509 - trunk/windstille/tools
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1159">[ date ]</a>
+              <a href="thread.html#1159">[ thread ]</a>
+              <a href="subject.html#1159">[ subject ]</a>
+              <a href="author.html#1159">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-06-24 12:34:04 +0200 (Sun, 24 Jun 2007)
+New Revision: 1508
+
+Modified:
+   trunk/windstille/src/math/quaternion.hpp
+   trunk/windstille/src/sprite3dview.cpp
+   trunk/windstille/src/sprite3dview.hpp
+Log:
+- improved rotation in sprite3dview
+
+Modified: trunk/windstille/src/math/quaternion.hpp
+===================================================================
+--- trunk/windstille/src/math/quaternion.hpp	2007-06-23 19:09:06 UTC (rev 1507)
++++ trunk/windstille/src/math/quaternion.hpp	2007-06-24 10:34:04 UTC (rev 1508)
+@@ -20,6 +20,8 @@
+ #ifndef __QUATERNION_HPP__
+ #define __QUATERNION_HPP__
+ 
++#include &lt;math.h&gt;
++#include &quot;vector3.hpp&quot;
+ #include &quot;matrix.hpp&quot;
+ 
+ class Quaternion
+@@ -38,6 +40,24 @@
+     : w(w), x(x), y(y), z(z)
+   {}
+ 
++  /** Construct a Quaternion representing a rotation 
++   *  @param axis   the axis of rotation, must be a unit vector (length = 1.0f)
++   *  @param theta  the angle of rotation in radians
++   */
++  Quaternion(const Vector3&amp; axis, float theta)
++  {
++    w = cos(theta/2);
++
++    float s = sin(theta/2);
++    x = axis.x * s;
++    y = axis.y * s;
++    z = axis.z * s;
++  }
++
++  static Quaternion identity() {
++    return Quaternion(1.0f, 0.0f, 0.0f, 0.0f);
++  }
++
+   float magnitude() const;
+   void normalize();
+ 
+
+Modified: trunk/windstille/src/sprite3dview.cpp
+===================================================================
+--- trunk/windstille/src/sprite3dview.cpp	2007-06-23 19:09:06 UTC (rev 1507)
++++ trunk/windstille/src/sprite3dview.cpp	2007-06-24 10:34:04 UTC (rev 1508)
+@@ -40,9 +40,9 @@
+   actions = sprite.get_actions();
+ 
+   sprite.set_action(actions[current_action]);
++  
++  rotation = Quaternion::identity();
+ 
+-  rotx  = 0.0f;
+-  roty  = 0.0f;
+   scale = 2.0f;
+ }
+ 
+@@ -61,16 +61,18 @@
+ Sprite3DView::draw()
+ {
+   sc.reset_modelview();
+-  //sc.translate(-config-&gt;screen_width/2, -config-&gt;screen_height/2 + 150);
++  //sc.translate(-config-&gt;screen_width/2, -config-&gt;screen_height/2);
+   //sc.scale(2.0f, 2.0f);
+   
+   sc.color().fill_screen(Color(0.5, 0.0, 0.5));
+ 
+   sc.push_modelview();
+-  sc.translate(Display::get_width()/2, Display::get_height()/2 + 200);
++  sc.translate(Display::get_width()/2, Display::get_height()/2);
+   sc.scale(scale, scale);
+-  sc.rotate(roty, 0.0f, 1.0f, 0.0f);
+-  sc.rotate(rotx, 1.0f, 0.0f, 0.0f);
++
++  // Rotate
++  sc.mult_modelview(rotation.to_matrix());  
++  sc.translate(0, 64.0f); // FIXME: use object height/2 instead of 64
+   sprite.draw(sc.color(), Vector(0,0), 0); 
+   sc.pop_modelview();
+ 
+@@ -141,9 +143,15 @@
+       sprite.set_action(actions[current_action]);
+     }
+ 
+-  rotx += controller.get_axis_state(Y2_AXIS) * 50.0f * delta;
+-  roty += controller.get_axis_state(X2_AXIS) * 50.0f * delta;
++  rotation = Quaternion(Vector3(0.0f, 1.0f, 0.0f), controller.get_axis_state(X2_AXIS) * delta * 2.0f) * rotation;
++  rotation = Quaternion(Vector3(1.0f, 0.0f, 0.0f), controller.get_axis_state(Y2_AXIS) * delta * 2.0f) * rotation;
++  rotation = Quaternion(Vector3(0.0f, 0.0f, 1.0f), controller.get_axis_state(X_AXIS) * delta * 2.0f) * rotation;
+ 
++  if (controller.get_button_state(VIEW_CENTER_BUTTON))
++    {
++      rotation = Quaternion::identity();
++    }
++
+   if (controller.button_was_pressed(ESCAPE_BUTTON) ||
+       controller.button_was_pressed(CANCEL_BUTTON))
+     screen_manager.pop_screen();
+
+Modified: trunk/windstille/src/sprite3dview.hpp
+===================================================================
+--- trunk/windstille/src/sprite3dview.hpp	2007-06-23 19:09:06 UTC (rev 1507)
++++ trunk/windstille/src/sprite3dview.hpp	2007-06-24 10:34:04 UTC (rev 1508)
+@@ -42,8 +42,7 @@
+   std::vector&lt;std::string&gt; actions;
+   int current_action;
+ 
+-  float rotx;
+-  float roty;
++  Quaternion rotation;
+   float scale;
+ 
+ public:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001158.html">[Windstille-commit] r1507 - in trunk/windstille/src: . armature
+</A></li>
+	<LI>Next message: <A HREF="001160.html">[Windstille-commit] r1509 - trunk/windstille/tools
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1159">[ date ]</a>
+              <a href="thread.html#1159">[ thread ]</a>
+              <a href="subject.html#1159">[ subject ]</a>
+              <a href="author.html#1159">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

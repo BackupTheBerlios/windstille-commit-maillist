@@ -1,0 +1,583 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1511 - in trunk/windstille/src: . armature	input math scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1511%20-%20in%20trunk/windstille/src%3A%20.%20armature%0A%09input%20math%20scripting&In-Reply-To=%3C200706300953.l5U9rJx0018843%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001161.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1511 - in trunk/windstille/src: . armature	input math scripting</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1511%20-%20in%20trunk/windstille/src%3A%20.%20armature%0A%09input%20math%20scripting&In-Reply-To=%3C200706300953.l5U9rJx0018843%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1511 - in trunk/windstille/src: . armature	input math scripting">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Jun 30 11:53:19 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001161.html">[Windstille-commit] r1510 - in trunk/media/images: . objects tiles
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1162">[ date ]</a>
+              <a href="thread.html#1162">[ thread ]</a>
+              <a href="subject.html#1162">[ subject ]</a>
+              <a href="author.html#1162">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-06-30 11:53:18 +0200 (Sat, 30 Jun 2007)
+New Revision: 1511
+
+Modified:
+   trunk/windstille/src/armature/armature.cpp
+   trunk/windstille/src/armature/bone.hpp
+   trunk/windstille/src/conversation.cpp
+   trunk/windstille/src/conversation.hpp
+   trunk/windstille/src/input/input_manager_sdl.cpp
+   trunk/windstille/src/math/matrix.cpp
+   trunk/windstille/src/math/matrix.hpp
+   trunk/windstille/src/scripting/interface.cpp
+   trunk/windstille/src/scripting/interface.hpp
+   trunk/windstille/src/scripting/wrapper.cpp
+Log:
+- added topic/text to conversations
+- some more matrix math
+
+Modified: trunk/windstille/src/armature/armature.cpp
+===================================================================
+--- trunk/windstille/src/armature/armature.cpp	2007-06-25 03:07:32 UTC (rev 1510)
++++ trunk/windstille/src/armature/armature.cpp	2007-06-30 09:53:18 UTC (rev 1511)
+@@ -63,7 +63,6 @@
+                     i-&gt;get(&quot;parent&quot;,   bone-&gt;parent_name) &amp;&amp;
+                     i-&gt;get(&quot;length&quot;,   bone-&gt;length) &amp;&amp;
+                     i-&gt;get(&quot;quat&quot;,     bone-&gt;quat) &amp;&amp;
+-                    i-&gt;get(&quot;matrix&quot;,   bone-&gt;matrix) &amp;&amp;
+                     i-&gt;get(&quot;head&quot;,     bone-&gt;offset)))
+                 {
+                   std::cout &lt;&lt; &quot;Error: some Bone attribute missing&quot; &lt;&lt; std::endl;
+@@ -71,10 +70,7 @@
+                 }
+               else
+                 {
+-                  // FIXME: experimental
+-                  bone-&gt;matrix = bone-&gt;quat.to_matrix();
+                   bone-&gt;render_matrix = bone-&gt;quat.to_matrix();
+-
+                   bones.push_back(bone);
+                 }
+             }
+@@ -145,6 +141,7 @@
+ {
+   Matrix  m_  = m.multiply(bone-&gt;render_matrix);
+   Vector3 p_  = p + m.multiply(bone-&gt;offset);
++
+   // FIXME: In theory we should be using length in the Z component, but only
+   // Y seems to work?! -&gt; Blenders matrix are weird
+   Vector3 p__ = p_ + m_.multiply(Vector3(0.0f, bone-&gt;length, 0.0f));
+@@ -161,6 +158,9 @@
+   glColor3f(1.0f, 0.0f, 0.0f);
+   glVertex3f(  p__.x,  p__.y, p__.z);
+ 
++  bone-&gt;render_head = p_;
++  bone-&gt;render_tail = p__;
++
+   for(std::vector&lt;Bone*&gt;::iterator i = bone-&gt;children.begin(); i != bone-&gt;children.end(); ++i)  
+     draw_bone(*i, p__, m_);
+ }
+@@ -183,7 +183,7 @@
+             }
+           else
+             {
+-              bone-&gt;render_matrix = bone-&gt;matrix.multiply(pbone-&gt;quat.to_matrix());
++              bone-&gt;render_matrix = bone-&gt;quat.to_matrix().multiply(pbone-&gt;quat.to_matrix());
+             }
+         }
+     }
+
+Modified: trunk/windstille/src/armature/bone.hpp
+===================================================================
+--- trunk/windstille/src/armature/bone.hpp	2007-06-25 03:07:32 UTC (rev 1510)
++++ trunk/windstille/src/armature/bone.hpp	2007-06-30 09:53:18 UTC (rev 1511)
+@@ -48,10 +48,11 @@
+   float      length;
+ 
+   Quaternion quat;
+-  Matrix     matrix;
+   Vector3    offset;
+ 
+   Matrix     render_matrix;
++  Vector3    render_head;
++  Vector3    render_tail;
+   
+   Bone();
+   ~Bone();
+
+Modified: trunk/windstille/src/conversation.cpp
+===================================================================
+--- trunk/windstille/src/conversation.cpp	2007-06-25 03:07:32 UTC (rev 1510)
++++ trunk/windstille/src/conversation.cpp	2007-06-30 09:53:18 UTC (rev 1511)
+@@ -49,19 +49,30 @@
+ {
+   if (!active)
+     {
+-      choices.push_back(text);
++      choices.push_back(Choice(text, &quot;&quot;));
+       if (selection &gt;= int(choices.size()))
+         selection = 0;
+     }
+ }
+ 
+ void
++Conversation::add(const std::string&amp; topic, const std::string&amp; text)
++{
++  if (!active)
++    {
++      choices.push_back(Choice(topic, text));
++      if (selection &gt;= int(choices.size()))
++        selection = 0;
++    }
++}
++
++void
+ Conversation::draw()
+ {
+   if (!active)
+     return;
+   
+-  Display::fill_circle(pos, 42.0f, Color(1.0f, 1.0f, 1.0f, 0.25f), 24);
++  Display::fill_circle(pos, 42.0f, Color(0.5f, 0.5f, 0.5f, 0.75f), 24);
+ 
+   float segment = 360.0f / choices.size();
+ 
+@@ -74,7 +85,7 @@
+       float end   = -segment/2 - 90.0f + segment*(i+1);
+       
+       // FIXME: Doesn't handle multi line text
+-      Sizef size(Fonts::vera20-&gt;get_width(choices[i]) + 60,
++      Sizef size(Fonts::vera20-&gt;get_width(choices[i].topic) + 60,
+                  Fonts::vera20-&gt;get_height() + 40);
+       float distance = 160.0f;
+ 
+@@ -85,12 +96,19 @@
+         {
+           Display::fill_arc(pos, 42.0f, start, end, Color(1.0f, 1.0f, 1.0f, 0.5f), 24);
+           Display::fill_rounded_rect(rect, 5.0f, Color(0.5f, 0.5f, 0.5f, 0.75f));
+-          Fonts::vera20-&gt;draw_center(textpos.x + distance * offset.x, textpos.y + distance * offset.y, choices[i], Color(1.0f, 1.0f, 1.0f));
++          Fonts::vera20-&gt;draw_center(textpos.x + distance * offset.x,
++                                     textpos.y + distance * offset.y, 
++                                     choices[i].topic, Color(1.0f, 1.0f, 1.0f));
++
++          Fonts::vera20-&gt;draw_center(400, 600 - 64,
++                                     choices[i].text, Color(1.0f, 1.0f, 1.0f));
+         }
+       else
+         {
+           Display::fill_rounded_rect(rect, 5.0f, Color(0.25f, 0.25f, 0.25f, 0.75f));
+-          Fonts::vera20-&gt;draw_center(textpos.x + distance * offset.x, textpos.y + distance * offset.y, choices[i], Color(0.5f, 0.5f, 0.5f));
++          Fonts::vera20-&gt;draw_center(textpos.x + distance * offset.x,
++                                     textpos.y + distance * offset.y,
++                                     choices[i].topic, Color(0.5f, 0.5f, 0.5f));
+         }
+ 
+       Display::draw_rounded_rect(rect, 5.0f, Color(1.0f, 1.0f, 1.0f));
+@@ -147,7 +165,9 @@
+   if (controller.button_was_pressed(OK_BUTTON) &amp;&amp; selection != -1)
+     {
+       active = false;
+-      GameSession::current()-&gt;get_pda().add_dialog(&quot;Jane&quot;, choices[selection]);
++      GameSession::current()-&gt;get_pda().add_dialog(&quot;Jane&quot;,
++                                                   choices[selection].topic + &quot; - &quot; +
++                                                   choices[selection].text);
+       choices.clear();
+       GameSession::current()-&gt;set_control_state(GameSession::GAME);
+       script_manager-&gt;fire_wakeup_event(ScriptManager::CONVERSATION_CLOSED);
+
+Modified: trunk/windstille/src/conversation.hpp
+===================================================================
+--- trunk/windstille/src/conversation.hpp	2007-06-25 03:07:32 UTC (rev 1510)
++++ trunk/windstille/src/conversation.hpp	2007-06-30 09:53:18 UTC (rev 1511)
+@@ -40,7 +40,17 @@
+   bool   active;
+   int    selection;
+ 
+-  typedef std::vector&lt;std::string&gt; Choices;
++  struct Choice {
++    Choice(const std::string topic_,
++           const std::string text_)
++      : topic(topic_), 
++        text(text_) 
++    {}
++    std::string topic;
++    std::string text;
++  };
++
++  typedef std::vector&lt;Choice&gt; Choices;
+   Choices choices;
+   
+   static Conversation* current_;
+@@ -53,6 +63,7 @@
+   void update(float delta, const Controller&amp; controller);
+ 
+   void add(const std::string&amp; text);
++  void add(const std::string&amp; topic, const std::string&amp; text);
+   int  get_selection() const;
+   void show();
+ };
+
+Modified: trunk/windstille/src/input/input_manager_sdl.cpp
+===================================================================
+--- trunk/windstille/src/input/input_manager_sdl.cpp	2007-06-25 03:07:32 UTC (rev 1510)
++++ trunk/windstille/src/input/input_manager_sdl.cpp	2007-06-30 09:53:18 UTC (rev 1511)
+@@ -33,7 +33,7 @@
+ 
+ InputManagerSDL* InputManagerSDL::current_ = 0;
+ 
+-const int dead_zone =  4096;
++const int dead_zone =  8192;
+ 
+ class InputManagerSDLImpl
+ {
+
+Modified: trunk/windstille/src/math/matrix.cpp
+===================================================================
+--- trunk/windstille/src/math/matrix.cpp	2007-06-25 03:07:32 UTC (rev 1510)
++++ trunk/windstille/src/math/matrix.cpp	2007-06-30 09:53:18 UTC (rev 1511)
+@@ -27,8 +27,10 @@
+ **    (if your name is missing here, please add it)
+ */
+ 
++#include &lt;assert.h&gt;
+ #include &lt;string.h&gt;
+ #include &lt;iostream&gt;
++#include &lt;iomanip&gt;
+ #include &lt;math.h&gt;
+ #include &quot;vector3.hpp&quot;
+ #include &quot;matrix.hpp&quot;
+@@ -46,8 +48,8 @@
+ {
+   Matrix matrix;
+ 
+-  matrix.matrix[0] = 1.0;
+-  matrix.matrix[5] = 1.0;
++  matrix.matrix[0]  = 1.0;
++  matrix.matrix[5]  = 1.0;
+   matrix.matrix[10] = 1.0;
+   matrix.matrix[15] = 1.0;
+ 	
+@@ -56,13 +58,41 @@
+ 
+ Matrix::Matrix(const Matrix &amp;copy)
+ {
+-  for (int i=0; i&lt;16; i++)
++  for (int i = 0; i &lt; 16; ++i)
+     matrix[i] = copy.matrix[i];
+ }
+ 
+-Matrix::Matrix(const float *init_matrix)
++Matrix::Matrix(float m00, float m01, float m02, float m03,
++               float m10, float m11, float m12, float m13, 
++               float m20, float m21, float m22, float m23, 
++               float m30, float m31, float m32, float m33)
+ {
+-  for (int i=0; i&lt;16; i++)
++  Matrix&amp; m = *this;
++
++  m(0,0) = m00;
++  m(1,0) = m10;
++  m(2,0) = m20;
++  m(3,0) = m30;
++
++  m(0,1) = m01;
++  m(1,1) = m11;
++  m(2,1) = m21;
++  m(3,1) = m31;
++
++  m(0,2) = m02;
++  m(1,2) = m12;
++  m(2,2) = m22;
++  m(3,2) = m32;
++
++  m(0,3) = m03;
++  m(1,3) = m13;
++  m(2,3) = m23;
++  m(3,3) = m33;
++}
++
++Matrix::Matrix(const float* init_matrix)
++{
++  for (int i = 0; i &lt; 16; ++i)
+     matrix[i] = init_matrix[i];
+ }
+ 
+@@ -192,14 +222,110 @@
+ 
+   return multiply(matrix);
+ }
++// <A HREF="http://www.cvl.iis.u-tokyo.ac.jp/~miyazaki/tech/teche23.html">http://www.cvl.iis.u-tokyo.ac.jp/~miyazaki/tech/teche23.html</A>
++// <A HREF="http://gpwiki.org/index.php/MathGem:Fast_Matrix_Inversion">http://gpwiki.org/index.php/MathGem:Fast_Matrix_Inversion</A>
+ 
++Matrix
++Matrix::inverse() const
++{
++  float det = determinat();
++  if (det != 0)
++    {
++      const Matrix&amp; m = *this;
++      Matrix b;
++      // FIXME: wrong start index, should be 0, is 1
++      b(0,0) = m(2,2)*m(3,3)*m(4,4) + m(2,3)*m(3,4)*m(4,2) + m(2,4)*m(3,2)*m(4,3) - m(2,2)*m(3,4)*m(4,3) - m(2,3)*m(3,2)*m(4,4) - m(2,4)*m(3,3)*m(4,2);
++      b(0,1) = m(1,2)*m(3,4)*m(4,3) + m(1,3)*m(3,2)*m(4,4) + m(1,4)*m(3,3)*m(4,2) - m(1,2)*m(3,3)*m(4,4) - m(1,3)*m(3,4)*m(4,2) - m(1,4)*m(3,2)*m(4,3);
++      b(0,2) = m(1,2)*m(2,3)*m(4,4) + m(1,3)*m(2,4)*m(4,2) + m(1,4)*m(2,2)*m(4,3) - m(1,2)*m(2,4)*m(4,3) - m(1,3)*m(2,2)*m(4,4) - m(1,4)*m(2,3)*m(4,2);
++      b(0,3) = m(1,2)*m(2,4)*m(3,3) + m(1,3)*m(2,2)*m(3,4) + m(1,4)*m(2,3)*m(3,2) - m(1,2)*m(2,3)*m(3,4) - m(1,3)*m(2,4)*m(3,2) - m(1,4)*m(2,2)*m(3,3);
++                                                                                                                                                              
++      b(1,0) = m(2,1)*m(3,4)*m(4,3) + m(2,3)*m(3,1)*m(4,4) + m(2,4)*m(3,3)*m(4,1) - m(2,1)*m(3,3)*m(4,4) - m(2,3)*m(3,4)*m(4,1) - m(2,4)*m(3,1)*m(4,3);
++      b(1,1) = m(1,1)*m(3,3)*m(4,4) + m(1,3)*m(3,4)*m(4,1) + m(1,4)*m(3,1)*m(4,3) - m(1,1)*m(3,4)*m(4,3) - m(1,3)*m(3,1)*m(4,4) - m(1,4)*m(3,3)*m(4,1);
++      b(1,2) = m(1,1)*m(2,4)*m(4,3) + m(1,3)*m(2,1)*m(4,4) + m(1,4)*m(2,3)*m(4,1) - m(1,1)*m(2,3)*m(4,4) - m(1,3)*m(2,4)*m(4,1) - m(1,4)*m(2,1)*m(4,3);
++      b(1,3) = m(1,1)*m(2,3)*m(3,4) + m(1,3)*m(2,4)*m(3,1) + m(1,4)*m(2,1)*m(3,3) - m(1,1)*m(2,4)*m(3,3) - m(1,3)*m(2,1)*m(3,4) - m(1,4)*m(2,3)*m(3,1);
++                                                                                                                                                              
++      b(2,0) = m(2,1)*m(3,2)*m(4,4) + m(2,2)*m(3,4)*m(4,1) + m(2,4)*m(3,1)*m(4,2) - m(2,1)*m(3,4)*m(4,2) - m(2,2)*m(3,1)*m(4,1) - m(2,4)*m(3,2)*m(4,1);
++      b(2,1) = m(1,1)*m(3,4)*m(4,2) + m(1,2)*m(3,1)*m(4,4) + m(1,4)*m(3,2)*m(4,1) - m(1,1)*m(3,2)*m(4,4) - m(1,2)*m(3,4)*m(4,1) - m(1,4)*m(3,1)*m(4,2);
++      b(2,2) = m(1,1)*m(2,2)*m(4,4) + m(1,2)*m(2,4)*m(4,1) + m(1,4)*m(2,1)*m(4,2) - m(1,1)*m(2,4)*m(4,2) - m(1,2)*m(2,1)*m(4,4) - m(1,4)*m(2,2)*m(4,1);
++      b(2,3) = m(1,1)*m(2,4)*m(3,2) + m(1,2)*m(2,1)*m(3,4) + m(1,4)*m(2,2)*m(3,1) - m(1,1)*m(2,2)*m(3,4) - m(1,2)*m(2,4)*m(3,1) - m(1,4)*m(2,1)*m(3,2);
++                                                                                                                                                              
++      b(3,0) = m(2,1)*m(3,3)*m(4,2) + m(2,2)*m(3,1)*m(4,3) + m(2,3)*m(3,2)*m(4,1) - m(2,1)*m(3,2)*m(4,3) - m(2,2)*m(3,3)*m(4,1) - m(2,3)*m(3,1)*m(4,2);
++      b(3,1) = m(1,1)*m(3,2)*m(4,3) + m(1,2)*m(3,3)*m(4,1) + m(1,3)*m(3,1)*m(4,2) - m(1,1)*m(3,3)*m(4,2) - m(1,2)*m(3,1)*m(4,3) - m(1,3)*m(3,2)*m(4,1);
++      b(3,2) = m(1,1)*m(2,3)*m(4,2) + m(1,2)*m(2,1)*m(4,3) + m(1,3)*m(2,2)*m(4,1) - m(1,1)*m(2,2)*m(4,3) - m(1,2)*m(2,3)*m(4,1) - m(1,3)*m(2,1)*m(4,2);
++      b(3,3) = m(1,1)*m(2,2)*m(3,3) + m(1,2)*m(2,3)*m(3,1) + m(1,3)*m(2,1)*m(3,2) - m(1,1)*m(2,3)*m(3,2) - m(1,2)*m(2,1)*m(3,3) - m(1,3)*m(2,2)*m(3,1);
++
++      return b;
++    }
++  else
++    {
++      assert(!&quot;Matrix can't be inverted&quot;);
++    }
++}
++
++float
++Matrix::determinat() const
++{
++  const Matrix&amp; m = *this;
++  return  // fixme: all wrong, need to -1 everything!
++    m(1,1)*m(2,2)*m(3,3)*m(4,4) + m(1,1)*m(2,3)*m(3,4)*m(4,2) + m(1,1)*m(2,4)*m(3,2)*m(4,3) +
++    m(1,2)*m(2,1)*m(3,4)*m(4,3) + m(1,2)*m(2,3)*m(3,1)*m(4,4) + m(1,2)*m(2,4)*m(3,3)*m(4,1) +
++    m(1,3)*m(2,1)*m(3,2)*m(4,4) + m(1,3)*m(2,2)*m(3,4)*m(4,1) + m(1,3)*m(2,4)*m(3,1)*m(4,2) +
++    m(1,4)*m(2,1)*m(3,3)*m(4,2) + m(1,4)*m(2,2)*m(3,1)*m(4,3) + m(1,4)*m(2,3)*m(3,2)*m(4,1) -
++    m(1,1)*m(2,2)*m(3,4)*m(4,3) - m(1,1)*m(2,3)*m(3,2)*m(4,4) - m(1,1)*m(2,4)*m(3,3)*m(4,2) -
++    m(1,2)*m(2,1)*m(3,3)*m(4,4) - m(1,2)*m(2,3)*m(3,4)*m(4,1) - m(1,2)*m(2,4)*m(3,1)*m(4,3) -
++    m(1,3)*m(2,1)*m(3,4)*m(4,2) - m(1,3)*m(2,2)*m(3,1)*m(4,4) - m(1,3)*m(2,4)*m(3,2)*m(4,1) -
++    m(1,4)*m(2,1)*m(3,2)*m(4,3) - m(1,4)*m(2,2)*m(3,3)*m(4,1) - m(1,4)*m(2,3)*m(3,1)*m(4,2);
++}
++
++Matrix
++Matrix::fast_inverse() const
++{
++  //const Matrix&amp; m = *this;
++  Matrix ret;
++
++  assert(!&quot;implement me&quot;);
++
++  return ret;
++}
++
++Matrix
++Matrix::transpose() const
++{
++  const Matrix&amp; m = *this;
++  Matrix ret;
++
++  ret(0,0) = m(0,0);
++  ret(1,0) = m(0,1);
++  ret(2,0) = m(0,2);
++  ret(3,0) = m(0,3);
++
++  ret(0,1) = m(1,0);
++  ret(1,1) = m(1,1);
++  ret(2,1) = m(1,2);
++  ret(3,1) = m(1,3);
++
++  ret(0,2) = m(2,0);
++  ret(1,2) = m(2,1);
++  ret(2,2) = m(2,2);
++  ret(3,2) = m(2,3);
++
++  ret(0,3) = m(3,0);
++  ret(1,3) = m(3,1);
++  ret(2,3) = m(3,2);
++  ret(3,3) = m(3,3);
++
++  return ret;
++}
++
+ std::ostream&amp; operator&lt;&lt;(std::ostream&amp; s, const Matrix&amp; m)
+ {
+-  s &lt;&lt; &quot;[&quot; &lt;&lt; m[ 0] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 4] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 8] &lt;&lt; &quot;, &quot; &lt;&lt; m[12] &lt;&lt; &quot;\n&quot;;
+-  s &lt;&lt; &quot; &quot; &lt;&lt; m[ 1] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 5] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 9] &lt;&lt; &quot;, &quot; &lt;&lt; m[13] &lt;&lt; &quot;\n&quot;;
+-  s &lt;&lt; &quot; &quot; &lt;&lt; m[ 2] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 6] &lt;&lt; &quot;, &quot; &lt;&lt; m[10] &lt;&lt; &quot;, &quot; &lt;&lt; m[14] &lt;&lt; &quot;\n&quot;;
+-  s &lt;&lt; &quot; &quot; &lt;&lt; m[ 3] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 7] &lt;&lt; &quot;, &quot; &lt;&lt; m[11] &lt;&lt; &quot;, &quot; &lt;&lt; m[15] &lt;&lt; &quot;]\n&quot;;
+-
++  std::ios_base::fmtflags oldflags = s.flags();
++  s &lt;&lt; std::fixed &lt;&lt; std::setprecision(3)
++    &lt;&lt; &quot;[&quot; &lt;&lt; m[ 0] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 4] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 8] &lt;&lt; &quot;, &quot; &lt;&lt; m[12] &lt;&lt; &quot;\n&quot;
++    &lt;&lt; &quot; &quot; &lt;&lt; m[ 1] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 5] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 9] &lt;&lt; &quot;, &quot; &lt;&lt; m[13] &lt;&lt; &quot;\n&quot;
++    &lt;&lt; &quot; &quot; &lt;&lt; m[ 2] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 6] &lt;&lt; &quot;, &quot; &lt;&lt; m[10] &lt;&lt; &quot;, &quot; &lt;&lt; m[14] &lt;&lt; &quot;\n&quot;
++    &lt;&lt; &quot; &quot; &lt;&lt; m[ 3] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 7] &lt;&lt; &quot;, &quot; &lt;&lt; m[11] &lt;&lt; &quot;, &quot; &lt;&lt; m[15] &lt;&lt; &quot;]\n&quot;;
++  s.flags(oldflags);
+   return s;
+ }
+ 
+
+Modified: trunk/windstille/src/math/matrix.hpp
+===================================================================
+--- trunk/windstille/src/math/matrix.hpp	2007-06-25 03:07:32 UTC (rev 1510)
++++ trunk/windstille/src/math/matrix.hpp	2007-06-30 09:53:18 UTC (rev 1511)
+@@ -46,6 +46,11 @@
+ 
+   Matrix(const float *matrix);
+ 
++  Matrix(float m00, float m01, float m02, float m03,
++         float m10, float m11, float m12, float m13, 
++         float m20, float m21, float m22, float m23, 
++         float m30, float m31, float m32, float m33);
++
+   /** Returns identity matrix */
+   static Matrix identity();
+ 
+@@ -91,7 +96,21 @@
+   //: Multiply two matrices.
+   Matrix multiply(const Matrix &amp;matrix) const;
+ 
++  //: Calculate the inverse of this matrix
++  Matrix inverse() const;
++
++  /** Calculate the inverse of this matrix in a fast way, only works
++   *  for matrices that represent rotation and translation */
++  Matrix fast_inverse() const;
++
++  //: Callculate the determinat of this matrix
++  float determinat() const;
++
++  //: Multiply a vector with this matrix
+   Vector3 multiply(const Vector3&amp; vector) const;
++  
++  //: Transpose this matrix and return the result
++  Matrix transpose() const;
+ 
+   //: Multiply the matrix with the given scale/translate/rotate matrix
+   Matrix scale(float x, float y, float z);
+
+Modified: trunk/windstille/src/scripting/interface.cpp
+===================================================================
+--- trunk/windstille/src/scripting/interface.cpp	2007-06-25 03:07:32 UTC (rev 1510)
++++ trunk/windstille/src/scripting/interface.cpp	2007-06-30 09:53:18 UTC (rev 1511)
+@@ -223,6 +223,11 @@
+   Conversation::current()-&gt;add(text);
+ }
+ 
++void conversation_add2(const std::string&amp; topic, const std::string&amp; text)
++{
++  Conversation::current()-&gt;add(topic, text);
++}
++
+ void conversation_show()
+ {
+   Conversation::current()-&gt;show();
+
+Modified: trunk/windstille/src/scripting/interface.hpp
+===================================================================
+--- trunk/windstille/src/scripting/interface.hpp	2007-06-25 03:07:32 UTC (rev 1510)
++++ trunk/windstille/src/scripting/interface.hpp	2007-06-30 09:53:18 UTC (rev 1511)
+@@ -69,6 +69,7 @@
+ void wait_for_camera(HSQUIRRELVM vm) __suspend;
+ 
+ void conversation_add(const std::string&amp; text);
++void conversation_add2(const std::string&amp; topic, const std::string&amp; text);
+ void conversation_show();
+ int  conversation_get_selection();
+ void wait_for_conversation(HSQUIRRELVM v) __suspend;
+
+Modified: trunk/windstille/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/windstille/src/scripting/wrapper.cpp	2007-06-25 03:07:32 UTC (rev 1510)
++++ trunk/windstille/src/scripting/wrapper.cpp	2007-06-30 09:53:18 UTC (rev 1511)
+@@ -892,6 +892,34 @@
+   
+ }
+ 
++static SQInteger conversation_add2_wrapper(HSQUIRRELVM vm)
++{
++  const SQChar* arg0;
++  if(SQ_FAILED(sq_getstring(vm, 2, &amp;arg0))) {
++    sq_throwerror(vm, _SC(&quot;Argument 1 not a string&quot;));
++    return SQ_ERROR;
++  }
++  const SQChar* arg1;
++  if(SQ_FAILED(sq_getstring(vm, 3, &amp;arg1))) {
++    sq_throwerror(vm, _SC(&quot;Argument 2 not a string&quot;));
++    return SQ_ERROR;
++  }
++  
++  try {
++    Scripting::conversation_add2(arg0, arg1);
++  
++    return 0;
++  
++  } catch(std::exception&amp; e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC(&quot;Unexpected exception while executing function 'conversation_add2'&quot;));
++    return SQ_ERROR;
++  }
++  
++}
++
+ static SQInteger conversation_show_wrapper(HSQUIRRELVM vm)
+ {
+   (void) vm;
+@@ -1768,6 +1796,12 @@
+     throw SquirrelError(v, &quot;Couldn't register function 'conversation_add'&quot;);
+   }
+ 
++  sq_pushstring(v, &quot;conversation_add2&quot;, -1);
++  sq_newclosure(v, &amp;conversation_add2_wrapper, 0);
++  if(SQ_FAILED(sq_createslot(v, -3))) {
++    throw SquirrelError(v, &quot;Couldn't register function 'conversation_add2'&quot;);
++  }
++
+   sq_pushstring(v, &quot;conversation_show&quot;, -1);
+   sq_newclosure(v, &amp;conversation_show_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001161.html">[Windstille-commit] r1510 - in trunk/media/images: . objects tiles
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1162">[ date ]</a>
+              <a href="thread.html#1162">[ thread ]</a>
+              <a href="subject.html#1162">[ subject ]</a>
+              <a href="author.html#1162">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

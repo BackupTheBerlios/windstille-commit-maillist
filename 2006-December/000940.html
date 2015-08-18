@@ -1,0 +1,705 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1287 - in trunk: . txt2png
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-December/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1287%20-%20in%20trunk%3A%20.%20txt2png&In-Reply-To=%3C200612190428.kBJ4S7IR028840%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000939.html">
+   <LINK REL="Next"  HREF="000941.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1287 - in trunk: . txt2png</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1287%20-%20in%20trunk%3A%20.%20txt2png&In-Reply-To=%3C200612190428.kBJ4S7IR028840%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1287 - in trunk: . txt2png">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Dec 19 05:28:07 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000939.html">[Windstille-commit] r1286 - trunk/windstille/src
+</A></li>
+        <LI>Next message: <A HREF="000941.html">[Windstille-commit] r1288 - trunk/txt2png
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#940">[ date ]</a>
+              <a href="thread.html#940">[ thread ]</a>
+              <a href="subject.html#940">[ subject ]</a>
+              <a href="author.html#940">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-12-19 05:28:06 +0100 (Tue, 19 Dec 2006)
+New Revision: 1287
+
+Added:
+   trunk/txt2png/
+   trunk/txt2png/SConstruct
+   trunk/txt2png/bitmap.cpp
+   trunk/txt2png/bitmap.hpp
+   trunk/txt2png/text_renderer.hpp
+   trunk/txt2png/ttf_font.cpp
+   trunk/txt2png/ttf_font.hpp
+   trunk/txt2png/txt2png.cpp
+Log:
+- little utility app to convert ascii text to png
+
+Added: trunk/txt2png/SConstruct
+===================================================================
+--- trunk/txt2png/SConstruct	2006-12-09 17:21:11 UTC (rev 1286)
++++ trunk/txt2png/SConstruct	2006-12-19 04:28:06 UTC (rev 1287)
+@@ -0,0 +1,10 @@
++# -*- python -*-
++
++env = Environment()
++env.ParseConfig('freetype-config --libs --cflags')
++env.Program('txt2png', ['txt2png.cpp',
++                        'bitmap.cpp',
++                        'ttf_font.cpp'],
++            CXXFLAGS=&quot;-g -O0 -Wall&quot;)
++
++# EOF #
+
+Added: trunk/txt2png/bitmap.cpp
+===================================================================
+--- trunk/txt2png/bitmap.cpp	2006-12-09 17:21:11 UTC (rev 1286)
++++ trunk/txt2png/bitmap.cpp	2006-12-19 04:28:06 UTC (rev 1287)
+@@ -0,0 +1,105 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &lt;algorithm&gt;
++#include &lt;fstream&gt;
++#include &lt;string.h&gt;
++#include &quot;bitmap.hpp&quot;
++
++Bitmap::Bitmap(int width_, int height_)
++  : width(width_),
++    height(height_),
++    buffer(new unsigned char[width * height])
++{
++  memset(buffer, 0, width * height);
++}
++
++Bitmap::~Bitmap()
++{
++  delete[] buffer;
++}
++
++void
++Bitmap::clear()
++{
++  memset(buffer, 0, width * height);
++}
++
++void
++Bitmap::blit(const Bitmap&amp; source, int x_pos, int y_pos)
++{
++  int start_x = std::max(0, -x_pos);
++  int start_y = std::max(0, -y_pos);
++  
++  int end_x = std::min(source.width,  width  - x_pos);
++  int end_y = std::min(source.height, height - y_pos);
++ 
++  for(int y = start_y; y &lt; end_y; ++y)
++    for(int x = start_x; x &lt; end_x; ++x)
++      { // opaque blit, could use alpha/add blit instead
++        buffer[(y + y_pos) * width + (x + x_pos)] = source.buffer[y * source.width + x];
++      }
++}
++
++void 
++Bitmap::write_pgm(const std::string&amp; filename)
++{
++  std::ofstream out(filename.c_str());
++  
++  out &lt;&lt; &quot;P2&quot; &lt;&lt; std::endl;
++  out &lt;&lt; &quot;# txt2png&quot; &lt;&lt; std::endl;
++  out &lt;&lt; get_width() &lt;&lt; &quot; &quot; &lt;&lt; get_height() &lt;&lt; std::endl;
++  out &lt;&lt; &quot;255&quot; &lt;&lt; std::endl;
++  for(int y = 0; y &lt; get_height(); ++y)
++    for(int x = 0; x &lt; get_width(); ++x)
++      {
++        out &lt;&lt; 255 - int(at(x, y)) &lt;&lt; &quot; &quot;;
++      }
++  out &lt;&lt; std::endl;
++}
++
++unsigned char
++Bitmap::at(int x, int y)
++{
++  return buffer[y * width + x];
++}
++
++void
++Bitmap::invert(int x1, int y1, int x2, int y2)
++{
++  x1 = std::max(0, x1);
++  y1 = std::max(0, y1);
++
++  x2 = std::min(width,  x2);
++  y2 = std::min(height, y2);
++
++  for(int y = y1; y &lt; y2; ++y)
++    for(int x = x1; x &lt; x2; ++x)
++      {
++        buffer[y * width + x] = 255 - buffer[y * width + x];
++      }
++}
++
++/* EOF */
+
+Added: trunk/txt2png/bitmap.hpp
+===================================================================
+--- trunk/txt2png/bitmap.hpp	2006-12-09 17:21:11 UTC (rev 1286)
++++ trunk/txt2png/bitmap.hpp	2006-12-19 04:28:06 UTC (rev 1287)
+@@ -0,0 +1,61 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_BITMAP_HPP
++#define HEADER_BITMAP_HPP
++
++/** */
++class Bitmap
++{
++private:
++  int width;
++  int height;
++  unsigned char* buffer;
++
++public:
++  Bitmap(int width, int height);
++  ~Bitmap();
++
++  int get_width() { return width; }
++  int get_height() { return height; }
++
++  unsigned char at(int x, int y);
++
++  void blit(const Bitmap&amp; source, int x, int y);
++  unsigned char* get_data() { return buffer; }
++  void clear();
++  void write_pgm(const std::string&amp; filename);
++
++  /** Invert the given region */
++  void invert(int x1, int y1, int x2, int y2);
++
++private:
++  Bitmap (const Bitmap&amp;);
++  Bitmap&amp; operator= (const Bitmap&amp;);
++};
++
++#endif
++
++/* EOF */
+
+Added: trunk/txt2png/text_renderer.hpp
+===================================================================
+--- trunk/txt2png/text_renderer.hpp	2006-12-09 17:21:11 UTC (rev 1286)
++++ trunk/txt2png/text_renderer.hpp	2006-12-19 04:28:06 UTC (rev 1287)
+@@ -0,0 +1,46 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_TEXT_RENDERER_HPP
++#define HEADER_TEXT_RENDERER_HPP
++
++/** */
++class TextRenderer
++{
++private:
++public:
++  TextRenderer();
++  ~TextRenderer();
++  
++  void render(Bitmap* canvas, std::string text, )
++
++private:
++  TextRenderer (const TextRenderer&amp;);
++  TextRenderer&amp; operator= (const TextRenderer&amp;);
++};
++
++#endif
++
++/* EOF */
+
+Added: trunk/txt2png/ttf_font.cpp
+===================================================================
+--- trunk/txt2png/ttf_font.cpp	2006-12-09 17:21:11 UTC (rev 1286)
++++ trunk/txt2png/ttf_font.cpp	2006-12-19 04:28:06 UTC (rev 1287)
+@@ -0,0 +1,165 @@
++/*  $Id: ttf_font.cpp 1274 2006-09-05 19:10:18Z grumbel $
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++*/
++
++#include &lt;iostream&gt;
++#include &lt;iomanip&gt;
++#include &lt;fstream&gt;
++#include &lt;assert.h&gt;
++#include &lt;vector&gt;
++#include &lt;stdexcept&gt;
++#include &lt;sstream&gt;
++
++#include &lt;ft2build.h&gt;
++#include FT_FREETYPE_H
++#include FT_GLYPH_H
++
++#include &quot;ttf_font.hpp&quot;
++
++TTFCharacter::TTFCharacter(FT_GlyphSlot glyph)
++{
++  x_offset =  glyph-&gt;bitmap_left;
++  y_offset = -glyph-&gt;bitmap_top;
++
++  advance = (glyph-&gt;advance.x &gt;&gt; 6);
++
++  bitmap = new Bitmap(glyph-&gt;bitmap.width, glyph-&gt;bitmap.rows);
++
++  for(int y = 0; y &lt; bitmap-&gt;get_height(); ++y)
++    for(int x = 0; x &lt; bitmap-&gt;get_width(); ++x)
++      {
++        bitmap-&gt;get_data()[y * bitmap-&gt;get_width() + x] = glyph-&gt;bitmap.buffer[y * glyph-&gt;bitmap.pitch + x];
++      }
++}
++
++class TTFFontImpl
++{
++public:
++  /// the global FreeType library handle
++  static FT_Library      library;
++
++  /** Array of characters available in this font, current limited to
++      256 characters, no full unicode */
++  std::vector&lt;TTFCharacter*&gt; characters;
++
++  /** The original size of the font in pixels */
++  int size;
++
++  /** The amount of pixels to advance in y direction after a finished
++      line, this can be transformed by FontEffect */
++  int height;
++
++  ~TTFFontImpl()
++  {
++    for(std::vector&lt;TTFCharacter*&gt;::size_type i = 0; i &lt; characters.size(); ++i)
++      delete characters[i];
++  }
++};
++
++FT_Library TTFFontImpl::library;
++
++TTFFont::TTFFont(const std::string&amp; filename, int size_)
++  : impl(new TTFFontImpl())
++{
++  assert(size_ &gt; 0);
++
++  impl-&gt;size = size_;
++
++  // Read the TTF font file content into buffer
++  std::ifstream fin(filename.c_str());
++  std::istreambuf_iterator&lt;char&gt; first(fin), last;
++  std::vector&lt;char&gt; buffer(first, last); 
++
++  FT_Face face;
++  if (FT_New_Memory_Face(TTFFontImpl::library, 
++                         reinterpret_cast&lt;FT_Byte*&gt;(&amp;*buffer.begin()), buffer.size(), 
++                         0, &amp;face))
++    {
++      throw std::runtime_error(&quot;Couldn't load font: '&quot; + filename + &quot;'&quot;);
++    }
++  
++  FT_Set_Pixel_Sizes(face, impl-&gt;size, impl-&gt;size);
++
++  FT_Select_Charmap(face,  FT_ENCODING_UNICODE);
++
++  impl-&gt;height = impl-&gt;size;
++
++  // We limit ourself to 256 characters for the momemnt
++  for(int glyph_index = 0; glyph_index &lt; 256; glyph_index += 1)
++    {
++      if (FT_Load_Char( face,  glyph_index, FT_LOAD_RENDER))
++        {
++          // FIXME: happens when character is not in font, should be handled more gentle
++          throw std::runtime_error(&quot;couldn't load char&quot;);
++        }
++            
++      impl-&gt;characters.push_back(new TTFCharacter(face-&gt;glyph));
++    }
++
++  FT_Done_Face(face);
++}
++
++TTFFont::~TTFFont()
++{
++  delete impl;
++}
++
++const TTFCharacter&amp;
++TTFFont::get_character(int c) const
++{
++  assert(c &gt;= 0 &amp;&amp; c &lt; 256);
++  return *impl-&gt;characters[c];
++}
++
++int
++TTFFont::get_height() const
++{
++  return impl-&gt;size;
++}
++
++int
++TTFFont::get_width(const std::string&amp; text) const
++{
++  int width = 0;
++  for(std::string::const_iterator i = text.begin(); i != text.end(); ++i)
++    width += impl-&gt;characters[*i]-&gt;advance;
++  return width;
++}
++
++void
++TTFFont::init()
++{
++  FT_Error  error;
++  
++  error = FT_Init_FreeType( &amp;TTFFontImpl::library );
++  if ( error )
++    throw std::runtime_error( &quot;could not initialize FreeType&quot; );
++}
++
++void
++TTFFont::deinit()
++{
++  FT_Done_FreeType( TTFFontImpl::library );
++}
++
++/* EOF */
+
+Added: trunk/txt2png/ttf_font.hpp
+===================================================================
+--- trunk/txt2png/ttf_font.hpp	2006-12-09 17:21:11 UTC (rev 1286)
++++ trunk/txt2png/ttf_font.hpp	2006-12-19 04:28:06 UTC (rev 1287)
+@@ -0,0 +1,86 @@
++/*  $Id: ttf_font.hpp 1274 2006-09-05 19:10:18Z grumbel $
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_TTF_FONT_HXX
++#define HEADER_TTF_FONT_HXX
++
++#include &lt;string&gt;
++#include &quot;bitmap.hpp&quot;
++
++struct FT_GlyphSlotRec_;
++typedef struct FT_GlyphSlotRec_*  FT_GlyphSlot;
++
++class TTFCharacter
++{
++public:
++  /** The position of the image, relative to the current cursor
++      position in screen coordinates */
++  int x_offset;
++  int y_offset;
++
++  /** Amount of pixels that the cursor will advance after having
++      printed this character (FIXME: could use kerning instead) */
++  int advance;
++
++  Bitmap* bitmap;
++
++  TTFCharacter(FT_GlyphSlot glyph);
++};
++
++class TTFFontImpl;
++
++/** */
++class TTFFont
++{
++public:
++  static void init();
++  static void deinit();
++
++  TTFFont(const std::string&amp; file, int size);
++  ~TTFFont();
++
++  /** The height of the font */
++  int get_height() const;
++
++  /** Returns the width of a given piece of text, doesn't take
++      newlines into account */
++  int get_width(const std::string&amp; text) const;
++
++  /** Returns the height as given in the constructor, this does *not*
++      take into account any possible resize effects done by
++      FontEffoct */
++  int get_size() const;
++
++  const TTFCharacter&amp; get_character(int c) const;
++
++  //void draw(float x_pos, float y_pos, const std::string&amp; str, const Color&amp; color = Color(1.0f, 1.0f, 1.0f));
++  //void draw_center(float x_pos, float y_pos, const std::string&amp; str, const Color&amp; color = Color(1.0f, 1.0f, 1.0f));
++private:
++  TTFFontImpl* impl;
++};
++
++#endif
++
++/* EOF */
+
+Added: trunk/txt2png/txt2png.cpp
+===================================================================
+--- trunk/txt2png/txt2png.cpp	2006-12-09 17:21:11 UTC (rev 1286)
++++ trunk/txt2png/txt2png.cpp	2006-12-19 04:28:06 UTC (rev 1287)
+@@ -0,0 +1,113 @@
++#include &lt;string&gt;
++#include &lt;iostream&gt;
++#include &lt;iomanip&gt;
++#include &lt;sstream&gt;
++#include &lt;fstream&gt;
++#include &quot;ttf_font.hpp&quot;
++
++void render(Bitmap&amp; canvas, TTFFont&amp; font, const std::string&amp; text)
++{
++  int start_x = 4;
++  int start_y = 4+10;
++
++  int page = 0;
++  int x = start_x;
++  int y = start_y; // &lt;- refers to the baseline of the font!
++
++  for(std::string::size_type i = 0; i &lt; text.size(); ++i)
++    {
++      if (text[i] == '\n')
++        {
++          x = start_x;
++          y += font.get_height();
++
++          if (y &gt;= canvas.get_height() - start_y + font.get_height())
++            { // FIXME :Duplicate code
++              y = start_y;
++              x = start_x;
++
++              std::ostringstream str;
++              str &lt;&lt; &quot;out/page&quot; &lt;&lt; std::setfill('0') &lt;&lt; std::setw(3) &lt;&lt; page &lt;&lt; &quot;.pgm&quot;;
++              std::cout &lt;&lt; &quot;Writing: &quot; &lt;&lt; str.str() &lt;&lt; std::endl;
++              canvas.write_pgm(str.str());
++              canvas.clear();
++
++              page += 1;
++            }
++        }
++      else if (text[i] == '\r')
++        {
++          // ignore
++        }
++      else if (text[i] == '\t')
++        {
++          int cw = font.get_character(' ').advance * 8;
++          x = start_x + ((((x-start_x)/cw) + 1) * cw);
++        }
++      else
++        {
++          const TTFCharacter&amp; glyph = font.get_character(text[i]);
++
++          canvas.blit(*glyph.bitmap, 
++                      x + glyph.x_offset,
++                      y + glyph.y_offset);
++
++          x += glyph.advance;
++
++          if (x &gt;= canvas.get_width())
++            {
++              std::cout &lt;&lt; &quot;Illegal line break on page &quot; &lt;&lt; page &lt;&lt; std::endl;
++              x = start_x;
++              y += font.get_height();              
++            }
++
++          if (y &gt;= canvas.get_height() - start_y + font.get_height())
++            {
++              y = start_y;
++              x = start_x;
++
++              std::ostringstream str;
++              str &lt;&lt; &quot;out/page&quot; &lt;&lt; std::setfill('0') &lt;&lt; std::setw(3) &lt;&lt; page &lt;&lt; &quot;.pgm&quot;;
++              std::cout &lt;&lt; &quot;Writing: &quot; &lt;&lt; str.str() &lt;&lt; std::endl;
++              canvas.write_pgm(str.str());
++              canvas.clear();
++
++              page += 1;
++            }
++        }
++    }
++}
++
++int main(int argc, char** argv)
++{
++  if (argc != 4)
++    {
++      std::cout &lt;&lt; &quot;Usage: &quot; &lt;&lt; argv[0] &lt;&lt; &quot; FONT SIZE TEXT&quot; &lt;&lt; std::endl;
++    }
++  else
++    {
++      std::string font_filename = argv[1];
++      int font_size = atoi(argv[2]);
++      std::string text_filename = argv[3];
++
++      TTFFont::init();
++
++      //std::cout &lt;&lt; &quot;Load font&quot; &lt;&lt; std::endl;
++      TTFFont font(font_filename, font_size);
++
++      //  std::cout &lt;&lt; &quot;Create bitmap&quot; &lt;&lt; std::endl;
++      Bitmap  bitmap(480, 272);
++
++      std::ifstream fin(text_filename.c_str());
++      std::istreambuf_iterator&lt;char&gt; first(fin), last;
++      std::string text(first, last); 
++
++      //std::cout &lt;&lt; &quot;Render...&quot; &lt;&lt; std::endl;
++      render(bitmap, font, text);
++  
++      TTFFont::deinit();
++    }
++  return 0;
++}
++
++/* EOF */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000939.html">[Windstille-commit] r1286 - trunk/windstille/src
+</A></li>
+	<LI>Next message: <A HREF="000941.html">[Windstille-commit] r1288 - trunk/txt2png
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#940">[ date ]</a>
+              <a href="thread.html#940">[ thread ]</a>
+              <a href="subject.html#940">[ subject ]</a>
+              <a href="author.html#940">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

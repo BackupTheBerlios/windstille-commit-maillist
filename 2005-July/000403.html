@@ -1,0 +1,251 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r750 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r750%20-%20trunk/src&In-Reply-To=%3C200507250935.j6P9Z4bj016117%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000402.html">
+   <LINK REL="Next"  HREF="000404.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r750 - trunk/src</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r750%20-%20trunk/src&In-Reply-To=%3C200507250935.j6P9Z4bj016117%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r750 - trunk/src">grumbel at berlios.de
+       </A><BR>
+    <I>Mon Jul 25 11:35:04 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000402.html">[Windstille-commit] r749 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000404.html">[Windstille-commit] r751 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#403">[ date ]</a>
+              <a href="thread.html#403">[ thread ]</a>
+              <a href="subject.html#403">[ subject ]</a>
+              <a href="author.html#403">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-07-25 11:35:02 +0200 (Mon, 25 Jul 2005)
+New Revision: 750
+
+Modified:
+   trunk/src/console.cpp
+   trunk/src/ttf_font.cpp
+   trunk/src/ttf_font.hpp
+Log:
+- some more cleanup, added color support
+
+
+Modified: trunk/src/console.cpp
+===================================================================
+--- trunk/src/console.cpp	2005-07-25 06:39:06 UTC (rev 749)
++++ trunk/src/console.cpp	2005-07-25 09:35:02 UTC (rev 750)
+@@ -167,13 +167,11 @@
+     {
+       if (buffer[i].display_time &lt; 5.0f || console.is_active())
+         {
+-          Fonts::copyright.set_color(CL_Color(225, 225, 255));
++          float alpha = 1.0f;
+           if (buffer[i].display_time &gt; 4.0f &amp;&amp; !console.is_active())
+-            Fonts::copyright.set_alpha(1.0f - (buffer[i].display_time - 4.0f));
+-          else
+-            Fonts::copyright.set_alpha(1.0f);
++            alpha = 1.0f - (buffer[i].display_time - 4.0f);
+ 
+-          Fonts::ttffont-&gt;draw(x_pos, y, buffer[i].message);
++          Fonts::ttffont-&gt;draw(x_pos, y, buffer[i].message, Color(0.88, 0.88, 1.0f, alpha));
+         }
+       y -= Fonts::ttffont-&gt;get_height() + 2;
+     }
+@@ -192,7 +190,7 @@
+ 
+       //Fonts::ttffont-&gt;set_alignment(origin_bottom_left);
+       //Fonts::ttffont-&gt;set_alpha(1.0f);
+-      Fonts::ttffont-&gt;draw(x_pos, y_pos, &quot;&gt;&quot; + str);
++      Fonts::ttffont-&gt;draw(x_pos, y_pos, &quot;&gt;&quot; + str, Color(1.0f, 1.0f, 1.0f));
+     }
+   
+   //needed because ClanLib font operator= doesn't deal with uniqueness properly, so we need to
+
+Modified: trunk/src/ttf_font.cpp
+===================================================================
+--- trunk/src/ttf_font.cpp	2005-07-25 06:39:06 UTC (rev 749)
++++ trunk/src/ttf_font.cpp	2005-07-25 09:35:02 UTC (rev 750)
+@@ -41,10 +41,12 @@
+ #include &quot;blitter.hpp&quot;
+ #include &quot;ttf_font.hpp&quot;
+ 
+-TTFCharacter::TTFCharacter(int left_, int top_, int width_, int height_,
+-                     const CL_Rectf&amp; uv_, int advance_)
+-  : left(left_), top(top_), width(width_), height(height_),
+-    uv(uv_), advance(advance_)
++TTFCharacter::TTFCharacter(const CL_Rect&amp; pos_,
++                           const CL_Rectf&amp; uv_, 
++                           int advance_)
++  : pos(pos_),
++    uv(uv_), 
++    advance(advance_)
+ {
+   
+ }
+@@ -109,6 +111,7 @@
+   std::vector&lt;char&gt; buffer(first, last); 
+ 
+   FT_Face face;
++  std::cout &lt;&lt; &quot;Buffer size: &quot; &lt;&lt; buffer.size() &lt;&lt; std::endl;
+   if (FT_New_Memory_Face(TTFFontImpl::library, reinterpret_cast&lt;FT_Byte*&gt;(&amp;*buffer.begin()), buffer.size(), 0, &amp;face))
+     {
+       throw std::runtime_error(&quot;Couldn't load font: '&quot; + filename + &quot;'&quot;);
+@@ -137,14 +140,15 @@
+       generate_border(pixelbuffer, x_pos, y_pos, 
+                       face-&gt;glyph-&gt;bitmap.width, face-&gt;glyph-&gt;bitmap.rows);
+ 
+-      impl-&gt;characters.push_back(TTFCharacter(face-&gt;glyph-&gt;bitmap_left, 
+-                                              face-&gt;glyph-&gt;bitmap_top, 
+-                                              face-&gt;glyph-&gt;bitmap.width, 
+-                                              face-&gt;glyph-&gt;bitmap.rows, 
+-                                              CL_Rectf(x_pos/float(pixelbuffer.get_width()),
+-                                                       y_pos/float(pixelbuffer.get_height()),
+-                                                       (x_pos + face-&gt;glyph-&gt;bitmap.width)/float(pixelbuffer.get_width()),
+-                                                       (y_pos + face-&gt;glyph-&gt;bitmap.rows)/float(pixelbuffer.get_height())),
++      CL_Rect pos(CL_Point(face-&gt;glyph-&gt;bitmap_left,  -face-&gt;glyph-&gt;bitmap_top), 
++                  CL_Size (face-&gt;glyph-&gt;bitmap.width, face-&gt;glyph-&gt;bitmap.rows));
++
++      CL_Rectf uv(x_pos/float(pixelbuffer.get_width()),
++                  y_pos/float(pixelbuffer.get_height()),
++                  (x_pos + face-&gt;glyph-&gt;bitmap.width)/float(pixelbuffer.get_width()),
++                  (y_pos + face-&gt;glyph-&gt;bitmap.rows)/float(pixelbuffer.get_height()));
++      
++      impl-&gt;characters.push_back(TTFCharacter(pos, uv,
+                                               face-&gt;glyph-&gt;advance.x &gt;&gt; 6));
+ 
+       // we leave a one pixel border around the letters which we fill with generate_border
+@@ -182,7 +186,7 @@
+ }
+ 
+ void
+-TTFFont::draw(float x_pos, float y_pos, const std::string&amp; str)
++TTFFont::draw(float x_pos, float y_pos, const std::string&amp; str, const Color&amp; color)
+ {
+   CL_OpenGLState state(CL_Display::get_current_window()-&gt;get_gc());
+   state.set_active();
+@@ -199,25 +203,26 @@
+   float mx = -0.375;
+   float my = -0.375; 
+   glBegin(GL_QUADS);
++  glColor4f(color.r, color.g, color.b, color.a);
+   for(std::string::const_iterator i = str.begin(); i != str.end(); ++i)
+     {
+       TTFCharacter&amp; character = impl-&gt;characters[*i];
+       
+       glTexCoord2f(character.uv.left, character.uv.top);
+-      glVertex2f(x_pos + character.left + mx,
+-                 y_pos - character.top + my);
++      glVertex2f(x_pos + character.pos.left + mx,
++                 y_pos + character.pos.top  + my);
+ 
+       glTexCoord2f(character.uv.right, character.uv.top);
+-      glVertex2f(x_pos + character.left + character.width + mx, 
+-                 y_pos - character.top + my);
++      glVertex2f(x_pos + character.pos.right + mx, 
++                 y_pos + character.pos.top   + my);
+ 
+       glTexCoord2f(character.uv.right, character.uv.bottom);
+-      glVertex2f(x_pos + character.left + character.width + mx, 
+-                 y_pos - character.top + character.height + my);
++      glVertex2f(x_pos + character.pos.right  + mx, 
++                 y_pos + character.pos.bottom + my);
+ 
+       glTexCoord2f(character.uv.left, character.uv.bottom);
+-      glVertex2f(x_pos + character.left + mx, 
+-                 y_pos - character.top + character.height + my);
++      glVertex2f(x_pos + character.pos.left   + mx, 
++                 y_pos + character.pos.bottom + my);
+ 
+       x_pos += character.advance;       
+     }
+
+Modified: trunk/src/ttf_font.hpp
+===================================================================
+--- trunk/src/ttf_font.hpp	2005-07-25 06:39:06 UTC (rev 749)
++++ trunk/src/ttf_font.hpp	2005-07-25 09:35:02 UTC (rev 750)
+@@ -27,21 +27,14 @@
+ 
+ #include &lt;ClanLib/Core/Math/rect.h&gt;
+ #include &lt;string&gt;
++#include &quot;color.hpp&quot;
+ 
+ class TTFCharacter
+ {
+ public:
+-  /** The left-side bearing, i.e., the horizontal distance from the
+-      current pen position to the left border of the glyph bitmap. */
+-  int left;
+-  
+-  /* The top-side bearing, i.e., the vertical distance from the
+-     current pen position to the top border of the glyph bitmap. This
+-     distance is positive for upwards-y! */
+-  int top;
+-  
+-  int width;
+-  int height;
++  /** The position of the image, relative to the current cursor
++      position in screen coordinates */
++  CL_Rect pos;
+ 
+   /** The position of the character in a OpenGL texture, given in
+       uv-coordinates */
+@@ -49,7 +42,7 @@
+ 
+   int advance;
+ 
+-  TTFCharacter(int left, int top, int width, int height, const CL_Rectf&amp; uv, int advance);
++  TTFCharacter(const CL_Rect&amp; pos, const CL_Rectf&amp; uv, int advance);
+ };
+ 
+ class TTFFontImpl;
+@@ -67,7 +60,7 @@
+   int get_height() const;
+ 
+   TTFCharacter get_character(int c);
+-  void draw(float x_pos, float y_pos, const std::string&amp; str);
++  void draw(float x_pos, float y_pos, const std::string&amp; str, const Color&amp; color = Color(1.0f, 1.0f, 1.0f));
+ private:
+   TTFFontImpl* impl;
+ };
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000402.html">[Windstille-commit] r749 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000404.html">[Windstille-commit] r751 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#403">[ date ]</a>
+              <a href="thread.html#403">[ thread ]</a>
+              <a href="subject.html#403">[ subject ]</a>
+              <a href="author.html#403">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

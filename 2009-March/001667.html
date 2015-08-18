@@ -1,0 +1,285 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2670 - in trunk/windstille: . src/gui
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2670%20-%20in%20trunk/windstille%3A%20.%20src/gui&In-Reply-To=%3C200903142254.n2EMsD4m021030%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001666.html">
+   <LINK REL="Next"  HREF="001668.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2670 - in trunk/windstille: . src/gui</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2670%20-%20in%20trunk/windstille%3A%20.%20src/gui&In-Reply-To=%3C200903142254.n2EMsD4m021030%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2670 - in trunk/windstille: . src/gui">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Mar 14 23:54:13 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001666.html">[Windstille-commit] r2669 - trunk/windstille/src/objects
+</A></li>
+        <LI>Next message: <A HREF="001668.html">[Windstille-commit] r2671 - trunk/windstille/src/app
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1667">[ date ]</a>
+              <a href="thread.html#1667">[ thread ]</a>
+              <a href="subject.html#1667">[ subject ]</a>
+              <a href="author.html#1667">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-14 23:54:12 +0100 (Sat, 14 Mar 2009)
+New Revision: 2670
+
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/src/gui/group_component.hpp
+   trunk/windstille/src/gui/menu.cpp
+   trunk/windstille/src/gui/menu.hpp
+   trunk/windstille/src/gui/menu_component.cpp
+   trunk/windstille/src/gui/menu_component.hpp
+Log:
+Hacked together automatic menu resize
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-03-14 22:53:53 UTC (rev 2669)
++++ trunk/windstille/TODO	2009-03-14 22:54:12 UTC (rev 2670)
+@@ -137,8 +137,14 @@
+ 
+ * Input deadzone is problematic when trying to get angle of a stick,
+   deadzone needs to act different there then when X/Y are handled
+-  seperatly
++  seperatly. Temporary workaround is to move deadzone out of the input
++  code into the app code, which is problematic as well. Alternatives
++  might be more high-level ways to access the stick:
+ 
++  void get_stick_state(X_AXIS, Y_AXIS, &amp;angle, &amp;length);
++  bool stick_is_centered(X_AXIS, Y_AXIS);
++  float get_axis_state(X_AXIS, bool ignore_deadzone = false);
++
+ * change of input context is troublesome: when the user selects a
+   dialog and confirms it, the character starts to walk into the
+   direction that the player indicated, because the stick still points
+@@ -167,6 +173,15 @@
+ Miscellaneous
+ =============
+ 
++* set dynamic maximum size for auto resizing Menus depending on
++  resolution
++
++* add way to jump without running
++
++* animation must be less strongly coupled to movement
++
++* add way to skip through SpeechManager Speech lines (B-button)
++
+ * raycasting in laserpointer is broken, doesn't work if angle is 0
+   (maybe not worth to fix since it will be replaced with
+   NavigationMesh)
+@@ -202,10 +217,6 @@
+ 
+ * console doesn't adopt to screen size
+ 
+-* add support for dynamic resize to Menu's, currently Menus have
+-  scroll bars on large resolutions and empty space when they have to
+-  few items
+-
+ * create a UTF32 string class for use in console, basically
+   basic_string&lt;uint32_t&gt; and a convert function to UTF-8 should be
+   enough
+@@ -356,6 +367,8 @@
+ Graphics
+ ========
+ 
++* Model lower-poly version of Jane and stuff
++
+ * aspect-ratio/resolution options:
+ 
+   - let the user select a resolution from all the ones that are available from X11 (see Pingus for code)
+
+Modified: trunk/windstille/src/gui/group_component.hpp
+===================================================================
+--- trunk/windstille/src/gui/group_component.hpp	2009-03-14 22:53:53 UTC (rev 2669)
++++ trunk/windstille/src/gui/group_component.hpp	2009-03-14 22:54:12 UTC (rev 2670)
+@@ -45,6 +45,8 @@
+ 
+   Rectf get_child_rect() const;
+ 
++  bool has_title() const { return !title.empty(); }
++
+ private:
+   GroupComponent (const GroupComponent&amp;);
+   GroupComponent&amp; operator= (const GroupComponent&amp;);
+
+Modified: trunk/windstille/src/gui/menu.cpp
+===================================================================
+--- trunk/windstille/src/gui/menu.cpp	2009-03-14 22:53:53 UTC (rev 2669)
++++ trunk/windstille/src/gui/menu.cpp	2009-03-14 22:54:12 UTC (rev 2670)
+@@ -89,29 +89,31 @@
+   return manager-&gt;get_root();
+ }
+ 
+-GroupComponent*
+-Menu::get_group() const
+-{
+-  return group.get();
+-}
+-
+ void
+ Menu::show()
+ {
+   assert(manager.get());
++  
++  {
++    Rectf rect = group-&gt;get_screen_rect();
+ 
++    Vector2f center((rect.left + rect.right) / 2.0f,
++                    (rect.top + rect.bottom) / 2.0f);
++
++    Sizef size(menu-&gt;get_prefered_width(), 
++               menu-&gt;get_prefered_height() + (group-&gt;has_title()?Fonts::vera20-&gt;get_height() + 18:0.0f));
++
++    group-&gt;set_screen_rect(Rectf(Vector2f(center.x - size.width/2.0f,
++                                          center.y - size.height/2.0f),
++                                 size));
++
++    menu-&gt;set_screen_rect(group-&gt;get_child_rect());
++  }
++
+   group-&gt;pack(menu.release());
+   manager-&gt;get_root()-&gt;add_child(group.release());
+   screen_manager.push_overlay(manager.release());
+ }
+-
+-std::auto_ptr&lt;GroupComponent&gt;
+-Menu::create_group()
+-{
+-  assert(manager.get() == 0);
+-  group-&gt;pack(menu.release());
+-  return group;
+-}
+ 
+ } // namespace gui
+ 
+
+Modified: trunk/windstille/src/gui/menu.hpp
+===================================================================
+--- trunk/windstille/src/gui/menu.hpp	2009-03-14 22:53:53 UTC (rev 2669)
++++ trunk/windstille/src/gui/menu.hpp	2009-03-14 22:54:12 UTC (rev 2670)
+@@ -60,10 +60,8 @@
+                    const boost::function&lt;void ()&gt;&amp; callback = boost::function&lt;void ()&gt;());
+ 
+   RootComponent*  get_root() const;
+-  GroupComponent* get_group() const;
+ 
+   void show();
+-  std::auto_ptr&lt;GroupComponent&gt; create_group();
+ 
+ private:
+   Menu (const Menu&amp;);
+
+Modified: trunk/windstille/src/gui/menu_component.cpp
+===================================================================
+--- trunk/windstille/src/gui/menu_component.cpp	2009-03-14 22:53:53 UTC (rev 2669)
++++ trunk/windstille/src/gui/menu_component.cpp	2009-03-14 22:54:12 UTC (rev 2670)
+@@ -16,6 +16,7 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
++#include &lt;algorithm&gt;
+ #include &lt;iostream&gt;
+ #include &quot;sound/sound_manager.hpp&quot;
+ #include &quot;input/controller.hpp&quot;
+@@ -198,14 +199,13 @@
+     {
+     width = std::max(get_width())
+     }  */
+-  return 200; // FIXME:
++  return rect.get_width();
+ }
+ 
+ float
+ MenuComponent::get_prefered_height() const
+ {
+-  float step = font-&gt;get_height() + 20.0f;
+-  return step * items.size();
++  return item_height() * std::min(10, int(items.size())) + 12.0f;
+ }
+ 
+ float
+@@ -237,6 +237,26 @@
+     }  
+ }
+ 
++void
++MenuComponent::set_screen_rect(const Rectf&amp; rect)
++{
++  num_displayable_items = static_cast&lt;int&gt;(rect.get_height() / item_height());  
++
++  if (num_displayable_items &lt; int(items.size()))
++    {
++      scroll_mode   = true;
++      scroll_offset = 0;
++    }
++  else
++    {
++      scroll_mode   = false;
++      scroll_offset = 0;
++    }
++
++  
++  Component::set_screen_rect(rect);
++}
++
+ } // namespace gui
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/gui/menu_component.hpp
+===================================================================
+--- trunk/windstille/src/gui/menu_component.hpp	2009-03-14 22:53:53 UTC (rev 2669)
++++ trunk/windstille/src/gui/menu_component.hpp	2009-03-14 22:54:12 UTC (rev 2670)
+@@ -66,6 +66,9 @@
+ 
+   void     set_font(TTFFont* font_);
+   TTFFont* get_font();
++
++  virtual void set_screen_rect(const Rectf&amp; rect);
++
+ private:
+   MenuComponent (const MenuComponent&amp;);
+   MenuComponent&amp; operator= (const MenuComponent&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001666.html">[Windstille-commit] r2669 - trunk/windstille/src/objects
+</A></li>
+	<LI>Next message: <A HREF="001668.html">[Windstille-commit] r2671 - trunk/windstille/src/app
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1667">[ date ]</a>
+              <a href="thread.html#1667">[ thread ]</a>
+              <a href="subject.html#1667">[ subject ]</a>
+              <a href="author.html#1667">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

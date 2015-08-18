@@ -1,0 +1,483 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r478 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r478%20-%20trunk/src&In-Reply-To=%3C200506291341.j5TDfhE1003037%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000134.html">
+   <LINK REL="Next"  HREF="000136.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r478 - trunk/src</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r478%20-%20trunk/src&In-Reply-To=%3C200506291341.j5TDfhE1003037%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r478 - trunk/src">grumbel at sheep.berlios.de
+       </A><BR>
+    <I>Wed Jun 29 15:41:43 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000134.html">[Windstille-commit] r477 - in trunk: data/levels src src/scripting
+</A></li>
+        <LI>Next message: <A HREF="000136.html">[Windstille-commit] r479 - in trunk/src: . tinygettext
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#135">[ date ]</a>
+              <a href="thread.html#135">[ thread ]</a>
+              <a href="subject.html#135">[ subject ]</a>
+              <a href="author.html#135">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-06-29 15:41:42 +0200 (Wed, 29 Jun 2005)
+New Revision: 478
+
+Added:
+   trunk/src/blitter.cxx
+   trunk/src/blitter.hxx
+   trunk/src/tile_packer.cxx
+   trunk/src/tile_packer.hxx
+Log:
+- added tilepacker and blitter (not yet used by the tilefactory)
+
+Added: trunk/src/blitter.cxx
+===================================================================
+--- trunk/src/blitter.cxx	2005-06-29 10:08:43 UTC (rev 477)
++++ trunk/src/blitter.cxx	2005-06-29 13:41:42 UTC (rev 478)
+@@ -0,0 +1,207 @@
++//  $Id$
++//
++//  Flexlay - A Generic 2D Game Editor
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++//
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#include &lt;assert.h&gt;
++#include &lt;iostream&gt;
++#include &lt;algorithm&gt;
++#include &lt;ClanLib/Display/pixel_format.h&gt;
++#include &lt;ClanLib/Display/palette.h&gt;
++#include &quot;blitter.hxx&quot;
++
++void 
++blit_opaque(CL_PixelBuffer target, CL_PixelBuffer brush, int x_pos, int y_pos)
++{
++  target.lock();
++  brush.lock();
++
++  int start_x = std::max(0, -x_pos);
++  int start_y = std::max(0, -y_pos);
++  
++  int end_x = std::min(brush.get_width(),  target.get_width()  - x_pos);
++  int end_y = std::min(brush.get_height(), target.get_height() - y_pos);
++
++  unsigned char* target_buf = static_cast&lt;unsigned char*&gt;(target.get_data());
++  unsigned char* brush_buf  = static_cast&lt;unsigned char*&gt;(brush.get_data());
++
++  int target_width = target.get_width();
++  int brush_width  = brush.get_width();
++
++  if (brush.get_format().get_type() == pixelformat_rgba)
++    {
++      if (brush.get_format().get_depth() == 32)
++        {
++          for (int y = start_y; y &lt; end_y; ++y)
++            for (int x = start_x; x &lt; end_x; ++x)
++              {
++                int target_pos = (y + y_pos) * target_width + x + x_pos;
++                int brush_pos  = y * brush_width + x;
++
++                target_buf[4*target_pos + 0] = brush_buf[4*brush_pos + 0];
++                target_buf[4*target_pos + 1] =  brush_buf[4*brush_pos + 1];
++                target_buf[4*target_pos + 2] =  brush_buf[4*brush_pos + 2];
++                target_buf[4*target_pos + 3] =  brush_buf[4*brush_pos + 3];
++              }
++        }
++      else if (brush.get_format().get_depth() == 24)
++        {
++          for (int y = start_y; y &lt; end_y; ++y)
++            for (int x = start_x; x &lt; end_x; ++x)
++              {
++                int target_pos = (y + y_pos) * target_width + x + x_pos;
++                int brush_pos  = y * brush_width + x;
++
++                target_buf[4*target_pos + 0] = 255;
++                target_buf[4*target_pos + 1] = brush_buf[3*brush_pos + 0];
++                target_buf[4*target_pos + 2] = brush_buf[3*brush_pos + 1];
++                target_buf[4*target_pos + 3] = brush_buf[3*brush_pos + 2];
++              }
++        }
++      else
++        {
++          std::cout &lt;&lt; &quot;Unsupported bpp: &quot; &lt;&lt; brush.get_format().get_depth() &lt;&lt; std::endl;
++        }
++    }
++  else if (brush.get_format().get_type() == pixelformat_index)
++    {
++      CL_Palette palette = brush.get_palette();
++      for (int y = start_y; y &lt; end_y; ++y)
++        for (int x = start_x; x &lt; end_x; ++x)
++          {
++            int target_pos = (y + y_pos) * target_width + x + x_pos;
++            int brush_pos  = y * brush_width + x;
++            
++            target_buf[4*target_pos + 0] = 255;
++            target_buf[4*target_pos + 1] = palette.colors[brush_buf[brush_pos]].get_blue();
++            target_buf[4*target_pos + 2] = palette.colors[brush_buf[brush_pos]].get_green();
++            target_buf[4*target_pos + 3] = palette.colors[brush_buf[brush_pos]].get_red();
++          }
++    }
++  else
++    {
++      assert(!&quot;Unknown pixelformat type&quot;);
++    }
++    
++
++
++  brush.unlock();
++  target.unlock();
++}
++
++void 
++blit(CL_PixelBuffer target, CL_PixelBuffer brush, int x_pos, int y_pos)
++{
++  target.lock();
++  brush.lock();
++
++  int start_x = std::max(0, -x_pos);
++  int start_y = std::max(0, -y_pos);
++  
++  int end_x = std::min(brush.get_width(),  target.get_width()  - x_pos);
++  int end_y = std::min(brush.get_height(), target.get_height() - y_pos);
++
++  unsigned char* target_buf = static_cast&lt;unsigned char*&gt;(target.get_data());
++  unsigned char* brush_buf  = static_cast&lt;unsigned char*&gt;(brush.get_data());
++
++  int target_width = target.get_width();
++  int brush_width  = brush.get_width();
++
++  if (brush.get_format().get_type() == pixelformat_rgba)
++    {
++      if (brush.get_format().get_depth() == 32)
++        {
++          for (int y = start_y; y &lt; end_y; ++y)
++            for (int x = start_x; x &lt; end_x; ++x)
++              {
++                int target_pos = (y + y_pos) * target_width + x + x_pos;
++                int brush_pos  = y * brush_width + x;
++
++                unsigned char a  = brush_buf[4*brush_pos + 0];
++                unsigned char r  = brush_buf[4*brush_pos + 1];
++                unsigned char g  = brush_buf[4*brush_pos + 2];
++                unsigned char b  = brush_buf[4*brush_pos + 3];
++
++                unsigned char ta = target_buf[4*target_pos + 0];
++                unsigned char tr = target_buf[4*target_pos + 1];
++                unsigned char tg = target_buf[4*target_pos + 2];
++                unsigned char tb = target_buf[4*target_pos + 3];
++
++                float alpha  = a/255.0f;
++        
++                target_buf[4*target_pos + 0] = std::min(255, ta + a);
++                target_buf[4*target_pos + 1] = std::min(255, int((1-alpha)*tr + alpha*r));
++                target_buf[4*target_pos + 2] = std::min(255, int((1-alpha)*tg + alpha*g));
++                target_buf[4*target_pos + 3] = std::min(255, int((1-alpha)*tb + alpha*b));
++              }
++        }
++      else if (brush.get_format().get_depth() == 24)
++        {
++          for (int y = start_y; y &lt; end_y; ++y)
++            for (int x = start_x; x &lt; end_x; ++x)
++              {
++                int target_pos = (y + y_pos) * target_width + x + x_pos;
++                int brush_pos  = y * brush_width + x;
++
++                target_buf[4*target_pos + 0] = 255;
++                target_buf[4*target_pos + 1] = brush_buf[3*brush_pos + 0];
++                target_buf[4*target_pos + 2] = brush_buf[3*brush_pos + 1];
++                target_buf[4*target_pos + 3] = brush_buf[3*brush_pos + 2];
++              }
++        }
++      else
++        {
++          std::cout &lt;&lt; &quot;Unsupported bpp: &quot; &lt;&lt; brush.get_format().get_depth() &lt;&lt; std::endl;
++        }
++    }
++  else if (brush.get_format().get_type() == pixelformat_index)
++    {
++      CL_Palette palette = brush.get_palette();
++      for (int y = start_y; y &lt; end_y; ++y)
++        for (int x = start_x; x &lt; end_x; ++x)
++          {
++            int target_pos = (y + y_pos) * target_width + x + x_pos;
++            int brush_pos  = y * brush_width + x;
++            
++            target_buf[4*target_pos + 0] = 255;
++            target_buf[4*target_pos + 1] = palette.colors[brush_buf[brush_pos]].get_blue();
++            target_buf[4*target_pos + 2] = palette.colors[brush_buf[brush_pos]].get_green();
++            target_buf[4*target_pos + 3] = palette.colors[brush_buf[brush_pos]].get_red();
++          }
++    }
++  else
++    {
++      assert(!&quot;Unknown pixelformat type&quot;);
++    }
++    
++
++
++  brush.unlock();
++  target.unlock();
++}
++
++void clear(CL_PixelBuffer canvas)
++{
++  unsigned char* buffer;
++
++  canvas.lock();
++  buffer = static_cast&lt;unsigned char*&gt;(canvas.get_data());
++  memset(buffer, 0, sizeof(unsigned char) * canvas.get_pitch() * canvas.get_height());
++  canvas.unlock();
++}
++
++/* EOF */
+
+Added: trunk/src/blitter.hxx
+===================================================================
+--- trunk/src/blitter.hxx	2005-06-29 10:08:43 UTC (rev 477)
++++ trunk/src/blitter.hxx	2005-06-29 13:41:42 UTC (rev 478)
+@@ -0,0 +1,31 @@
++//  $Id$
++// 
++//  Flexlay - A Generic 2D Game Editor
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++// 
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#ifndef HEADER_BLITTER_HXX
++#define HEADER_BLITTER_HXX
++
++#include &lt;ClanLib/Display/pixel_buffer.h&gt;
++
++void blit_opaque(CL_PixelBuffer target, CL_PixelBuffer brush, int x_pos, int y_pos);
++void blit(CL_PixelBuffer target, CL_PixelBuffer brush, int x_pos, int y_pos);
++void clear(CL_PixelBuffer target);
++
++#endif
++
++/* EOF */
+
+Added: trunk/src/tile_packer.cxx
+===================================================================
+--- trunk/src/tile_packer.cxx	2005-06-29 10:08:43 UTC (rev 477)
++++ trunk/src/tile_packer.cxx	2005-06-29 13:41:42 UTC (rev 478)
+@@ -0,0 +1,95 @@
++//  $Id$
++//
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++//
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#include &lt;assert.h&gt;
++#include &lt;ClanLib/Core/Math/rect.h&gt;
++#include &lt;ClanLib/Core/Math/point.h&gt;
++#include &lt;ClanLib/Display/pixel_buffer.h&gt;
++#include &lt;ClanLib/Display/pixel_format.h&gt;
++#include &quot;windstille_error.hxx&quot;
++#include &quot;blitter.hxx&quot;
++#include &quot;globals.hxx&quot;
++#include &quot;tile_packer.hxx&quot;
++
++class TilePackerImpl
++{
++public:
++  int width;
++  int height;
++  
++  // Position for the next tile
++  int x_pos;
++  int y_pos;
++
++  CL_PixelBuffer buffer;
++};
++
++TilePacker::TilePacker(int width, int height)
++  : impl(new TilePackerImpl())
++{
++  impl-&gt;width  = width;
++  impl-&gt;height = height;
++
++  impl-&gt;x_pos = 0;
++  impl-&gt;y_pos = 0;
++
++  impl-&gt;buffer = CL_PixelBuffer(impl-&gt;width, impl-&gt;height, impl-&gt;width*4,
++                                CL_PixelFormat::rgba8888);
++}
++
++TilePacker::~TilePacker()
++{
++  delete impl;
++}
++
++/** Pack a tile and return the position where it is placed in the
++    pixel buffer */
++CL_Rect
++TilePacker::pack(CL_PixelBuffer tile)
++{
++  assert(tile.get_width() == TILE_SIZE &amp;&amp; tile.get_height() == TILE_SIZE);
++  assert(!is_full());
++
++  blit_opaque(impl-&gt;buffer, tile, impl-&gt;x_pos, impl-&gt;y_pos);
++
++  CL_Rect rect(CL_Point(impl-&gt;x_pos, impl-&gt;y_pos), 
++               CL_Size(TILE_SIZE, TILE_SIZE));
++
++  // we move by TILE_SIZE+1 to avoid tiles bleeding into each other
++  // when blending
++  impl-&gt;x_pos += TILE_SIZE + 1; 
++  impl-&gt;y_pos += TILE_SIZE + 1;
++
++  return rect;
++}
++
++/** Return true if the PixelBuffer is full */
++bool
++TilePacker::is_full() const
++{
++  return (impl-&gt;y_pos + TILE_SIZE &gt; impl-&gt;height);
++}
++
++CL_OpenGLSurface
++TilePacker::create_texture()
++{
++  return CL_OpenGLSurface(impl-&gt;buffer);
++}
++
++/* EOF */
+
+Added: trunk/src/tile_packer.hxx
+===================================================================
+--- trunk/src/tile_packer.hxx	2005-06-29 10:08:43 UTC (rev 477)
++++ trunk/src/tile_packer.hxx	2005-06-29 13:41:42 UTC (rev 478)
+@@ -0,0 +1,53 @@
++//  $Id$
++// 
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++// 
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#ifndef HEADER_TILE_PACKER_HXX
++#define HEADER_TILE_PACKER_HXX
++
++#include &lt;ClanLib/GL/opengl_surface.h&gt;
++
++class TilePackerImpl;
++
++/** Creates a pixelbuffer of the given size and packs 32x32 large
++    tiles into it for later conversion to a texture */
++class TilePacker
++{
++private:
++public:
++  /** Let the texture be width/height large (only power of two values
++      recomment) */
++  TilePacker(int width, int height);
++  ~TilePacker();
++
++  /** Pack a tile and return the position where it is placed in the
++      pixel buffer */
++  CL_Rect pack(CL_PixelBuffer buffer);
++
++  /** Return true if the PixelBuffer is full */
++  bool is_full() const;
++
++  CL_OpenGLSurface create_texture();
++
++private:
++  TilePackerImpl* impl;
++};
++
++#endif
++
++/* EOF */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000134.html">[Windstille-commit] r477 - in trunk: data/levels src src/scripting
+</A></li>
+	<LI>Next message: <A HREF="000136.html">[Windstille-commit] r479 - in trunk/src: . tinygettext
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#135">[ date ]</a>
+              <a href="thread.html#135">[ thread ]</a>
+              <a href="subject.html#135">[ subject ]</a>
+              <a href="author.html#135">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

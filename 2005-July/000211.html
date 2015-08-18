@@ -1,0 +1,1416 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r557 - in trunk: . data/levels src src/scripting src/sprite3d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r557%20-%20in%20trunk%3A%20.%20data/levels%20src%20src/scripting%20src/sprite3d&In-Reply-To=%3C200507071542.j67FglYw000361%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000210.html">
+   <LINK REL="Next"  HREF="000212.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r557 - in trunk: . data/levels src src/scripting src/sprite3d</H1>
+    <B>Matthias Braun at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r557%20-%20in%20trunk%3A%20.%20data/levels%20src%20src/scripting%20src/sprite3d&In-Reply-To=%3C200507071542.j67FglYw000361%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r557 - in trunk: . data/levels src src/scripting src/sprite3d">matzebraun at berlios.de
+       </A><BR>
+    <I>Thu Jul  7 17:42:47 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000210.html">[Windstille-commit] r556 - in trunk: data src
+</A></li>
+        <LI>Next message: <A HREF="000212.html">[Windstille-commit] r558 - in trunk/data/blender: . yagor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#211">[ date ]</a>
+              <a href="thread.html#211">[ thread ]</a>
+              <a href="subject.html#211">[ subject ]</a>
+              <a href="author.html#211">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: matzebraun
+Date: 2005-07-07 17:42:33 +0200 (Thu, 07 Jul 2005)
+New Revision: 557
+
+Modified:
+   trunk/BUGS
+   trunk/data/levels/newformat2.wst
+   trunk/src/energiebar.cpp
+   trunk/src/game_object.hpp
+   trunk/src/game_session.cpp
+   trunk/src/player.cpp
+   trunk/src/player.hpp
+   trunk/src/scripting/game_objects.cpp
+   trunk/src/scripting/game_objects.hpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/scripting/wrapper.hpp
+   trunk/src/sector.cpp
+   trunk/src/sprite3d/sprite3d.cpp
+   trunk/src/sprite3d/sprite3d.hpp
+   trunk/src/view.cpp
+Log:
+rewrite Player class to support some of the new animations
+
+Modified: trunk/BUGS
+===================================================================
+--- trunk/BUGS	2005-07-07 14:31:40 UTC (rev 556)
++++ trunk/BUGS	2005-07-07 15:42:33 UTC (rev 557)
+@@ -1,23 +1,8 @@
+ Windstille Bugs
+ ===============
+ 
+-The game is still in its early phase, so it has quite a few bugs, the
+-known one include:
+-
+- - lack of non-square tiles, so you have to jump even on the smallest
+-   gradient
+-
+- - airwalk, sometimes the hero will walk in the air, instead of on the
+-   ground
+-
+- - buggy collision detection, collision detection currently uses
+-   bounding-boxes, so its not really preciese, pixel-preciion will
+-   come with the next release
+-
+- - editor crashes, editor isn't testet much, so it might not really
+-   work well for you
+-
+- - controlls, even so the controlls are rather flexible, docu is
+-   lacking and a gui for configuration would be good
+-
+-# EOF #
++- changing the direction of animation 2 times at the same frame often causes the
++  animation to finish too early (press down 2 times fastly to see this)
++- when standing up from ducking there's a small delay as we blend animations
++  like this: ducking -&gt; stand -&gt; walk. We should rather blend ducking -&gt; walk to
++  avoid 1 unnecessary frame.
+
+Modified: trunk/data/levels/newformat2.wst
+===================================================================
+--- trunk/data/levels/newformat2.wst	2005-07-07 14:31:40 UTC (rev 556)
++++ trunk/data/levels/newformat2.wst	2005-07-07 15:42:33 UTC (rev 557)
+@@ -14,7 +14,9 @@
+ \&quot;We will start with climbing. See the block infront \&quot; +
+ \&quot;of you? Press [Right] and [Jump] to hang on the ledge.\&quot;);
+ show_dialog(0);
++Player.start_listening();
+ wait_for_dialog();
++Player.stop_listening();
+ Block0Sign.enable();
+ &quot;)
+   (spawnpoint
+
+Modified: trunk/src/energiebar.cpp
+===================================================================
+--- trunk/src/energiebar.cpp	2005-07-07 14:31:40 UTC (rev 556)
++++ trunk/src/energiebar.cpp	2005-07-07 15:42:33 UTC (rev 557)
+@@ -37,8 +37,8 @@
+ void
+ Energiebar::draw()
+ {
+-  int energie     = Player::current()-&gt;get_energie();
+-  int max_energie = Player::current()-&gt;get_max_energie();
++  int energie     = Player::current()-&gt;get_energy();
++  int max_energie = Player::current()-&gt;get_max_energy();
+ 
+   for(int i = 0; i &lt; energie; ++i)
+     {
+
+Modified: trunk/src/game_object.hpp
+===================================================================
+--- trunk/src/game_object.hpp	2005-07-07 14:31:40 UTC (rev 556)
++++ trunk/src/game_object.hpp	2005-07-07 15:42:33 UTC (rev 557)
+@@ -63,7 +63,8 @@
+   virtual void update (float elapsed_time) = 0;
+     
+   static void set_world (Sector* w) { world = w; }
+-  Sector* get_world () { return world; }
++  Sector* get_world () const
++  { return world; }
+ };
+ 
+ #endif
+
+Modified: trunk/src/game_session.cpp
+===================================================================
+--- trunk/src/game_session.cpp	2005-07-07 14:31:40 UTC (rev 556)
++++ trunk/src/game_session.cpp	2005-07-07 15:42:33 UTC (rev 557)
+@@ -139,12 +139,14 @@
+       break;
+     }
+ 
++#if 0
+   if (world-&gt;get_player()-&gt;get_movement_state() == Player::DEAD)
+     {
+       Fonts::dialog.set_alignment(origin_bottom_center);
+       Fonts::dialog.draw(CL_Display::get_width()/2, 200,
+                 &quot;..:: Press Fire to restart ::..&quot;);
+     }
++#endif
+ 
+   if (!main_app.screenshot_dir.empty())
+     {
+@@ -163,6 +165,13 @@
+ {  
+   console.update(delta);
+ 
++  if(CL_Keyboard::get_keycode(CL_KEY_NUMPAD1))
++    game_speed *= 1.0 - delta;
++  if(CL_Keyboard::get_keycode(CL_KEY_NUMPAD3))
++    game_speed *= 1.0 + delta;
++  if(CL_Keyboard::get_keycode(CL_KEY_NUMPAD5))
++    game_speed = 1.0;
++
+   InputManager::update(delta);
+   delta *= game_speed;
+ 
+@@ -190,14 +199,14 @@
+       break;
+ 
+     case RUNNING:
++      world-&gt;update (delta);
++      energiebar-&gt;update(delta);
+       switch (control_state) 
+         {
+         case DIALOG:
+           dialog_manager-&gt;update(delta);
+           break;
+         case GAME:
+-          world-&gt;update (delta);
+-          energiebar-&gt;update(delta);
+           break;
+         }
+       break;
+@@ -267,7 +276,7 @@
+       world-&gt;add(psystem);
+     }
+ 
+-  world-&gt;add(new TestObject());
++  //world-&gt;add(new TestObject());
+   
+   world-&gt;activate();
+   world-&gt;spawn_player(&quot;default&quot;);
+
+Modified: trunk/src/player.cpp
+===================================================================
+--- trunk/src/player.cpp	2005-07-07 14:31:40 UTC (rev 556)
++++ trunk/src/player.cpp	2005-07-07 15:42:33 UTC (rev 557)
+@@ -28,7 +28,9 @@
+ #include &quot;globals.hpp&quot;
+ #include &quot;sprite3d/sprite3d_manager.hpp&quot;
+ 
+-#define MAX_ENERGIE 16
++static const int MAX_ENERGY = 16;
++static const float WALK_SPEED = 128.0;
++static const float GRAVITY = 1500;
+ 
+ Player* Player::current_ = 0;
+ 
+@@ -36,20 +38,18 @@
+   pos (320, 200),
+   velocity (0, 0),
+   light    (&quot;hero/light&quot;, resources),
+-
+-  state (WALKING),
+-  gun_state (GUN_READY),
+-  ground_state (IN_AIR)
++  state (STAND)
+ {
++  name = &quot;Player&quot;;
+   sprite = sprite3d_manager-&gt;create(&quot;3dsprites/heroken.wsprite&quot;);
+   light.set_blend_func(blend_src_alpha, blend_one);
+ 
+   jumping = false;
+-  energie = MAX_ENERGIE;
++  energy = MAX_ENERGY;
+   current_ = this;
+ 
+-  direction = WEST;
+   hit_count = 0.0f;
++  sprite-&gt;set_action(&quot;Stand&quot;);
+ }
+ 
+ Player::~Player()
+@@ -62,20 +62,6 @@
+ {
+   gc.light().draw(light, pos.x, pos.y, 0);
+   
+-  sprite-&gt;set_rot(direction == EAST);
+-
+-#if 0
+-  if (hit_count &gt; 0)
+-  {
+-    if (rand()%2)
+-      sprite-&gt;set_alpha(1.0f);
+-    else
+-      sprite-&gt;set_alpha(1.0f - hit_count);
+-  }
+-  else
+-    sprite-&gt;set_alpha(1.0f);
+-#endif
+-
+   sprite-&gt;draw(gc, pos);
+ }
+ 
+@@ -88,260 +74,323 @@
+                  int(pos.y));
+ }
+ 
+-SubTilePos
+-Player::get_subtile_pos()
++void
++Player::start_listening()
+ {
+-  return SubTilePos(int(pos.x/TILE_SIZE), int(pos.y/TILE_SIZE));
++  if(state == STAND_TO_LISTEN || state == LISTEN)
++    return;
++
++  set_stand_to_listen(false);
+ }
+ 
+ void
+-Player::switch_movement_state(MovementState newstate)
++Player::stop_listening()
+ {
+-  if(state == newstate)
++  if(state != LISTEN &amp;&amp; state != STAND_TO_LISTEN)
+     return;
++  
++  set_stand_to_listen(true);
++}
+ 
+-  switch(newstate) {
+-    case KILLED:
+-    case DEAD:
+-      sprite-&gt;set_action(&quot;Hang&quot;); // TODO
++void 
++Player::update (float elapsed_time)
++{
++  controller = InputManager::get_controller();
++
++  switch(state) {
++    case STAND:
++    case WALK:
++      update_walk_stand();
+       break;
+-    case STANDING:
+-      sprite-&gt;set_action(&quot;Stand&quot;);
++    case DUCKING:
++      update_ducking();
+       break;
+-    case SITTING:
+-      sprite-&gt;set_action(&quot;Ducking&quot;); // TODO
++    case DUCKED:
++      update_ducked();
+       break;
+-    case TURN:
+-      sprite-&gt;set_action(&quot;Turn&quot;);
++    case TURNAROUND:
++      update_turnaround();
+       break;
+-    case RUNNING:
+-      sprite-&gt;set_action(&quot;Run&quot;);
++    case STAND_TO_LISTEN:
++      update_stand_to_listen();
+       break;
+-    case WALKING:
+-      sprite-&gt;set_action(&quot;Walk&quot;);
++    case LISTEN:
++      update_listen();
+       break;
++    default:
++      assert(false);
++      break;
+   }
+-  state = newstate;
++
++  // fall down
++  if(on_ground()) {
++    if(velocity.y &gt; 0) {
++      velocity.y = 0;
++      pos.y = int(pos.y / TILE_SIZE) * TILE_SIZE + TILE_SIZE - 1;
++    }
++  } else {
++    velocity.y += GRAVITY * elapsed_time;
++  }
++
++  pos += velocity * elapsed_time;
++  sprite-&gt;update(elapsed_time);
+ }
+ 
+-void 
+-Player::update (float delta)
++void
++Player::set_stand()
+ {
+-  controller = InputManager::get_controller();
++  try_set_action(&quot;Stand&quot;);
++  velocity = Vector(0, 0, 0);
++  state = STAND;
++  printf(&quot;stand.\n&quot;);
++}
+ 
+-  if (state == KILLED) 
+-    {
+-      switch (ground_state)
+-        {
+-        case IN_AIR:
+-          update_air(delta);
+-          break;
+-        case ON_GROUND:
+-          // TODO wait for kill animation to finish
+-          switch_movement_state(DEAD);
+-          break;
+-        }
+-    }
+-  else if (state == DEAD)
+-    {
+-#if 0
+-      if (controller.get_button_state(FIRE_BUTTON))
+-        {
+-          set_position(CL_Vector(258, 0));
+-          set_direction(EAST);
+-          switch_movement_state(WALKING);
+-          gun_state = GUN_READY;
+-          ground_state = IN_AIR;
+-          energie = MAX_ENERGIE;
+-          velocity = CL_Vector();
+-        }
+-#endif
+-    }
++void
++Player::update_walk_stand()
++{
++  if(controller.get_button_state(DOWN_BUTTON)) {
++    set_ducking();
++    return;
++  }
++
++  if(state == STAND)
++    update_stand();
+   else
+-    {
+-      if (hit_count &gt; 0)
+-        hit_count -= delta;
++    update_walk();
++}
++  
+ 
+-      if (controller.get_button_state(LEFT_BUTTON))
+-        direction = WEST;
+-      else if  (controller.get_button_state(RIGHT_BUTTON))
+-        direction = EAST;
++void
++Player::update_stand()
++{
++  if(controller.get_button_state(LEFT_BUTTON)
++      &amp;&amp; !controller.get_button_state(RIGHT_BUTTON)) {
++    if(get_direction() == WEST)
++      set_walk(WEST);
++    else
++      set_turnaround();
++  } else if(controller.get_button_state(RIGHT_BUTTON)
++      &amp;&amp; !controller.get_button_state(LEFT_BUTTON)) {
++    if(get_direction() == EAST)
++      set_walk(EAST);
++    else
++      set_turnaround();
++  }
++}
+ 
+-      switch(ground_state)
+-        {
+-        case ON_GROUND:
+-          update_ground (delta);
+-          if (!on_ground ())
+-            ground_state = IN_AIR;
+-          break;
+-        case IN_AIR:
+-          update_air (delta);
+-          break;
+-        }
++void
++Player::set_walk(Direction direction)
++{
++  try_set_action(&quot;Walk&quot;);
++  sprite-&gt;set_rot(direction == EAST);
++  state = WALK;
++  if(direction == EAST)
++    velocity.x = WALK_SPEED;
++  else
++    velocity.x = -WALK_SPEED;
++  printf(&quot;walk.\n&quot;);
++}
+ 
+-      SubTilePos new_subtile_pos = get_subtile_pos();
+-      if (!(subtile_pos == new_subtile_pos))
+-        {
+-          if (get_world()-&gt;get_tilemap()-&gt;get_pixel(new_subtile_pos.x, new_subtile_pos.y))
+-            {
+-              pos.x = subtile_pos.x * TILE_SIZE;
+-              pos.y = subtile_pos.y * TILE_SIZE;
+-            }
+-          else
+-            {
+-              subtile_pos = new_subtile_pos;
+-            }
+-        }
+-    }
++void
++Player::update_walk()
++{
++  if(controller.get_button_state(LEFT_BUTTON)
++      == controller.get_button_state(RIGHT_BUTTON)) {
++    set_stand();
++    return;
++  }
+ 
+-  sprite-&gt;update(delta);
++  if(get_direction() == WEST &amp;&amp; controller.get_button_state(RIGHT_BUTTON)
++     || get_direction() == EAST &amp;&amp; controller.get_button_state(LEFT_BUTTON)) {
++    set_turnaround();
++    return;
++  }
++  
++  // test
++  if(controller.get_button_state(JUMP_BUTTON)) {
++    sprite-&gt;set_speed(-1.0);
++  } else {
++    sprite-&gt;set_speed(1.0);
++  }
+ }
+ 
+-void 
+-Player::update_ground (float delta)
++void
++Player::set_ducking()
+ {
+-  velocity = CL_Vector();
++  try_set_action(&quot;StandToDuck&quot;);
++  sprite-&gt;set_next_action(&quot;Ducking&quot;);
++  state = DUCKING;
++  velocity.x = 0;
++  printf(&quot;ducking.\n&quot;);
++}
+ 
+-  if (controller.get_button_state(JUMP_BUTTON) &amp;&amp; !jumping)
+-    {
+-      jumping = true;
+-      velocity.y = -750;
+-      ground_state = IN_AIR;
+-    } 
+-  else
+-    {
+-      if (!controller.get_button_state(JUMP_BUTTON))
+-        jumping = false;
++void
++Player::update_ducking()
++{
++  // ducking
++  if(sprite-&gt;switched_actions()) {
++    printf(&quot;finished.\n&quot;);
++    if(sprite-&gt;get_action() == &quot;Ducking&quot;)
++      set_ducked();
++    else
++      set_stand();
++    return;
++  }
++  
++  if(!controller.get_button_state(DOWN_BUTTON) &amp;&amp; sprite-&gt;get_speed() &gt; 0) {
++    sprite-&gt;set_speed(-1.0);
++    sprite-&gt;set_next_action(&quot;Stand&quot;);
++    sprite-&gt;set_next_speed(1.0);
++  } else if(controller.get_button_state(DOWN_BUTTON) 
++      &amp;&amp; sprite-&gt;get_speed() &lt; 0) {
++    sprite-&gt;set_speed(1.0);
++    sprite-&gt;set_next_action(&quot;Ducking&quot;);
++    sprite-&gt;set_next_speed(1.0);
++  }
++}
+ 
+-      float tmp_x_pos = pos.x;
++void
++Player::set_ducked()
++{
++  assert(sprite-&gt;get_action() == &quot;Ducking&quot;);
++  printf(&quot;ducked.\n&quot;);
++  state = DUCKED;
++}
+ 
+-      if (controller.get_button_state(DOWN_BUTTON))
+-        {
+-          switch_movement_state(SITTING);
+-          if (controller.get_button_state(FIRE_BUTTON) &amp;&amp; !bomb_placed)
+-            {
+-              Sector::current()-&gt;add(new Bomb(int(pos.x), int(pos.y)));
+-              bomb_placed = true;
+-            }
+-        }
+-      else
+-        {
+-          bomb_placed = false;
+-          if (controller.get_button_state(RUN_BUTTON))
+-            {
+-              if (controller.get_button_state(LEFT_BUTTON))
+-                {
+-                  pos.x -= 256 * delta;
+-                  switch_movement_state(RUNNING);
+-                }
+-              else if (controller.get_button_state(RIGHT_BUTTON))
+-                {
+-                  pos.x += 256 * delta;
+-                  switch_movement_state(RUNNING);
+-                }
+-            }
+-          else
+-            {
+-              if (controller.get_button_state(LEFT_BUTTON))
+-                {
+-                  pos.x -= 128 * delta;
+-                  switch_movement_state(WALKING);
+-                }
+-              else if (controller.get_button_state(RIGHT_BUTTON))
+-                {
+-                  pos.x += 128 * delta;
+-                  switch_movement_state(WALKING);
+-                }
+-              else
+-                {
+-                  switch_movement_state(STANDING);
+-                }
+-            }
+-          
+-          if (stuck ()) 
+-            {
+-              // FIXME: Calculate nearest position to colliding object here
+-              pos.x = tmp_x_pos;
+-            }
+-        }
+-    }
++void
++Player::update_ducked()
++{
++  if(!controller.get_button_state(DOWN_BUTTON)) {
++    printf(&quot;ducking.\n&quot;);
++    state = DUCKING;
++    sprite-&gt;set_action(&quot;StandToDuck&quot;);
++    sprite-&gt;set_next_action(&quot;Stand&quot;);
++    sprite-&gt;set_next_speed(1.0);
++    sprite-&gt;set_speed(-1.0);
++  }  
+ }
+ 
+-void 
+-Player::update_air (float delta)
++void
++Player::set_turnaround()
+ {
+-  if (!controller.get_button_state(JUMP_BUTTON) &amp;&amp; velocity.y &lt; 0) 
+-    {
+-      velocity.y = velocity.y/2;
+-      //ground_state = IN_AIR;
++  velocity.x = 0;
++  try_set_action(&quot;Turn&quot;);
++  sprite-&gt;set_next_action(&quot;Walk&quot;);
++  sprite-&gt;set_next_rot(! sprite-&gt;get_rot());
++  state = TURNAROUND;
++}
++
++void
++Player::update_turnaround()
++{
++  if(sprite-&gt;switched_actions()) {
++    if(sprite-&gt;get_rot()) {
++      set_walk(EAST);
++    } else {
++      set_walk(WEST);
+     }
++  } 
++  if(sprite-&gt;get_rot() &amp;&amp; controller.get_button_state(RIGHT_BUTTON)
++     || !sprite-&gt;get_rot() &amp;&amp; controller.get_button_state(LEFT_BUTTON)) {
++    sprite-&gt;set_speed(-1.0);
++    sprite-&gt;set_next_action(&quot;Walk&quot;);
++  }
++}
+ 
+-  float tmp_x_pos = pos.x;
+-  if (controller.get_button_state(LEFT_BUTTON))
+-    pos.x -= 300 * delta;
+-  else if (controller.get_button_state(RIGHT_BUTTON))
+-    pos.x += 300 * delta;
+-  if (stuck ())
+-    pos.x = tmp_x_pos;
++void
++Player::set_stand_to_listen(bool backwards)
++{
++  try_set_action(&quot;StandtoListen&quot;);
++  sprite-&gt;set_next_speed(1.0);
++  if(!backwards) {
++    sprite-&gt;set_next_action(&quot;Listen&quot;);
++  } else {
++    sprite-&gt;set_next_action(&quot;Stand&quot;);
++    sprite-&gt;set_speed(-1.0);
++  }
++  state = STAND_TO_LISTEN;
++}
+ 
+-  pos += velocity * delta;
+-  velocity.y += 1500 * delta;
++void
++Player::update_stand_to_listen()
++{
++  if(sprite-&gt;switched_actions()) {
++    if(sprite-&gt;get_action() == &quot;Stand&quot;)
++      set_stand();
++    else
++      set_listen();
++  }
++}
+ 
+-  if (on_ground () &amp;&amp; velocity.y &gt; 0) 
+-    {
+-      ground_state = ON_GROUND;
+-      // Cut the position to the tile size 
+-      pos.y = int(pos.y / TILE_SIZE) * TILE_SIZE + TILE_SIZE - 1;
+-    } 
++void
++Player::set_listen()
++{
++  try_set_action(&quot;Listen&quot;);
++  state = LISTEN;
+ }
++
++void
++Player::update_listen()
++{
++  // nothing
++}
++
++Direction
++Player::get_direction() const
++{
++  return sprite-&gt;get_rot() ? EAST : WEST;
++}
++
++void
++Player::try_set_action(const std::string&amp; name)
++{
++  if(sprite-&gt;get_action() == name)
++    return;
+   
++  sprite-&gt;set_action(name);
++}
++
+ void 
+ Player::set_position (const CL_Vector&amp; arg_pos)
+ {
+   pos = arg_pos;
+ }
+ 
+-void 
+-Player::set_direction (Direction dir)
++bool 
++Player::stuck () const
+ {
+-  direction = dir;
++  return get_world ()-&gt;get_tilemap()-&gt;is_ground(pos.x, pos.y);
+ }
+ 
+ bool
+-Player::on_ground ()
++Player::on_ground() const
+ {
+   return get_world ()-&gt;get_tilemap()-&gt;is_ground(pos.x, pos.y+16);
+ }
+ 
+-bool 
+-Player::stuck ()
+-{
+-  return get_world ()-&gt;get_tilemap()-&gt;is_ground(pos.x, pos.y);
+-}
+-
+ int
+-Player::get_energie()
++Player::get_energy() const
+ {
+-  return energie;
++  return energy;
+ }
+ 
+ int
+-Player::get_max_energie()
++Player::get_max_energy() const
+ {
+-  return MAX_ENERGIE;
++  return MAX_ENERGY;
+ }
+ 
+ void
+ Player::hit(int points)
+ {
+-  if (energie &gt; 0 &amp;&amp; hit_count &lt;= 0)
++  if (energy &gt; 0 &amp;&amp; hit_count &lt;= 0)
+     {
+-      energie -= points;
++      energy -= points;
+       hit_count = 1.0f;
+ 
+-      if (energie &lt;= 0)
++      if (energy &lt;= 0)
+         {
+-          switch_movement_state(KILLED);
++          //switch_movement_state(KILLED);
+           hit_count = 0;
+         }
+     }
+
+Modified: trunk/src/player.hpp
+===================================================================
+--- trunk/src/player.hpp	2005-07-07 14:31:40 UTC (rev 556)
++++ trunk/src/player.hpp	2005-07-07 15:42:33 UTC (rev 557)
+@@ -26,80 +26,43 @@
+ 
+ #include &quot;input/controller.hpp&quot;
+ #include &quot;sprite3d/sprite3d.hpp&quot;
++#include &quot;math/vector.hpp&quot;
+ #include &quot;globals.hpp&quot;
+ #include &quot;game_object.hpp&quot;
+ 
+ class Controller;
+ 
+-/** A position in units of subtiles */
+-struct SubTilePos {
+-  SubTilePos() : x(0), y(0) {}
+-
+-  SubTilePos(int x_, int y_) 
+-    : x(x_), y(y_)
+-  {}
+-
+-  bool operator==(const SubTilePos&amp; pos) {
+-    return pos.x == x &amp;&amp; pos.y == y;
+-  }
+-
+-  int x;
+-  int y;
+-};
+-
+ class Player : public GameObject
+ {
+ private:
+   Controller controller;
+ 
+   /** Position as a float */
+-  CL_Vector pos;
+-  
+-  SubTilePos subtile_pos;
+-
+-  /** X-Position in subtile coordinates */
+-  int x_pos;
+-  /** Y-Position in subtile coordinates */
+-  int y_pos;
+-  
+-  CL_Vector velocity;
++  Vector pos;
++  Vector velocity;
+  
+-#if 0
+-  CL_Sprite walk;
+-  CL_Sprite run;
+-  CL_Sprite turn;
+-  CL_Sprite sit;
+-  CL_Sprite jump;
+-  CL_Sprite stand;
+-  CL_Sprite killed;
+-  CL_Sprite dead;
+-#endif
+   CL_Sprite light;
+-
+-#if 0
+-  CL_Sprite roll;
+-  CL_Sprite surround;
+-#endif
+   Sprite3D* sprite;
+ 
+   bool jumping;
+   bool bomb_placed;
+   float hit_count;
+-  int energie;
++  int energy;
+ public:
+-  typedef enum { WALKING, RUNNING, TURN, SITTING, STANDING, KILLED, DEAD } MovementState;
+-  typedef enum { GUN_READY, GUN_RELOADING } GunState;
+-  typedef enum { ON_GROUND, IN_AIR } GroundState;
++  enum State
++  {
++    STAND,
++    WALK,
++    TURNAROUND,
++    DUCKING,
++    DUCKED,
++    STAND_TO_LISTEN,
++    LISTEN
++  };
+ 
+-  //{ BOUNCE, SPREAD, LASER }
+ private:
+-  MovementState state;
+-  GunState gun_state;
+-  Direction direction;
+-  GroundState ground_state;
++  State state;
+ 
+-  void switch_movement_state(MovementState state);
+-  
+   double reload_time;
+   static Player* current_;
+ public:
+@@ -114,24 +77,45 @@
+   void update (float delta);
+ 
+   void set_position (const CL_Vector&amp; arg_pos);
+-  void set_direction (Direction dir);
+ 
++  void start_listening();
++  void stop_listening();
++
+   CL_Vector get_pos () const { return pos; }
+-  SubTilePos get_subtile_pos();
+   
+-  int get_energie();
+-  int get_max_energie();
++  int get_energy() const;
++  int get_max_energy() const;
+   void hit(int points);
+ 
+   CL_Rect get_bounding_rect() const; 
+ private:
+-  // true if the tile under Player is ground
+-  bool on_ground ();
+-  // true if Player is inside a ground tile
+-  bool stuck ();
++  void update_walk_stand();
++  void set_stand();
++  void update_stand();
++  void set_walk(Direction direction);
++  void update_walk();
++  void set_ducking();
++  void update_ducking();
++  void set_ducked();
++  void update_ducked();
++  void set_turnaround();
++  void update_turnaround();
++  void set_stand_to_listen(bool backwards);
++  void update_stand_to_listen();
++  void set_listen();
++  void update_listen();
+ 
+-  void update_ground (float delta);
+-  void update_air (float delta);
++  /**
++   * Sets an action for the sprite. In contrast to sprite-&gt;set_action this
++   * function will not restart the action if it was already running
++   */
++  void try_set_action(const std::string&amp; name);
++
++  Direction get_direction() const;
++  
++  // true if Player is inside a ground tile
++  bool stuck () const;
++  bool on_ground() const;
+ };
+ 
+ #endif
+
+Modified: trunk/src/scripting/game_objects.cpp
+===================================================================
+--- trunk/src/scripting/game_objects.cpp	2005-07-07 14:31:40 UTC (rev 556)
++++ trunk/src/scripting/game_objects.cpp	2005-07-07 15:42:33 UTC (rev 557)
+@@ -45,5 +45,17 @@
+   obj()-&gt;set_vflip(vflip);
+ }
+ 
++void
++Player::start_listening()
++{
++  obj()-&gt;start_listening();
+ }
+ 
++void
++Player::stop_listening()
++{
++  obj()-&gt;stop_listening();
++}
++
++}
++
+
+Modified: trunk/src/scripting/game_objects.hpp
+===================================================================
+--- trunk/src/scripting/game_objects.hpp	2005-07-07 14:31:40 UTC (rev 556)
++++ trunk/src/scripting/game_objects.hpp	2005-07-07 15:42:33 UTC (rev 557)
+@@ -5,11 +5,13 @@
+ #include &quot;game_object.hpp&quot;
+ #include &quot;flashing_sign.hpp&quot;
+ #include &quot;test_object.hpp&quot;
++#include &quot;player.hpp&quot;
+ #include &quot;ref.hpp&quot;
+ 
+ typedef GameObject _GameObject;
+ typedef FlashingSign _FlashingSign;
+ typedef TestObject _TestObject;
++typedef Player _Player;
+ #endif
+ 
+ namespace Scripting
+@@ -77,6 +79,27 @@
+   void set_vflip(bool vflip);
+ };
+ 
++class Player : public GameObject
++{
++#ifndef SCRIPTING_API
++public:
++  Player(_Player* _player)
++    : GameObject(_player)
++  {}
++  virtual ~Player()
++  {}
++
++  _Player* obj() const
++  {
++    return reinterpret_cast&lt;_Player*&gt; (object.get());
++  }
++#endif
++
++public:
++  void start_listening();
++  void stop_listening();
++};
++ 
+ }
+ 
+ #endif
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2005-07-07 14:31:40 UTC (rev 556)
++++ trunk/src/scripting/wrapper.cpp	2005-07-07 15:42:33 UTC (rev 557)
+@@ -177,6 +177,53 @@
+   return 0;
+ }
+ 
++static int Player_release_hook(SQUserPointer ptr, int )
++{
++  Scripting::Player* _this = reinterpret_cast&lt;Scripting::Player*&gt; (ptr);
++  delete _this;
++  return 0;
++}
++
++void create_squirrel_instance(HSQUIRRELVM v, Scripting::Player* object, bool setup_releasehook)
++{
++  sq_pushstring(v, &quot;Player&quot;, -1);
++  if(sq_get(v, -2) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't resolved squirrel type 'Player'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  if(sq_createinstance(v, -1) &lt; 0 || sq_setinstanceup(v, -1, object) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't setup squirrel instance for object of type 'Player'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++  sq_remove(v, -2);
++
++  if(setup_releasehook) {
++    sq_setreleasehook(v, -1, Player_release_hook);
++  }
++}
++static int Player_start_listening_wrapper(HSQUIRRELVM v)
++{
++  Scripting::Player* _this;
++  sq_getinstanceup(v, 1, (SQUserPointer*) &amp;_this, 0);
++  
++  _this-&gt;start_listening();
++  
++  return 0;
++}
++
++static int Player_stop_listening_wrapper(HSQUIRRELVM v)
++{
++  Scripting::Player* _this;
++  sq_getinstanceup(v, 1, (SQUserPointer*) &amp;_this, 0);
++  
++  _this-&gt;stop_listening();
++  
++  return 0;
++}
++
+ static int set_sector_wrapper(HSQUIRRELVM v)
+ {
+   const char* arg0;
+@@ -493,6 +540,37 @@
+     throw SquirrelError(v, msg.str());
+   }
+ 
++  // Register class Player
++  sq_pushstring(v, &quot;Player&quot;, -1);
++  sq_pushstring(v, &quot;GameObject&quot;, -1);
++  sq_get(v, -3);
++  if(sq_newclass(v, SQTrue) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't create new class 'Player'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++  sq_pushstring(v, &quot;start_listening&quot;, -1);
++  sq_newclosure(v, &amp;Player_start_listening_wrapper, 0);
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'start_listening'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  sq_pushstring(v, &quot;stop_listening&quot;, -1);
++  sq_newclosure(v, &amp;Player_stop_listening_wrapper, 0);
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'stop_listening'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register class'Player'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
+   sq_pop(v, 1);
+ }
+ 
+
+Modified: trunk/src/scripting/wrapper.hpp
+===================================================================
+--- trunk/src/scripting/wrapper.hpp	2005-07-07 14:31:40 UTC (rev 556)
++++ trunk/src/scripting/wrapper.hpp	2005-07-07 15:42:33 UTC (rev 557)
+@@ -17,6 +17,7 @@
+ void create_squirrel_instance(HSQUIRRELVM v, Scripting::GameObject* object, bool setup_releasehook = false);
+ void create_squirrel_instance(HSQUIRRELVM v, Scripting::FlashingSign* object, bool setup_releasehook = false);
+ void create_squirrel_instance(HSQUIRRELVM v, Scripting::TestObject* object, bool setup_releasehook = false);
++void create_squirrel_instance(HSQUIRRELVM v, Scripting::Player* object, bool setup_releasehook = false);
+ 
+ }
+ 
+
+Modified: trunk/src/sector.cpp
+===================================================================
+--- trunk/src/sector.cpp	2005-07-07 14:31:40 UTC (rev 556)
++++ trunk/src/sector.cpp	2005-07-07 15:42:33 UTC (rev 557)
+@@ -247,6 +247,13 @@
+     return;
+   }
+ 
++  Player* player = dynamic_cast&lt;Player*&gt; (object);
++  if(player) {
++    script_manager-&gt;expose_object(new Scripting::Player(player),
++                                  object-&gt;get_name(), true);
++    return;
++  }
++
+   script_manager-&gt;expose_object(new Scripting::GameObject(object),
+                                 object-&gt;get_name(), true);
+ }
+
+Modified: trunk/src/sprite3d/sprite3d.cpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d.cpp	2005-07-07 14:31:40 UTC (rev 556)
++++ trunk/src/sprite3d/sprite3d.cpp	2005-07-07 15:42:33 UTC (rev 557)
+@@ -34,13 +34,16 @@
+ #include &quot;timer.hpp&quot;
+ 
+ Sprite3D::Sprite3D(const Sprite3DData* data)
+-  : data(data), rot(false), next_action(0), next_rot(0), actions_switched(false)
++  : data(data), rot(false), actions_switched(false), next_action(0), next_rot(0)
+ {
+   current_action = &amp;data-&gt;actions[0];
+   last_frame = current_action-&gt;frame_count - 1;
+   animation_time = 0;
+   speed = 1.0;
+   update(0);
++  
++  frame1 = &amp;current_action-&gt;frames[0];
++  frame2 = &amp;current_action-&gt;frames[1];
+ }
+ 
+ Sprite3D::~Sprite3D()
+@@ -62,14 +65,27 @@
+ }
+ 
+ void
+-Sprite3D::set_next_action(const std::string&amp; name, bool next_rot)
++Sprite3D::set_next_action(const std::string&amp; name)
+ {
+   next_action = &amp; data-&gt;get_action(name);
+-  this-&gt;next_rot = next_rot;
++  next_rot = rot;
++  next_speed = speed;
+   actions_switched = false;
+ }
+ 
+ void
++Sprite3D::set_next_rot(bool rot)
++{
++  next_rot = rot;
++}
++
++void
++Sprite3D::set_next_speed(float speed)
++{
++  next_speed = speed;
++}
++
++void
+ Sprite3D::abort_at_marker(const std::string&amp; name)
+ {
+   const Marker&amp; marker = data-&gt;get_marker(current_action, name);
+@@ -100,6 +116,20 @@
+ void
+ Sprite3D::set_speed(float speed)
+ {
++  if(this-&gt;speed &gt; 0 &amp;&amp; speed &lt; 0) {
++    this-&gt;last_frame = 0;
++    if(animation_time &gt;= current_action-&gt;frame_count - 1)
++      animation_time = current_action-&gt;frame_count - 1.0001;
++  } else if(this-&gt;speed &lt; 0 &amp;&amp; speed &gt; 0) {
++    this-&gt;last_frame = current_action-&gt;frame_count - 1;
++    if(animation_time &gt;= current_action-&gt;frame_count - 1)
++      animation_time = current_action-&gt;frame_count - 1.0001;
++  }
++  if(speed &lt; 0 &amp;&amp; animation_time == 0) {
++    // don't produce an action switch right away when starting backwards
++    animation_time = current_action-&gt;frame_count - 1.0001;
++  }
++
+   this-&gt;speed = speed;
+ }
+ 
+@@ -137,38 +167,92 @@
+ Sprite3D::update(float elapsed_time)
+ {
+   float animation_time_delta = elapsed_time * current_action-&gt;speed * speed;
+- 
+-  int frame = static_cast&lt;int&gt;(animation_time) % current_action-&gt;frame_count;
+-  blend_time = fmodf(animation_time, 1.0);
+-   
+-  frame1 = &amp;current_action-&gt;frames[frame];
+-  
+-  // on last frame?
+-  if(frame &gt;= last_frame) {
+-    if(next_action != 0) {
+-      frame2 = &amp;next_action-&gt;frames[0];
+ 
+-      // time to switch actions?
+-      if(blend_time + animation_time_delta &gt;= 1.0) {
+-        current_action = next_action;
+-        last_frame = current_action-&gt;frame_count-1;
+-        animation_time = blend_time + animation_time_delta - 1.0;
+-        next_action = 0;
+-        actions_switched = true;
+-        // this will rotate 1 frame too early...
+-        rot = next_rot;
++  if(speed &gt;= 0) {
++    int frame = static_cast&lt;int&gt;(animation_time);
++    frame1 = &amp;current_action-&gt;frames[frame];
++    blend_time = fmodf(animation_time, 1.0);
++    assert(frame &gt;= 0);
++    assert(frame &lt; current_action-&gt;frame_count);
++
++    // last frame
++    if(frame &gt;= last_frame) {
++      if(next_action != 0) {
++        if(next_speed &gt; 0) {
++          frame2 = &amp;next_action-&gt;frames[0];
++        } else {
++          frame2 = &amp;next_action-&gt;frames[next_action-&gt;frame_count - 1];
++        }
++
++        // time to switch actions?
++        if(blend_time + animation_time_delta &gt;= 1.0) {
++          switch_next_action();
++          animation_time = blend_time + animation_time_delta - 1.0;
++        }
++      } else {
++        frame2 = &amp;current_action-&gt;frames[0];
++        if(blend_time + animation_time &gt;= 1.0) {
++          animation_time -= current_action-&gt;frame_count;
++        }
+       }
+     } else {
+-      frame2 = &amp;current_action-&gt;frames[0];
++      assert(frame + 1 &lt; current_action-&gt;frame_count);
++      frame2 = &amp;current_action-&gt;frames[frame + 1];
+     }
+   } else {
+-    frame2 = &amp;current_action-&gt;frames[frame+1];
++    int frame 
++      = (static_cast&lt;int&gt;(animation_time) + 1) % current_action-&gt;frame_count;
++    frame1 = &amp;current_action-&gt;frames[frame];
++    blend_time = 1.0 - fmodf(animation_time, 1.0);
++    assert(frame &gt;= 0);
++    assert(frame &lt; current_action-&gt;frame_count);
++
++    // last frame
++    if(frame &lt;= last_frame) {
++      if(next_action != 0) {
++        if(next_speed &gt; 0) {
++          frame2 = &amp;next_action-&gt;frames[0];
++        } else {
++          frame2 = &amp;next_action-&gt;frames[next_action-&gt;frame_count - 1];
++        }
++
++        // time to switch actions?
++        if(blend_time - animation_time_delta &gt;= 1.0) {
++          switch_next_action();
++          animation_time = static_cast&lt;float&gt;(current_action-&gt;frame_count) 
++            - (blend_time - animation_time_delta - 1.0);
++        }
++      } else {
++        frame2 = &amp;current_action-&gt;frames[current_action-&gt;frame_count - 1];
++      }
++    } else {
++      int fr2 = (frame + current_action-&gt;frame_count - 1) 
++        % current_action-&gt;frame_count;
++      frame2 = &amp;current_action-&gt;frames[fr2];
++      if(animation_time + animation_time_delta &lt;= 0.0) {
++        animation_time += current_action-&gt;frame_count;
++      }                                                     
++    }
+   }
+ 
+   animation_time += animation_time_delta;
+ }
+ 
++void
++Sprite3D::switch_next_action()
++{
++  current_action = next_action;
++  speed = next_speed;
++  rot = next_rot;
++  next_action = 0;
++  actions_switched = true;
+ 
++  if(speed &gt;= 0)
++    last_frame = current_action-&gt;frame_count - 1;
++  else
++    last_frame = 0;
++}
++
+ void
+ Sprite3D::draw(SceneContext&amp; sc, const Vector&amp; pos)
+ {
+
+Modified: trunk/src/sprite3d/sprite3d.hpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d.hpp	2005-07-07 14:31:40 UTC (rev 556)
++++ trunk/src/sprite3d/sprite3d.hpp	2005-07-07 15:42:33 UTC (rev 557)
+@@ -59,7 +59,9 @@
+    * Set the next action and vflip value to be played after the current action
+    * has finished (or reached the point to be defined by abort_at_marker)
+    */
+-  void set_next_action(const std::string&amp; name, bool rot);
++  void set_next_action(const std::string&amp; name);
++  void set_next_rot(bool rot);
++  void set_next_speed(float speed);
+ 
+   /**
+    * Abort current action after a certain marker has been reached.
+@@ -87,8 +89,13 @@
+   /**
+    * Rotate (or not rotate) the model 180 degree
+    */
+-  void set_rot(bool flip_vertically = true);
++  void set_rot(bool rot = true);
+ 
++  bool get_rot() const
++  {
++    return rot;
++  }
++
+ private:
+   friend class Sprite3DDrawingRequest;
+   friend class Sprite3DManager;
+@@ -97,6 +104,7 @@
+   Sprite3D (const Sprite3D&amp;);
+   Sprite3D&amp; operator= (const Sprite3D&amp;);
+ 
++  void switch_next_action();
+   void draw(CL_GraphicContext* gc, const Vector&amp; pos, const Matrix&amp; modelview);
+ 
+   const Sprite3DData* data;
+@@ -104,6 +112,8 @@
+   float animation_time;
+   float speed; 
+   bool rot;
++  int last_frame;
++  bool actions_switched;  
+ 
+   const ActionFrame* frame1;
+   const ActionFrame* frame2;
+@@ -111,8 +121,7 @@
+   
+   const Action* next_action;
+   bool next_rot;
+-  int last_frame;
+-  bool actions_switched;
++  float next_speed;
+ };
+ 
+ #endif
+
+Modified: trunk/src/view.cpp
+===================================================================
+--- trunk/src/view.cpp	2005-07-07 14:31:40 UTC (rev 556)
++++ trunk/src/view.cpp	2005-07-07 15:42:33 UTC (rev 557)
+@@ -70,8 +70,10 @@
+     transform.x -= delta * 200 / zoom;
+   if(CL_Keyboard::get_keycode(CL_KEY_NUMPAD6))
+     transform.x += delta * 200 / zoom;
+-  if(CL_Keyboard::get_keycode(CL_KEY_NUMPAD5))
++  if(CL_Keyboard::get_keycode(CL_KEY_NUMPAD5)) {
+     transform = Vector(0, 0, 0);
++    zoom = 1.0;
++  }
+ }
+ 
+ CL_Rectf
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000210.html">[Windstille-commit] r556 - in trunk: data src
+</A></li>
+	<LI>Next message: <A HREF="000212.html">[Windstille-commit] r558 - in trunk/data/blender: . yagor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#211">[ date ]</a>
+              <a href="thread.html#211">[ thread ]</a>
+              <a href="subject.html#211">[ subject ]</a>
+              <a href="author.html#211">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

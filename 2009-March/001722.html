@@ -1,0 +1,466 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2725 - in trunk/windstille/src: . display	editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2725%20-%20in%20trunk/windstille/src%3A%20.%20display%0A%09editor&In-Reply-To=%3C200903221141.n2MBfFb5023482%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001721.html">
+   <LINK REL="Next"  HREF="001723.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2725 - in trunk/windstille/src: . display	editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2725%20-%20in%20trunk/windstille/src%3A%20.%20display%0A%09editor&In-Reply-To=%3C200903221141.n2MBfFb5023482%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2725 - in trunk/windstille/src: . display	editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Mar 22 12:41:15 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001721.html">[Windstille-commit] r2724 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="001723.html">[Windstille-commit] r2726 - in trunk/windstille/src: . display	editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1722">[ date ]</a>
+              <a href="thread.html#1722">[ thread ]</a>
+              <a href="subject.html#1722">[ subject ]</a>
+              <a href="author.html#1722">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-22 12:41:13 +0100 (Sun, 22 Mar 2009)
+New Revision: 2725
+
+Added:
+   trunk/windstille/src/editor/scroll_tool.cpp
+   trunk/windstille/src/editor/scroll_tool.hpp
+   trunk/windstille/src/editor/tool.hpp
+Modified:
+   trunk/windstille/src/SConscript
+   trunk/windstille/src/display/graphic_context_state.cpp
+   trunk/windstille/src/display/graphic_context_state.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/editor/windstille_widget.hpp
+Log:
+Added ScrollTool
+
+Modified: trunk/windstille/src/SConscript
+===================================================================
+--- trunk/windstille/src/SConscript	2009-03-21 23:23:35 UTC (rev 2724)
++++ trunk/windstille/src/SConscript	2009-03-22 11:41:13 UTC (rev 2725)
+@@ -239,6 +239,7 @@
+         'editor/about_window.cpp',
+         'editor/windstille_widget.cpp',
+         'editor/minimap_widget.cpp',
++        'editor/scroll_tool.cpp',
+         'editor/editor_window.cpp'
+         ])
+ 
+
+Modified: trunk/windstille/src/display/graphic_context_state.cpp
+===================================================================
+--- trunk/windstille/src/display/graphic_context_state.cpp	2009-03-21 23:23:35 UTC (rev 2724)
++++ trunk/windstille/src/display/graphic_context_state.cpp	2009-03-22 11:41:13 UTC (rev 2725)
+@@ -190,4 +190,18 @@
+   return impl-&gt;height; 
+ }
+ 
++GraphicContextState
++GraphicContextState::clone() const
++{
++  GraphicContextState tmp;
++
++  tmp.impl-&gt;width    = impl-&gt;width;
++  tmp.impl-&gt;height   = impl-&gt;height;
++  tmp.impl-&gt;offset   = impl-&gt;offset;
++  tmp.impl-&gt;zoom     = impl-&gt;zoom;
++  tmp.impl-&gt;rotation = impl-&gt;rotation;
++
++  return tmp;
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/display/graphic_context_state.hpp
+===================================================================
+--- trunk/windstille/src/display/graphic_context_state.hpp	2009-03-21 23:23:35 UTC (rev 2724)
++++ trunk/windstille/src/display/graphic_context_state.hpp	2009-03-22 11:41:13 UTC (rev 2725)
+@@ -68,6 +68,8 @@
+ 
+   Vector2f screen_to_world(const Vector2f&amp; pos);
+ 
++  GraphicContextState clone() const;
++
+ private:
+   boost::shared_ptr&lt;GraphicContextStateImpl&gt; impl;
+ };
+
+Added: trunk/windstille/src/editor/scroll_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/scroll_tool.cpp	2009-03-21 23:23:35 UTC (rev 2724)
++++ trunk/windstille/src/editor/scroll_tool.cpp	2009-03-22 11:41:13 UTC (rev 2725)
+@@ -0,0 +1,56 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &quot;math/vector2f.hpp&quot;
++#include &quot;windstille_widget.hpp&quot;
++#include &quot;scroll_tool.hpp&quot;
++
++ScrollTool::ScrollTool()
++{
++}
++
++bool
++ScrollTool::mouse_down(GdkEventButton* event, WindstilleWidget* wst)
++{
++  orig_state = wst-&gt;get_state().clone();
++  orig_click = orig_state.screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
++  
++  return true;
++}
++
++bool
++ScrollTool::mouse_move(GdkEventMotion* event, WindstilleWidget* wst)
++{
++  Vector2f offset = orig_click - orig_state.screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
++
++  wst-&gt;get_state().set_pos(orig_state.get_pos() + offset);
++
++  return true;
++}
++
++bool
++ScrollTool::mouse_up(GdkEventButton* event, WindstilleWidget* wst)
++{
++  Vector2f offset = orig_click - orig_state.screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
++
++  wst-&gt;get_state().set_pos(orig_state.get_pos() + offset);
++
++  return true;
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/scroll_tool.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/editor/scroll_tool.hpp
+===================================================================
+--- trunk/windstille/src/editor/scroll_tool.hpp	2009-03-21 23:23:35 UTC (rev 2724)
++++ trunk/windstille/src/editor/scroll_tool.hpp	2009-03-22 11:41:13 UTC (rev 2725)
+@@ -0,0 +1,46 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_EDITOR_SCROLL_TOOL_HPP
++#define HEADER_WINDSTILLE_EDITOR_SCROLL_TOOL_HPP
++
++#include &quot;display/graphic_context_state.hpp&quot;
++#include &quot;tool.hpp&quot;
++
++/** */
++class ScrollTool : public Tool
++{
++private:
++  GraphicContextState orig_state;
++  Vector2f orig_click;
++
++public:
++  ScrollTool();
++
++  virtual bool mouse_down(GdkEventButton* event, WindstilleWidget* wst);
++  virtual bool mouse_move(GdkEventMotion* event, WindstilleWidget* wst);
++  virtual bool mouse_up(GdkEventButton* event, WindstilleWidget* wst);
++
++private:
++  ScrollTool(const ScrollTool&amp;);
++  ScrollTool&amp; operator=(const ScrollTool&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/scroll_tool.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/editor/tool.hpp
+===================================================================
+--- trunk/windstille/src/editor/tool.hpp	2009-03-21 23:23:35 UTC (rev 2724)
++++ trunk/windstille/src/editor/tool.hpp	2009-03-22 11:41:13 UTC (rev 2725)
+@@ -0,0 +1,43 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_EDITOR_TOOL_HPP
++#define HEADER_WINDSTILLE_EDITOR_TOOL_HPP
++
++#include &lt;gdkmm.h&gt;
++
++class WindstilleWidget;
++
++class Tool
++{
++public:
++  Tool() {}
++  virtual ~Tool() {}
++
++  virtual bool mouse_down (GdkEventButton* event, WindstilleWidget* widget) = 0;
++  virtual bool mouse_move(GdkEventMotion* event, WindstilleWidget* widget) = 0;
++  virtual bool mouse_up(GdkEventButton* event, WindstilleWidget* widget) = 0;
++
++private:
++  Tool(const Tool&amp;);
++  Tool&amp; operator=(const Tool&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/tool.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-03-21 23:23:35 UTC (rev 2724)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-03-22 11:41:13 UTC (rev 2725)
+@@ -30,11 +30,13 @@
+ 
+ #include &quot;display/surface.hpp&quot;
+ #include &quot;windstille_widget.hpp&quot;
++#include &quot;scroll_tool.hpp&quot;
+ 
+ bool lib_init = false;
+ 
+ WindstilleWidget::WindstilleWidget(const Glib::RefPtr&lt;const Gdk::GL::Config&gt;&amp;  glconfig,
+                                    const Glib::RefPtr&lt;const Gdk::GL::Context&gt;&amp; share_list)
++ : scroll_tool(new ScrollTool())
+ {
+   set_gl_capability(glconfig, share_list);
+ 
+@@ -204,47 +206,63 @@
+ }
+ 
+ bool
+-WindstilleWidget::mouse_move(GdkEventMotion* event)
++WindstilleWidget::scroll(GdkEventScroll* event)
+ {
+-  //std::cout &lt;&lt; &quot;Motion: &quot; &lt;&lt; event-&gt;x &lt;&lt; &quot;, &quot; &lt;&lt; event-&gt;y &lt;&lt; std::endl;
+-  
+-  // Trigger redraw
+-  // queue_draw();
+-
+-  return true;
++  if (event-&gt;direction == GDK_SCROLL_UP)
++    {
++      //viewer-&gt;get_state().zoom(1.1f, Vector2i(event-&gt;x, event-&gt;y));
++    }
++  else if (event-&gt;direction == GDK_SCROLL_DOWN)
++    {
++      //viewer-&gt;get_state().zoom(1.0f/1.1f, Vector2i(event-&gt;x, event-&gt;y));
++    }
++  return false;
+ }
+-
++
+ bool
+ WindstilleWidget::mouse_down(GdkEventButton* event)
+ {
+   grab_focus();
+   std::cout &lt;&lt; &quot;Button Press: &quot; &lt;&lt; event-&gt;x &lt;&lt; &quot;, &quot; &lt;&lt; event-&gt;y &lt;&lt; &quot; - &quot; &lt;&lt; event-&gt;button &lt;&lt; std::endl;
+   //ewer-&gt;on_mouse_button_down(Vector2i(event-&gt;x, event-&gt;y), event-&gt;button);
++  if (event-&gt;button == 2)
++    {
++      current_tool = scroll_tool.get();
++      scroll_tool-&gt;mouse_down(event, this);
++    }
++
+   return false;
+ }
+ 
+ bool
+-WindstilleWidget::scroll(GdkEventScroll* event)
++WindstilleWidget::mouse_move(GdkEventMotion* event)
+ {
+-  if (event-&gt;direction == GDK_SCROLL_UP)
++  std::cout &lt;&lt; &quot;Motion: &quot; &lt;&lt; event-&gt;x &lt;&lt; &quot;, &quot; &lt;&lt; event-&gt;y &lt;&lt; std::endl;
++  
++  if (current_tool)
+     {
+-      //viewer-&gt;get_state().zoom(1.1f, Vector2i(event-&gt;x, event-&gt;y));
++      current_tool-&gt;mouse_move(event, this);
++      queue_draw();
+     }
+-  else if (event-&gt;direction == GDK_SCROLL_DOWN)
+-    {
+-      //viewer-&gt;get_state().zoom(1.0f/1.1f, Vector2i(event-&gt;x, event-&gt;y));
+-    }
+-  return false;
++  
++  return true;
+ }
+ 
+ bool
+ WindstilleWidget::mouse_up(GdkEventButton* event)
+ {
++  current_tool = 0;
++
+   std::cout &lt;&lt; &quot;Button Release: &quot; &lt;&lt; event-&gt;x &lt;&lt; &quot;, &quot; &lt;&lt; event-&gt;y &lt;&lt; &quot; - &quot; &lt;&lt; event-&gt;button &lt;&lt; std::endl;
+   //viewer-&gt;on_mouse_button_up(Vector2i(event-&gt;x, event-&gt;y), event-&gt;button);
++  if (event-&gt;button == 2)
++    {
++      scroll_tool-&gt;mouse_up(event, this);
++      queue_draw();
++    }
+   return false;
+ }
+-
++
+ bool
+ WindstilleWidget::key_press(GdkEventKey* event)
+ {
+@@ -282,7 +300,7 @@
+   //std::cout &lt;&lt; &quot;KeyRelease: &quot; &lt;&lt; (int)event-&gt;keyval &lt;&lt; std::endl;
+   return true;
+ }
+-
++
+ bool
+ WindstilleWidget::on_drag_drop(const Glib::RefPtr&lt;Gdk::DragContext&gt;&amp; context, int x, int y, guint time)
+ {
+@@ -306,7 +324,7 @@
+ {
+   std::cout &lt;&lt; &quot;WindstilleWidget: on_drag_finish()&quot; &lt;&lt; std::endl;
+ }
+-
++
+ void
+ WindstilleWidget::on_zoom_in()
+ {
+
+Modified: trunk/windstille/src/editor/windstille_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.hpp	2009-03-21 23:23:35 UTC (rev 2724)
++++ trunk/windstille/src/editor/windstille_widget.hpp	2009-03-22 11:41:13 UTC (rev 2725)
+@@ -33,6 +33,9 @@
+ #include &quot;display/scene_context.hpp&quot;
+ #include &quot;math/vector2f.hpp&quot;
+ 
++class Tool;
++class ScrollTool;
++
+ /** OpenGL drawing area into which the Windstille game will be
+     embedded */
+ class WindstilleWidget 
+@@ -43,12 +46,15 @@
+   GraphicContextState   state;
+   std::vector&lt;Vector2f&gt; objects;
+   std::auto_ptr&lt;SceneContext&gt; sc;
+-  
++  Tool* current_tool;
++  std::auto_ptr&lt;ScrollTool&gt; scroll_tool;
+ public:
+   WindstilleWidget(const Glib::RefPtr&lt;const Gdk::GL::Config&gt;&amp; glconfig,
+                    const Glib::RefPtr&lt;const Gdk::GL::Context&gt;&amp; share_list);
+   virtual ~WindstilleWidget();
+ 
++  GraphicContextState&amp; get_state() { return state; }
++
+   virtual void on_realize();
+   virtual bool on_timeout();
+   virtual bool on_configure_event(GdkEventConfigure* event);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001721.html">[Windstille-commit] r2724 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="001723.html">[Windstille-commit] r2726 - in trunk/windstille/src: . display	editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1722">[ date ]</a>
+              <a href="thread.html#1722">[ thread ]</a>
+              <a href="subject.html#1722">[ subject ]</a>
+              <a href="author.html#1722">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

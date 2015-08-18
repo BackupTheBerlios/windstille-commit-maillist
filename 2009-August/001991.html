@@ -1,0 +1,370 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2994 - trunk/windstille/src/screen
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2994%20-%20trunk/windstille/src/screen&In-Reply-To=%3C200908211944.n7LJiXto015816%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001990.html">
+   <LINK REL="Next"  HREF="001992.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2994 - trunk/windstille/src/screen</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2994%20-%20trunk/windstille/src/screen&In-Reply-To=%3C200908211944.n7LJiXto015816%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2994 - trunk/windstille/src/screen">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Aug 21 21:44:33 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001990.html">[Windstille-commit] r2993 - in trunk/windstille/src: display	particles
+</A></li>
+        <LI>Next message: <A HREF="001992.html">[Windstille-commit] r2995 - trunk/windstille/src/screen
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1991">[ date ]</a>
+              <a href="thread.html#1991">[ thread ]</a>
+              <a href="subject.html#1991">[ subject ]</a>
+              <a href="author.html#1991">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-08-21 21:44:32 +0200 (Fri, 21 Aug 2009)
+New Revision: 2994
+
+Modified:
+   trunk/windstille/src/screen/screen_manager.cpp
+   trunk/windstille/src/screen/screen_manager.hpp
+Log:
+Shut down properly when a non-titlescreen screen is used at startup
+
+Modified: trunk/windstille/src/screen/screen_manager.cpp
+===================================================================
+--- trunk/windstille/src/screen/screen_manager.cpp	2009-08-21 19:43:53 UTC (rev 2993)
++++ trunk/windstille/src/screen/screen_manager.cpp	2009-08-21 19:44:32 UTC (rev 2994)
+@@ -19,38 +19,35 @@
+ #include &lt;boost/format.hpp&gt;
+ #include &lt;iostream&gt;
+ #ifndef WIN32
+-#include &lt;unistd.h&gt;
++#  include &lt;unistd.h&gt;
+ #endif
+-#include &quot;game_session.hpp&quot;
+-#include &quot;input/input_manager_sdl.hpp&quot;
++
++#include &quot;app/config.hpp&quot;
++#include &quot;app/globals.hpp&quot;
++#include &quot;app/windstille_main.hpp&quot;
+ #include &quot;display/display.hpp&quot;
+-#include &quot;app/globals.hpp&quot;
+-#include &quot;screen.hpp&quot;
+ #include &quot;font/fonts.hpp&quot;
+-#include &quot;app/config.hpp&quot;
+-#include &quot;app/windstille_main.hpp&quot;
+-#include &quot;input/input_manager.hpp&quot;
+-#include &quot;input/input_configurator.hpp&quot;
+-#include &quot;sound/sound_manager.hpp&quot;
++#include &quot;game_session.hpp&quot;
+ #include &quot;gui/gui_manager.hpp&quot;
+ #include &quot;hud/controller_help_window.hpp&quot;
++#include &quot;input/input_configurator.hpp&quot;
++#include &quot;input/input_manager.hpp&quot;
++#include &quot;input/input_manager_sdl.hpp&quot;
++#include &quot;screen.hpp&quot;
+ #include &quot;screen_manager.hpp&quot;
++#include &quot;sound/sound_manager.hpp&quot;
+ 
+ // GUI Stuff, can be removed if gui is a bit better organised
++#include &quot;gui/automap.hpp&quot;
+ #include &quot;gui/button.hpp&quot;
+-#include &quot;gui/slider.hpp&quot;
+-#include &quot;gui/root_component.hpp&quot;
+ #include &quot;gui/grid_component.hpp&quot;
++#include &quot;gui/list_view.hpp&quot;
+ #include &quot;gui/menu_component.hpp&quot;
++#include &quot;gui/root_component.hpp&quot;
++#include &quot;gui/slider.hpp&quot;
+ #include &quot;gui/tab_component.hpp&quot;
+-#include &quot;gui/list_view.hpp&quot;
+ #include &quot;gui/text_view.hpp&quot;
+-#include &quot;gui/automap.hpp&quot;
+ 
+-#ifdef WIN32
+-#define snprintf _snprintf
+-#endif
+-
+ ScreenManager screen_manager; 
+ 
+ ScreenManager::ScreenManager()
+@@ -80,113 +77,127 @@
+ 
+   ticks = SDL_GetTicks();
+ 
+-  ControllerHelpWindow controller_help_window;
++  //controller_help_window = new ControllerHelpWindow();
++  apply_pending_actions();
+ 
+-  while (!do_quit)
+-    {
+-      /// Amount of time the world moves forward each update(), this is
+-      /// independed of the number of frames and always constant
+-      static const float step = .001;
++  while (!do_quit &amp;&amp; !screens.empty())
++  {
++    /// Amount of time the world moves forward each update(), this is
++    /// independed of the number of frames and always constant
++    static const float step = .001;
+ 
+-      Uint32 now = SDL_GetTicks();
+-      float delta = static_cast&lt;float&gt;(now - ticks) / 1000.0f + overlap_delta;
+-      ticks = now;
++    Uint32 now = SDL_GetTicks();
++    float delta = static_cast&lt;float&gt;(now - ticks) / 1000.0f + overlap_delta;
++    ticks = now;
+ 
+-      time_counter  += delta;
++    time_counter += delta;
+ 
+-      while (delta &gt; step)
+-        {
+-          InputManager::update(delta);
++    while (delta &gt; step)
++    {
++      InputManager::update(delta);
+ 
+-          console.update(step);
+-          if (!console.is_active())
+-            {
+-              if (!overlay_screens.empty())
+-                overlay_screens.back()-&gt;update(step, InputManager::get_controller());
+-              else if (!screens.empty())
+-                screens.back()-&gt;update(step, InputManager::get_controller());
+-            }
+-          InputManager::clear();
++      console.update(step);
++      if (!console.is_active())
++      {
++        if (!overlay_screens.empty())
++          overlay_screens.back()-&gt;update(step, InputManager::get_controller());
++        else if (!screens.empty())
++          screens.back()-&gt;update(step, InputManager::get_controller());
++      }
++      InputManager::clear();
+   
+-          delta -= step;
+-        }
++      delta -= step;
++    }
+       
+-      overlap_delta = delta;
++    overlap_delta = delta;
+ 
+-      SoundManager::current()-&gt;update();
++    SoundManager::current()-&gt;update();
+ 
+-      if (!screens.empty())
+-        screens.back()-&gt;draw();
++    draw();
+ 
+-      if (!overlay_screens.empty())
+-        overlay_screens.back()-&gt;draw();
++    frame_counter += 1;
+ 
+-      if (show_controller_help_window)
+-        controller_help_window.draw();
++    poll_events();
+ 
+-      console.draw();
++    apply_pending_actions();
++  }
++}
+ 
+-      if (config.get_bool(&quot;show-fps&quot;))
+-        draw_fps();
++void
++ScreenManager::draw()
++{
++  if (!screens.empty())
++    screens.back()-&gt;draw();
+ 
+-      SDL_GL_SwapBuffers();
+-      frame_counter += 1;
++  if (!overlay_screens.empty())
++    overlay_screens.back()-&gt;draw();
+ 
+-      // Commit any pending screen actions
+-      switch(overlay_screen_action)
+-        {
+-          case PUSH_SCREEN:
+-            overlay_screens.push_back(overlay_screen_screen);
+-            overlay_screen_screen = boost::shared_ptr&lt;Screen&gt;();
+-            break;
++  // if (show_controller_help_window)
++  //   controller_help_window.draw();
+ 
+-          case POP_SCREEN:
+-            if (overlay_screens.empty())
+-              {
+-                std::cout &lt;&lt; &quot;Error: ScreenManager: trying to pop_overlay with empty stack&quot; &lt;&lt; std::endl;
+-              }
+-            else
+-              {
+-                overlay_screens.pop_back();
+-              }
+-            break;
++  console.draw();
+ 
+-          case CLEAR_SCREENS:
+-            overlay_screens.clear();
+-            break;
++  if (config.get_bool(&quot;show-fps&quot;))
++    draw_fps();
+ 
+-          case NONE:
+-            // nothing
+-            break;
+-        }
+-      overlay_screen_action = NONE;
++  SDL_GL_SwapBuffers();
++}
+ 
+-      switch(screen_action)
+-        {
+-          case PUSH_SCREEN:
+-            screens.push_back(screen_screen);
+-            screen_screen = boost::shared_ptr&lt;Screen&gt;();
+-            screens.back()-&gt;on_startup();
+-            break;
++void
++ScreenManager::apply_pending_actions()
++{
++  // Commit any pending screen actions
++  switch(overlay_screen_action)
++  {
++    case PUSH_SCREEN:
++      overlay_screens.push_back(overlay_screen_screen);
++      overlay_screen_screen = boost::shared_ptr&lt;Screen&gt;();
++      break;
+ 
+-          case POP_SCREEN:
+-            screens.pop_back();
+-            if (!screens.empty())
+-              screens.back()-&gt;on_startup();
+-            break;
++    case POP_SCREEN:
++      if (overlay_screens.empty())
++      {
++        std::cout &lt;&lt; &quot;Error: ScreenManager: trying to pop_overlay with empty stack&quot; &lt;&lt; std::endl;
++      }
++      else
++      {
++        overlay_screens.pop_back();
++      }
++      break;
+ 
+-          case CLEAR_SCREENS:
+-            screens.clear();
+-            break;
++    case CLEAR_SCREENS:
++      overlay_screens.clear();
++      break;
+ 
+-          case NONE:
+-            // nothing
+-            break;
+-        }
+-      screen_action = NONE;
++    case NONE:
++      // nothing
++      break;
++  }
++  overlay_screen_action = NONE;
+ 
+-      poll_events();
+-    }
++  switch(screen_action)
++  {
++    case PUSH_SCREEN:
++      screens.push_back(screen_screen);
++      screen_screen = boost::shared_ptr&lt;Screen&gt;();
++      screens.back()-&gt;on_startup();
++      break;
++
++    case POP_SCREEN:
++      screens.pop_back();
++      if (!screens.empty())
++        screens.back()-&gt;on_startup();
++      break;
++
++    case CLEAR_SCREENS:
++      screens.clear();
++      break;
++
++    case NONE:
++      // nothing
++      break;
++  }
++  screen_action = NONE;
+ }
+ 
+ void
+@@ -333,9 +344,9 @@
+       frame_counter = 0;
+     }
+   
+-  char output[20];
+-  snprintf(output, sizeof(output), &quot;FPS: %d&quot;, last_fps);
+-  Fonts::ttffont-&gt;draw(Vector2f(Display::get_width() - 100, 30), output);
++  std::ostringstream out;
++  out &lt;&lt; &quot;FPS: &quot; &lt;&lt; last_fps;
++  Fonts::ttffont-&gt;draw(Vector2f(Display::get_width() - 100, 30), out.str());
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/screen/screen_manager.hpp
+===================================================================
+--- trunk/windstille/src/screen/screen_manager.hpp	2009-08-21 19:43:53 UTC (rev 2993)
++++ trunk/windstille/src/screen/screen_manager.hpp	2009-08-21 19:44:32 UTC (rev 2994)
+@@ -50,6 +50,9 @@
+   bool  do_quit;
+   bool  show_controller_help_window;
+ 
++  void apply_pending_actions();
++  void draw();
++  
+ public:
+   ScreenManager();
+   ~ScreenManager();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001990.html">[Windstille-commit] r2993 - in trunk/windstille/src: display	particles
+</A></li>
+	<LI>Next message: <A HREF="001992.html">[Windstille-commit] r2995 - trunk/windstille/src/screen
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1991">[ date ]</a>
+              <a href="thread.html#1991">[ thread ]</a>
+              <a href="subject.html#1991">[ subject ]</a>
+              <a href="author.html#1991">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

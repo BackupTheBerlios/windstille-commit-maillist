@@ -1,0 +1,151 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1464 - trunk/windstille/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1464%20-%20trunk/windstille/src&In-Reply-To=%3C200706180829.l5I8T1qW005041%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001115.html">
+   <LINK REL="Next"  HREF="001117.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1464 - trunk/windstille/src</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1464%20-%20trunk/windstille/src&In-Reply-To=%3C200706180829.l5I8T1qW005041%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1464 - trunk/windstille/src">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Jun 18 10:29:01 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001115.html">[Windstille-commit] r1463 - in trunk/windstille: . data/scripts src	src/scripting
+</A></li>
+        <LI>Next message: <A HREF="001117.html">[Windstille-commit] r1465 - trunk/windstille/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1116">[ date ]</a>
+              <a href="thread.html#1116">[ thread ]</a>
+              <a href="subject.html#1116">[ subject ]</a>
+              <a href="author.html#1116">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-06-18 10:29:00 +0200 (Mon, 18 Jun 2007)
+New Revision: 1464
+
+Modified:
+   trunk/windstille/src/console.cpp
+   trunk/windstille/src/script_manager.cpp
+Log:
+- fixed command line blinking cursor
+
+Modified: trunk/windstille/src/console.cpp
+===================================================================
+--- trunk/windstille/src/console.cpp	2007-06-18 06:04:12 UTC (rev 1463)
++++ trunk/windstille/src/console.cpp	2007-06-18 08:29:00 UTC (rev 1464)
+@@ -181,7 +181,7 @@
+   if (active)
+     {
+       std::string str = command_line;
+-      if (int(game_time*1000) % 400 &gt; 200)
++      if (SDL_GetTicks() % 300 &gt; 150)
+         {
+           if (cursor_pos &lt; int(str.size()))
+             str[cursor_pos] = '_';
+@@ -437,7 +437,7 @@
+       history_position = history.size();
+     }
+                       
+-  console &lt;&lt; &quot;&gt;&quot; &lt;&lt; command_line &lt;&lt; std::endl;
++  console &lt;&lt; &quot;&gt; &quot; &lt;&lt; command_line &lt;&lt; std::endl;
+ 
+   if (command_line == &quot;quit&quot; || command_line == &quot;exit&quot;)
+     {
+@@ -499,25 +499,31 @@
+   const char* buffer = str.c_str();
+ 
+   HSQUIRRELVM vm = script_manager-&gt;get_vm();
+-  int oldtop=sq_gettop(vm); 
++  int oldtop = sq_gettop(vm); 
+   try {
+     int retval = 1;
+ 
+-    if(i&gt;0){
+-      if(SQ_SUCCEEDED(sq_compilebuffer(vm,buffer,i,_SC(&quot;interactive console&quot;),SQTrue))){
+-        sq_pushroottable(vm);
+-        if(SQ_SUCCEEDED(sq_call(vm,1, retval, true))) 
++    if(i &gt; 0) 
++      {
++        if(SQ_SUCCEEDED(sq_compilebuffer(vm, buffer, i, _SC(&quot;interactive console&quot;), SQTrue)))
+           {
+-            if (sq_gettype(vm, -1) != OT_NULL)
+-              console &lt;&lt; Scripting::squirrel2string(vm, -1) &lt;&lt; std::endl;
++            sq_pushroottable(vm);
++            if(SQ_SUCCEEDED(sq_call(vm, 1, retval, true))) 
++              {
++                // FIXME: This does only work when somebody is doing a 'return', i.e. almost never
++                if (sq_gettype(vm, -1) != OT_NULL)
++                  console &lt;&lt; Scripting::squirrel2string(vm, -1) &lt;&lt; std::endl;
++                // else
++                //   console &lt;&lt; &quot;(null)&quot; &lt;&lt; std::endl;
++              }
+           }
+       }
+-    }
+   } catch(std::exception&amp; e) {
+     std::cerr &lt;&lt; &quot;Couldn't execute command '&quot; &lt;&lt; str_ &lt;&lt; &quot;': &quot;
+               &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
+   }
+-  sq_settop(vm,oldtop);
++
++  sq_settop(vm, oldtop);
+ }
+ 
+ //-------------------------------------------------------------------------------
+
+Modified: trunk/windstille/src/script_manager.cpp
+===================================================================
+--- trunk/windstille/src/script_manager.cpp	2007-06-18 06:04:12 UTC (rev 1463)
++++ trunk/windstille/src/script_manager.cpp	2007-06-18 08:29:00 UTC (rev 1464)
+@@ -114,7 +114,10 @@
+   squirrel_vms.push_back(SquirrelVM(sourcename, vm, vm_obj));
+   already_run_scripts[sourcename] = true;
+ 
++  // FIXME: a script that gets run shouldn't have direct access to the root table
++  // <A HREF="http://wiki.squirrel-lang.org/default.aspx/SquirrelWiki/MultiVMs.html">http://wiki.squirrel-lang.org/default.aspx/SquirrelWiki/MultiVMs.html</A>
+   sq_pushroottable(vm);
++  //sq_clone(vm, -1); //FIXME
+   if(sq_call(vm, 1, false, true) &lt; 0)
+     throw SquirrelError(vm, &quot;Couldn't start script&quot;);
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001115.html">[Windstille-commit] r1463 - in trunk/windstille: . data/scripts src	src/scripting
+</A></li>
+	<LI>Next message: <A HREF="001117.html">[Windstille-commit] r1465 - trunk/windstille/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1116">[ date ]</a>
+              <a href="thread.html#1116">[ thread ]</a>
+              <a href="subject.html#1116">[ subject ]</a>
+              <a href="author.html#1116">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

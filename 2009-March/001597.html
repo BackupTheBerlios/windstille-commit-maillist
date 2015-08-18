@@ -1,0 +1,183 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2600 - trunk/windstille/src/sound
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2600%20-%20trunk/windstille/src/sound&In-Reply-To=%3C200903091517.n29FHbS9006657%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001596.html">
+   <LINK REL="Next"  HREF="001598.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2600 - trunk/windstille/src/sound</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2600%20-%20trunk/windstille/src/sound&In-Reply-To=%3C200903091517.n29FHbS9006657%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2600 - trunk/windstille/src/sound">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Mar  9 16:17:37 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001596.html">[Windstille-commit] r2599 - trunk/htdocs
+</A></li>
+        <LI>Next message: <A HREF="001598.html">[Windstille-commit] r2601 - trunk/windstille/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1597">[ date ]</a>
+              <a href="thread.html#1597">[ thread ]</a>
+              <a href="subject.html#1597">[ subject ]</a>
+              <a href="author.html#1597">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-09 16:17:36 +0100 (Mon, 09 Mar 2009)
+New Revision: 2600
+
+Modified:
+   trunk/windstille/src/sound/sound_manager.cpp
+   trunk/windstille/src/sound/sound_manager.hpp
+Log:
+Minor cleanup, replaced raw pointer with boost::shared_ptr
+
+Modified: trunk/windstille/src/sound/sound_manager.cpp
+===================================================================
+--- trunk/windstille/src/sound/sound_manager.cpp	2009-03-09 14:25:17 UTC (rev 2599)
++++ trunk/windstille/src/sound/sound_manager.cpp	2009-03-09 15:17:36 UTC (rev 2600)
+@@ -43,30 +43,35 @@
+   try 
+     {
+       device = alcOpenDevice(0);
+-      if (device == 0) 
++
++      if (!device)
+         {
+           print_openal_version();
+           throw std::runtime_error(&quot;Couldn't open audio device.&quot;);
+         }
++      else
++        {
++          int attributes[] = { 0 };
+ 
+-      int attributes[] = { 0 };
++          context = alcCreateContext(device, attributes);
++          check_alc_error(&quot;Couldn't create audio context: &quot;);
+ 
+-      context = alcCreateContext(device, attributes);
+-      check_alc_error(&quot;Couldn't create audio context: &quot;);
+-      alcMakeContextCurrent(context);
+-      check_alc_error(&quot;Couldn't select audio context: &quot;);
++          alcMakeContextCurrent(context);
++          check_alc_error(&quot;Couldn't select audio context: &quot;);
+ 
+-      check_al_error(&quot;Audio error after init: &quot;);
+-      sound_enabled = true;
++          check_al_error(&quot;Audio error after init: &quot;);
++          sound_enabled = true;
++        }
+     } 
+   catch(std::exception&amp; e) 
+-    {
+-      device = 0;
++    { // disable sound
++      device  = 0;
+       context = 0;
++      sound_enabled = false;
++
+       std::cerr &lt;&lt; &quot;Couldn't initialize audio device:&quot; &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
+       print_openal_version();
+-      // disable sound
+-      enable_sound(false);
++      
+       std::cout &lt;&lt; &quot;Disabling sound\n&quot;;
+     }
+ }
+@@ -76,10 +81,7 @@
+   music_source.reset();
+   next_music_source.reset();
+ 
+-  for(SoundSources::iterator i = sources.begin(); i != sources.end(); ++i) 
+-    {
+-      delete *i;
+-    }
++  sources.clear();
+ 
+   for(SoundBuffers::iterator i = buffers.begin(); i != buffers.end(); ++i) 
+     {
+@@ -181,9 +183,9 @@
+             }
+ 
+           source-&gt;play();
+-          sources.push_back(source.release());
++          sources.push_back(boost::shared_ptr&lt;SoundSource&gt;(source.release()));
+         }
+-    } 
++    }
+   catch(std::exception&amp; e) 
+     {
+       std::cout &lt;&lt; &quot;Couldn't play sound &quot; &lt;&lt; filename &lt;&lt; &quot;: &quot; &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
+@@ -322,11 +324,8 @@
+       // check for finished sound sources
+       for(SoundSources::iterator i = sources.begin(); i != sources.end(); ) 
+         {
+-          SoundSource* source = *i;
+-
+-          if (!source-&gt;playing()) 
++          if (!(*i)-&gt;playing())
+             {
+-              delete source;
+               i = sources.erase(i);
+             } 
+           else 
+
+Modified: trunk/windstille/src/sound/sound_manager.hpp
+===================================================================
+--- trunk/windstille/src/sound/sound_manager.hpp	2009-03-09 14:25:17 UTC (rev 2599)
++++ trunk/windstille/src/sound/sound_manager.hpp	2009-03-09 15:17:36 UTC (rev 2600)
+@@ -19,6 +19,7 @@
+ #ifndef HEADER_WINDSTILLE_SOUND_SOUND_MANAGER_HPP
+ #define HEADER_WINDSTILLE_SOUND_SOUND_MANAGER_HPP
+ 
++#include &lt;boost/shared_ptr.hpp&gt;
+ #include &lt;memory&gt;
+ #include &lt;string&gt;
+ #include &lt;vector&gt;
+@@ -88,7 +89,7 @@
+ 
+   typedef std::map&lt;std::string, ALuint&gt; SoundBuffers;
+   SoundBuffers buffers;
+-  typedef std::vector&lt;SoundSource*&gt; SoundSources;
++  typedef std::vector&lt;boost::shared_ptr&lt;SoundSource&gt; &gt; SoundSources;
+   SoundSources sources;
+ 
+   std::auto_ptr&lt;StreamSoundSource&gt; music_source;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001596.html">[Windstille-commit] r2599 - trunk/htdocs
+</A></li>
+	<LI>Next message: <A HREF="001598.html">[Windstille-commit] r2601 - trunk/windstille/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1597">[ date ]</a>
+              <a href="thread.html#1597">[ thread ]</a>
+              <a href="subject.html#1597">[ subject ]</a>
+              <a href="author.html#1597">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

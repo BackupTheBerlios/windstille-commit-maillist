@@ -1,0 +1,240 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r668 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r668%20-%20trunk/src&In-Reply-To=%3C200507181758.j6IHwicv025597%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000320.html">
+   <LINK REL="Next"  HREF="000322.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r668 - trunk/src</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r668%20-%20trunk/src&In-Reply-To=%3C200507181758.j6IHwicv025597%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r668 - trunk/src">grumbel at berlios.de
+       </A><BR>
+    <I>Mon Jul 18 19:58:44 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000320.html">[Windstille-commit] r667 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000322.html">[Windstille-commit] r669 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#321">[ date ]</a>
+              <a href="thread.html#321">[ thread ]</a>
+              <a href="subject.html#321">[ subject ]</a>
+              <a href="author.html#321">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-07-18 19:58:34 +0200 (Mon, 18 Jul 2005)
+New Revision: 668
+
+Modified:
+   trunk/src/tile_map.cpp
+Log:
+- added support for multiple textures in the tilemap
+
+Modified: trunk/src/tile_map.cpp
+===================================================================
+--- trunk/src/tile_map.cpp	2005-07-18 15:32:21 UTC (rev 667)
++++ trunk/src/tile_map.cpp	2005-07-18 17:58:34 UTC (rev 668)
+@@ -101,12 +101,13 @@
+ TileMap::update (float delta)
+ {
+   total_time += delta;
+-  /*for (FieldIter i = field.begin (); i != field.end (); ++i)
+-    {
+-      (*i)-&gt;update (delta);
+-      }*/
+ }
+ 
++struct VertexPack {
++  std::vector&lt;float&gt; vertices;
++  std::vector&lt;float&gt; texcoords;
++};
++
+ class TileMapDrawingRequest : public DrawingRequest
+ {
+ private:
+@@ -126,27 +127,6 @@
+ 
+   void draw(CL_GraphicContext* gc)
+   {
+-    if (!CL_Keyboard::get_keycode(CL_KEY_Z))
+-      draw_new(gc);
+-    else
+-      draw_classic(gc);
+-  }
+-
+-  inline void Vertex2f(float x, float y)
+-  {
+-    if (0) // wave effect
+-      {
+-        clVertex2f(x + sin(tilemap-&gt;total_time + y)*60.0f, 
+-                   y + cos(tilemap-&gt;total_time + x)*60.0f);
+-      }
+-    else
+-      {
+-        clVertex2f(x, y);
+-      }
+-  }
+-
+-  void draw_new(CL_GraphicContext* gc)
+-  {
+     Field&lt;Tile*&gt;&amp; field = tilemap-&gt;field;
+ 
+     CL_OpenGLState state(gc);
+@@ -159,70 +139,68 @@
+     clEnable(CL_TEXTURE_2D);
+     clEnable(CL_BLEND);
+     glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+-    TileFactory::current()-&gt;get_texture(0).bind();
+ 
+-    clTexParameteri(CL_TEXTURE_2D, CL_TEXTURE_MIN_FILTER, CL_LINEAR);
+-    clTexParameteri(CL_TEXTURE_2D, CL_TEXTURE_MAG_FILTER, CL_LINEAR);
+-    clTexParameteri(CL_TEXTURE_2D, CL_TEXTURE_WRAP_S, CL_CLAMP_TO_EDGE);
+-    clTexParameteri(CL_TEXTURE_2D, CL_TEXTURE_WRAP_T, CL_CLAMP_TO_EDGE);
+-      
+-    clBegin(CL_QUADS);
++    std::vector&lt;VertexPack&gt; packs;
++
+     for (int y = rect.top;   y &lt; rect.bottom; ++y)
+       for (int x = rect.left; x &lt; rect.right; ++x)
+         {
+           Tile* tile = field(x, y);
+           if (tile &amp;&amp; tile-&gt;color_packer != -1 &amp;&amp; !highlight)
+             {
+-              clTexCoord2f(tile-&gt;color_rect.left,
+-                           tile-&gt;color_rect.top);
+-              Vertex2f(x * TILE_SIZE, 
+-                       y * TILE_SIZE);
++              if (tile-&gt;color_packer &gt;= int(packs.size()))
++                packs.resize(tile-&gt;color_packer+1);
++              
++              VertexPack&amp; pack = packs[tile-&gt;color_packer];
+ 
+-              clTexCoord2f(tile-&gt;color_rect.right,
+-                           tile-&gt;color_rect.top);
+-              Vertex2f(x * TILE_SIZE + TILE_SIZE,
+-                       y * TILE_SIZE);
++              pack.texcoords.push_back(tile-&gt;color_rect.left);
++              pack.texcoords.push_back(tile-&gt;color_rect.top);
+ 
+-              clTexCoord2f(tile-&gt;color_rect.right,
+-                           tile-&gt;color_rect.bottom);
+-              Vertex2f(x * TILE_SIZE + TILE_SIZE,
+-                       y * TILE_SIZE + TILE_SIZE);
++              pack.vertices.push_back(x * TILE_SIZE);
++              pack.vertices.push_back(y * TILE_SIZE);
+ 
+-              clTexCoord2f(tile-&gt;color_rect.left,
+-                           tile-&gt;color_rect.bottom);
+-              Vertex2f(x * TILE_SIZE,
+-                       y * TILE_SIZE + TILE_SIZE);
++              pack.texcoords.push_back(tile-&gt;color_rect.right);
++              pack.texcoords.push_back(tile-&gt;color_rect.top);
++              
++              pack.vertices.push_back(x * TILE_SIZE + TILE_SIZE);
++              pack.vertices.push_back(y * TILE_SIZE);
++
++              pack.texcoords.push_back(tile-&gt;color_rect.right);
++              pack.texcoords.push_back(tile-&gt;color_rect.bottom);
++              
++              pack.vertices.push_back(x * TILE_SIZE + TILE_SIZE);
++              pack.vertices.push_back(y * TILE_SIZE + TILE_SIZE);
++              
++              pack.texcoords.push_back(tile-&gt;color_rect.left);
++              pack.texcoords.push_back(tile-&gt;color_rect.bottom);
++              
++              pack.vertices.push_back(x * TILE_SIZE);
++              pack.vertices.push_back(y * TILE_SIZE + TILE_SIZE);
+             }
+-        }     
+-    clEnd();
+-      
+-    clPopMatrix();
+-  }
++        }
+ 
+-  void draw_classic(CL_GraphicContext* gc)
+-  {
+-    gc-&gt;push_modelview();
+-    gc-&gt;add_modelview(modelview);
++    glDisableClientState(GL_NORMAL_ARRAY);
++    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
++    glEnableClientState(GL_VERTEX_ARRAY);
++    
++    for(std::vector&lt;VertexPack&gt;::size_type i = 0; i &lt; packs.size(); ++i)
++      {
++        TileFactory::current()-&gt;get_texture(i).bind();
+ 
+-    Field&lt;Tile*&gt;&amp; field = tilemap-&gt;field;
++        clTexParameteri(CL_TEXTURE_2D, CL_TEXTURE_MIN_FILTER, CL_LINEAR);
++        clTexParameteri(CL_TEXTURE_2D, CL_TEXTURE_MAG_FILTER, CL_LINEAR);
++        clTexParameteri(CL_TEXTURE_2D, CL_TEXTURE_WRAP_S, CL_CLAMP_TO_EDGE);
++        clTexParameteri(CL_TEXTURE_2D, CL_TEXTURE_WRAP_T, CL_CLAMP_TO_EDGE);
++      
++        glVertexPointer  (2, GL_FLOAT, 0, &amp;*(packs[i].vertices.begin()));
++        glTexCoordPointer(2, GL_FLOAT, 0, &amp;*(packs[i].texcoords.begin()));
++        glDrawArrays(GL_QUADS, 0, packs[i].vertices.size()/2);
++      }
++    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
++    glDisableClientState(GL_VERTEX_ARRAY);
++    glDisableClientState(GL_NORMAL_ARRAY);
+ 
+-    for (int y = rect.top;   y &lt; rect.bottom; ++y)
+-      for (int x = rect.left; x &lt; rect.right; ++x)
+-        {
+-          if (field(x,y))
+-            {
+-              if (!highlight)
+-                {
+-                  field(x,y)-&gt;get_color_sprite().draw(x * TILE_SIZE, y * TILE_SIZE);
+-                }
+-              else
+-                {
+-                  if (field(x, y)-&gt;get_highlight_sprite())
+-                    field(x,y)-&gt;get_highlight_sprite().draw(x * TILE_SIZE, y * TILE_SIZE);
+-                }
+-            }
+-        }
+-    gc-&gt;pop_modelview();
++    clPopMatrix();
+   }
+ };
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000320.html">[Windstille-commit] r667 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000322.html">[Windstille-commit] r669 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#321">[ date ]</a>
+              <a href="thread.html#321">[ thread ]</a>
+              <a href="subject.html#321">[ subject ]</a>
+              <a href="author.html#321">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

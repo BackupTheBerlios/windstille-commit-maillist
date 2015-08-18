@@ -1,0 +1,242 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2375 - trunk/griv/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2375%20-%20trunk/griv/src&In-Reply-To=%3C200808310056.m7V0u8rL018752%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001371.html">
+   <LINK REL="Next"  HREF="001373.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2375 - trunk/griv/src</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2375%20-%20trunk/griv/src&In-Reply-To=%3C200808310056.m7V0u8rL018752%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2375 - trunk/griv/src">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Aug 31 02:56:08 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001371.html">[Windstille-commit] r2374 - trunk/griv/src
+</A></li>
+        <LI>Next message: <A HREF="001373.html">[Windstille-commit] r2376 - trunk/griv/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1372">[ date ]</a>
+              <a href="thread.html#1372">[ thread ]</a>
+              <a href="subject.html#1372">[ subject ]</a>
+              <a href="author.html#1372">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-31 02:56:06 +0200 (Sun, 31 Aug 2008)
+New Revision: 2375
+
+Modified:
+   trunk/griv/src/image.cpp
+   trunk/griv/src/image.hpp
+   trunk/griv/src/viewer.cpp
+   trunk/griv/src/workspace.cpp
+   trunk/griv/src/workspace.hpp
+Log:
+Fixed issue with tile cache not getting cleared, added some debugging output functions
+
+Modified: trunk/griv/src/image.cpp
+===================================================================
+--- trunk/griv/src/image.cpp	2008-08-30 21:43:51 UTC (rev 2374)
++++ trunk/griv/src/image.cpp	2008-08-31 00:56:06 UTC (rev 2375)
+@@ -52,6 +52,8 @@
+   Vector2f target_pos;
+ 
+   Image::Cache cache;
++
++  /** FIXME: Jobs array does not get cleared after jobs are done */
+   Image::Jobs jobs;  
+ 
+   ThreadMessageQueue&lt;TileEntry&gt; tile_queue;
+@@ -77,7 +79,7 @@
+ 
+   int size  = Math::max(file_entry.size.width, file_entry.size.height);
+   impl-&gt;min_keep_scale = 0;
+-  while(size &gt; 8) 
++  while(size &gt; 32) 
+     {
+       size /= 2;
+       impl-&gt;min_keep_scale +=1 ;
+@@ -323,15 +325,31 @@
+   // will lead to unnecessary loading artifacts.      
+   for(Cache::iterator i = impl-&gt;cache.begin(); i != impl-&gt;cache.end(); ++i)
+     {
+-      int tiledb_scale = (i-&gt;first &gt;&gt; 16); // get scale
+-      if (tiledb_scale &gt; impl-&gt;min_keep_scale)
+-        {
+-          impl-&gt;cache.erase(i);
+-        }
++      int tiledb_scale = (i-&gt;first &gt;&gt; 16);
++      if (tiledb_scale &lt; impl-&gt;min_keep_scale)
++        impl-&gt;cache.erase(i);
+     }
+ }
+ 
+ void
++Image::clear_cache()
++{
++ for(Jobs::iterator i = impl-&gt;jobs.begin(); i != impl-&gt;jobs.end(); ++i)
++    i-&gt;abort();
++  impl-&gt;jobs.clear();
++
++  impl-&gt;cache.clear();
++}
++
++void
++Image::print_info()
++{
++  std::cout &lt;&lt; &quot;  Image: &quot; &lt;&lt; impl.get() &lt;&lt; std::endl;
++  std::cout &lt;&lt; &quot;    Cache Size: &quot; &lt;&lt; impl-&gt;cache.size() &lt;&lt; std::endl;
++  std::cout &lt;&lt; &quot;    Job Size:   &quot; &lt;&lt; impl-&gt;jobs.size() &lt;&lt; std::endl;
++}
++
++void
+ Image::draw(const Rectf&amp; cliprect, float fscale)
+ {
+   process_queue();
+
+Modified: trunk/griv/src/image.hpp
+===================================================================
+--- trunk/griv/src/image.hpp	2008-08-30 21:43:51 UTC (rev 2374)
++++ trunk/griv/src/image.hpp	2008-08-31 00:56:06 UTC (rev 2375)
+@@ -61,7 +61,6 @@
+ private:
+   Surface get_tile(int x, int y, int tile_scale);
+ 
+-  void cache_cleanup();
+   void process_queue();
+   Surface find_smaller_tile(int x, int y, int tiledb_scale, int&amp; downscale_in);
+ 
+@@ -89,6 +88,10 @@
+   int get_original_width() const;
+   int get_original_height() const;
+ 
++  void clear_cache();
++  void cache_cleanup();
++  void print_info();
++
+   operator bool() const { return impl.get(); }
+ 
+   /** Syncronized function to require data from other threads */
+
+Modified: trunk/griv/src/viewer.cpp
+===================================================================
+--- trunk/griv/src/viewer.cpp	2008-08-30 21:43:51 UTC (rev 2374)
++++ trunk/griv/src/viewer.cpp	2008-08-31 00:56:06 UTC (rev 2375)
+@@ -156,6 +156,20 @@
+               state.set_angle(0.0f);
+               break;
+                 
++            case SDLK_c:
++              std::cout &lt;&lt; &quot;Workspace: Clearing cache&quot; &lt;&lt; std::endl;
++              workspace.clear_cache();
++              break;
++
++            case SDLK_k:
++              std::cout &lt;&lt; &quot;Workspace: Cache Cleanup&quot; &lt;&lt; std::endl;
++              workspace.cache_cleanup();
++              break;
++
++            case SDLK_i:
++              workspace.print_info();
++              break;
++
+             case SDLK_g:
+               draw_grid = !draw_grid;
+               break;
+
+Modified: trunk/griv/src/workspace.cpp
+===================================================================
+--- trunk/griv/src/workspace.cpp	2008-08-30 21:43:51 UTC (rev 2374)
++++ trunk/griv/src/workspace.cpp	2008-08-31 00:56:06 UTC (rev 2375)
+@@ -113,5 +113,36 @@
+         }
+     }
+ }
++
++void
++Workspace::clear_cache()
++{
++  for(Images::iterator i = images.begin(); i != images.end(); ++i)
++    {
++      i-&gt;clear_cache();
++    }  
++}
++
++void
++Workspace::cache_cleanup()
++{
++  for(Images::iterator i = images.begin(); i != images.end(); ++i)
++    {
++      i-&gt;cache_cleanup();
++    }   
++}
++
++void
++Workspace::print_info()
++{
++  std::cout &lt;&lt; &quot;-------------------------------------------------------&quot; &lt;&lt; std::endl;
++  std::cout &lt;&lt; &quot;Workspace Info:&quot; &lt;&lt; std::endl;
++  std::cout &lt;&lt; &quot;  Number of Images: &quot; &lt;&lt; images.size() &lt;&lt; std::endl;
++  for(Images::iterator i = images.begin(); i != images.end(); ++i)
++    {
++      i-&gt;print_info();
++    }
++  std::cout &lt;&lt; &quot;-------------------------------------------------------&quot; &lt;&lt; std::endl;
++}
+ 
+ /* EOF */
+
+Modified: trunk/griv/src/workspace.hpp
+===================================================================
+--- trunk/griv/src/workspace.hpp	2008-08-30 21:43:51 UTC (rev 2374)
++++ trunk/griv/src/workspace.hpp	2008-08-31 00:56:06 UTC (rev 2375)
+@@ -47,7 +47,9 @@
+   void update(float delta);
+ 
+   void layout(float aspect_w, float aspect_h);
+-
++  void clear_cache();
++  void cache_cleanup();
++  void print_info();
+ private:
+   Workspace (const Workspace&amp;);
+   Workspace&amp; operator= (const Workspace&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001371.html">[Windstille-commit] r2374 - trunk/griv/src
+</A></li>
+	<LI>Next message: <A HREF="001373.html">[Windstille-commit] r2376 - trunk/griv/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1372">[ date ]</a>
+              <a href="thread.html#1372">[ thread ]</a>
+              <a href="subject.html#1372">[ subject ]</a>
+              <a href="author.html#1372">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

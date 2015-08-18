@@ -1,0 +1,745 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2284 - trunk/griv/new
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2284%20-%20trunk/griv/new&In-Reply-To=%3C200808072105.m77L5NV8016789%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001303.html">
+   <LINK REL="Next"  HREF="001305.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2284 - trunk/griv/new</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2284%20-%20trunk/griv/new&In-Reply-To=%3C200808072105.m77L5NV8016789%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2284 - trunk/griv/new">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Aug  7 23:05:23 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001303.html">[Windstille-commit] r2283 - trunk/griv/new
+</A></li>
+        <LI>Next message: <A HREF="001305.html">[Windstille-commit] r2285 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1304">[ date ]</a>
+              <a href="thread.html#1304">[ thread ]</a>
+              <a href="subject.html#1304">[ subject ]</a>
+              <a href="author.html#1304">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-07 23:05:23 +0200 (Thu, 07 Aug 2008)
+New Revision: 2284
+
+Added:
+   trunk/griv/new/framebuffer.cpp
+   trunk/griv/new/framebuffer.hpp
+   trunk/griv/new/surface.cpp
+   trunk/griv/new/surface.hpp
+   trunk/griv/new/texture.cpp
+   trunk/griv/new/texture.hpp
+Modified:
+   trunk/griv/new/SConstruct
+   trunk/griv/new/blob.hpp
+   trunk/griv/new/file_database.cpp
+   trunk/griv/new/file_database.hpp
+   trunk/griv/new/filesystem.cpp
+   trunk/griv/new/griv.cpp
+   trunk/griv/new/griv.hpp
+   trunk/griv/new/software_surface.cpp
+   trunk/griv/new/software_surface.hpp
+   trunk/griv/new/sqlite.cpp
+   trunk/griv/new/sqlite.hpp
+   trunk/griv/new/tile_database.cpp
+Log:
+Added Texture, Surface and Framebuffer classes
+
+Modified: trunk/griv/new/SConstruct
+===================================================================
+--- trunk/griv/new/SConstruct	2008-08-07 21:05:04 UTC (rev 2283)
++++ trunk/griv/new/SConstruct	2008-08-07 21:05:23 UTC (rev 2284)
+@@ -15,8 +15,8 @@
+         'software_surface.cpp',
+         'url.cpp',
+         'md5.cpp',
+-        'jpeg.cpp',
+         'sqlite.cpp',
++        'framebuffer.cpp',
+         'filesystem.cpp',
+         'file_database.cpp',
+         'tile_database.cpp',
+
+Modified: trunk/griv/new/blob.hpp
+===================================================================
+--- trunk/griv/new/blob.hpp	2008-08-07 21:05:04 UTC (rev 2283)
++++ trunk/griv/new/blob.hpp	2008-08-07 21:05:23 UTC (rev 2284)
+@@ -32,15 +32,15 @@
+ class BlobImpl
+ {
+ public:
+-  uint8_t* data;
++  char* data;
+   int len;
+ 
+-  BlobImpl(uint8_t* data_, int len_)
++  BlobImpl(const void* data_, int len_)
+   {
+-    data = new uint8_t[len_];
++    data = new char[len_];
+     len  = len_;
+ 
+-    memcpy(data, data_, sizeof(uint8_t) * len);
++    memcpy(data, data_, sizeof(char) * len);
+   }
+ 
+   ~BlobImpl()
+@@ -52,12 +52,11 @@
+ class Blob
+ {
+ public:
+-  Blob(uint8_t* data, int len)
++  Blob(const void* data, int len)
+     : impl(new BlobImpl(data, len))
+   {}
+ 
+   Blob()
+-    : impl(0)
+   {}
+ 
+   int size() const 
+@@ -68,11 +67,11 @@
+       return 0;
+   }
+ 
+-  uint8_t* get_data() const 
++  void* get_data() const 
+   {
+     if (impl.get())
+       return impl-&gt;data; 
+-    eles
++    else
+       return 0;
+   }
+ 
+
+Modified: trunk/griv/new/file_database.cpp
+===================================================================
+--- trunk/griv/new/file_database.cpp	2008-08-07 21:05:04 UTC (rev 2283)
++++ trunk/griv/new/file_database.cpp	2008-08-07 21:05:23 UTC (rev 2284)
+@@ -28,14 +28,14 @@
+ #include &lt;stdexcept&gt;
+ 
+ #include &lt;assert.h&gt;
+-#include &quot;jpeg.hpp&quot;
+ #include &quot;md5.hpp&quot;
+ #include &quot;filesystem.hpp&quot;
++#include &quot;software_surface.hpp&quot;
+ #include &quot;file_database.hpp&quot;
+ 
+ std::ostream&amp; operator&lt;&lt;(std::ostream&amp; os, const FileEntry&amp; entry)
+ {
+-  return os &lt;&lt; &quot;filename: &quot; &lt;&lt; entry.filename &lt;&lt; &quot; size: &quot;&lt;&lt; entry.width &lt;&lt; &quot;x&quot; &lt;&lt; entry.height;
++  return os &lt;&lt; &quot;filename: &quot; &lt;&lt; entry.filename &lt;&lt; &quot; size: &quot;&lt;&lt; entry.size;
+ }
+ 
+ FileDatabase::FileDatabase(SQLiteConnection* db)
+@@ -72,10 +72,10 @@
+ 
+   store_stmt.bind_text(1, entry.filename);
+   store_stmt.bind_text(2, entry.md5);
+-  store_stmt.bind_int (3, entry.filesize); // filesize
+-  store_stmt.bind_int (4, entry.width);    // width
+-  store_stmt.bind_int (5, entry.height);   // height
+-  store_stmt.bind_int (6, entry.mtime);        // mtime
++  store_stmt.bind_int (3, entry.filesize); 
++  store_stmt.bind_int (4, entry.size.width); 
++  store_stmt.bind_int (5, entry.size.height);
++  store_stmt.bind_int (6, entry.mtime); 
+ 
+   store_stmt.execute();
+   
+@@ -99,12 +99,12 @@
+                   &lt;&lt; reader.get_text(0)
+                   &lt;&lt; std::endl;
+ 
+-      entry.fileid   = reader.get_int (0);
+-      entry.filename = reader.get_text(1);
+-      entry.md5      = reader.get_text(2);
+-      entry.filesize = reader.get_int (3);
+-      entry.width    = reader.get_int (4);
+-      entry.height   = reader.get_int (5);
++      entry.fileid      = reader.get_int (0);
++      entry.filename    = reader.get_text(1);
++      entry.md5         = reader.get_text(2);
++      entry.filesize    = reader.get_int (3);
++      entry.size.width  = reader.get_int (4);
++      entry.size.height = reader.get_int (5);
+ 
+       return true;
+     }
+@@ -116,11 +116,9 @@
+       entry.filesize = Filesystem::get_size(filename);
+       entry.mtime    = Filesystem::get_mtime(filename);
+       
+-      entry.width    = -1;
+-      entry.height   = -1;
++      entry.size = Size(-1, -1);
+       
+-      // Doesn't work due to linking issues
+-      // JPEG::get_size(entry.filename, entry.width, entry.height);
++      SoftwareSurface::get_size(entry.filename, entry.size);
+ 
+       store_file_entry(entry);
+       
+
+Modified: trunk/griv/new/file_database.hpp
+===================================================================
+--- trunk/griv/new/file_database.hpp	2008-08-07 21:05:04 UTC (rev 2283)
++++ trunk/griv/new/file_database.hpp	2008-08-07 21:05:23 UTC (rev 2284)
+@@ -28,7 +28,9 @@
+ 
+ #include &lt;sqlite3.h&gt;
+ #include &lt;string&gt;
++
+ #include &quot;sqlite.hpp&quot;
++#include &quot;math/size.hpp&quot;
+ 
+ struct FileEntry 
+ {
+@@ -37,8 +39,7 @@
+   std::string md5;      //
+   int         filesize; //
+   uint32_t    mtime;    // mtime of the file
+-  int         width;    // image width
+-  int         height;   // image height
++  Size        size;
+ };
+ 
+ std::ostream&amp; operator&lt;&lt;(std::ostream&amp; os, const FileEntry&amp; entry);
+
+Modified: trunk/griv/new/filesystem.cpp
+===================================================================
+--- trunk/griv/new/filesystem.cpp	2008-08-07 21:05:04 UTC (rev 2283)
++++ trunk/griv/new/filesystem.cpp	2008-08-07 21:05:23 UTC (rev 2284)
+@@ -208,7 +208,12 @@
+ unsigned int
+ Filesystem::get_size(const std::string&amp; filename)
+ {
+-  return 0;
++  struct stat stat_buf;
++  if (stat(filename.c_str(), &amp;stat_buf) != 0)
++    {
++      throw std::runtime_error(filename + &quot;: &quot; + strerror(errno));
++    } 
++  return stat_buf.st_size; // Is this reliable? or should be use fopen() and ftell()?
+ }
+ 
+ unsigned int
+
+Copied: trunk/griv/new/framebuffer.cpp (from rev 2272, trunk/griv/display.cpp)
+===================================================================
+--- trunk/griv/display.cpp	2008-06-27 12:16:03 UTC (rev 2272)
++++ trunk/griv/new/framebuffer.cpp	2008-08-07 21:05:23 UTC (rev 2284)
+@@ -0,0 +1,140 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &lt;iostream&gt;
++#include &lt;X11/Xlib.h&gt;
++#include &lt;GL/gl.h&gt;
++#include &quot;SDL_syswm.h&quot;
++#include &quot;framebuffer.hpp&quot;
++
++SDL_SysWMinfo syswm;
++SDL_Surface* Framebuffer::screen = 0;
++Uint32 Framebuffer::flags = 0;
++
++void
++Framebuffer::init()
++{
++  //XInitThreads();
++ 
++  std::cout &lt;&lt; &quot;Framebuffer::init()&quot; &lt;&lt; std::endl;
++  if (SDL_Init(SDL_INIT_VIDEO) != 0)
++    {
++      std::cout &lt;&lt; &quot;Unable to initialize SDL: &quot; &lt;&lt; SDL_GetError() &lt;&lt; std::endl;
++      exit(1);
++    }
++  atexit(SDL_Quit); 
++ 
++  //SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1); 
++  //SDL_GL_SetAttribute(SDL_GL_RED_SIZE,   5);
++  //SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 5);
++  //SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,  5);
++  
++  flags = SDL_RESIZABLE | SDL_OPENGL;
++  screen = SDL_SetVideoMode(800, 600, 0, flags);
++
++  if (screen == NULL) 
++    {
++      std::cout &lt;&lt; &quot;Unable to set video mode: &quot; &lt;&lt; SDL_GetError() &lt;&lt; std::endl;
++      exit(1);
++    }
++
++  SDL_WM_SetCaption(&quot;Griv 0.0.1&quot;, 0 /* icon */);
++  SDL_EnableUNICODE(1);
++
++  glViewport(0, 0, screen-&gt;w, screen-&gt;h);
++  glMatrixMode(GL_PROJECTION);
++  glLoadIdentity();
++  glOrtho(0.0, screen-&gt;w, screen-&gt;h, 0.0, 1000.0, -1000.0);
++  glMatrixMode(GL_MODELVIEW);
++  glLoadIdentity();
++  //static const float cl_pixelcenter_constant = 0.375;
++  //glTranslated(cl_pixelcenter_constant, cl_pixelcenter_constant, 0.0);
++  
++  SDL_VERSION(&amp;syswm.version); // this is important!
++  if (SDL_GetWMInfo(&amp;syswm) == -1)
++    {
++      std::cout &lt;&lt; &quot;Couldn't get WM info &quot; &lt;&lt; std::endl;
++    }
++}
++
++void
++Framebuffer::toggle_fullscreen()
++{
++  flags |= SDL_OPENGL;
++  if (flags &amp; SDL_FULLSCREEN)
++    flags &amp;= ~SDL_FULLSCREEN;
++  else
++    flags |= SDL_FULLSCREEN;
++ 
++  // Should use desktop resolution for this instead, but how?
++  screen = SDL_SetVideoMode(1152, 864, 0, flags); 
++  glViewport(0, 0, screen-&gt;w, screen-&gt;h);
++  glMatrixMode(GL_PROJECTION);
++  glLoadIdentity();
++  glOrtho(0.0, screen-&gt;w, screen-&gt;h, 0.0, 1000.0, -1000.0);
++}
++
++void
++Framebuffer::resize(int w, int h)
++{
++  screen = SDL_SetVideoMode(w, h, 0, SDL_OPENGL | SDL_RESIZABLE);
++  glViewport(0, 0, screen-&gt;w, screen-&gt;h);
++  glMatrixMode(GL_PROJECTION);
++  glLoadIdentity();
++  glOrtho(0.0, screen-&gt;w, screen-&gt;h, 0.0, 1000.0, -1000.0);
++}
++
++void
++Framebuffer::flip()
++{
++  //SDL_Flip(screen);
++  SDL_GL_SwapBuffers();
++}
++
++void
++Framebuffer::clear()
++{
++  glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
++  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
++  //SDL_FillRect(Framebuffer::get_screen(), NULL, SDL_MapRGB(Framebuffer::get_screen()-&gt;format, 0, 0, 0));
++}
++
++void
++Framebuffer::lock()
++{
++  syswm.info.x11.lock_func();
++  XLockDisplay(syswm.info.x11.display);
++  syswm.info.x11.unlock_func();
++}
++
++void
++Framebuffer::unlock()
++{
++  syswm.info.x11.lock_func();
++  XUnlockDisplay(syswm.info.x11.display);
++  syswm.info.x11.unlock_func();
++}
++
++/* EOF */
+
+Copied: trunk/griv/new/framebuffer.hpp (from rev 2272, trunk/griv/display.hpp)
+
+Modified: trunk/griv/new/griv.cpp
+===================================================================
+--- trunk/griv/new/griv.cpp	2008-08-07 21:05:04 UTC (rev 2283)
++++ trunk/griv/new/griv.cpp	2008-08-07 21:05:23 UTC (rev 2284)
+@@ -54,44 +54,27 @@
+   FreeImage_DeInitialise();
+ }
+ 
+-int
+-Griv::main(int argc, char** argv)
++void
++Griv::generate_tiles(const std::vector&lt;std::string&gt;&amp; filenames)
+ {
+-  std::vector&lt;std::string&gt; rest;
+-
+-  for(int i = 1; i &lt; argc; ++i)
+-    {
+-      if (argv[i][0] == '-')
+-        { // option
+-          
+-        }
+-      else
+-        { // rest
+-          rest.push_back(argv[i]);
+-        }
+-    }
+-
+   SQLiteConnection db(&quot;test.sqlite&quot;);
+ 
+   FileDatabase file_db(&amp;db);
+   TileDatabase tile_db(&amp;db);
+ 
+-  std::transform(rest.begin(), rest.end(), rest.begin(), &amp;Filesystem::realpath);
+-
+-  for(std::vector&lt;std::string&gt;::size_type i = 0; i &lt; rest.size(); ++i)
++  for(std::vector&lt;std::string&gt;::size_type i = 0; i &lt; filenames.size(); ++i)
+     {
+       FileEntry entry;
+-      if (!file_db.get_file_entry(rest[i], entry))
++      std::cout &lt;&lt; &quot;Getting file entry...&quot; &lt;&lt; std::endl;
++      if (!file_db.get_file_entry(filenames[i], entry))
+         {
+-          std::cout &lt;&lt; &quot;Couldn't find entry for &quot; &lt;&lt; rest[i] &lt;&lt; std::endl;
++          std::cout &lt;&lt; &quot;Couldn't find entry for &quot; &lt;&lt; filenames[i] &lt;&lt; std::endl;
+         }
+       else
+         {
+-          std::cout &lt;&lt; entry &lt;&lt; std::endl;
+-
+           // Generate Image Tiles
+-          std::cout &lt;&lt; &quot;Generating tiles... &quot; &lt;&lt; rest[i]  &lt;&lt; std::endl;
+-          SoftwareSurface surface(rest[i]);
++          std::cout &lt;&lt; &quot;Generating tiles... &quot; &lt;&lt; filenames[i]  &lt;&lt; std::endl;
++          SoftwareSurface surface(filenames[i]);
+           std::cout &lt;&lt; &quot;Image loading&quot; &lt;&lt; std::endl;      
+ 
+           int scale = 0;
+@@ -104,8 +87,8 @@
+                                                surface.get_height()/2));
+                 }
+ 
+-              for(int y = 0; y &lt;= surface.get_height()/256; ++y)
+-                for(int x = 0; x &lt;= surface.get_width()/256; ++x)
++              for(int y = 0; 256*y &lt; surface.get_height(); ++y)
++                for(int x = 0; 256*x &lt; surface.get_width(); ++x)
+                   {
+                     SoftwareSurface croped_surface = surface.crop(Rect(Vector2i(x * 256, y * 256),
+                                                                        Size(256, 256)));
+@@ -125,7 +108,74 @@
+                      surface.get_height() &gt; 32);
+         }
+     }
++}
+ 
++void
++Griv::view(const std::vector&lt;std::string&gt;&amp; filenames)
++{
++  SQLiteConnection db(&quot;test.sqlite&quot;);
++
++  FileDatabase file_db(&amp;db);
++  TileDatabase tile_db(&amp;db);
++
++  for(std::vector&lt;std::string&gt;::size_type i = 0; i &lt; filenames.size(); ++i)
++    {
++      FileEntry entry;
++      std::cout &lt;&lt; &quot;Getting file entry...&quot; &lt;&lt; std::endl;
++      if (!file_db.get_file_entry(filenames[i], entry))
++        {
++          std::cout &lt;&lt; &quot;Couldn't find entry for &quot; &lt;&lt; filenames[i] &lt;&lt; std::endl;
++        }
++      else
++        {
++          std::cout &lt;&lt; entry &lt;&lt; std::endl;
++
++          for(int y = 0; y*256 &lt; entry.size.height/2; ++y)
++            for(int x = 0; x*256 &lt; entry.size.width/2; ++x)
++              {
++                Tile tile;
++                if (tile_db.get_tile(entry.fileid, 1/*scale*/, x, y, tile))
++                  {
++                    std::cout &lt;&lt; &quot;Have tile: &quot; &lt;&lt; x &lt;&lt; &quot;, &quot; &lt;&lt; y &lt;&lt; std::endl;
++                  }                
++                else
++                  {                     
++                    
++                  }
++              }
++        }
++    }
++}
++
++int
++Griv::main(int argc, char** argv)
++{
++  if (argc &lt; 2)
++    {
++      std::cout &lt;&lt; &quot;Usage: &quot; &lt;&lt; argv[0] &lt;&lt; &quot; view [FILES]...\n&quot;
++                &lt;&lt; &quot;       &quot; &lt;&lt; argv[0] &lt;&lt; &quot; prepare [FILES]...\n&quot;;
++    }
++  else
++    {
++      std::vector&lt;std::string&gt; filenames;
++      for(int i = 2; i &lt; argc; ++i)
++        filenames.push_back(Filesystem::realpath(argv[i]));
++
++      if (strcmp(argv[1], &quot;view&quot;) == 0)
++        {
++          view(filenames);
++        }
++      else if (strcmp(argv[1], &quot;prepare&quot;) == 0)
++        {
++          generate_tiles(filenames);
++        }
++      else
++        {
++          std::cout &lt;&lt; &quot;Usage: &quot; &lt;&lt; argv[0] &lt;&lt; &quot; view [FILES]...\n&quot;
++                    &lt;&lt; &quot;       &quot; &lt;&lt; argv[0] &lt;&lt; &quot; prepare [FILES]...\n&quot;;
++        }
++    }
++
+   return 0;
+ }
+ 
+
+Modified: trunk/griv/new/griv.hpp
+===================================================================
+--- trunk/griv/new/griv.hpp	2008-08-07 21:05:04 UTC (rev 2283)
++++ trunk/griv/new/griv.hpp	2008-08-07 21:05:23 UTC (rev 2284)
+@@ -34,6 +34,9 @@
+   ~Griv();
+ 
+   int main(int argc, char** argv);
++
++  void generate_tiles(const std::vector&lt;std::string&gt;&amp; filenames);
++  void view(const std::vector&lt;std::string&gt;&amp; filenames);
+ };
+ 
+ #endif
+
+Modified: trunk/griv/new/software_surface.cpp
+===================================================================
+--- trunk/griv/new/software_surface.cpp	2008-08-07 21:05:04 UTC (rev 2283)
++++ trunk/griv/new/software_surface.cpp	2008-08-07 21:05:23 UTC (rev 2284)
+@@ -28,6 +28,7 @@
+ #include &lt;stdexcept&gt;
+ #include &quot;FreeImage.h&quot;
+ 
++#include &quot;blob.hpp&quot;
+ #include &quot;math.hpp&quot;
+ #include &quot;math/rect.hpp&quot;
+ #include &quot;math/size.hpp&quot;
+@@ -160,7 +161,7 @@
+     }
+ }
+ 
+-std::string
++Blob
+ SoftwareSurface::get_jpeg_data() const
+ {
+   FIMEMORY* mem = FreeImage_OpenMemory();
+@@ -171,23 +172,34 @@
+ 
+   FreeImage_AcquireMemory(mem, &amp;data, &amp;len);
+ 
+-  std::string data_str(reinterpret_cast&lt;char*&gt;(data), len);
++  Blob blob(data, len);
+ 
+   FreeImage_CloseMemory(mem);
+ 
+-  return data_str;
++  return blob;
+ }
+ 
+ SoftwareSurface
+-SoftwareSurface::from_data(const std::string&amp; data)
++SoftwareSurface::from_data(const Blob&amp; blob)
+ {
+-  FIMEMORY* mem    = FreeImage_OpenMemory(reinterpret_cast&lt;BYTE*&gt;(const_cast&lt;char*&gt;(data.c_str())),
+-                                          data.size());
++  FIMEMORY* mem    = FreeImage_OpenMemory(static_cast&lt;BYTE*&gt;(blob.get_data()), blob.size());
+   FIBITMAP* bitmap = FreeImage_LoadFromMemory(FIF_JPEG, mem, 0);
+   FreeImage_CloseMemory(mem);
+   return SoftwareSurface(bitmap);
+ }
+ 
++void
++SoftwareSurface::get_size(const std::string&amp; filename, Size&amp; size)
++{
++  FREE_IMAGE_FORMAT format = FreeImage_GetFileType(filename.c_str(), 0);
++  FIBITMAP* bitmap = FreeImage_Load(format, filename.c_str());
++
++  size.width  = FreeImage_GetWidth(bitmap); 
++  size.height = FreeImage_GetHeight(bitmap); 
++  
++  FreeImage_Unload(bitmap);  
++}
++
+ // FreeImage_OpenMemory(BYTE *data FI_DEFAULT(0), DWORD size_in_bytes FI_DEFAULT(0));
+ // hmem = FreeImage_OpenMemory();
+ // FreeImage_SaveToMemory(fif, dib, hmem, 0);
+
+Modified: trunk/griv/new/software_surface.hpp
+===================================================================
+--- trunk/griv/new/software_surface.hpp	2008-08-07 21:05:04 UTC (rev 2283)
++++ trunk/griv/new/software_surface.hpp	2008-08-07 21:05:23 UTC (rev 2284)
+@@ -28,6 +28,7 @@
+ 
+ #include &lt;boost/shared_ptr.hpp&gt;
+ #include &quot;FreeImage.h&quot;
++#include &quot;blob.hpp&quot;
+ 
+ class URL;
+ class Rect;
+@@ -50,10 +51,12 @@
+   SoftwareSurface crop(const Rect&amp; rect) const;
+ 
+   void save(const std::string&amp; filename) const;
++  
++  Blob get_jpeg_data() const;
++  
++  static SoftwareSurface from_data(const Blob&amp; blob);
++  static void get_size(const std::string&amp; filename, Size&amp; size);
+ 
+-  std::string get_jpeg_data() const;
+-  
+-  static SoftwareSurface from_data(const std::string&amp; data);
+ private:
+   boost::shared_ptr&lt;SoftwareSurfaceImpl&gt; impl;
+ };
+
+Modified: trunk/griv/new/sqlite.cpp
+===================================================================
+--- trunk/griv/new/sqlite.cpp	2008-08-07 21:05:04 UTC (rev 2283)
++++ trunk/griv/new/sqlite.cpp	2008-08-07 21:05:23 UTC (rev 2284)
+@@ -124,9 +124,9 @@
+ }
+ 
+ void
+-SQLiteStatement::bind_blob(int n, const std::string&amp; blob)
++SQLiteStatement::bind_blob(int n, const Blob&amp; blob)
+ {
+-  if (sqlite3_bind_blob(stmt, n, blob.c_str(), blob.size(), SQLITE_TRANSIENT) != SQLITE_OK)
++  if (sqlite3_bind_blob(stmt, n, blob.get_data(), blob.size(), SQLITE_TRANSIENT) != SQLITE_OK)
+     {
+       std::ostringstream str;
+       str &lt;&lt; &quot;SQLiteStatement: &quot; &lt;&lt; sqlite3_errmsg(db-&gt;get_db());
+@@ -226,12 +226,11 @@
+   return std::string(static_cast&lt;const char*&gt;(data), len);
+ }
+ 
+-std::string
++Blob
+ SQLiteReader::get_blob(int column)
+ {
+-  const void* data = sqlite3_column_blob(stmt, column);
+-  int len = sqlite3_column_bytes(stmt, column);
+-  return std::string(static_cast&lt;const char*&gt;(data), len);
++  return Blob(sqlite3_column_blob(stmt, column),
++              sqlite3_column_bytes(stmt, column));
+ }
+ 
+ std::string
+
+Modified: trunk/griv/new/sqlite.hpp
+===================================================================
+--- trunk/griv/new/sqlite.hpp	2008-08-07 21:05:04 UTC (rev 2283)
++++ trunk/griv/new/sqlite.hpp	2008-08-07 21:05:23 UTC (rev 2284)
+@@ -71,7 +71,7 @@
+ 
+   int         get_int(int column);
+   std::string get_text(int column);
+-  std::string get_blob(int column);
++  Blob        get_blob(int column);
+ 
+   std::string get_column_name(int column);
+ };
+@@ -93,7 +93,7 @@
+ 
+   void bind_int(int n, int i);
+   void bind_text(int n, const std::string&amp;);
+-  void bind_blob(int n, const std::string&amp;);
++  void bind_blob(int n, const Blob&amp;);
+ 
+   void execute();
+   SQLiteReader execute_query();
+
+Copied: trunk/griv/new/surface.cpp (from rev 2272, trunk/griv/surface.cpp)
+
+Copied: trunk/griv/new/surface.hpp (from rev 2272, trunk/griv/surface.hpp)
+
+Copied: trunk/griv/new/texture.cpp (from rev 2272, trunk/griv/texture.cpp)
+
+Copied: trunk/griv/new/texture.hpp (from rev 2272, trunk/griv/texture.hpp)
+
+Modified: trunk/griv/new/tile_database.cpp
+===================================================================
+--- trunk/griv/new/tile_database.cpp	2008-08-07 21:05:04 UTC (rev 2283)
++++ trunk/griv/new/tile_database.cpp	2008-08-07 21:05:23 UTC (rev 2284)
+@@ -58,6 +58,7 @@
+       tile.scale   = reader.get_int (1);
+       tile.x       = reader.get_int (2);
+       tile.y       = reader.get_int (3);
++      // FIXME: Blob generation causes unneeded copy
+       tile.surface = SoftwareSurface::from_data(reader.get_blob(4));
+ 
+       return true;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001303.html">[Windstille-commit] r2283 - trunk/griv/new
+</A></li>
+	<LI>Next message: <A HREF="001305.html">[Windstille-commit] r2285 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1304">[ date ]</a>
+              <a href="thread.html#1304">[ thread ]</a>
+              <a href="subject.html#1304">[ subject ]</a>
+              <a href="author.html#1304">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

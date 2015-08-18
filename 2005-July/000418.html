@@ -1,0 +1,1337 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r765 - in trunk: data src src/display src/glutil src/particles src/physfs
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r765%20-%20in%20trunk%3A%20data%20src%20src/display%20src/glutil%20src/particles%20src/physfs&In-Reply-To=%3C200507260016.j6Q0GsoK022855%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000417.html">
+   <LINK REL="Next"  HREF="000419.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r765 - in trunk: data src src/display src/glutil src/particles src/physfs</H1>
+    <B>Matthias Braun at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r765%20-%20in%20trunk%3A%20data%20src%20src/display%20src/glutil%20src/particles%20src/physfs&In-Reply-To=%3C200507260016.j6Q0GsoK022855%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r765 - in trunk: data src src/display src/glutil src/particles src/physfs">matzebraun at berlios.de
+       </A><BR>
+    <I>Tue Jul 26 02:16:54 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000417.html">[Windstille-commit] r764 - in trunk: data/levels src src/particles
+</A></li>
+        <LI>Next message: <A HREF="000419.html">[Windstille-commit] r766 - in trunk: data data/images data/levels src src/badguy
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#418">[ date ]</a>
+              <a href="thread.html#418">[ thread ]</a>
+              <a href="subject.html#418">[ subject ]</a>
+              <a href="author.html#418">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: matzebraun
+Date: 2005-07-26 02:16:45 +0200 (Tue, 26 Jul 2005)
+New Revision: 765
+
+Modified:
+   trunk/data/tiles.scm
+   trunk/src/blitter.cpp
+   trunk/src/blitter.hpp
+   trunk/src/display/drawing_context.cpp
+   trunk/src/display/drawing_context.hpp
+   trunk/src/display/drawing_request.hpp
+   trunk/src/display/vertex_array_drawing_request.cpp
+   trunk/src/display/vertex_array_drawing_request.hpp
+   trunk/src/game_session.cpp
+   trunk/src/glutil/texture_manager.cpp
+   trunk/src/particles/surface_drawer.cpp
+   trunk/src/particles/surface_drawer.hpp
+   trunk/src/physfs/physfs_stream.cpp
+   trunk/src/tile.cpp
+   trunk/src/tile.hpp
+   trunk/src/tile_factory.cpp
+   trunk/src/tile_factory.hpp
+   trunk/src/tile_map.cpp
+   trunk/src/tile_packer.cpp
+   trunk/src/tile_packer.hpp
+Log:
+- Changed tile handling and particle systems to not use ClanLib code anymore.
+
+
+
+Modified: trunk/data/tiles.scm
+===================================================================
+--- trunk/data/tiles.scm	2005-07-25 23:01:56 UTC (rev 764)
++++ trunk/data/tiles.scm	2005-07-26 00:16:45 UTC (rev 765)
+@@ -18,7 +18,7 @@
+          281  282  283  284  285  286
+          287  288  289  290  291  292
+              ))
+- (tiles (image &quot;../data/images/tiles/virtualreality-foreground.png&quot;)
++ (tiles (image &quot;/images/tiles/virtualreality-foreground.png&quot;)
+         (colmap
+          0    0    0    0    0    0    1    1    1    1    0    0    0    0    0    0
+          0    1    1    1    1    0    1    0    0    1    0    0    0    0    0    0
+@@ -57,7 +57,7 @@
+          )
+         )
+ 
+- (tiles (image &quot;../data/images/tiles/virtualreality-background.png&quot;)
++ (tiles (image &quot;/images/tiles/virtualreality-background.png&quot;)
+         (colmap
+          0 0 0 0 0 0
+          0 0 0 0 0 0
+
+Modified: trunk/src/blitter.cpp
+===================================================================
+--- trunk/src/blitter.cpp	2005-07-25 23:01:56 UTC (rev 764)
++++ trunk/src/blitter.cpp	2005-07-26 00:16:45 UTC (rev 765)
+@@ -20,10 +20,41 @@
+ #include &lt;assert.h&gt;
+ #include &lt;iostream&gt;
+ #include &lt;algorithm&gt;
++#include &lt;stdint.h&gt;
+ #include &lt;ClanLib/Display/pixel_format.h&gt;
+ #include &lt;ClanLib/Display/palette.h&gt;
+ #include &quot;blitter.hpp&quot;
+ 
++void generate_border(SDL_Surface* surface,
++                     int x_pos, int y_pos, int width, int height)
++{
++  assert(surface-&gt;format-&gt;BitsPerPixel == 32);
++  SDL_LockSurface(surface);
++ 
++  uint8_t* data = static_cast&lt;uint8_t*&gt;(surface-&gt;pixels);
++  int pitch = surface-&gt;pitch;
++
++  // duplicate the top line
++  memcpy(data + (y_pos-1)*pitch + 4*x_pos, 
++         data + (y_pos)*pitch + 4*x_pos,
++         4*(width+2));
++  // duplicate the bottom line
++  memcpy(data + (y_pos+height)*pitch + 4*x_pos, 
++         data + (y_pos+height-1)*pitch + 4*x_pos,  
++         4*(width+2));
++
++  // duplicate left and right borders
++  for(int y = y_pos-1; y &lt; y_pos + height+1; ++y)
++    {
++      uint32_t* p = reinterpret_cast&lt;uint32_t*&gt; (data + (y*pitch + 4*(x_pos-1)));
++      *p = *(p+1);
++      p = reinterpret_cast&lt;uint32_t*&gt; (data + (y*pitch + 4*(x_pos + width)));
++      *p = *(p-1);
++    }
++
++  SDL_UnlockSurface(surface);
++}
++
+ void generate_border(CL_PixelBuffer buffer, int x_pos, int y_pos, int width, int height)
+ {
+   buffer.lock();
+
+Modified: trunk/src/blitter.hpp
+===================================================================
+--- trunk/src/blitter.hpp	2005-07-25 23:01:56 UTC (rev 764)
++++ trunk/src/blitter.hpp	2005-07-26 00:16:45 UTC (rev 765)
+@@ -20,6 +20,7 @@
+ #ifndef HEADER_BLITTER_HXX
+ #define HEADER_BLITTER_HXX
+ 
++#include &lt;SDL.h&gt;
+ #include &lt;ClanLib/Display/pixel_buffer.h&gt;
+ 
+ /** Duplicate all the edge pixel of the given rectangle to the outside
+@@ -33,6 +34,7 @@
+     X X X X X    4 4 5 6 6
+ */
+ void generate_border(CL_PixelBuffer buffer, int x_pos, int y_pos, int width, int height);
++void generate_border(SDL_Surface* surface, int x_pos, int y_pos, int width, int height);
+ 
+ void blit_opaque(CL_PixelBuffer target, CL_PixelBuffer brush, int x_pos, int y_pos);
+ void blit(CL_PixelBuffer target, CL_PixelBuffer brush, int x_pos, int y_pos);
+
+Modified: trunk/src/display/drawing_context.cpp
+===================================================================
+--- trunk/src/display/drawing_context.cpp	2005-07-25 23:01:56 UTC (rev 764)
++++ trunk/src/display/drawing_context.cpp	2005-07-26 00:16:45 UTC (rev 765)
+@@ -27,7 +27,7 @@
+ #include &quot;fonts.hpp&quot;
+ #include &quot;drawing_context.hpp&quot;
+ 
+-std::ostream&amp; operator&lt;&lt;(std::ostream&amp; s, const CL_Matrix4x4&amp; m)
++std::ostream&amp; operator&lt;&lt;(std::ostream&amp; s, const Matrix&amp; m)
+ {
+   s &lt;&lt; &quot;[&quot; &lt;&lt; m[ 0] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 4] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 8] &lt;&lt; &quot;, &quot; &lt;&lt; m[12] &lt;&lt; &quot;\n&quot;;
+   s &lt;&lt; &quot; &quot; &lt;&lt; m[ 1] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 5] &lt;&lt; &quot;, &quot; &lt;&lt; m[ 9] &lt;&lt; &quot;, &quot; &lt;&lt; m[13] &lt;&lt; &quot;\n&quot;;
+@@ -50,7 +50,7 @@
+   Color color;
+ public:
+   FillScreenDrawingRequest(const Color&amp; color_) 
+-    : DrawingRequest(CL_Vector(0, 0, -1000.0f)), color(color_)
++    : DrawingRequest(Vector(0, 0, -1000.0f)), color(color_)
+   {
+   }
+   virtual ~FillScreenDrawingRequest() {}
+@@ -70,7 +70,7 @@
+   CL_Sprite sprite;
+ 
+ public:
+-  SpriteDrawingRequest(const CL_Sprite&amp; sprite_, const CL_Vector&amp; pos_, const CL_Matrix4x4&amp; modelview_)
++  SpriteDrawingRequest(const CL_Sprite&amp; sprite_, const Vector&amp; pos_, const Matrix&amp; modelview_)
+     : DrawingRequest(pos_, modelview_),
+       sprite(sprite_)
+   {}
+@@ -94,7 +94,7 @@
+   CL_Surface sprite;
+ 
+ public:
+-  SurfaceDrawingRequest(const CL_Surface&amp; sprite_, const CL_Vector&amp; pos_, const CL_Matrix4x4&amp; modelview_)
++  SurfaceDrawingRequest(const CL_Surface&amp; sprite_, const Vector&amp; pos_, const Matrix&amp; modelview_)
+     : DrawingRequest(pos_, modelview_),
+       sprite(sprite_)
+   {}
+@@ -115,7 +115,7 @@
+ private:
+   std::string text;
+ public:
+-  TextDrawingRequest(const std::string&amp; text_, const CL_Vector&amp; pos_, const CL_Matrix4x4&amp; modelview_)
++  TextDrawingRequest(const std::string&amp; text_, const Vector&amp; pos_, const Matrix&amp; modelview_)
+     : DrawingRequest(pos_, modelview_),
+       text(text_)
+   {}
+@@ -132,7 +132,7 @@
+ 
+ DrawingContext::DrawingContext()
+ {
+-  modelview_stack.push_back(CL_Matrix4x4(true));
++  modelview_stack.push_back(Matrix(true));
+ }
+ 
+ DrawingContext::~DrawingContext()
+@@ -176,20 +176,20 @@
+ DrawingContext::draw(const CL_Surface&amp;   sprite,  float x, float y, float z)
+ { // FIXME: This should get flattend down to a simple texture draw
+   // command for easier sorting after texture-id/alpha
+-  draw(new SurfaceDrawingRequest(sprite, CL_Vector(x, y, z), modelview_stack.back()));
++  draw(new SurfaceDrawingRequest(sprite, Vector(x, y, z), modelview_stack.back()));
+ }
+ 
+ void
+ DrawingContext::draw(const CL_Sprite&amp;   sprite,  float x, float y, float z)
+ { // FIXME: This should get flattend down to a simple texture draw
+   // command for easier sorting after texture-id/alpha
+-  draw(new SpriteDrawingRequest(sprite, CL_Vector(x, y, z), modelview_stack.back()));
++  draw(new SpriteDrawingRequest(sprite, Vector(x, y, z), modelview_stack.back()));
+ }
+ 
+ void
+ DrawingContext::draw(const std::string&amp; text,    float x, float y, float z)
+ { 
+-  draw(new TextDrawingRequest(text, CL_Vector(x, y, z), modelview_stack.back()));
++  draw(new TextDrawingRequest(text, Vector(x, y, z), modelview_stack.back()));
+ }
+ 
+ void
+@@ -213,7 +213,7 @@
+   double c = cos(angle*3.14159265/180);
+   double s = sin(angle*3.14159265/180);
+ 
+-  CL_Matrix4x4 matrix(true);
++  Matrix matrix(true);
+   matrix[0] = x*x*(1-c)+c;
+   matrix[1] = y*x*(1-c)+z*s;
+   matrix[2] = x*z*(1-c)-y*s;
+@@ -232,7 +232,7 @@
+ void
+ DrawingContext::scale(float x, float y, float z)
+ {
+-  CL_Matrix4x4 matrix(true);
++  Matrix matrix(true);
+   matrix[0] = x;
+   matrix[5] = y;
+   matrix[10] = z;
+@@ -243,7 +243,7 @@
+ void
+ DrawingContext::translate(float x, float y, float z)
+ {
+-  CL_Matrix4x4 matrix(true);
++  Matrix matrix(true);
+   matrix[12] = x;
+   matrix[13] = y;
+   matrix[14] = z;
+@@ -265,7 +265,7 @@
+ }
+ 
+ void
+-DrawingContext::set_modelview(const CL_Matrix4x4&amp; matrix)
++DrawingContext::set_modelview(const Matrix&amp; matrix)
+ {
+   modelview_stack.back() = matrix;
+ }
+@@ -274,16 +274,16 @@
+ DrawingContext::reset_modelview()
+ {
+   modelview_stack.clear();
+-  modelview_stack.push_back(CL_Matrix4x4(true));
++  modelview_stack.push_back(Matrix(true));
+ }
+ 
+-CL_Rect
++Rect
+ DrawingContext::get_clip_rect()
+ {
+   // FIXME: Need to check the modelview matrix
+-  return CL_Rect(CL_Point(int(modelview_stack.back()[12]),
+-                          int(modelview_stack.back()[13])),
+-                 CL_Size(800, 600));
++  return Rect(CL_Pointf(modelview_stack.back()[12],
++                        modelview_stack.back()[13]),
++               CL_Sizef(800, 600));
+ }
+ 
+ /* EOF */
+
+Modified: trunk/src/display/drawing_context.hpp
+===================================================================
+--- trunk/src/display/drawing_context.hpp	2005-07-25 23:01:56 UTC (rev 764)
++++ trunk/src/display/drawing_context.hpp	2005-07-26 00:16:45 UTC (rev 765)
+@@ -20,8 +20,9 @@
+ #ifndef HEADER_DRAWING_CONTEXT_HXX
+ #define HEADER_DRAWING_CONTEXT_HXX
+ 
+-#include &lt;ClanLib/Core/Math/rect.h&gt;
+-#include &lt;ClanLib/Core/Math/matrix4x4.h&gt;
++#include &quot;math/vector.hpp&quot;
++#include &quot;math/matrix.hpp&quot;
++#include &quot;math/rect.hpp&quot;
+ #include &lt;vector&gt;
+ #include &quot;color.hpp&quot;
+ #include &quot;drawing_request.hpp&quot;
+@@ -41,7 +42,7 @@
+   typedef std::vector&lt;DrawingRequest*&gt; DrawingRequests;
+   DrawingRequests drawingrequests;
+ 
+-  std::vector&lt;CL_Matrix4x4&gt; modelview_stack;
++  std::vector&lt;Matrix&gt; modelview_stack;
+ 
+ public:
+   DrawingContext();
+@@ -77,11 +78,11 @@
+   void push_modelview();
+   void pop_modelview();
+   void reset_modelview();
+-  void set_modelview(const CL_Matrix4x4&amp; matrix); 
+-  CL_Matrix4x4 get_modelview() const { return modelview_stack.back(); }
++  void set_modelview(const Matrix&amp; matrix); 
++  Matrix get_modelview() const { return modelview_stack.back(); }
+ 
+   /** Return the area of the screen that will be visible*/
+-  CL_Rect get_clip_rect();
++  Rect get_clip_rect();
+ private:
+   DrawingContext (const DrawingContext&amp;);
+   DrawingContext&amp; operator= (const DrawingContext&amp;);
+
+Modified: trunk/src/display/drawing_request.hpp
+===================================================================
+--- trunk/src/display/drawing_request.hpp	2005-07-25 23:01:56 UTC (rev 764)
++++ trunk/src/display/drawing_request.hpp	2005-07-26 00:16:45 UTC (rev 765)
+@@ -20,8 +20,8 @@
+ #ifndef HEADER_DRAWING_REQUEST_HXX
+ #define HEADER_DRAWING_REQUEST_HXX
+ 
+-#include &lt;ClanLib/Core/Math/cl_vector.h&gt;
+-#include &lt;ClanLib/Core/Math/matrix4x4.h&gt;
++#include &quot;math/vector.hpp&quot;
++#include &quot;math/matrix.hpp&quot;
+ 
+ class CL_GraphicContext;
+ 
+@@ -30,10 +30,10 @@
+ class DrawingRequest
+ {
+ protected:
+-  CL_Vector pos;
+-  CL_Matrix4x4 modelview;
++  Vector pos;
++  Matrix modelview;
+ public:
+-  DrawingRequest(const CL_Vector&amp; pos_, const CL_Matrix4x4&amp; modelview_ = CL_Matrix4x4(true))
++  DrawingRequest(const Vector&amp; pos_, const Matrix&amp; modelview_ = Matrix(true))
+     : pos(pos_), modelview(modelview_) {}
+   virtual ~DrawingRequest() {}
+   
+@@ -43,7 +43,7 @@
+   float get_z_pos() const
+   { return pos.z; }
+ 
+-  CL_Matrix4x4 get_modelview() const
++  Matrix get_modelview() const
+   { return modelview; }
+ private:
+   DrawingRequest (const DrawingRequest&amp;);
+
+Modified: trunk/src/display/vertex_array_drawing_request.cpp
+===================================================================
+--- trunk/src/display/vertex_array_drawing_request.cpp	2005-07-25 23:01:56 UTC (rev 764)
++++ trunk/src/display/vertex_array_drawing_request.cpp	2005-07-26 00:16:45 UTC (rev 765)
+@@ -28,6 +28,7 @@
+   blend_sfactor = GL_SRC_ALPHA;
+   blend_dfactor = GL_ONE_MINUS_SRC_ALPHA;
+   mode = GL_QUADS;
++  use_texture = false;
+ }
+ 
+ int
+@@ -77,10 +78,10 @@
+   glEnable(GL_BLEND);
+   glBlendFunc(blend_sfactor, blend_dfactor);
+ 
+-  if (texture)
++  if (use_texture)
+     {
+       glEnable(GL_TEXTURE_2D);
+-      texture.bind();
++      glBindTexture(GL_TEXTURE_2D, texture);
+     }
+   else
+     {
+@@ -121,9 +122,10 @@
+ }
+ 
+ void
+-VertexArrayDrawingRequest::set_surface(CL_Surface surface)
++VertexArrayDrawingRequest::set_texture(GLuint texture)
+ {
+-  texture = CL_OpenGLSurface(surface);
++  this-&gt;texture = texture;
++  use_texture = true;
+ }
+ 
+ void
+
+Modified: trunk/src/display/vertex_array_drawing_request.hpp
+===================================================================
+--- trunk/src/display/vertex_array_drawing_request.hpp	2005-07-25 23:01:56 UTC (rev 764)
++++ trunk/src/display/vertex_array_drawing_request.hpp	2005-07-26 00:16:45 UTC (rev 765)
+@@ -33,7 +33,8 @@
+   GLenum blend_sfactor;
+   GLenum blend_dfactor;
+ 
+-  CL_OpenGLSurface   texture;
++  bool use_texture;
++  GLuint texture;
+   std::vector&lt;unsigned char&gt; colors;
+   std::vector&lt;float&gt; texcoords;
+   std::vector&lt;float&gt; vertices;
+@@ -50,7 +51,7 @@
+   int num_vertices() const;
+ 
+   void set_mode(GLenum mode_);
+-  void set_surface(CL_Surface surface);
++  void set_texture(GLuint texture);
+   void set_blend_func(GLenum sfactor, GLenum dfactor);
+ };
+ 
+
+Modified: trunk/src/game_session.cpp
+===================================================================
+--- trunk/src/game_session.cpp	2005-07-25 23:01:56 UTC (rev 764)
++++ trunk/src/game_session.cpp	2005-07-26 00:16:45 UTC (rev 765)
+@@ -1,4 +1,4 @@
+-//  $Id: windstille_game.cxx,v 1.33 2003/11/13 12:59:42 grumbel Exp $
++//  $Id$
+ //
+ //  Windstille - A Jump'n Shoot Game
+ //  Copyright (C) 2000 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+@@ -50,6 +50,8 @@
+ #include &quot;conversation.hpp&quot;
+ #include &quot;collision/collision_engine.hpp&quot;
+ #include &quot;test_object.hpp&quot;
++#include &quot;glutil/texture_manager.hpp&quot;
++#include &quot;glutil/texture.hpp&quot;
+ 
+ #include &quot;game_session.hpp&quot;
+ 
+@@ -237,9 +239,10 @@
+   
+   if (1)
+     {
+-      CL_Surface surface1(&quot;particles/smoke&quot;, resources);
+-      CL_Surface surface2(&quot;particles/smoke2&quot;, resources);
+-
++      const Texture* smoke = texture_manager-&gt;get(&quot;images/particles/smoke.png&quot;);
++      const Texture* smoke2 
++        = texture_manager-&gt;get(&quot;images/particles/smoke2.png&quot;);
++      
+       ParticleSystem* psystem2 = new ParticleSystem();
+       psystem2-&gt;set_drawer(new SparkDrawer());
+       psystem2-&gt;set_pos(0,0);
+@@ -251,9 +254,10 @@
+       ParticleSystem* psystem3 = new ParticleSystem();
+       psystem3-&gt;set_lifetime(8);
+       psystem3-&gt;set_count(30);
+-      surface2.set_blend_func(blend_src_alpha, blend_one_minus_src_alpha);
+-      surface2.set_alignment(origin_center);
+-      psystem3-&gt;set_drawer(new SurfaceDrawer(surface2));
++      SurfaceDrawer* drawer = new SurfaceDrawer(
++          smoke2-&gt;handle, smoke2-&gt;orig_width, smoke2-&gt;orig_height);
++      drawer-&gt;set_blendfuncs(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++      psystem3-&gt;set_drawer(drawer);
+       psystem3-&gt;set_pos(0,0);
+       psystem3-&gt;set_speed(70, 100);
+       psystem3-&gt;set_cone(-25-90, 25-90);
+@@ -263,9 +267,10 @@
+  
+       ParticleSystem* psystem = new ParticleSystem();
+       psystem-&gt;set_count(100);
+-      surface1.set_blend_func(blend_src_alpha, blend_one);
+-      surface1.set_alignment(origin_center);
+-      psystem-&gt;set_drawer(new SurfaceDrawer(surface1));
++      drawer = new SurfaceDrawer(
++          smoke-&gt;handle, smoke-&gt;orig_height, smoke-&gt;orig_height);
++      drawer-&gt;set_blendfuncs(GL_SRC_ALPHA, GL_ONE);
++      psystem-&gt;set_drawer(drawer);
+       psystem-&gt;set_pos(0,0);
+       psystem-&gt;set_speed(200, 300);
+       psystem-&gt;set_cone(-5-90, 5-90);
+
+Modified: trunk/src/glutil/texture_manager.cpp
+===================================================================
+--- trunk/src/glutil/texture_manager.cpp	2005-07-25 23:01:56 UTC (rev 764)
++++ trunk/src/glutil/texture_manager.cpp	2005-07-26 00:16:45 UTC (rev 765)
+@@ -6,10 +6,6 @@
+ #include &lt;sstream&gt;
+ #include &lt;stdexcept&gt;
+ #include &lt;SDL_image.h&gt;
+-#include &lt;ClanLib/Display/Providers/provider_factory.h&gt;
+-#include &lt;ClanLib/Display/surface.h&gt;
+-#include &lt;ClanLib/Display/pixel_buffer.h&gt;
+-#include &lt;ClanLib/Display/pixel_format.h&gt;
+ #include &lt;ClanLib/GL/opengl_state.h&gt;
+ #include &lt;ClanLib/Display/display.h&gt;
+ #include &lt;ClanLib/Display/display_window.h&gt;
+@@ -109,8 +105,9 @@
+   SDL_PixelFormat* format = convert-&gt;format;
+ 
+   glBindTexture(GL_TEXTURE_2D, handle);
++  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+   glPixelStorei(GL_UNPACK_ROW_LENGTH, convert-&gt;pitch/format-&gt;BytesPerPixel);
+-  glTexImage2D(GL_TEXTURE_2D, 0, format-&gt;BytesPerPixel,
++  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
+       convert-&gt;w, convert-&gt;h, 0, GL_RGBA,
+       GL_UNSIGNED_BYTE, convert-&gt;pixels);
+ 
+
+Modified: trunk/src/particles/surface_drawer.cpp
+===================================================================
+--- trunk/src/particles/surface_drawer.cpp	2005-07-25 23:01:56 UTC (rev 764)
++++ trunk/src/particles/surface_drawer.cpp	2005-07-26 00:16:45 UTC (rev 765)
+@@ -21,8 +21,8 @@
+ #include &quot;particle_system.hpp&quot;
+ #include &quot;surface_drawer.hpp&quot;
+ 
+-SurfaceDrawer::SurfaceDrawer(const CL_Surface&amp; sur)
+-  : surface(sur)
++SurfaceDrawer::SurfaceDrawer(GLuint texture, float width, float height)
++  : texture(texture), width(width), height(height)
+ {
+ }
+ 
+@@ -31,48 +31,18 @@
+ }
+   
+ void
+-SurfaceDrawer::set_surface(const CL_Surface&amp; sur)
++SurfaceDrawer::set_texture(GLuint texture, float width, float height)
+ {
+-  surface = sur;
+-  surface.set_alignment(origin_center);
++  this-&gt;texture = texture;
++  this-&gt;width = width;
++  this-&gt;height = height;
+ }
+ 
+-static GLenum blendfunc2opengl(CL_BlendFunc blend)
++void
++SurfaceDrawer::set_blendfuncs(GLenum blendfunc_src, GLenum blendfunc_dest)
+ {
+-  switch (blend)
+-    {
+-    case blend_zero:
+-      return GL_ZERO;
+-    case blend_one:
+-      return GL_ONE;
+-    case blend_dest_color:
+-      return GL_DST_COLOR;
+-    case blend_src_color:
+-      return GL_SRC_COLOR;
+-    case blend_one_minus_dest_color:
+-      return GL_ONE_MINUS_DST_COLOR;
+-    case blend_one_minus_src_color:
+-      return GL_ONE_MINUS_SRC_COLOR;
+-    case blend_src_alpha:
+-      return GL_SRC_ALPHA;
+-    case blend_one_minus_src_alpha:
+-      return GL_ONE_MINUS_SRC_ALPHA;
+-    case blend_dst_alpha:
+-      return GL_DST_ALPHA;
+-    case blend_one_minus_dest_alpha:
+-      return GL_ONE_MINUS_DST_ALPHA;
+-    case blend_src_alpha_saturate:
+-      return GL_SRC_ALPHA_SATURATE;
+-    case blend_constant_color:
+-      return GL_CONSTANT_COLOR;
+-    case blend_constant_alpha:
+-      return GL_CONSTANT_ALPHA;
+-    case blend_one_minus_constant_color:
+-      return GL_ONE_MINUS_CONSTANT_COLOR;
+-    case blend_one_minus_constant_alpha:
+-      return GL_ONE_MINUS_CONSTANT_ALPHA;
+-    }
+-  return GL_ONE;
++  this-&gt;blendfunc_src = blendfunc_src;
++  this-&gt;blendfunc_dest = blendfunc_dest;
+ }
+ 
+ void
+@@ -82,14 +52,9 @@
+                                                                     sc.color().get_modelview());
+ 
+   buffer-&gt;set_mode(GL_QUADS);
+-  buffer-&gt;set_surface(surface);
+-  CL_BlendFunc src, dest;
+-  surface.get_blend_func(src, dest);
++  buffer-&gt;set_texture(texture);
++  buffer-&gt;set_blend_func(blendfunc_src, blendfunc_dest);
+ 
+-  buffer-&gt;set_blend_func(blendfunc2opengl(src), blendfunc2opengl(dest));
+-
+-  int s_width  = surface.get_width();
+-  int s_height = surface.get_height();
+   for(ParticleSystem::Particles::iterator i = psys.begin(); i != psys.end(); ++i)
+     {
+       if (i-&gt;t != -1.0f)
+@@ -102,8 +67,8 @@
+ 
+           // scale
+           float scale  = psys.size_start + psys.get_progress(i-&gt;t)*(psys.size_stop - psys.size_start);
+-          float width  = s_width  * scale;
+-          float height = s_height * scale;
++          float width  = this-&gt;width  * scale;
++          float height = this-&gt;height * scale;
+               
+           // rotate
+           float x_rot = width/2;
+
+Modified: trunk/src/particles/surface_drawer.hpp
+===================================================================
+--- trunk/src/particles/surface_drawer.hpp	2005-07-25 23:01:56 UTC (rev 764)
++++ trunk/src/particles/surface_drawer.hpp	2005-07-26 00:16:45 UTC (rev 765)
+@@ -27,13 +27,17 @@
+ class SurfaceDrawer : public Drawer
+ {
+ private:
+-  CL_OpenGLSurface surface;
++  GLuint texture;
++  float width, height;
++  GLenum blendfunc_src;
++  GLenum blendfunc_dest;
+   
+ public:
+-  SurfaceDrawer(const CL_Surface&amp; sur);
++  SurfaceDrawer(GLuint texture, float width, float height);
+   virtual ~SurfaceDrawer();
+   
+-  void set_surface(const CL_Surface&amp; sur);
++  void set_texture(GLuint texture, float width, float height);
++  void set_blendfuncs(GLenum blendfunc_src, GLenum blendfunc_dst);
+   void draw(SceneContext&amp; sc, ParticleSystem&amp; psys);
+ };
+ 
+
+Modified: trunk/src/physfs/physfs_stream.cpp
+===================================================================
+--- trunk/src/physfs/physfs_stream.cpp	2005-07-25 23:01:56 UTC (rev 764)
++++ trunk/src/physfs/physfs_stream.cpp	2005-07-26 00:16:45 UTC (rev 765)
+@@ -47,7 +47,7 @@
+         return traits_type::eof();
+     }
+    
+-    PHYSFS_sint64 bytesread = (size_t) PHYSFS_read(file, buf, 1, sizeof(buf));
++    PHYSFS_sint64 bytesread = PHYSFS_read(file, buf, 1, sizeof(buf));
+     if(bytesread &lt;= 0) {
+         return traits_type::eof();
+     }
+
+Modified: trunk/src/tile.cpp
+===================================================================
+--- trunk/src/tile.cpp	2005-07-25 23:01:56 UTC (rev 764)
++++ trunk/src/tile.cpp	2005-07-26 00:16:45 UTC (rev 765)
+@@ -1,4 +1,4 @@
+-//  $Id: tile.cxx,v 1.4 2003/09/22 18:37:05 grumbel Exp $
++//  $Id$
+ //
+ //  Windstille - A Jump'n Shoot Game
+ //  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+
+Modified: trunk/src/tile.hpp
+===================================================================
+--- trunk/src/tile.hpp	2005-07-25 23:01:56 UTC (rev 764)
++++ trunk/src/tile.hpp	2005-07-26 00:16:45 UTC (rev 765)
+@@ -1,4 +1,4 @@
+-//  $Id: tile.hpp,v 1.6 2003/09/22 18:37:05 grumbel Exp $
++//  $Id$
+ // 
+ //  Windstille - A Jump'n Shoot Game
+ //  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+@@ -21,8 +21,8 @@
+ #define HEADER_TILE_HXX
+ 
+ #include &lt;assert.h&gt;
+-#include &lt;ClanLib/Display/sprite.h&gt;
+-#include &lt;ClanLib/GL/opengl_surface.h&gt;
++#include &lt;GL/gl.h&gt;
++#include &quot;math/rect.hpp&quot;
+ 
+ /** A Tile is a surface or sprite together with information for
+  *  collision detection (aka colmap). The collision map is at a
+@@ -34,8 +34,9 @@
+   /** The id of the Tile by which the tilemap refers to it */
+   int id; 
+ 
+-  CL_Rectf         color_rect;
+-  int              color_packer;
++  Rect color_rect;
++  int color_packer;
++  GLuint texture;
+ 
+   /** bitmap that holds the collision attributes for this tile */
+   unsigned int colmap;
+
+Modified: trunk/src/tile_factory.cpp
+===================================================================
+--- trunk/src/tile_factory.cpp	2005-07-25 23:01:56 UTC (rev 764)
++++ trunk/src/tile_factory.cpp	2005-07-26 00:16:45 UTC (rev 765)
+@@ -20,16 +20,15 @@
+ 
+ #include &lt;string&gt;
+ #include &lt;sstream&gt;
+-#include &lt;ClanLib/gl.h&gt;
+-#include &lt;ClanLib/Core/System/system.h&gt;
+-#include &lt;ClanLib/Display/pixel_buffer.h&gt;
+-#include &lt;ClanLib/Display/pixel_format.h&gt;
+-#include &lt;ClanLib/Display/Providers/provider_factory.h&gt;
+-#include &lt;ClanLib/Display/Providers/provider_factory.h&gt;
++#include &lt;SDL.h&gt;
++#include &lt;SDL_image.h&gt;
+ #include &lt;assert.h&gt;
+ #include &lt;sstream&gt;
+ #include &lt;iostream&gt;
+ #include &lt;memory&gt;
++#include &lt;ClanLib/GL/opengl_state.h&gt;
++#include &lt;ClanLib/Display/display.h&gt;
++#include &lt;ClanLib/Display/display_window.h&gt;
+ #include &quot;globals.hpp&quot;
+ #include &quot;tile.hpp&quot;
+ #include &quot;tile_packer.hpp&quot;
+@@ -37,6 +36,9 @@
+ #include &quot;lisp/lisp.hpp&quot;
+ #include &quot;lisp/parser.hpp&quot;
+ #include &quot;lisp/properties.hpp&quot;
++#include &quot;glutil/texture_manager.hpp&quot;
++#include &quot;glutil/texture.hpp&quot;
++#include &quot;physfs/physfs_sdl.hpp&quot;
+ 
+ extern CL_ResourceManager* resources;
+ 
+@@ -48,6 +50,10 @@
+ {
+   using namespace lisp;
+ 
++  CL_OpenGLState state(CL_Display::get_current_window()-&gt;get_gc());
++  state.set_active();                                                
++  state.setup_2d();                                                  
++
+   packers.push_back(new TilePacker(1024, 1024));
+   packers.push_back(new TilePacker(1024, 1024));
+   color_packer     = 0;
+@@ -80,6 +86,26 @@
+   tiles.clear();
+ }
+ 
++static bool surface_empty(SDL_Surface* image, int sx, int sy, int w, int h)
++{
++  SDL_LockSurface(image);
++  
++  unsigned char* data = static_cast&lt;unsigned char*&gt;(image-&gt;pixels);
++  
++  for(int y = sy; y &lt; sy + h; ++y)
++    for(int x = sx; x &lt; sx + w; ++x)
++      {
++        if (data[y * image-&gt;pitch + 4*x + 3] != 0)
++          { 
++            SDL_UnlockSurface(image);
++            return false;
++          }
++      }
++
++  SDL_UnlockSurface(image);
++  return true;
++}
++
+ void
+ TileFactory::parse_tiles(const lisp::Lisp* data)
+ {
+@@ -99,130 +125,86 @@
+ 
+   if(filename == &quot;&quot;)
+     throw std::runtime_error(&quot;Missing color-image&quot;);
+-  
+-  CL_PixelBuffer image = CL_ProviderFactory::load(datadir + filename);
+-  CL_PixelBuffer hl_image;
+-  
+-  int num_tiles = (image.get_width()/TILE_RESOLUTION) * (image.get_height()/TILE_RESOLUTION);
+-  if (int(colmap.size()) != num_tiles)
++ 
++  SDL_Surface* image = IMG_Load_RW(get_physfs_SDLRWops(filename), 1);
++  if(!image) 
+     {
+-      std::ostringstream str;
+-      str &lt;&lt; &quot;'colmap' information and num_tiles mismatch (&quot; 
+-          &lt;&lt; colmap.size() &lt;&lt; &quot; != &quot; &lt;&lt; num_tiles &lt;&lt; &quot;) for image '&quot; &lt;&lt; filename &lt;&lt; &quot;'&quot;;
+-      throw std::runtime_error(str.str());
++      std::ostringstream msg;
++      msg &lt;&lt; &quot;Couldn't load image '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot; &lt;&lt; SDL_GetError();
++      throw std::runtime_error(msg.str());
+     }
++ 
++  try {
++    int num_tiles = (image-&gt;w/TILE_RESOLUTION) * (image-&gt;h/TILE_RESOLUTION);
++    if (int(colmap.size()) != num_tiles)
++      {
++        std::ostringstream str;
++        str &lt;&lt; &quot;'colmap' information and num_tiles mismatch (&quot; 
++            &lt;&lt; colmap.size() &lt;&lt; &quot; != &quot; &lt;&lt; num_tiles &lt;&lt; &quot;) for image '&quot; &lt;&lt; filename &lt;&lt; &quot;'&quot;;
++        throw std::runtime_error(str.str());
++      }
+ 
+-  if (int(ids.size()) != num_tiles)
+-    {
+-      std::ostringstream str;
+-      str &lt;&lt; &quot;'ids' information and num_tiles mismatch (&quot; 
+-          &lt;&lt; ids.size() &lt;&lt; &quot; != &quot; &lt;&lt; num_tiles &lt;&lt; &quot;) for image '&quot; &lt;&lt; filename &lt;&lt; &quot;'&quot;;
+-      throw std::runtime_error(str.str());
+-    }
+-  
+-  int i = 0;
+-  for (int y = 0; y &lt; image.get_height(); y += TILE_RESOLUTION)
+-    {
+-      for (int x = 0; x &lt; image.get_width(); x += TILE_RESOLUTION)
+-        {
+-          if (ids[i] == -1)
+-            {
+-              // ignore the given section of the image 
+-            }
+-          else if (ids[i] &lt; (int) tiles.size() &amp;&amp; tiles[ids[i]] != NULL)
+-            {
+-              std::ostringstream os;
+-              os &lt;&lt; ids[i];
+-              throw std::runtime_error(&quot;Duplicate tile id: &quot; + os.str());
+-            }
+-          else
+-            {
+-              CL_PixelBuffer chopped_image(TILE_RESOLUTION, TILE_RESOLUTION,
+-                                           image.get_format().get_depth()*TILE_RESOLUTION,
+-                                           image.get_format(), NULL);
+-              chopped_image.lock();
+-              image.convert(chopped_image.get_data(), 
+-                            chopped_image.get_format(), 
+-                            image.get_format().get_depth()*TILE_RESOLUTION, 
+-                            CL_Rect(CL_Point(0, 0), CL_Size(TILE_RESOLUTION, TILE_RESOLUTION)),
+-                            CL_Rect(CL_Point(x, y), CL_Size(TILE_RESOLUTION, TILE_RESOLUTION)));
+-              chopped_image.unlock();
+-
+-              pack(ids[i], colmap[y/TILE_RESOLUTION * image.get_width()/TILE_RESOLUTION + x/TILE_RESOLUTION],
+-                   chopped_image);
+-            }
+-          i += 1;
+-        }
+-    }
+-}
+-
+-static bool buffer_empty(CL_PixelBuffer buffer)
+-{
+-  buffer.lock();
+-  unsigned char* data = static_cast&lt;unsigned char*&gt;(buffer.get_data());
+-  int width  = buffer.get_width();
+-  int height = buffer.get_height();
+-  int pitch  = buffer.get_pitch();
+-
+-  for(int y = 0; y &lt; height; ++y)
+-    for(int x = 0; x &lt; width; ++x)
++    if (int(ids.size()) != num_tiles)
+       {
+-        if (data[y * pitch + 4*x])
++        std::ostringstream str;
++        str &lt;&lt; &quot;'ids' information and num_tiles mismatch (&quot; 
++            &lt;&lt; ids.size() &lt;&lt; &quot; != &quot; &lt;&lt; num_tiles &lt;&lt; &quot;) for image '&quot; &lt;&lt; filename &lt;&lt; &quot;'&quot;;
++        throw std::runtime_error(str.str());
++      }
++    
++    int i = 0;
++    for (int y = 0; y &lt; image-&gt;h; y += TILE_RESOLUTION)
++      {
++        for (int x = 0; x &lt; image-&gt;w; x += TILE_RESOLUTION)
+           {
+-            buffer.unlock();
+-            return false;
++            int id = ids[i];
++            int collider = colmap[i];
++            i++;
++            if(id == -1)
++              continue;
++            if(id &lt; (int) tiles.size() &amp;&amp; tiles[id] != 0)
++              {
++                std::ostringstream msg;
++                msg &lt;&lt; &quot;Dusplicate tile id: &quot; &lt;&lt; id;
++                throw std::runtime_error(msg.str());
++              } 
++            if (id &gt;= int(tiles.size()))
++              tiles.resize(id + 1, 0);
++
++            tiles[id] = new Tile(collider); 
++            Tile&amp; tile = *(tiles[id]);
++            tile.id = id;
++
++            if (surface_empty(image, x, y, TILE_RESOLUTION, TILE_RESOLUTION))
++              continue;
++            
++            if(packers[color_packer]-&gt;is_full())
++              {
++                packers.push_back(new TilePacker(1024, 1024));
++                color_packer = packers.size() - 1;
++              }
++            Rect rect = packers[color_packer]-&gt;pack(
++                image, x, y, TILE_RESOLUTION, TILE_RESOLUTION);
++            tile.color_rect     = rect;
++            tile.color_packer = color_packer;
++            tile.texture = packers[color_packer]-&gt;get_texture();
+           }
+       }
+-
+-  return true;
++  } catch(...) {
++    SDL_FreeSurface(image);
++    throw;
++  }
++  SDL_FreeSurface(image);
+ }
+ 
+-void
+-TileFactory::pack(int id, int colmap, CL_PixelBuffer color)
++Tile*
++TileFactory::create(int id)
+ {
+-  if (id &gt;= int(tiles.size()))
+-    tiles.resize(id + 1);
+-
+-  tiles[id] = new Tile(colmap);
+-          
+-  tiles[id]-&gt;id = id;
+-
+-  if (!buffer_empty(color))
+-    {
+-      tiles[id]-&gt;color_rect     = packers[color_packer]-&gt;pack(color);
+-      tiles[id]-&gt;color_packer   = color_packer;
+-    }
+-
+-  if (packers[color_packer]-&gt;is_full())
+-    {
+-      packers.push_back(new TilePacker(1024, 1024));
+-      color_packer = packers.size() - 1;
+-    }
++  if(id &lt; 0 || id &gt;= (int) tiles.size())
++    return 0;
++  return tiles[id];
+ }
+ 
+-Tile* 
+-TileFactory::create (int id)
+-{
+-  // id 0 is always the empty tile
+-  if (id == 0)
+-    { 
+-      return 0;
+-    }
+-  else
+-    {
+-      if (id &gt; 0 &amp;&amp; id &lt; int(tiles.size()))
+-        return tiles[id];
+-      else
+-        return 0;
+-    }
+-}
+-
+-CL_OpenGLSurface
+-TileFactory::get_texture(int id)
+-{
+-  return packers[id]-&gt;get_texture();
+-}
+-
+ void
+ TileFactory::init()
+ {
+
+Modified: trunk/src/tile_factory.hpp
+===================================================================
+--- trunk/src/tile_factory.hpp	2005-07-25 23:01:56 UTC (rev 764)
++++ trunk/src/tile_factory.hpp	2005-07-26 00:16:45 UTC (rev 765)
+@@ -1,4 +1,4 @@
+-//  $Id: tile_factory.hpp,v 1.8 2003/09/22 18:37:05 grumbel Exp $
++//  $Id$
+ // 
+ //  Windstille - A Jump'n Shoot Game
+ //  Copyright (C) 2000 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+@@ -52,15 +52,10 @@
+   TileFactory(const std::string&amp; filename);
+   ~TileFactory();
+ 
+-  CL_OpenGLSurface get_texture(int id);
++  /** Create a new tile, or loads&amp;creates it if it is not already available */
++  Tile* create(int tile_id);
+ 
+-  /** Check if the tile is already loaded and return it. If it is not
+-   *  already loaded, load it 
+-   *
+-   *  @param id The id of the tile to create as defined in the def. file
+-   *
+-   *  @return on success the tile is returned, on failure 0 */
+-  Tile* create(int id);
++  GLuint get_texture(int tile_id);
+ 
+   /** Create the default TileFactor*/
+   static void init();
+@@ -73,7 +68,6 @@
+ 
+ private:
+   void parse_tiles(const lisp::Lisp* data);
+-  void pack(int id, int colmap, CL_PixelBuffer color);
+ };
+ 
+ #endif
+
+Modified: trunk/src/tile_map.cpp
+===================================================================
+--- trunk/src/tile_map.cpp	2005-07-25 23:01:56 UTC (rev 764)
++++ trunk/src/tile_map.cpp	2005-07-26 00:16:45 UTC (rev 765)
+@@ -1,4 +1,4 @@
+-//  $Id: tile_map.cxx,v 1.18 2003/11/05 11:09:36 grumbel Exp $
++//  $Id$
+ //
+ //  Windstille - A Jump'n Shoot Game
+ //  Copyright (C) 2000 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+@@ -115,34 +115,34 @@
+     for (int x = rect.left; x &lt; rect.right; ++x)
+       {
+         Tile* tile = field(x, y);
+-        if (tile &amp;&amp; tile-&gt;color_packer != -1)
+-          {
+-            if (tile-&gt;color_packer &gt;= int(requests.size()))
+-              requests.resize(tile-&gt;color_packer+1);
++        if(tile == 0 || tile-&gt;color_packer &lt; 0)
++          continue;                                    
+ 
+-            if (!requests[tile-&gt;color_packer])
+-              {
+-                requests[tile-&gt;color_packer] = new VertexArrayDrawingRequest(CL_Vector(0, 0, z_pos),
+-                                                                             sc.color().get_modelview());
+-                requests[tile-&gt;color_packer]-&gt;set_mode(GL_QUADS);
+-                requests[tile-&gt;color_packer]-&gt;set_blend_func(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+-                requests[tile-&gt;color_packer]-&gt;set_surface(TileFactory::current()-&gt;get_texture(tile-&gt;color_packer));
+-              }
+-              
+-            VertexArrayDrawingRequest&amp; pack = *requests[tile-&gt;color_packer];
++        int packer = tile-&gt;color_packer; 
++        if(packer &gt;= int(requests.size()))
++          requests.resize(packer+1);
+ 
+-            pack.texcoord(tile-&gt;color_rect.left, tile-&gt;color_rect.top);
+-            pack.vertex(x * TILE_SIZE, y * TILE_SIZE);
++        VertexArrayDrawingRequest*&amp; request = requests[packer];
++        if (!request)
++          {
++            request = new VertexArrayDrawingRequest(CL_Vector(0, 0, z_pos),
++                                                    sc.color().get_modelview());
++            request-&gt;set_mode(GL_QUADS);
++            request-&gt;set_blend_func(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++            request-&gt;set_texture(tile-&gt;texture);
++          }
++            
++        request-&gt;texcoord(tile-&gt;color_rect.left, tile-&gt;color_rect.top);
++        request-&gt;vertex(x * TILE_SIZE, y * TILE_SIZE);
+ 
+-            pack.texcoord(tile-&gt;color_rect.right, tile-&gt;color_rect.top);
+-            pack.vertex(x * TILE_SIZE + TILE_SIZE, y * TILE_SIZE);
++        request-&gt;texcoord(tile-&gt;color_rect.right, tile-&gt;color_rect.top);
++        request-&gt;vertex(x * TILE_SIZE + TILE_SIZE, y * TILE_SIZE);
+ 
+-            pack.texcoord(tile-&gt;color_rect.right, tile-&gt;color_rect.bottom);
+-            pack.vertex(x * TILE_SIZE + TILE_SIZE, y * TILE_SIZE + TILE_SIZE);
+-              
+-            pack.texcoord(tile-&gt;color_rect.left, tile-&gt;color_rect.bottom);
+-            pack.vertex(x * TILE_SIZE, y * TILE_SIZE + TILE_SIZE); 
+-          }
++        request-&gt;texcoord(tile-&gt;color_rect.right, tile-&gt;color_rect.bottom);
++        request-&gt;vertex(x * TILE_SIZE + TILE_SIZE, y * TILE_SIZE + TILE_SIZE);
++            
++        request-&gt;texcoord(tile-&gt;color_rect.left, tile-&gt;color_rect.bottom);
++        request-&gt;vertex(x * TILE_SIZE, y * TILE_SIZE + TILE_SIZE); 
+       }
+ 
+   for(std::vector&lt;VertexArrayDrawingRequest*&gt;::iterator i = requests.begin(); i != requests.end(); ++i)
+
+Modified: trunk/src/tile_packer.cpp
+===================================================================
+--- trunk/src/tile_packer.cpp	2005-07-25 23:01:56 UTC (rev 764)
++++ trunk/src/tile_packer.cpp	2005-07-26 00:16:45 UTC (rev 765)
+@@ -16,17 +16,17 @@
+ //  You should have received a copy of the GNU General Public License
+ //  along with this program; if not, write to the Free Software
+ //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++#include &lt;config.h&gt;
+ 
+ #include &lt;assert.h&gt;
+-#include &lt;ClanLib/Core/Math/rect.h&gt;
+-#include &lt;ClanLib/Core/Math/point.h&gt;
+-#include &lt;ClanLib/Display/pixel_buffer.h&gt;
+-#include &lt;ClanLib/Display/pixel_format.h&gt;
+-#include &lt;ClanLib/gl.h&gt;
++#include &lt;ClanLib/GL/opengl_state.h&gt;
++#include &lt;ClanLib/Display/display.h&gt;
++#include &lt;ClanLib/Display/display_window.h&gt;
+ #include &quot;windstille_error.hpp&quot;
+ #include &quot;blitter.hpp&quot;
+ #include &quot;globals.hpp&quot;
+ #include &quot;tile_packer.hpp&quot;
++#include &quot;util.hpp&quot;
+ 
+ class TilePackerImpl
+ {
+@@ -35,8 +35,10 @@
+   int x_pos;
+   int y_pos;
+ 
+-  CL_PixelBuffer buffer;
+-  CL_OpenGLSurface texture;
++  GLuint texture;
++  // width+height of the texture
++  float width;
++  float height;  
+ };
+ 
+ TilePacker::TilePacker(int width, int height)
+@@ -45,36 +47,90 @@
+   impl-&gt;x_pos = 0;
+   impl-&gt;y_pos = 0;
+ 
+-  impl-&gt;buffer = CL_PixelBuffer(width, height, width*4,
+-                                CL_PixelFormat::rgba8888);
++  impl-&gt;width = width;
++  impl-&gt;height = height;
++
++  // creates new texture (no pixel data is uploaded but opengl reserves memory
++  // for it)
++  glEnable(GL_TEXTURE_2D);
++  glGenTextures(1, &amp;impl-&gt;texture);
++  glBindTexture(GL_TEXTURE_2D, impl-&gt;texture);
++  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA,
++      GL_UNSIGNED_BYTE, 0);
++
++  assert_gl(&quot;creating TilePacker texture&quot;);
++
++  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
++  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
++  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP);
++        
++  assert_gl(&quot;setting TilePacker texture parameters&quot;); 
+ }
+ 
+ TilePacker::~TilePacker()
+ {
++  glDeleteTextures(1, &amp;impl-&gt;texture);
+   delete impl;
+ }
+ 
+ /** Pack a tile and return the position where it is placed in the
+     pixel buffer */
+ CL_Rectf
+-TilePacker::pack(CL_PixelBuffer tile)
++TilePacker::pack(SDL_Surface* image, int x, int y, int w, int h)
+ {
+-  assert(tile.get_width() == TILE_RESOLUTION &amp;&amp; tile.get_height() == TILE_RESOLUTION);
++  assert(w == TILE_RESOLUTION &amp;&amp; h == TILE_RESOLUTION);
+   assert(!is_full());
+ 
+-  blit_opaque(impl-&gt;buffer, tile, impl-&gt;x_pos+1, impl-&gt;y_pos+1);
+-  generate_border(impl-&gt;buffer, impl-&gt;x_pos+1, impl-&gt;y_pos+1, TILE_RESOLUTION, TILE_RESOLUTION);
++#if SDL_BYTEORDER == SDL_BIG_ENDIAN
++  SDL_Surface* convert = SDL_CreateRGBSurface(SDL_SWSURFACE,
++    w+2, h+2, 32,
++    0xff000000, 0x00ff0000, 0x0000ff00, 0x000000ff);
++#else
++  SDL_Surface* convert = SDL_CreateRGBSurface(SDL_SWSURFACE,
++    w+2, h+2, 32,
++      0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000);
++#endif
++  if(convert == 0)
++    throw std::runtime_error(&quot;Couldn't pack texture: out of memory&quot;);
+ 
+-  CL_Rectf rect(CL_Pointf((impl-&gt;x_pos+1)/1024.0f, 
+-                          (impl-&gt;y_pos+1)/1024.0f), 
+-                CL_Sizef((TILE_RESOLUTION)/1024.0f, 
+-                         (TILE_RESOLUTION)/1024.0f));
++  SDL_Rect source_rect;
++  source_rect.x = x;
++  source_rect.y = y;
++  source_rect.w = w;
++  source_rect.h = h;
++  SDL_Rect dest_rect;
++  dest_rect.x = 1;
++  dest_rect.y = 1;
++  dest_rect.w = w;
++  dest_rect.h = h;
++  SDL_SetAlpha(image, 0, 0);
++  SDL_BlitSurface(image, &amp;source_rect, convert, &amp;dest_rect);
++  generate_border(convert, 1, 1, TILE_RESOLUTION, TILE_RESOLUTION);
+ 
++  glEnable(GL_TEXTURE_2D);
++  glBindTexture(GL_TEXTURE_2D, impl-&gt;texture);
++  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
++  glPixelStorei(GL_UNPACK_ROW_LENGTH,
++      convert-&gt;pitch / convert-&gt;format-&gt;BytesPerPixel);
++
++  glTexSubImage2D(GL_TEXTURE_2D, 0, impl-&gt;x_pos, impl-&gt;y_pos,
++      TILE_RESOLUTION+2, TILE_RESOLUTION+2, GL_RGBA, GL_UNSIGNED_BYTE,
++      convert-&gt;pixels);
++  SDL_FreeSurface(convert);
++
++  assert_gl(&quot;updating tilepacker texture&quot;);
++
++  Rect rect(CL_Pointf(static_cast&lt;float&gt;(impl-&gt;x_pos+1)/impl-&gt;width, 
++                      static_cast&lt;float&gt;(impl-&gt;y_pos+1)/impl-&gt;height), 
++            CL_Sizef(static_cast&lt;float&gt;(TILE_RESOLUTION)/impl-&gt;width, 
++                     static_cast&lt;float&gt;(TILE_RESOLUTION)/impl-&gt;height));
++
+   // we move by TILE_RESOLUTION+1 to avoid tiles bleeding into each other
+   // when blending
+   impl-&gt;x_pos += TILE_RESOLUTION + 2; 
+-
+-  if (impl-&gt;x_pos + TILE_RESOLUTION &gt; impl-&gt;buffer.get_width())
++  if (impl-&gt;x_pos + TILE_RESOLUTION &gt; impl-&gt;width)
+     {
+       impl-&gt;x_pos = 0;
+       impl-&gt;y_pos += TILE_RESOLUTION + 2;
+@@ -87,27 +143,13 @@
+ bool
+ TilePacker::is_full() const
+ {
+-  return (impl-&gt;y_pos + TILE_RESOLUTION &gt; impl-&gt;buffer.get_height());
++  return (impl-&gt;y_pos + TILE_RESOLUTION + 2 &gt; impl-&gt;height);
+ }
+ 
+-CL_OpenGLSurface
+-TilePacker::get_texture()
++GLuint
++TilePacker::get_texture() const
+ {
+-  if (impl-&gt;texture)
+-    {
+-      return CL_Surface(impl-&gt;texture);
+-    }
+-  else
+-    {
+-      impl-&gt;texture = CL_Surface(CL_OpenGLSurface(impl-&gt;buffer));
+-      return CL_Surface(impl-&gt;texture);
+-    }
++  return impl-&gt;texture;
+ }
+ 
+-CL_PixelBuffer
+-TilePacker::get_pixelbuffer() const
+-{
+-  return impl-&gt;buffer;
+-}
+-
+ /* EOF */
+
+Modified: trunk/src/tile_packer.hpp
+===================================================================
+--- trunk/src/tile_packer.hpp	2005-07-25 23:01:56 UTC (rev 764)
++++ trunk/src/tile_packer.hpp	2005-07-26 00:16:45 UTC (rev 765)
+@@ -16,11 +16,12 @@
+ //  You should have received a copy of the GNU General Public License
+ //  along with this program; if not, write to the Free Software
+ //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+-
+ #ifndef HEADER_TILE_PACKER_HXX
+ #define HEADER_TILE_PACKER_HXX
+ 
+-#include &lt;ClanLib/GL/texture.h&gt;
++#include &lt;SDL.h&gt;
++#include &lt;GL/gl.h&gt;
++#include &quot;math/rect.hpp&quot;
+ 
+ class TilePackerImpl;
+ 
+@@ -37,15 +38,13 @@
+ 
+   /** Pack a tile and return the position where it is placed in the
+       pixel buffer */
+-  CL_Rectf pack(CL_PixelBuffer buffer);
++  Rect pack(SDL_Surface* image, int x, int y, int w, int h);
+ 
+   /** Return true if the PixelBuffer is full */
+   bool is_full() const;
+ 
+-  CL_OpenGLSurface get_texture();
++  GLuint get_texture() const;
+ 
+-  CL_PixelBuffer get_pixelbuffer() const;
+-
+ private:
+   TilePackerImpl* impl;
+ };
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000417.html">[Windstille-commit] r764 - in trunk: data/levels src src/particles
+</A></li>
+	<LI>Next message: <A HREF="000419.html">[Windstille-commit] r766 - in trunk: data data/images data/levels src src/badguy
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#418">[ date ]</a>
+              <a href="thread.html#418">[ thread ]</a>
+              <a href="subject.html#418">[ subject ]</a>
+              <a href="author.html#418">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

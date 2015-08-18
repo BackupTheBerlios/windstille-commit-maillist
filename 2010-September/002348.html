@@ -1,0 +1,311 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3351 - trunk/windstille/extra/slideshow
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3351%20-%20trunk/windstille/extra/slideshow&In-Reply-To=%3C20100902220416.1473B481019%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002347.html">
+   <LINK REL="Next"  HREF="002349.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3351 - trunk/windstille/extra/slideshow</H1>
+    <B>grumbel at mail.berlios.de</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3351%20-%20trunk/windstille/extra/slideshow&In-Reply-To=%3C20100902220416.1473B481019%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3351 - trunk/windstille/extra/slideshow">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Sep  3 00:04:16 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002347.html">[Windstille-commit] r3350 - trunk/windstille/extra/slideshow
+</A></li>
+        <LI>Next message: <A HREF="002349.html">[Windstille-commit] r3352 - trunk/windstille/extra/slideshow
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2348">[ date ]</a>
+              <a href="thread.html#2348">[ thread ]</a>
+              <a href="subject.html#2348">[ subject ]</a>
+              <a href="author.html#2348">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2010-09-03 00:04:15 +0200 (Fri, 03 Sep 2010)
+New Revision: 3351
+
+Modified:
+   trunk/windstille/extra/slideshow/slide_builder.cpp
+   trunk/windstille/extra/slideshow/slide_builder.hpp
+Log:
+slideshow: added pos given in percent
+
+Modified: trunk/windstille/extra/slideshow/slide_builder.cpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slide_builder.cpp	2010-09-02 22:03:48 UTC (rev 3350)
++++ trunk/windstille/extra/slideshow/slide_builder.cpp	2010-09-02 22:04:15 UTC (rev 3351)
+@@ -32,6 +32,7 @@
+ float
+ NodePosX::get(const Sizef&amp; scr, const Sizef&amp; img, float zoom) const
+ {
++  // FIXME: Warning img is already multiplied by zoom
+   switch(m_type)
+   {
+     case kNodePosXLeft:
+@@ -43,11 +44,17 @@
+     case kNodePosXCenter:
+       return scr.width/2;
+ 
+-    case kNodePosXFloat:
++    case kNodePosXAbsFloat:
+       {
+         float x = m_value * zoom;
+         return img.width/2.0f - x + scr.width/2.0f;
+       }
++
++    case kNodePosXRelFloat:
++      {
++        float x = (m_value/100.0f) * img.width;
++        return img.width/2.0f - x + scr.width/2.0f;
++      }
+   }
+ 
+   assert(!&quot;never reached&quot;);
+@@ -56,6 +63,7 @@
+ float
+ NodePosY::get(const Sizef&amp; scr, const Sizef&amp; img, float zoom) const
+ {
++  // FIXME: Warning img is already multiplied by zoom
+   switch(m_type)
+   {
+     case kNodePosYTop:
+@@ -67,11 +75,17 @@
+     case kNodePosYCenter:
+       return scr.height/2;
+       
+-    case kNodePosYFloat:
++    case kNodePosYAbsFloat:
+       {
+         float y = m_value * zoom;
+         return img.height/2.0f - y + scr.height/2.0f;
+       }
++      
++    case kNodePosYRelFloat:
++      {
++        float y = (m_value/100.0f) * img.height;
++        return img.height/2.0f - y + scr.height/2.0f;
++      }
+   }
+ 
+   assert(!&quot;never reached&quot;);
+@@ -135,7 +149,9 @@
+   std::ifstream in(filename.c_str());
+   if (!in)
+   {
+-    throw std::runtime_error(strerror(errno));
++    std::ostringstream str;
++    str &lt;&lt; filename &lt;&lt; &quot;: &quot; &lt;&lt; strerror(errno);
++    throw std::runtime_error(str.str());
+   }
+   else
+   {
+@@ -153,7 +169,7 @@
+ }
+ 
+ void
+-SlideBuilder::error(const std::string&amp; str)
++SlideBuilder::error(const std::string&amp; str) const
+ {
+   std::ostringstream out;
+   out &lt;&lt; m_context &lt;&lt; ':' &lt;&lt; m_line &lt;&lt; &quot;: error: &quot; &lt;&lt; str;
+@@ -171,9 +187,7 @@
+       m_line += 1;
+       line = strip_comment(line);
+ 
+-      boost::char_separator&lt;char&gt; sep(&quot; \t&quot;);
+-      boost::tokenizer&lt;boost::char_separator&lt;char&gt; &gt; tokens(line, sep);
+-      std::vector&lt;std::string&gt; args(tokens.begin(), tokens.end());
++      std::vector&lt;std::string&gt; args = tokenize(line);
+ 
+       if (args.empty())
+       {
+@@ -338,14 +352,22 @@
+     }
+     else if (args[1] == &quot;prev&quot;)
+     {
+-      // reuse previous value      
++      // reuse previous value
+     }
+     else
+     {
+       //float x = boost::lexical_cast&lt;float&gt;(args[1]) * m_path_node.zoom;
+       //m_path_node.pos.x = img_w/2.0f - x + scr_w/2.0f;
+-
+-      m_node.pos_x = NodePosX(NodePosX::kNodePosXFloat, boost::lexical_cast&lt;float&gt;(args[1]));
++      if (args[1][args[1].length()-1] == '%')
++      {
++        m_node.pos_x = NodePosX(NodePosX::kNodePosXRelFloat, 
++                                boost::lexical_cast&lt;float&gt;(args[1].substr(0, args[1].length()-1)));
++      }
++      else
++      {
++        m_node.pos_x = NodePosX(NodePosX::kNodePosXAbsFloat, 
++                                boost::lexical_cast&lt;float&gt;(args[1]));
++      }
+     }
+ 
+     if (args[2] == &quot;top&quot;)
+@@ -371,7 +393,16 @@
+     {
+       //float y = boost::lexical_cast&lt;float&gt;(args[2]) * m_path_node.zoom;
+       //m_path_node.pos.y = img_h/2.0f - y + scr_h/2.0f;
+-      m_node.pos_y = NodePosY(NodePosY::kNodePosYFloat, boost::lexical_cast&lt;float&gt;(args[2]));
++      if (args[2][args[2].length()-1] == '%')
++      {
++        m_node.pos_y = NodePosY(NodePosY::kNodePosYRelFloat, 
++                                boost::lexical_cast&lt;float&gt;(args[2].substr(0, args[2].length()-1)));
++      }
++      else
++      {
++        m_node.pos_y = NodePosY(NodePosY::kNodePosYAbsFloat, 
++                                boost::lexical_cast&lt;float&gt;(args[2]));
++      }
+     }
+ 
+     //std::cout &lt;&lt; &quot;  (pos &quot; &lt;&lt; m_path_node.pos.x &lt;&lt; &quot; &quot; &lt;&lt; m_path_node.pos.y &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
+@@ -558,4 +589,62 @@
+   }
+ }
+ 
++std::vector&lt;std::string&gt;
++SlideBuilder::tokenize(const std::string&amp; line) const
++{
++  if (true)
++  {
++    boost::char_separator&lt;char&gt; sep(&quot; \t&quot;);
++    boost::tokenizer&lt;boost::char_separator&lt;char&gt; &gt; tokens(line, sep);
++    std::vector&lt;std::string&gt; lst(tokens.begin(), tokens.end());
++    return lst;
++  }
++  else
++  {
++    //enum { kWhitespace, kString } state;
++
++    std::vector&lt;std::string&gt; lst;  
++    std::ostringstream str;
++    std::string::const_iterator i = line.begin();
++
++    while(i != line.end())
++    {
++    
++      if (*i == ' ' || *i == '\t')
++      {
++      
++      }
++      else if (*i == '\\')
++      {
++        ++i;
++        if (i != line.end())
++        {
++          switch(*i)
++          {
++            case '\\': str &lt;&lt; '\\'; break;
++            case '0': str &lt;&lt; '\0'; break;
++            case 'a': str &lt;&lt; '\a'; break;
++            case 'b': str &lt;&lt; '\b'; break;
++            case 't': str &lt;&lt; '\t'; break;
++            case 'r': str &lt;&lt; '\r'; break;
++            case 'n': str &lt;&lt; '\n'; break;
++            default: str &lt;&lt; '\\' &lt;&lt; *i; break;
++          }
++        }
++        else
++        {
++          error(&quot;couldn't tokenize line&quot;);
++        }
++      }
++      else
++      {
++      }
++
++      ++i;
++    }
++  
++    return lst;
++  }
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/extra/slideshow/slide_builder.hpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slide_builder.hpp	2010-09-02 22:03:48 UTC (rev 3350)
++++ trunk/windstille/extra/slideshow/slide_builder.hpp	2010-09-02 22:04:15 UTC (rev 3351)
+@@ -37,7 +37,8 @@
+     kNodePosXLeft,
+     kNodePosXRight,
+     kNodePosXCenter,
+-    kNodePosXFloat
++    kNodePosXAbsFloat,
++    kNodePosXRelFloat
+   };
+   
+ public:
+@@ -66,7 +67,8 @@
+     kNodePosYTop,
+     kNodePosYBottom,
+     kNodePosYCenter,
+-    kNodePosYFloat
++    kNodePosYAbsFloat,
++    kNodePosYRelFloat
+   };
+   
+ public:
+@@ -168,7 +170,7 @@
+   void load_from_stream(std::istream&amp; stream);
+ 
+ private:
+-  void error(const std::string&amp; str);
++  void error(const std::string&amp; str) const;
+ 
+   void handle_image(const std::vector&lt;std::string&gt;&amp; args);
+   void handle_pos(const std::vector&lt;std::string&gt;&amp; args);
+@@ -182,6 +184,8 @@
+ 
+   void add_node();
+ 
++  std::vector&lt;std::string&gt; tokenize(const std::string&amp; str) const;
++
+ private:
+   SlideBuilder(const SlideBuilder&amp;);
+   SlideBuilder&amp; operator=(const SlideBuilder&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002347.html">[Windstille-commit] r3350 - trunk/windstille/extra/slideshow
+</A></li>
+	<LI>Next message: <A HREF="002349.html">[Windstille-commit] r3352 - trunk/windstille/extra/slideshow
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2348">[ date ]</a>
+              <a href="thread.html#2348">[ thread ]</a>
+              <a href="subject.html#2348">[ subject ]</a>
+              <a href="author.html#2348">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,815 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1564 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1564%20-%20trunk/griv&In-Reply-To=%3C200711212121.lALLLh4r022586%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001214.html">
+   <LINK REL="Next"  HREF="001216.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1564 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1564%20-%20trunk/griv&In-Reply-To=%3C200711212121.lALLLh4r022586%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1564 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Nov 21 22:21:43 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001214.html">[Windstille-commit] r1563 - trunk/htdocs
+</A></li>
+        <LI>Next message: <A HREF="001216.html">[Windstille-commit] r1565 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1215">[ date ]</a>
+              <a href="thread.html#1215">[ thread ]</a>
+              <a href="subject.html#1215">[ subject ]</a>
+              <a href="author.html#1215">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-21 22:21:42 +0100 (Wed, 21 Nov 2007)
+New Revision: 1564
+
+Modified:
+   trunk/griv/README
+   trunk/griv/SConstruct
+   trunk/griv/TODO
+   trunk/griv/filesystem.cpp
+   trunk/griv/filesystem.hpp
+   trunk/griv/griv.cpp
+   trunk/griv/griv.hpp
+   trunk/griv/image.cpp
+   trunk/griv/image.hpp
+   trunk/griv/loader.cpp
+   trunk/griv/surface.cpp
+   trunk/griv/surface.hpp
+   trunk/griv/texture.cpp
+   trunk/griv/thumbgen.cpp
+   trunk/griv/workspace.cpp
+   trunk/griv/workspace.hpp
+Log:
+- some stuff to display the orignal image when zoom level is large enough
+- some unifing of the file list generation
+
+Modified: trunk/griv/README
+===================================================================
+--- trunk/griv/README	2007-11-20 01:50:08 UTC (rev 1563)
++++ trunk/griv/README	2007-11-21 21:21:42 UTC (rev 1564)
+@@ -1,7 +1,9 @@
+ griv 
+ =====
+ 
+-griv is a image viewer that allows you to directly zoom into thumbnails.
++griv is a image viewer that allows you to directly zoom into
++thumbnails. Its goal is to allow its viewer to view 100'000 images
++fluently.
+ 
+ Usage:
+ ======
+
+Modified: trunk/griv/SConstruct
+===================================================================
+--- trunk/griv/SConstruct	2007-11-20 01:50:08 UTC (rev 1563)
++++ trunk/griv/SConstruct	2007-11-21 21:21:42 UTC (rev 1564)
+@@ -3,6 +3,7 @@
+ libgriv_env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O2&quot;, &quot;-g&quot;])
+ libgriv = libgriv_env.StaticLibrary('griv', ['filesystem.cpp', 
+                                              'command_line.cpp',
++                                             'jpeg.cpp',
+                                              'md5.cpp'])
+ 
+ libepeg_env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-O2&quot;, &quot;-g&quot;])
+
+Modified: trunk/griv/TODO
+===================================================================
+--- trunk/griv/TODO	2007-11-20 01:50:08 UTC (rev 1563)
++++ trunk/griv/TODO	2007-11-21 21:21:42 UTC (rev 1564)
+@@ -8,13 +8,20 @@
+ - implement Surface class that handles images larger then the maximum
+   texture size
+ 
++- remove round_res(), replace it with something else to allow images
++  in original size
++
+ - added support for ~/.thumbnails/ to get the smaller mipmaps faster
+ 
+-- create a two OpenGL context to allow better multithreading use (any
++- create two OpenGL context to allow better multithreading use (any
+   way to do it portable?)
+ 
+ - move over input code from Pingus to support Spacenavigator and such
+ 
++- implement faster realpath(), i.e. no link resolution
++
++- cache file sets
++
+ 
+ Misc Stuff:
+ ===========
+
+Modified: trunk/griv/filesystem.cpp
+===================================================================
+--- trunk/griv/filesystem.cpp	2007-11-20 01:50:08 UTC (rev 1563)
++++ trunk/griv/filesystem.cpp	2007-11-21 21:21:42 UTC (rev 1564)
+@@ -23,15 +23,16 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;dirent.h&gt;
+ #include &lt;errno.h&gt;
+-#include &lt;sys/stat.h&gt;
+-#include &lt;sys/types.h&gt;
++#include &lt;iostream&gt;
+ #include &lt;stdexcept&gt;
+-#include &lt;iostream&gt;
+-#include &lt;dirent.h&gt;
+ #include &lt;sys/stat.h&gt;
++#include &lt;sys/stat.h&gt;
+ #include &lt;sys/types.h&gt;
+ #include &lt;unistd.h&gt;
++#include &lt;sys/time.h&gt;
++#include &lt;utime.h&gt;
+ #include &lt;boost/format.hpp&gt;
+ //#include &lt;attr/xattr.h&gt;
+ 
+@@ -169,4 +170,59 @@
+     return false;
+ }
+ 
++void
++Filesystem::copy_mtime(const std::string&amp; from_filename, const std::string&amp; to_filename)
++{
++  struct stat stat_buf;
++  if (stat(from_filename.c_str(), &amp;stat_buf) != 0)
++    {
++      throw std::runtime_error(from_filename + &quot;: &quot; + strerror(errno));
++    }
++
++  struct utimbuf time_buf; 
++  time_buf.actime  = stat_buf.st_atime;
++  time_buf.modtime = stat_buf.st_mtime;
++
++  if (utime(to_filename.c_str(), &amp;time_buf) != 0)
++    {
++      std::cout &lt;&lt; &quot;Filesystem:copy_mtime: &quot; &lt;&lt; to_filename &lt;&lt; &quot;: &quot; &lt;&lt; strerror(errno) &lt;&lt; std::endl;
++    }
++}
++
++unsigned int
++Filesystem::get_mtime(const std::string&amp; filename)
++{
++  struct stat stat_buf;
++  if (stat(filename.c_str(), &amp;stat_buf) != 0)
++    {
++      throw std::runtime_error(filename + &quot;: &quot; + strerror(errno));
++    } 
++  return stat_buf.st_mtime;
++}
++
++void
++Filesystem::generate_jpeg_file_list(const std::string&amp; pathname, std::vector&lt;std::string&gt;&amp; file_list)
++{
++  if (Filesystem::is_directory(pathname))
++    {
++      std::vector&lt;std::string&gt; dir_list = Filesystem::open_directory(pathname);
++      for(std::vector&lt;std::string&gt;::iterator i = dir_list.begin(); i != dir_list.end(); ++i)
++        {
++          generate_jpeg_file_list(*i, file_list);
++        }
++    }
++  else
++    {
++      if (Filesystem::has_extension(pathname, &quot;.jpg&quot;)  ||
++          Filesystem::has_extension(pathname, &quot;.JPG&quot;)  ||
++          Filesystem::has_extension(pathname, &quot;.jpe&quot;)  ||
++          Filesystem::has_extension(pathname, &quot;.JPE&quot;)  ||
++          Filesystem::has_extension(pathname, &quot;.JPEG&quot;) ||
++          Filesystem::has_extension(pathname, &quot;.jpeg&quot;))
++        {
++          file_list.push_back(&quot;<A HREF="file://">file://</A>&quot; + Filesystem::realpath(pathname));
++        }
++    }
++}
++
+ /* EOF */
+
+Modified: trunk/griv/filesystem.hpp
+===================================================================
+--- trunk/griv/filesystem.hpp	2007-11-20 01:50:08 UTC (rev 1563)
++++ trunk/griv/filesystem.hpp	2007-11-21 21:21:42 UTC (rev 1564)
+@@ -43,7 +43,12 @@
+   static std::string get_home() { return home_directory; }
+   static std::string realpath(const std::string&amp; pathname);
+   static bool has_extension(const std::string&amp; pathname, const std::string&amp; ext);
++  static void copy_mtime(const std::string&amp; from_filename, const std::string&amp; to_filename);
++  static unsigned int get_mtime(const std::string&amp; filename);
+   
++  /** Generate a recursive list of all JPEGs in pathname */
++  static void generate_jpeg_file_list(const std::string&amp; pathname, std::vector&lt;std::string&gt;&amp; file_list);
++
+   static void init();
+   static void deinit();
+ };
+
+Modified: trunk/griv/griv.cpp
+===================================================================
+--- trunk/griv/griv.cpp	2007-11-20 01:50:08 UTC (rev 1563)
++++ trunk/griv/griv.cpp	2007-11-21 21:21:42 UTC (rev 1564)
+@@ -22,6 +22,11 @@
+ {
+   zoom_in_pressed = false;
+   zoom_out_pressed = false;
++  grid_size = 2;
++  draw_grid = false;
++  grid_color = true;
++  drag_toggle = false;
++  gamma = 1.0f;
+ }
+ 
+ Griv::~Griv()
+@@ -29,6 +34,33 @@
+ }
+ 
+ void
++Griv::gl_draw_grid(int grid_size)
++{
++  glBindTexture(GL_TEXTURE_2D, 0);
++  glBegin(GL_LINES);
++  if (grid_color)
++    glColor4f(1.0f, 1.0f, 1.0f, 0.5f);
++  else
++    glColor4f(0.0f, 0.0f, 0.0f, 0.5f);
++
++  for(int x = Framebuffer::get_width()/grid_size;
++      x &lt; Framebuffer::get_width(); 
++      x += Framebuffer::get_width()/grid_size)
++    {
++      glVertex2f(x, 0);
++      glVertex2f(x, Framebuffer::get_height());
++    }
++
++  for(int y = Framebuffer::get_height()/grid_size;
++      y &lt; Framebuffer::get_height(); y += Framebuffer::get_height()/grid_size)
++    {
++      glVertex2f(0, y);
++      glVertex2f(Framebuffer::get_width(), y);
++    }
++  glEnd();
++}
++
++void
+ Griv::process_events(float delta)
+ {
+   SDL_Event event;
+@@ -68,12 +100,45 @@
+                 x_offset = 0;
+                 y_offset = 0;
+               }
++            else if (event.key.keysym.sym == SDLK_s)
++              {
++                grid_size *= 2;
++                if (grid_size &gt; 128)
++                  grid_size = 2;
++                force_redraw = true;
++              }
++            else if (event.key.keysym.sym == SDLK_g)
++              {
++                draw_grid = !draw_grid;
++                std::cout &lt;&lt; &quot;Drawing grid: &quot; &lt;&lt; draw_grid &lt;&lt; &quot; &quot; &lt;&lt; grid_size &lt;&lt; std::endl;
++                force_redraw = true;
++              }
++            else if (event.key.keysym.sym == SDLK_p)
++              {
++                grid_color = !grid_color;
++                force_redraw = true;
++              }
+             else if (event.key.keysym.sym == SDLK_h)
+               {
+                 highquality = !highquality;
+                 force_redraw = true;
+                 std::cout &lt;&lt; &quot;Highquality: &quot; &lt;&lt; highquality &lt;&lt; std::endl;
+               }
++            else if (event.key.keysym.sym == SDLK_PAGEUP)
++              {
++                gamma *= 1.1f;
++                SDL_SetGamma(gamma, gamma, gamma);
++              }
++            else if (event.key.keysym.sym == SDLK_PAGEDOWN)
++              {
++                gamma /= 1.1f;
++                SDL_SetGamma(gamma, gamma, gamma);
++              }
++            else if (event.key.keysym.sym == SDLK_END)
++              {
++                gamma = 1.0f;
++                SDL_SetGamma(gamma, gamma, gamma);
++              }
+             else if (event.key.keysym.sym == SDLK_9)
+               {
+                 workspace-&gt;layout(4,3);
+@@ -123,6 +188,15 @@
+                 workspace-&gt;rotation += 90.0f;
+                 force_redraw = true;
+               }
++            else if (event.key.keysym.sym == SDLK_d)
++              {
++                drag_toggle = !drag_toggle;
++                if (!drag_toggle)
++                  {
++                    SDL_ShowCursor(SDL_ENABLE);
++                    SDL_WM_GrabInput(SDL_GRAB_OFF);
++                  }
++              }
+             else if (event.key.keysym.sym == SDLK_b)
+               {
+                 std::cout &lt;&lt; x_offset &lt;&lt; &quot;, &quot; &lt;&lt; y_offset &lt;&lt; std::endl;
+@@ -138,6 +212,10 @@
+                 x_offset += event.motion.xrel*4;
+                 y_offset += event.motion.yrel*4;
+               }
++            if (0)
++            std::cout &lt;&lt; event.motion.xrel &lt;&lt; &quot; &quot; &lt;&lt; event.motion.yrel  &lt;&lt; &quot; &quot;
++                      &lt;&lt; x_offset &lt;&lt; &quot; &quot; &lt;&lt; y_offset 
++                      &lt;&lt; std::endl;
+             break;
+ 
+           case SDL_MOUSEBUTTONDOWN:
+@@ -173,7 +251,24 @@
+               }
+             else if (event.button.button == 2)
+               {
+-                drag_n_drop = event.button.state;
++                if (!drag_toggle)
++                  {
++                    drag_n_drop = event.button.state;
++                  }
++                else if (event.button.state == SDL_PRESSED)
++                  {
++                    drag_n_drop = !drag_n_drop;
++                    if (drag_n_drop)
++                      {
++                        SDL_ShowCursor(SDL_DISABLE);
++                        SDL_WM_GrabInput(SDL_GRAB_ON);
++                      }
++                    else
++                      {
++                        SDL_ShowCursor(SDL_ENABLE);
++                        SDL_WM_GrabInput(SDL_GRAB_OFF);
++                      }
++                  }
+               }
+             break;
+         }
+@@ -198,32 +293,57 @@
+ 
+   if (zoom_out_pressed &amp;&amp; !zoom_in_pressed)
+     {
+-      workspace-&gt;zoom_out(mouse_x - Framebuffer::get_width()/2,
+-                          mouse_y - Framebuffer::get_height()/2,
+-                          1.0f + zoom_speed * delta);
++      if (drag_toggle &amp;&amp; drag_n_drop)
++        workspace-&gt;zoom_out(0,
++                            0,
++                            1.0f + zoom_speed * delta);
++      else
++        workspace-&gt;zoom_out(mouse_x - Framebuffer::get_width()/2,
++                            mouse_y - Framebuffer::get_height()/2,
++                            1.0f + zoom_speed * delta);
+       loader.clear();
+     }
+   else if (!zoom_out_pressed &amp;&amp; zoom_in_pressed)
+     {
+-      workspace-&gt;zoom_in(mouse_x - Framebuffer::get_width()/2,
+-                         mouse_y - Framebuffer::get_height()/2,
+-                         1.0f + zoom_speed * delta);    
++      if (drag_toggle &amp;&amp; drag_n_drop)
++        workspace-&gt;zoom_in(0,
++                            0,
++                            1.0f + zoom_speed * delta);
++      else
++        workspace-&gt;zoom_in(mouse_x - Framebuffer::get_width()/2,
++                           mouse_y - Framebuffer::get_height()/2,
++                           1.0f + zoom_speed * delta);    
+       loader.clear();
+     }
+ }
+ 
++
++
+ int
+ Griv::main(int argc, char** argv)
+ {
+   Filesystem::init();
++
++  std::cout &lt;&lt; &quot;Generating file list... &quot; &lt;&lt; std::flush;
++  std::vector&lt;std::string&gt; file_list;
++  for(int i = 1; i &lt; argc; ++i)
++      Filesystem::generate_jpeg_file_list(argv[i], file_list);
++  std::cout &lt;&lt; &quot;done&quot; &lt;&lt; std::endl;
++
+   Framebuffer::init();
+   
+   workspace = new Workspace();
+ 
+-  for(int i = 1; i &lt; argc; ++i)
++  for(std::vector&lt;std::string&gt;::iterator i = file_list.begin(); i != file_list.end(); ++i)
+     {
+-      workspace-&gt;add(argv[i]);
++      workspace-&gt;add(*i);
++      if ((i - file_list.begin() + 1) % 13 == 0)
++        std::cout &lt;&lt; &quot;Adding images to workspace... &quot; 
++                  &lt;&lt; (i - file_list.begin() + 1) &lt;&lt; &quot;/&quot; &lt;&lt; file_list.size() 
++                  &lt;&lt; &quot;\r&quot; &lt;&lt; std::flush;
+     }
++  std::cout &lt;&lt; &quot;done&quot; &lt;&lt; std::endl;
++      
+   workspace-&gt;layout(4,3);
+   std::cout &lt;&lt; &quot; done&quot; &lt;&lt; std::endl;
+ 
+@@ -264,6 +384,10 @@
+               Framebuffer::clear();
+               workspace-&gt;update(delta / 1000.0f);
+               workspace-&gt;draw();
++              
++              if (draw_grid)
++                gl_draw_grid(grid_size);
++
+               Framebuffer::flip();
+ 
+               old_res = workspace-&gt;res;
+
+Modified: trunk/griv/griv.hpp
+===================================================================
+--- trunk/griv/griv.hpp	2007-11-20 01:50:08 UTC (rev 1563)
++++ trunk/griv/griv.hpp	2007-11-21 21:21:42 UTC (rev 1564)
+@@ -51,11 +51,16 @@
+   bool zoom_out_pressed;
+   int  mouse_x;
+   int  mouse_y;
+-
++  int  grid_size;
++  bool draw_grid;
++  bool grid_color;
++  bool drag_toggle;
++  float gamma;
+ public:
+   Griv();
+   ~Griv();
+-  
++
++  void gl_draw_grid(int grid_size);
+   void process_events(float delta);
+   int main(int argc, char** argv);
+ };
+
+Modified: trunk/griv/image.cpp
+===================================================================
+--- trunk/griv/image.cpp	2007-11-20 01:50:08 UTC (rev 1563)
++++ trunk/griv/image.cpp	2007-11-21 21:21:42 UTC (rev 1564)
+@@ -25,13 +25,17 @@
+ 
+ #include &lt;iostream&gt;
+ #include &lt;GL/gl.h&gt;
++#include &quot;filesystem.hpp&quot;
+ #include &quot;SDL_image.h&quot;
+ #include &quot;texture.hpp&quot;
+ #include &quot;image.hpp&quot;
++#include &quot;jpeg.hpp&quot;
+ #include &quot;surface.hpp&quot;
+ 
+ Image::Image(const std::string&amp; url)
+   : url(url), 
++    original_width(0),
++    original_height(0),
+     requested_res(0),
+ 
+     received_surface(0),
+@@ -45,6 +49,12 @@
+     last_x_pos(0),
+     last_y_pos(0)
+ {
++  // FIXME: Slow, make this in a seperate thread
++  JPEG::get_size(url.substr(7), original_width, original_height);
++  original_mtime = Filesystem::get_mtime(url.substr(7));
++
++  //std::cout &lt;&lt; url &lt;&lt; &quot; &quot; &lt;&lt; original_width &lt;&lt; &quot;x&quot; &lt;&lt; original_height &lt;&lt; std::endl;
++  
+   mutex = SDL_CreateMutex();
+ }
+ 
+
+Modified: trunk/griv/image.hpp
+===================================================================
+--- trunk/griv/image.hpp	2007-11-20 01:50:08 UTC (rev 1563)
++++ trunk/griv/image.hpp	2007-11-21 21:21:42 UTC (rev 1564)
+@@ -37,6 +37,9 @@
+ {
+ public:
+   std::string url;
++  int original_width;
++  int original_height;
++  unsigned int original_mtime;
+ 
+   int  requested_res;
+ 
+
+Modified: trunk/griv/loader.cpp
+===================================================================
+--- trunk/griv/loader.cpp	2007-11-20 01:50:08 UTC (rev 1563)
++++ trunk/griv/loader.cpp	2007-11-21 21:21:42 UTC (rev 1564)
+@@ -116,8 +116,8 @@
+           else
+             {
+               // No thumbnail, assuming we need the original
+-              if (0)
+-                { // FIXME: Wonky, gets super slow for some reason
++              std::cout &lt;&lt; &quot;Loading original: &quot; &lt;&lt; job.image-&gt;url &lt;&lt; std::endl;
++                { 
+                   img = IMG_Load(job.image-&gt;url.substr(7).c_str()); // cut <A HREF="file://">file://</A> part
+                   std::cout &lt;&lt; &quot;Loading: &quot; &lt;&lt; job.image-&gt;requested_res &lt;&lt; &quot; &quot; &lt;&lt; img &lt;&lt; &quot; &quot; 
+                             &lt;&lt; img-&gt;w &lt;&lt; &quot;x&quot; &lt;&lt; img-&gt;h &lt;&lt; &quot; &quot;
+
+Modified: trunk/griv/surface.cpp
+===================================================================
+--- trunk/griv/surface.cpp	2007-11-20 01:50:08 UTC (rev 1563)
++++ trunk/griv/surface.cpp	2007-11-21 21:21:42 UTC (rev 1564)
+@@ -26,16 +26,34 @@
+ #include &lt;iostream&gt;
+ #include &lt;assert.h&gt;
+ #include &quot;display.hpp&quot;
++#include &quot;math.hpp&quot;
+ #include &quot;surface.hpp&quot;
+ 
+ Surface::Surface(SDL_Surface* surface, int res)
+   : surface(surface),
+-    res(res)
++    res(res),
++    texture(0)
+ {
+   assert(surface);
+-  texture = new Texture(res, res, 
+-                        surface, 
+-                        0, 0, surface-&gt;w, surface-&gt;h);
++
++  tex_w = Math::round_to_power_of_two(surface-&gt;w);
++  tex_h = Math::round_to_power_of_two(surface-&gt;h);
++
++  if (tex_w &lt;= 1024 &amp;&amp; tex_h &lt;= 1024)
++    {
++      texture = new Texture(tex_w, tex_h, 
++                            surface, 
++                            0, 0, surface-&gt;w, surface-&gt;h);
++    
++      u = float(surface-&gt;w) / tex_w;
++      v = float(surface-&gt;h) / tex_h;
++
++      aspect = float(surface-&gt;w) / surface-&gt;h;
++    }
++  else
++    {
++      std::cout &lt;&lt; &quot;Image violates maximum texture size: &quot; &lt;&lt; surface-&gt;w &lt;&lt; &quot;x&quot; &lt;&lt; surface-&gt;h &lt;&lt; std::endl;
++    }
+ }
+ 
+ Surface::~Surface()
+@@ -45,25 +63,40 @@
+ }
+ 
+ void
+-Surface::draw(float x, float y, float w, float h)
++Surface::draw(float x, float y, float orig_w, float orig_h)
+ {
+-  if (surface)
++  if (texture)
+     {
+       texture-&gt;bind();
+       
+       glColor3f(1.0f, 1.0f, 1.0f);
+ 
++      float w, h;
++      if (aspect &gt; 1.0f)
++        { // FIXME: This only works as long as w == h
++          w = orig_w;
++          h = orig_h / aspect;
++        }
++      else
++        {
++          w = orig_w * aspect;
++          h = orig_h;
++        }
++
++      x += (orig_w - w)/2;
++      y += (orig_h - h)/2;
++     
+       glBegin(GL_QUADS);
+       glTexCoord2f(0,0);
+       glVertex2f(x, y);
+ 
+-      glTexCoord2f(1,0);
++      glTexCoord2f(u,0);
+       glVertex2f(x + w, y);
+ 
+-      glTexCoord2f(1,1);
++      glTexCoord2f(u,v);
+       glVertex2f(x + w, y + h);
+ 
+-      glTexCoord2f(0,1);
++      glTexCoord2f(0,v);
+       glVertex2f(x, y + h);
+       glEnd();
+     }
+
+Modified: trunk/griv/surface.hpp
+===================================================================
+--- trunk/griv/surface.hpp	2007-11-20 01:50:08 UTC (rev 1563)
++++ trunk/griv/surface.hpp	2007-11-21 21:21:42 UTC (rev 1564)
+@@ -38,7 +38,14 @@
+   int res;
+   
+   Texture* texture;
++  int tex_w;
++  int tex_h;
+ 
++  float u;
++  float v;
++
++  float aspect;
++
+ public:
+   Surface(SDL_Surface* surface, int res);
+   ~Surface();
+
+Modified: trunk/griv/texture.cpp
+===================================================================
+--- trunk/griv/texture.cpp	2007-11-20 01:50:08 UTC (rev 1563)
++++ trunk/griv/texture.cpp	2007-11-21 21:21:42 UTC (rev 1564)
+@@ -118,12 +118,14 @@
+ 
+   assert_gl(&quot;packing image texture&quot;);
+ 
+-  if (surface-&gt;pitch != (surface-&gt;w * surface-&gt;format-&gt;BytesPerPixel))
+-    std::cout  &lt;&lt; surface-&gt;pitch &lt;&lt; &quot; &quot; &lt;&lt; (surface-&gt;w * surface-&gt;format-&gt;BytesPerPixel) &lt;&lt; std::endl;
++  // if (surface-&gt;pitch != (surface-&gt;w * surface-&gt;format-&gt;BytesPerPixel))
++  //   std::cout  &lt;&lt; surface-&gt;pitch &lt;&lt; &quot; &quot; &lt;&lt; (surface-&gt;w * surface-&gt;format-&gt;BytesPerPixel) &lt;&lt; std::endl;
+ 
+   //std::cout &lt;&lt; surface-&gt;pitch &lt;&lt; &quot; &quot; &lt;&lt; s_w &lt;&lt; &quot; &quot; &lt;&lt; s_h &lt;&lt; std::endl;
+   glPixelStorei(GL_UNPACK_ROW_LENGTH, surface-&gt;w);
+-  glPixelStorei(GL_UNPACK_ALIGNMENT,  4);
++  glPixelStorei(GL_UNPACK_ALIGNMENT,  4); // FIXME: This alignment is
++                                          // guessed, we better should
++                                          // check it
+ 
+   // Upload the subimage
+   glTexSubImage2D(GL_TEXTURE_2D, 0, 
+
+Modified: trunk/griv/thumbgen.cpp
+===================================================================
+--- trunk/griv/thumbgen.cpp	2007-11-20 01:50:08 UTC (rev 1563)
++++ trunk/griv/thumbgen.cpp	2007-11-21 21:21:42 UTC (rev 1564)
+@@ -11,9 +11,10 @@
+ bool verbose = false;
+ 
+ void
+-generate_thumbnails(const std::string&amp; filename, int quality, const std::vector&lt;int&gt;&amp; sizes)
++generate_thumbnails(const std::string&amp; url, int quality, const std::vector&lt;int&gt;&amp; sizes)
+ {
+-  std::string m = MD5::md5_string(&quot;<A HREF="file://">file://</A>&quot; + filename);
++  std::string filename = url.substr(7);
++  std::string m = MD5::md5_string(url);
+       
+   for(int i = 0; i &lt; int(sizes.size()); ++i)
+     {
+@@ -58,31 +59,6 @@
+     }
+ }
+ 
+-void
+-generate_file_list(const std::string&amp; pathname, std::vector&lt;std::string&gt;&amp; file_list)
+-{
+-  if (Filesystem::is_directory(pathname))
+-    {
+-      std::vector&lt;std::string&gt; dir_list = Filesystem::open_directory(pathname);
+-      for(std::vector&lt;std::string&gt;::iterator i = dir_list.begin(); i != dir_list.end(); ++i)
+-        {
+-          generate_file_list(*i, file_list);
+-        }
+-    }
+-  else
+-    {
+-      if (Filesystem::has_extension(pathname, &quot;.jpg&quot;)  ||
+-          Filesystem::has_extension(pathname, &quot;.JPG&quot;)  ||
+-          Filesystem::has_extension(pathname, &quot;.jpe&quot;)  ||
+-          Filesystem::has_extension(pathname, &quot;.JPE&quot;)  ||
+-          Filesystem::has_extension(pathname, &quot;.JPEG&quot;) ||
+-          Filesystem::has_extension(pathname, &quot;.jpeg&quot;))
+-        {
+-          file_list.push_back(Filesystem::realpath(pathname));
+-        }
+-    }
+-}
+-
+ void parse_number_list(const std::string&amp; str, std::vector&lt;int&gt;&amp; sizes)
+ {
+   // FIXME: implement me
+@@ -194,7 +170,7 @@
+         std::cout &lt;&lt; &quot;Generating file list... &quot; &lt;&lt; std::flush;
+         std::vector&lt;std::string&gt; file_list;
+         for(std::vector&lt;std::string&gt;::iterator i = pathnames.begin(); i != pathnames.end(); ++i)
+-          generate_file_list(*i, file_list);
++          Filesystem::generate_jpeg_file_list(*i, file_list);
+         std::cout &lt;&lt; file_list.size() &lt;&lt; &quot; files found&quot; &lt;&lt; std::endl;;
+ 
+         int progress_scale = 70;
+
+Modified: trunk/griv/workspace.cpp
+===================================================================
+--- trunk/griv/workspace.cpp	2007-11-20 01:50:08 UTC (rev 1563)
++++ trunk/griv/workspace.cpp	2007-11-21 21:21:42 UTC (rev 1564)
+@@ -105,25 +105,9 @@
+ }
+ 
+ void
+-Workspace::add(const std::string&amp; filename)
++Workspace::add(const std::string&amp; url)
+ {
+-  // if directory, do recursion
+-  if (Filesystem::is_directory(filename))
+-    {
+-      std::cout &lt;&lt; '.' &lt;&lt; std::flush;
+-      std::vector&lt;std::string&gt; dir_list = Filesystem::open_directory(filename);
+-      for(std::vector&lt;std::string&gt;::iterator i = dir_list.begin(); i != dir_list.end(); ++i)
+-        {
+-          if (*i != &quot;.xvpics&quot;)
+-            add(*i);
+-        }
+-    }
+-  else if (has_suffix(filename, &quot;.jpg&quot;) ||
+-           has_suffix(filename, &quot;.JPG&quot;))
+-    {
+-      std::string url = &quot;<A HREF="file://">file://</A>&quot; + Filesystem::realpath(filename);
+-      images.push_back(new Image(url));
+-    }
++  images.push_back(new Image(url));
+ }
+ 
+ void
+@@ -132,9 +116,9 @@
+   float old_res = res;
+   res *= zoom;
+   
+-  if (res &gt; 8192) 
++  if (res &gt; 8192*4) // zoom limit
+     {
+-      res = 8192;
++      res = 8192*4;
+       zoom = res / old_res;
+     }
+ 
+
+Modified: trunk/griv/workspace.hpp
+===================================================================
+--- trunk/griv/workspace.hpp	2007-11-20 01:50:08 UTC (rev 1563)
++++ trunk/griv/workspace.hpp	2007-11-21 21:21:42 UTC (rev 1564)
+@@ -45,7 +45,7 @@
+ 
+   void draw();
+   void update(float delta);
+-  void add(const std::string&amp; filename);
++  void add(const std::string&amp; url);
+ 
+   void zoom_in(int mouse_x, int mouse_y, float zoom);
+   void zoom_out(int mouse_x, int mouse_y, float zoom);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001214.html">[Windstille-commit] r1563 - trunk/htdocs
+</A></li>
+	<LI>Next message: <A HREF="001216.html">[Windstille-commit] r1565 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1215">[ date ]</a>
+              <a href="thread.html#1215">[ thread ]</a>
+              <a href="subject.html#1215">[ subject ]</a>
+              <a href="author.html#1215">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

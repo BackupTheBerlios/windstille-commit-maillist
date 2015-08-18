@@ -1,0 +1,182 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1542 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1542%20-%20trunk/griv&In-Reply-To=%3C200711141315.lAEDF1H7011078%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001191.html">
+   <LINK REL="Next"  HREF="001193.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1542 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1542%20-%20trunk/griv&In-Reply-To=%3C200711141315.lAEDF1H7011078%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1542 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Nov 14 14:15:01 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001191.html">[Windstille-commit] r1541 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001193.html">[Windstille-commit] r1543 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1192">[ date ]</a>
+              <a href="thread.html#1192">[ thread ]</a>
+              <a href="subject.html#1192">[ subject ]</a>
+              <a href="author.html#1192">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-14 14:15:01 +0100 (Wed, 14 Nov 2007)
+New Revision: 1542
+
+Modified:
+   trunk/griv/griv.cpp
+   trunk/griv/image.cpp
+   trunk/griv/workspace.cpp
+Log:
+- some opimizations
+
+Modified: trunk/griv/griv.cpp
+===================================================================
+--- trunk/griv/griv.cpp	2007-11-14 12:50:07 UTC (rev 1541)
++++ trunk/griv/griv.cpp	2007-11-14 13:15:01 UTC (rev 1542)
+@@ -129,11 +129,12 @@
+     {
+       workspace-&gt;add(argv[i]);
+     }
++  std::cout &lt;&lt; &quot; done&quot; &lt;&lt; std::endl;
+ 
+   {
+     int w = int(sqrt(4 * workspace-&gt;size() / 3));
+-    x_offset = (-w/2) * 16;
+-    y_offset = (-(w*3/4)/2) * 16;
++    x_offset = (-w/2) * 4;
++    y_offset = (-(w*3/4)/2) * 4;
+   }
+   
+   drag_n_drop = false;
+
+Modified: trunk/griv/image.cpp
+===================================================================
+--- trunk/griv/image.cpp	2007-11-14 12:50:07 UTC (rev 1541)
++++ trunk/griv/image.cpp	2007-11-14 13:15:01 UTC (rev 1542)
+@@ -144,11 +144,15 @@
+             {
+               if (!texture || texture-&gt;surface != surface)
+                 {
+-                  delete texture;
+-                  texture = new Texture(surface);
+-
+                   if (!texture_16x16)
+-                    texture_16x16 = new Texture(surface);
++                    {
++                      texture_16x16 = new Texture(surface);
++                    }
++                  else
++                    {
++                      delete texture;
++                      texture = new Texture(surface);
++                    }
+                 }
+             }
+ 
+@@ -182,19 +186,19 @@
+ int
+ Image::round_res(int r)
+ {
+-  if (r &lt;= 16)
++  if (r &lt;= 32)
+     return 16;
+-  else if (r &lt;= 32)
++  else if (r &lt;= 64)
+     return 32;
+-  else if (r &lt;= 64)
++  else if (r &lt;= 128)
+     return 64;
+-  else if (r &lt;= 128)
++  else if (r &lt;= 256)
+     return 128;
+-  else if (r &lt;= 256)
++  else if (r &lt;= 512)
+     return 256;
+-  else if (r &lt;= 512)
++  else if (r &lt; 1024)
+     return 512;
+-  else // if (r &lt;= 1024)
++  else // if (r &lt;= 1024) // zoom limit, 2048 textures make the thing crash
+     return 1024;
+ }
+ 
+
+Modified: trunk/griv/workspace.cpp
+===================================================================
+--- trunk/griv/workspace.cpp	2007-11-14 12:50:07 UTC (rev 1541)
++++ trunk/griv/workspace.cpp	2007-11-14 13:15:01 UTC (rev 1542)
+@@ -37,7 +37,7 @@
+ 
+ Workspace::Workspace()
+ {
+-  res = 16;
++  res = 4;
+ }
+ 
+ void
+@@ -81,9 +81,9 @@
+   float old_res = res;
+   res *= zoom;
+   
+-  if (res &gt; 1024) // zoom limit, 2048 textures make the thing crash
++  if (res &gt; 8192) 
+     {
+-      res = 1024;
++      res = 8192;
+       zoom = res / old_res;
+     }
+ 
+@@ -100,9 +100,9 @@
+   float old_res = res;
+   res /= zoom;
+ 
+-  if (res &lt; 16)
++  if (res &lt; 4)
+     {
+-      res = 16;
++      res = 4;
+       zoom = old_res / res;
+     }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001191.html">[Windstille-commit] r1541 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001193.html">[Windstille-commit] r1543 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1192">[ date ]</a>
+              <a href="thread.html#1192">[ thread ]</a>
+              <a href="subject.html#1192">[ subject ]</a>
+              <a href="author.html#1192">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

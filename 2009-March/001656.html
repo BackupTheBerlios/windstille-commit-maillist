@@ -1,0 +1,852 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2659 - in trunk/windstille: .	data/sectors/newformat2 src/hud src/objects src/screen
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2659%20-%20in%20trunk/windstille%3A%20.%0A%09data/sectors/newformat2%20src/hud%20src/objects%20src/screen&In-Reply-To=%3C200903141348.n2EDmP6r030388%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001655.html">
+   <LINK REL="Next"  HREF="001657.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2659 - in trunk/windstille: .	data/sectors/newformat2 src/hud src/objects src/screen</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2659%20-%20in%20trunk/windstille%3A%20.%0A%09data/sectors/newformat2%20src/hud%20src/objects%20src/screen&In-Reply-To=%3C200903141348.n2EDmP6r030388%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2659 - in trunk/windstille: .	data/sectors/newformat2 src/hud src/objects src/screen">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Mar 14 14:48:25 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001655.html">[Windstille-commit] r2658 - in trunk/windstille: . src/hud
+</A></li>
+        <LI>Next message: <A HREF="001657.html">[Windstille-commit] r2660 - trunk/windstille/src/objects
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1656">[ date ]</a>
+              <a href="thread.html#1656">[ thread ]</a>
+              <a href="subject.html#1656">[ subject ]</a>
+              <a href="author.html#1656">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-14 14:48:23 +0100 (Sat, 14 Mar 2009)
+New Revision: 2659
+
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/data/sectors/newformat2/newformat2.nut
+   trunk/windstille/src/hud/pda.cpp
+   trunk/windstille/src/hud/pda.hpp
+   trunk/windstille/src/hud/speech_manager.cpp
+   trunk/windstille/src/hud/speech_manager.hpp
+   trunk/windstille/src/objects/player.cpp
+   trunk/windstille/src/objects/player.hpp
+   trunk/windstille/src/screen/game_session.cpp
+   trunk/windstille/src/screen/game_session.hpp
+   trunk/windstille/src/screen/view.cpp
+   trunk/windstille/src/screen/view.hpp
+Log:
+Random cleanup
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-03-13 22:44:11 UTC (rev 2658)
++++ trunk/windstille/TODO	2009-03-14 13:48:23 UTC (rev 2659)
+@@ -14,6 +14,12 @@
+ * maybe: introduce some cleaner seperation between scripts that are
+   allowed to suspend and those that aren't
+ 
++  - name them differently
++  - name their trigger/hooks differently
++  - remove suspendable functions from roottable
++  - put suspendable functions into a different namespace
++  - ...
++
+ * NavigationGraph needs hooks into scripting, so that things can be
+   triggered when a character passes over a specific trigger node or
+   things like that.
+@@ -155,14 +161,23 @@
+ Miscellaneous
+ =============
+ 
++* No object shall grab input by itself, instead the Screen should
++  route it, i.e. Player is grabbing input itself, this leads to
++  problems
++
++* map laserpointer to the second analog-stick, make mapping absolute,
++  not relative, also add option to toggle between debugging mapping
++  and gameplay mapping (i.e. moving view via second analogstick)
++
++* maybe create an additional layer in SceneContext for drawing things
++  like Speech and other worldspace GUI elements to it
++
+ * implement proper word wrap in SpeechManager and also add code to
+   'unstuck' speech bubbles when they go over the window border.
+ 
+   Also SpeechManager should act in worldspace, not screenspace or
+   something clever inbetween.
+ 
+-* Add option for ControllerHelpWindow to option menu
+-
+ * cleanup TextArea/text_area.cpp, having scrolling and running text
+   together doesn't make all that much sense, also functions are too
+   large
+@@ -180,8 +195,9 @@
+   scroll bars on large resolutions and empty space when they have to
+   few items
+ 
+-* create a UTF32 string class, maybe based on basic_string&lt;uint32_t&gt;,
+-  for use in console
++* create a UTF32 string class for use in console, basically
++  basic_string&lt;uint32_t&gt; and a convert function to UTF-8 should be
++  enough
+ 
+ * join Player and Character somewhat or derive one from the other, so
+   that one can have scripted people running and jumping around
+
+Modified: trunk/windstille/data/sectors/newformat2/newformat2.nut
+===================================================================
+--- trunk/windstille/data/sectors/newformat2/newformat2.nut	2009-03-13 22:44:11 UTC (rev 2658)
++++ trunk/windstille/data/sectors/newformat2/newformat2.nut	2009-03-14 13:48:23 UTC (rev 2659)
+@@ -19,7 +19,6 @@
+ 
+ function run()
+ {
+-  set_controller_help_active(true);
+   objects.player_flames2.set_active(false);
+   objects.player_flames.set_active(false);      
+ 
+
+Modified: trunk/windstille/src/hud/pda.cpp
+===================================================================
+--- trunk/windstille/src/hud/pda.cpp	2009-03-13 22:44:11 UTC (rev 2658)
++++ trunk/windstille/src/hud/pda.cpp	2009-03-14 13:48:23 UTC (rev 2659)
+@@ -41,6 +41,10 @@
+   background = Sprite(&quot;images/pda/pda.sprite&quot;);
+ }
+ 
++PDA::~PDA()
++{
++}
++
+ void
+ PDA::draw()
+ {
+
+Modified: trunk/windstille/src/hud/pda.hpp
+===================================================================
+--- trunk/windstille/src/hud/pda.hpp	2009-03-13 22:44:11 UTC (rev 2658)
++++ trunk/windstille/src/hud/pda.hpp	2009-03-14 13:48:23 UTC (rev 2659)
+@@ -62,6 +62,7 @@
+ 
+ public:
+   PDA();
++  virtual ~PDA();
+ 
+   void draw();
+   void update(float delta, const Controller&amp; controller);
+
+Modified: trunk/windstille/src/hud/speech_manager.cpp
+===================================================================
+--- trunk/windstille/src/hud/speech_manager.cpp	2009-03-13 22:44:11 UTC (rev 2658)
++++ trunk/windstille/src/hud/speech_manager.cpp	2009-03-14 13:48:23 UTC (rev 2659)
+@@ -82,8 +82,6 @@
+ {
+   assert(current_ == 0);
+   current_ = this;
+-
+-  add(&quot;Hello World&quot;, Vector2f(320, 200), Color(255, 255, 0));
+ }
+ 
+ SpeechManager::~SpeechManager()
+@@ -96,18 +94,13 @@
+ }
+ 
+ int
+-SpeechManager::add(const std::string&amp; text, 
+-                   const Entity&amp; entity,
+-                   const Color&amp; color)
++SpeechManager::add(const std::string&amp; text, const Entity&amp; entity, const Color&amp; color)
+ {
+   return add(text, entity.get_pos(), color);
+ }
+ 
+-
+ int
+-SpeechManager::add(const std::string&amp; text, 
+-                   const Vector2f&amp; pos, 
+-                   const Color&amp; color)
++SpeechManager::add(const std::string&amp; text, const Vector2f&amp; pos, const Color&amp; color)
+ {
+   int this_speech_id = speech_id;
+   speeches.push_back(new Speech(this_speech_id, text, pos, color));
+@@ -126,7 +119,7 @@
+ }
+ 
+ void
+-SpeechManager::update(float delta, const Controller&amp; controller)
++SpeechManager::update(float delta)
+ {
+   for(Speeches::iterator i= speeches.begin(); i != speeches.end(); ++i)
+     {
+
+Modified: trunk/windstille/src/hud/speech_manager.hpp
+===================================================================
+--- trunk/windstille/src/hud/speech_manager.hpp	2009-03-13 22:44:11 UTC (rev 2658)
++++ trunk/windstille/src/hud/speech_manager.hpp	2009-03-14 13:48:23 UTC (rev 2659)
+@@ -21,7 +21,6 @@
+ 
+ #include &lt;string&gt;
+ #include &lt;vector&gt;
+-#include &quot;screen/screen.hpp&quot;
+ #include &quot;math/vector2f.hpp&quot;
+ #include &quot;display/color.hpp&quot;
+ 
+@@ -30,7 +29,7 @@
+ 
+ /** The SpeechManager displays speech text over characters or
+     objects, similar to what you see in LucasArts games */
+-class SpeechManager : public Screen
++class SpeechManager
+ {
+ private:
+   static SpeechManager* current_;
+@@ -63,7 +62,7 @@
+           const Color&amp; color = Color(1.0f, 1.0f, 1.0f));
+ 
+   void draw();
+-  void update(float delta, const Controller&amp; controller);
++  void update(float delta);
+ 
+ private:
+   SpeechManager (const SpeechManager&amp;);
+
+Modified: trunk/windstille/src/objects/player.cpp
+===================================================================
+--- trunk/windstille/src/objects/player.cpp	2009-03-13 22:44:11 UTC (rev 2658)
++++ trunk/windstille/src/objects/player.cpp	2009-03-14 13:48:23 UTC (rev 2659)
+@@ -767,7 +767,6 @@
+       cur_vel.x = 0;
+     }
+   c_object-&gt;set_velocity (cur_vel);
+-  
+ }
+ 
+ void 
+
+Modified: trunk/windstille/src/objects/player.hpp
+===================================================================
+--- trunk/windstille/src/objects/player.hpp	2009-03-13 22:44:11 UTC (rev 2658)
++++ trunk/windstille/src/objects/player.hpp	2009-03-14 13:48:23 UTC (rev 2659)
+@@ -98,8 +98,8 @@
+ 
+   int get_movement_state() { return state; }
+ 
+-  void draw (SceneContext&amp; gc);
+-  void update (float delta);
++  void draw(SceneContext&amp; gc);
++  void update(float delta);
+ 
+   void start_listening();
+   void stop_listening();
+@@ -125,43 +125,44 @@
+    * language for this?
+    */
+   
+-  void update_walk_stand();
+-  void set_stand();
++
++  void update_ducked();
++  void update_ducking();
++  void update_listen();
++  void update_run();
+   void update_stand();
+-  void set_walk(Direction direction);
++  void update_stand_to_listen();
++  void update_turnaround();
+   void update_walk();
++  void update_walk_stand();
++  void update_jump_air();
++  void update_jump_begin();
++  void update_jump_land();
++  void update_jump_up_air();
++  void update_jump_up_begin();
++  void update_jump_up_land();
++  void update_pull_gun();
++  void update_stairs(float delta);
++
++  void leave_run();
+   void leave_walk();
++  void set_ducked();
+   void set_ducking();
+-  void update_ducking();
+-  void set_ducked();
+-  void update_ducked();
+-  void set_turnaround();
+-  void update_turnaround();
+-  void set_stand_to_listen(bool backwards);
+-  void update_stand_to_listen();
+   void set_listen();
+-  void update_listen();
+   void set_run();
+-  void update_run();
+-  void leave_run();
++  void set_stand();
++  void set_stand_to_listen(bool backwards);
++  void set_turnaround();
++  void set_walk(Direction direction);
+   
++  void set_jump_air();
+   void set_jump_begin();
+-  void update_jump_begin();
+-  void set_jump_air();
+-  void update_jump_air();
+   void set_jump_land();
+-  void update_jump_land();
+   
++  void set_jump_up_air();
+   void set_jump_up_begin();
+-  void update_jump_up_begin();
+-  void set_jump_up_air();
+-  void update_jump_up_air();
+   void set_jump_up_land();
+-  void update_jump_up_land();
+ 
+-  void update_pull_gun();
+-  void update_stairs(float delta);
+-
+   /**
+    * Sets an action for the sprite. In contrast to sprite-&gt;set_action this
+    * function will not restart the action if it was already running
+
+Modified: trunk/windstille/src/screen/game_session.cpp
+===================================================================
+--- trunk/windstille/src/screen/game_session.cpp	2009-03-13 22:44:11 UTC (rev 2658)
++++ trunk/windstille/src/screen/game_session.cpp	2009-03-14 13:48:23 UTC (rev 2659)
+@@ -93,9 +93,12 @@
+   Inventory     inventory;
+   PDA           pda;
+ 
++  /** Pointer to either pda, inventory, conversation or
++      dialog_manager. Receives input and gets drawn to the screen */
+   Screen* current_gui;
+ 
+-  GameSessionImpl() {
++  GameSessionImpl() 
++  {
+     current_gui    = 0;
+     cutscene_mode  = false;
+     cutscene_value = 0.0f;
+@@ -105,21 +108,29 @@
+     fade_time      = 1.0f;
+   }
+ 
+-  ~GameSessionImpl() {
++  ~GameSessionImpl() 
++  {
+   }
+ 
+   void draw();
++
++  void update_cutscene(float delta);
++  void update_input(float delta);
++  void update_controller(float delta, const Controller&amp; controller);
++  void update_game(float delta);
+   void update(float delta, const Controller&amp; controller);
++  
+   void handle_event(const SDL_Event&amp; event);
+ };
+ 
+ GameSession::GameSession(const std::string&amp; arg_filename)
+   : impl(new GameSessionImpl())
+ {
++  current_ = this;
++
+   impl-&gt;filename = arg_filename;
+ 
+   if (debug) std::cout &lt;&lt; &quot;Creating new GameSession&quot; &lt;&lt; std::endl;
+-  current_ = this;
+ 
+   impl-&gt;pause = false;
+   
+@@ -128,6 +139,7 @@
+ 
+ GameSession::~GameSession()
+ {
++  current_ = 0;
+ }
+ 
+ void
+@@ -153,7 +165,7 @@
+   if (fade_state == FADEOUT || fade_state == FADEIN)
+     {
+       Display::fill_rect(Rect(0, 0, 
+-                               Display::get_width(), Display::get_height()),
++                              Display::get_width(), Display::get_height()),
+                          Color(fade_color.r, fade_color.g, fade_color.b, fadeout_value));
+     }
+ 
+@@ -167,8 +179,8 @@
+ }
+ 
+ void
+-GameSessionImpl::update(float delta, const Controller&amp; controller)
+-{  
++GameSessionImpl::update_cutscene(float delta)
++{
+   // Cutscene stuff (black bars that fade-in/out
+   if (cutscene_mode)
+     cutscene_value += delta * 0.75f;
+@@ -178,55 +190,59 @@
+   if (cutscene_value &gt; 1.0f)
+     cutscene_value = 1.0f;
+   else if (cutscene_value &lt; 0.0f)
+-    cutscene_value = 0.0f;
++    cutscene_value = 0.0f;  
++}
+ 
+-  // if (controller.button_was_pressed(PAUSE_BUTTON))
+-  // pause = !pause;
+-
++void
++GameSessionImpl::update_input(float delta)
++{
+   Uint8 *keystate = SDL_GetKeyState(NULL);
+   
+   // Hacks to play around with the game speed
+   if(keystate[SDLK_KP1])
+     game_speed *= 1.0 - delta;
++
+   if(keystate[SDLK_KP3])
+     game_speed *= 1.0 + delta;
++
+   if(keystate[SDLK_KP5])
+-    game_speed = 1.0;
+- 
+-  delta *= game_speed;
++    game_speed = 1.0;  
++}
+ 
+-  // Update the game
+-  if (!pause)
+-    {
+-      game_time += delta;
+-      ScriptManager::current()-&gt;update();
++void
++GameSessionImpl::update_game(float delta)
++{
++  game_time += delta;
++  ScriptManager::current()-&gt;update();
+       
+-      view.update(delta, controller);
+-      sector-&gt;update(delta);
++  view.update(delta);
++  sector-&gt;update(delta);
++      
++  speech_manager.update(delta);
+   
+-      switch (fade_state)
+-        {
+-        case FADEIN:
+-          if (fadeout_value &lt;= 0.0f)
+-            {
+-              fade_state = RUNNING;
+-              fadeout_value = 0.0f;
+-              ScriptManager::current()-&gt;fire_wakeup_event(ScriptManager::FADE_DONE);
+-            }
+-          else
+-            {
+-              fadeout_value -= delta * fade_time;
+-            }
+-          break;
++  switch (fade_state)
++    {
++      case FADEIN:
++        if (fadeout_value &lt;= 0.0f)
++          {
++            fade_state = RUNNING;
++            fadeout_value = 0.0f;
++            ScriptManager::current()-&gt;fire_wakeup_event(ScriptManager::FADE_DONE);
++          }
++        else
++          {
++            fadeout_value -= delta * fade_time;
++          }
++        break;
+ 
+-        case FADEOUT:
+-          if (fadeout_value &gt;= 1.0f)
+-            { 
+-              fadeout_value = 1.0f;
+-              ScriptManager::current()-&gt;fire_wakeup_event(ScriptManager::FADE_DONE);
++      case FADEOUT:
++        if (fadeout_value &gt;= 1.0f)
++          { 
++            fadeout_value = 1.0f;
++            ScriptManager::current()-&gt;fire_wakeup_event(ScriptManager::FADE_DONE);
+ 
+-              switch(next_action)
+-                {
++            switch(next_action)
++              {
+                 case CHANGE_SECTOR_ACTION:
+                   GameSession::current()-&gt;set_sector(filename);
+                   break;
+@@ -237,23 +253,22 @@
+ 
+                 default:
+                   break;
+-                }
+-            }
+-          else
+-            {
+-              fadeout_value += delta * fade_time;
+-            }
+-          break;
++              }
++          }
++        else
++          {
++            fadeout_value += delta * fade_time;
++          }
++        break;
+ 
+-        case RUNNING:
+-          if (current_gui)
+-            current_gui-&gt;update(delta, controller);
+-          break;
+-        }
+-      
+-      speech_manager.update(delta, controller);
++      case RUNNING:
++        break;
+     }
++}
+ 
++void
++GameSessionImpl::update_controller(float delta, const Controller&amp; controller)
++{ 
+   // Handle key presses
+   if (controller.button_was_pressed(PDA_BUTTON))
+     {
+@@ -274,9 +289,34 @@
+     {
+       MenuManager::display_pause_menu();
+     }
++
++  if (current_gui)
++    {
++      current_gui-&gt;update(delta, controller);
++    }
++  else
++    {
++      // FIXME: route controller to player
++    }
+ }
+ 
+ void
++GameSessionImpl::update(float delta, const Controller&amp; controller)
++{  
++  update_cutscene(delta);
++
++  delta *= game_speed;
++
++  // Update the game
++  if (!pause)
++    {
++      update_game(delta);
++    }
++  
++  update_controller(delta, controller);
++}
++
++void
+ GameSession::change_sector(const std::string&amp; arg_filename)
+ {
+   impl-&gt;filename = arg_filename;
+@@ -307,71 +347,72 @@
+   
+   impl-&gt;sector-&gt;activate();
+   
+-  if (debug) std::cout &lt;&lt; &quot;Finished changing sector&quot; &lt;&lt; std::endl;
++  if (debug) 
++    std::cout &lt;&lt; &quot;Finished changing sector&quot; &lt;&lt; std::endl;
+ }
+ 
+ void
+ GameSessionImpl::handle_event(const SDL_Event&amp; event)
+ {
+   switch(event.type)
+-  {
+-    case SDL_KEYDOWN:
+-    case SDL_KEYUP:
+-      if (event.key.state)
+-        {    
+-          switch (event.key.keysym.sym)
+-            {
+-            case SDLK_1:
+-              sc.set_render_mask(sc.get_render_mask() ^ SceneContext::COLORMAP);
+-              console &lt;&lt; &quot;Toggled COLORMAP: &quot; &lt;&lt; ((sc.get_render_mask() &amp; SceneContext::COLORMAP) &gt; 0) &lt;&lt; std::endl;
+-              break;
++    {
++      case SDL_KEYDOWN:
++      case SDL_KEYUP:
++        if (event.key.state)
++          {    
++            switch (event.key.keysym.sym)
++              {
++                case SDLK_1:
++                  sc.set_render_mask(sc.get_render_mask() ^ SceneContext::COLORMAP);
++                  console &lt;&lt; &quot;Toggled COLORMAP: &quot; &lt;&lt; ((sc.get_render_mask() &amp; SceneContext::COLORMAP) &gt; 0) &lt;&lt; std::endl;
++                  break;
+ 
+-            case SDLK_2:
+-              sc.set_render_mask(sc.get_render_mask() ^ SceneContext::LIGHTMAP);
+-              console &lt;&lt; &quot;Toggled LIGHTMAP: &quot; &lt;&lt; ((sc.get_render_mask() &amp; SceneContext::LIGHTMAP) &gt; 0) &lt;&lt; std::endl;
+-              break;
++                case SDLK_2:
++                  sc.set_render_mask(sc.get_render_mask() ^ SceneContext::LIGHTMAP);
++                  console &lt;&lt; &quot;Toggled LIGHTMAP: &quot; &lt;&lt; ((sc.get_render_mask() &amp; SceneContext::LIGHTMAP) &gt; 0) &lt;&lt; std::endl;
++                  break;
+       
+-            case SDLK_3:
+-              sc.set_render_mask(sc.get_render_mask() ^ SceneContext::HIGHLIGHTMAP);
+-              console &lt;&lt; &quot;Toggled HIGHLIGHTMAP: &quot; &lt;&lt; ((sc.get_render_mask() &amp; SceneContext::HIGHLIGHTMAP) &gt; 0) &lt;&lt; std::endl;
+-              break;      
++                case SDLK_3:
++                  sc.set_render_mask(sc.get_render_mask() ^ SceneContext::HIGHLIGHTMAP);
++                  console &lt;&lt; &quot;Toggled HIGHLIGHTMAP: &quot; &lt;&lt; ((sc.get_render_mask() &amp; SceneContext::HIGHLIGHTMAP) &gt; 0) &lt;&lt; std::endl;
++                  break;      
+   
+-            case SDLK_4:
+-              sc.set_render_mask(sc.get_render_mask() ^ SceneContext::LIGHTMAPSCREEN);
+-              console &lt;&lt; &quot;Toggled LIGHTMAP: &quot; &lt;&lt; ((sc.get_render_mask() &amp; SceneContext::LIGHTMAPSCREEN) &gt; 0) &lt;&lt; std::endl;
+-              break;
++                case SDLK_4:
++                  sc.set_render_mask(sc.get_render_mask() ^ SceneContext::LIGHTMAPSCREEN);
++                  console &lt;&lt; &quot;Toggled LIGHTMAP: &quot; &lt;&lt; ((sc.get_render_mask() &amp; SceneContext::LIGHTMAPSCREEN) &gt; 0) &lt;&lt; std::endl;
++                  break;
+ 
+-            case SDLK_5:
+-              sc.set_render_mask(sc.get_render_mask() ^ SceneContext::BLURMAP);
+-              console &lt;&lt; &quot;Toggled blurmap: &quot; &lt;&lt; ((sc.get_render_mask() &amp; SceneContext::BLURMAP) &gt; 0) &lt;&lt; std::endl;
+-              break;
++                case SDLK_5:
++                  sc.set_render_mask(sc.get_render_mask() ^ SceneContext::BLURMAP);
++                  console &lt;&lt; &quot;Toggled blurmap: &quot; &lt;&lt; ((sc.get_render_mask() &amp; SceneContext::BLURMAP) &gt; 0) &lt;&lt; std::endl;
++                  break;
+ 
+ 
+-            case SDLK_c:
+-              if (debug) {
+-                collision_debug = !collision_debug;
+-                console &lt;&lt; &quot;Collision Debugging &quot; &lt;&lt; (collision_debug ? &quot;enabled&quot; : &quot;disabled&quot;) &lt;&lt; std::endl;
+-              }
+-              break;
++                case SDLK_c:
++                  if (debug) {
++                    collision_debug = !collision_debug;
++                    console &lt;&lt; &quot;Collision Debugging &quot; &lt;&lt; (collision_debug ? &quot;enabled&quot; : &quot;disabled&quot;) &lt;&lt; std::endl;
++                  }
++                  break;
+ 
+-            case SDLK_F2:
+-              MenuManager::display_debug_menu();
+-              break;
++                case SDLK_F2:
++                  MenuManager::display_debug_menu();
++                  break;
+         
+-            default:
+-              break;
+-            }
++                default:
++                  break;
++              }
++          }
++        break;
++        
++      case SDL_MOUSEBUTTONDOWN:
++        {
++          Vector2f real_pos = GameSession::current()-&gt;get_view()-&gt;screen_to_world(Vector2f(event.button.x,
++                                                                                           event.button.y));      
++          console &lt;&lt; &quot;Click at: &quot; &lt;&lt; int(real_pos.x) &lt;&lt; &quot;, &quot; &lt;&lt; int(real_pos.y) &lt;&lt; std::endl;
+         }
+-      break;
+-        
+-    case SDL_MOUSEBUTTONDOWN:
+-      {
+-        Vector2f real_pos = GameSession::current()-&gt;get_view()-&gt;screen_to_world(Vector2f(event.button.x,
+-                                                                                  event.button.y));      
+-        console &lt;&lt; &quot;Click at: &quot; &lt;&lt; int(real_pos.x) &lt;&lt; &quot;, &quot; &lt;&lt; int(real_pos.y) &lt;&lt; std::endl;
+-      }
+-      break;
+-  }
++        break;
++    }
+ }
+ 
+ void
+@@ -421,17 +462,17 @@
+ {
+   switch(state)
+     {
+-    case DIALOG:
+-      impl-&gt;current_gui = &amp;impl-&gt;dialog_manager;
+-      break;
++      case DIALOG:
++        impl-&gt;current_gui = &amp;impl-&gt;dialog_manager;
++        break;
+ 
+-    case CONVERSATION:
+-      impl-&gt;current_gui = &amp;impl-&gt;conversation;
+-      break;
++      case CONVERSATION:
++        impl-&gt;current_gui = &amp;impl-&gt;conversation;
++        break;
+ 
+-    case GAME:
+-      impl-&gt;current_gui = 0;
+-      break;
++      case GAME:
++        impl-&gt;current_gui = 0;
++        break;
+     }
+ }
+ 
+
+Modified: trunk/windstille/src/screen/game_session.hpp
+===================================================================
+--- trunk/windstille/src/screen/game_session.hpp	2009-03-13 22:44:11 UTC (rev 2658)
++++ trunk/windstille/src/screen/game_session.hpp	2009-03-14 13:48:23 UTC (rev 2659)
+@@ -45,6 +45,7 @@
+   enum ControlState { DIALOG, GAME, CONVERSATION };
+ private:
+   static GameSession* current_; 
++
+ public:
+   static GameSession* current() { return current_; } 
+ 
+
+Modified: trunk/windstille/src/screen/view.cpp
+===================================================================
+--- trunk/windstille/src/screen/view.cpp	2009-03-13 22:44:11 UTC (rev 2658)
++++ trunk/windstille/src/screen/view.cpp	2009-03-14 13:48:23 UTC (rev 2659)
+@@ -21,13 +21,15 @@
+ #include &quot;collision/collision_engine.hpp&quot;
+ #include &quot;objects/player.hpp&quot;
+ #include &quot;engine/sector.hpp&quot;
++#include &quot;input/input_manager.hpp&quot;
+ #include &quot;view.hpp&quot;
+ 
+ View* View::current_ = 0;
+ 
+ View::View()
+   : state(Display::get_width(), Display::get_height()),
+-    zoom(1.0), transform(0, 0)
++    zoom(1.0), 
++    transform(0, 0)
+ {
+   current_ = this;
+ }
+@@ -39,23 +41,30 @@
+   // pixel-jitter when scrolling with subpixel values and pixel
+   // precise images.
+   if (camera.get_zoom() == 1.0)
+-    state.set_pos(Vector2f(static_cast&lt;int&gt;(camera.get_pos().x),
+-                         static_cast&lt;int&gt;(camera.get_pos().y)));
++    {
++      state.set_pos(Vector2f(static_cast&lt;int&gt;(camera.get_pos().x),
++                             static_cast&lt;int&gt;(camera.get_pos().y)));
++    }
+   else
+-    state.set_pos(camera.get_pos());
++    {
++      state.set_pos(camera.get_pos());
++    }
+ 
+   state.set_zoom(camera.get_zoom() + (zoom - 1.0f));
+   state.set_pos(state.get_pos() + Vector2f(transform.x, transform.y));
+ 
+   state.push(sc);
++
+   Sector::current()-&gt;draw(sc);
++
+   if (collision_debug)
+     Sector::current()-&gt;get_collision_engine()-&gt;draw(sc.highlight());
++
+   state.pop(sc);
+ }
+ 
+ void
+-View::update (float delta, const Controller&amp; controller)
++View::update (float delta)
+ {
+   camera.update(delta);
+ 
+@@ -63,13 +72,17 @@
+ 
+   if (keystate[SDLK_KP_PLUS])
+     zoom *= 1.0 + delta;
++
+   if (keystate[SDLK_KP_MINUS])
+     zoom *= 1.0 - delta;
+ 
+-  if(controller.get_button_state(VIEW_CENTER_BUTTON)) {
++  const Controller&amp; controller = InputManager::get_controller();
++
++  if (controller.get_button_state(VIEW_CENTER_BUTTON)) 
++    {
+       transform = Vector2f(0, 0);
+       zoom = 1.0;
+-  }
++    }
+ 
+   transform.x += 0.5f * controller.get_axis_state(X2_AXIS) / zoom;
+   transform.y += 0.5f * controller.get_axis_state(Y2_AXIS) / zoom;
+
+Modified: trunk/windstille/src/screen/view.hpp
+===================================================================
+--- trunk/windstille/src/screen/view.hpp	2009-03-13 22:44:11 UTC (rev 2658)
++++ trunk/windstille/src/screen/view.hpp	2009-03-14 13:48:23 UTC (rev 2659)
+@@ -49,7 +49,7 @@
+   Vector2f screen_to_world(const Vector2f&amp; point);
+ 
+   void draw(SceneContext&amp; gc);
+-  void update(float delta, const Controller&amp; controller);
++  void update(float delta);
+ 
+   static View* current() { return current_; }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001655.html">[Windstille-commit] r2658 - in trunk/windstille: . src/hud
+</A></li>
+	<LI>Next message: <A HREF="001657.html">[Windstille-commit] r2660 - trunk/windstille/src/objects
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1656">[ date ]</a>
+              <a href="thread.html#1656">[ thread ]</a>
+              <a href="subject.html#1656">[ subject ]</a>
+              <a href="author.html#1656">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,249 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1204 - in trunk/src: . sprite3d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1204%20-%20in%20trunk/src%3A%20.%20sprite3d&In-Reply-To=%3C200601082142.k08LgkJC001647%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000856.html">
+   <LINK REL="Next"  HREF="000858.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1204 - in trunk/src: . sprite3d</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1204%20-%20in%20trunk/src%3A%20.%20sprite3d&In-Reply-To=%3C200601082142.k08LgkJC001647%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1204 - in trunk/src: . sprite3d">grumbel at berlios.de
+       </A><BR>
+    <I>Sun Jan  8 22:42:46 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000856.html">[Windstille-commit] r1203 - in trunk: data/levels data/scripts src src/scripting
+</A></li>
+        <LI>Next message: <A HREF="000858.html">[Windstille-commit] r1205 - in trunk/src: . display font gui particles sprite2d sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#857">[ date ]</a>
+              <a href="thread.html#857">[ thread ]</a>
+              <a href="subject.html#857">[ subject ]</a>
+              <a href="author.html#857">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-01-08 22:42:45 +0100 (Sun, 08 Jan 2006)
+New Revision: 1204
+
+Modified:
+   trunk/src/script_manager.cpp
+   trunk/src/script_manager.hpp
+   trunk/src/sprite3d/sprite3d.hpp
+Log:
+- migrated some code to WakeupData
+
+Modified: trunk/src/script_manager.cpp
+===================================================================
+--- trunk/src/script_manager.cpp	2006-01-08 16:56:15 UTC (rev 1203)
++++ trunk/src/script_manager.cpp	2006-01-08 21:42:45 UTC (rev 1204)
+@@ -126,71 +126,90 @@
+     SquirrelVM&amp; squirrel_vm = *i;
+     int vm_state = sq_getvmstate(squirrel_vm.vm);
+     
+-    if(vm_state == SQ_VMSTATE_SUSPENDED &amp;&amp; squirrel_vm.wakeup_time &gt; 0 &amp;&amp; game_time &gt;= squirrel_vm.wakeup_time) {
+-      squirrel_vm.waiting_for_events = WakeupData(NO_EVENT);
+-      try {
+-        if(sq_wakeupvm(squirrel_vm.vm, false, false) &lt; 0) {
+-          throw SquirrelError(squirrel_vm.vm, &quot;Couldn't resume script&quot;);
++    if(vm_state == SQ_VMSTATE_SUSPENDED &amp;&amp; squirrel_vm.wakeup_time &gt; 0 &amp;&amp; game_time &gt;= squirrel_vm.wakeup_time) 
++      {
++        squirrel_vm.waiting_for_events = WakeupData(NO_EVENT);
++        try {
++          if(sq_wakeupvm(squirrel_vm.vm, false, false) &lt; 0) {
++            throw SquirrelError(squirrel_vm.vm, &quot;Couldn't resume script&quot;);
++          }
++        } catch(std::exception&amp; e) {
++          std::cerr &lt;&lt; &quot;Problem executing script: &quot; &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
++          sq_release(v, &amp;squirrel_vm.vm_obj);
++          i = squirrel_vms.erase(i);
++          continue;
+         }
+-      } catch(std::exception&amp; e) {
+-        std::cerr &lt;&lt; &quot;Problem executing script: &quot; &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
+-        sq_release(v, &amp;squirrel_vm.vm_obj);
++      }
++	
++    if (vm_state != SQ_VMSTATE_SUSPENDED)
++      {
++        sq_release(v, &amp;(squirrel_vm.vm_obj));
+         i = squirrel_vms.erase(i);
+-        continue;
+       }
+-	}
+-	
+-	if (vm_state != SQ_VMSTATE_SUSPENDED)
+-	  {
+-	    sq_release(v, &amp;(squirrel_vm.vm_obj));
+-	    i = squirrel_vms.erase(i);
+-	  }
+-  else
+-    ++i;
++    else
++      {
++        ++i;
++      }
+   }
+ }
+ 
+ void
+-ScriptManager::set_wakeup_event(HSQUIRRELVM vm, WakeupData  event, float timeout)
++ScriptManager::set_wakeup_event(HSQUIRRELVM vm, WakeupData event, float timeout)
+ {
+-  set_wakeup_event(vm, event.type, timeout);
++  assert(event.type &gt;= 0 &amp;&amp; event.type &lt; MAX_WAKEUP_EVENT_COUNT);
++  // find the VM in the list and update it
++  for(SquirrelVMs::iterator i = squirrel_vms.begin(); i != squirrel_vms.end(); ++i) {
++    SquirrelVM&amp; squirrel_vm = *i;
++    if(squirrel_vm.vm == vm) 
++      {
++        squirrel_vm.waiting_for_events = event;
++
++        if(timeout &lt; 0) {
++          squirrel_vm.wakeup_time = -1;
++        } else {
++          squirrel_vm.wakeup_time = game_time + timeout;
++        }
++        return;
++      }
++  }
+ }
+ 
+ void
+ ScriptManager::fire_wakeup_event(WakeupData  event)
+ {
+-  fire_wakeup_event(event.type);
++  assert(event.type &gt;= 0 &amp;&amp; event.type &lt; MAX_WAKEUP_EVENT_COUNT);
++  for(SquirrelVMs::iterator i = squirrel_vms.begin(); i != squirrel_vms.end(); ++i) 
++    {
++      SquirrelVM&amp; vm = *i;
++      if(vm.waiting_for_events.type == event.type &amp;&amp; vm.waiting_for_events.type != NO_EVENT)
++        {
++          switch (event.type)
++            {
++            case GAMEOBJECT_DONE:
++              if (vm.waiting_for_events.game_object == event.game_object)
++                {
++                  vm.wakeup_time = game_time;
++                }
++              break;
++
++            default:
++              vm.wakeup_time = game_time;
++              break;
++            }
++        }
++    }
+ }
+ 
+ void
+-ScriptManager::set_wakeup_event(HSQUIRRELVM vm, WakeupEvent event, float time)
++ScriptManager::set_wakeup_event(HSQUIRRELVM vm, WakeupEvent event, float timeout)
+ {
+-  assert(event &gt;= 0 &amp;&amp; event &lt; MAX_WAKEUP_EVENT_COUNT);
+-  // find the VM in the list and update it
+-  for(SquirrelVMs::iterator i = squirrel_vms.begin(); i != squirrel_vms.end(); ++i) {
+-    SquirrelVM&amp; squirrel_vm = *i;
+-    if(squirrel_vm.vm == vm) {
+-      if(time &lt; 0) {
+-        squirrel_vm.wakeup_time = -1;
+-      } else {
+-        squirrel_vm.wakeup_time = game_time + time;
+-      }
+-      squirrel_vm.waiting_for_events = WakeupData(event);
+-      return;
+-    }
+-  }
++  set_wakeup_event(vm, WakeupData(event), timeout);
+ }
+ 
+ void
+ ScriptManager::fire_wakeup_event(WakeupEvent event)
+ {
+-  assert(event &gt;= 0 &amp;&amp; event &lt; MAX_WAKEUP_EVENT_COUNT);
+-  for(SquirrelVMs::iterator i = squirrel_vms.begin(); i != squirrel_vms.end(); ++i) {
+-    SquirrelVM&amp; vm = *i;
+-    if(vm.waiting_for_events.type == event) {
+-      vm.wakeup_time = game_time;
+-    }
+-  }
++  fire_wakeup_event(WakeupData(event));
+ }
+ 
+ bool ScriptManager::run_before(HSQUIRRELVM vm)
+@@ -215,3 +234,4 @@
+   wakeup_time        = 0;
+ }
+ 
++/* EOF */
+
+Modified: trunk/src/script_manager.hpp
+===================================================================
+--- trunk/src/script_manager.hpp	2006-01-08 16:56:15 UTC (rev 1203)
++++ trunk/src/script_manager.hpp	2006-01-08 21:42:45 UTC (rev 1204)
+@@ -45,11 +45,11 @@
+   };
+ 
+   struct WakeupData {
+-    WakeupEvent type;
+-
+     explicit WakeupData() : type(NO_EVENT) {}
+     explicit WakeupData(WakeupEvent type_) : type(type_) {}
+ 
++    WakeupEvent type;
++    
+     union {
+       // GAMEOBJECT_DONE
+       GameObject* game_object;
+
+Modified: trunk/src/sprite3d/sprite3d.hpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d.hpp	2006-01-08 16:56:15 UTC (rev 1203)
++++ trunk/src/sprite3d/sprite3d.hpp	2006-01-08 21:42:45 UTC (rev 1204)
+@@ -104,7 +104,7 @@
+   /**
+    * The speed of the action is multiplied with this factor
+    */
+-  void set_speed(float speed);
++  void  set_speed(float speed);
+   float get_speed() const;
+ 
+   /**
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000856.html">[Windstille-commit] r1203 - in trunk: data/levels data/scripts src src/scripting
+</A></li>
+	<LI>Next message: <A HREF="000858.html">[Windstille-commit] r1205 - in trunk/src: . display font gui particles sprite2d sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#857">[ date ]</a>
+              <a href="thread.html#857">[ thread ]</a>
+              <a href="subject.html#857">[ subject ]</a>
+              <a href="author.html#857">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

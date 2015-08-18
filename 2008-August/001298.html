@@ -1,0 +1,538 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2278 - trunk/griv/new
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2278%20-%20trunk/griv/new&In-Reply-To=%3C200808062146.m76LkYm4018521%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001297.html">
+   <LINK REL="Next"  HREF="001299.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2278 - trunk/griv/new</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2278%20-%20trunk/griv/new&In-Reply-To=%3C200808062146.m76LkYm4018521%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2278 - trunk/griv/new">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Aug  6 23:46:34 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001297.html">[Windstille-commit] r2277 - trunk/griv/new
+</A></li>
+        <LI>Next message: <A HREF="001299.html">[Windstille-commit] r2279 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1298">[ date ]</a>
+              <a href="thread.html#1298">[ thread ]</a>
+              <a href="subject.html#1298">[ subject ]</a>
+              <a href="author.html#1298">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-06 23:46:34 +0200 (Wed, 06 Aug 2008)
+New Revision: 2278
+
+Added:
+   trunk/griv/new/filesystem.cpp
+   trunk/griv/new/filesystem.hpp
+Modified:
+   trunk/griv/new/SConstruct
+   trunk/griv/new/griv.cpp
+Log:
+Added filesystem class
+
+Modified: trunk/griv/new/SConstruct
+===================================================================
+--- trunk/griv/new/SConstruct	2008-08-06 21:35:22 UTC (rev 2277)
++++ trunk/griv/new/SConstruct	2008-08-06 21:46:34 UTC (rev 2278)
+@@ -12,6 +12,7 @@
+         'software_surface.cpp',
+         'url.cpp',
+         'sqlite.cpp',
++        'filesystem.cpp',
+         'file_database.cpp',
+         'tile_database.cpp',
+         'griv.cpp'])
+
+Copied: trunk/griv/new/filesystem.cpp (from rev 2272, trunk/griv/filesystem.cpp)
+===================================================================
+--- trunk/griv/filesystem.cpp	2008-06-27 12:16:03 UTC (rev 2272)
++++ trunk/griv/new/filesystem.cpp	2008-08-06 21:46:34 UTC (rev 2278)
+@@ -0,0 +1,347 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &lt;fstream&gt;
++#include &lt;dirent.h&gt;
++#include &lt;errno.h&gt;
++#include &lt;iostream&gt;
++#include &lt;stdexcept&gt;
++#include &lt;sys/stat.h&gt;
++#include &lt;sys/stat.h&gt;
++#include &lt;sys/types.h&gt;
++#include &lt;unistd.h&gt;
++#include &lt;sys/time.h&gt;
++#include &lt;utime.h&gt;
++#include &lt;boost/format.hpp&gt;
++//#include &lt;attr/xattr.h&gt;
++
++#include &quot;filesystem.hpp&quot;
++
++std::string Filesystem::home_directory;
++
++bool
++Filesystem::exist(const std::string&amp; pathname)
++{
++  return access(pathname.c_str(), F_OK) == 0;
++}
++
++bool
++Filesystem::is_directory(const std::string&amp; pathname)
++{
++  struct stat buf;
++  stat(pathname.c_str(), &amp;buf);
++  return S_ISDIR(buf.st_mode);
++}
++
++void
++Filesystem::open_directory_recursivly(const std::string&amp; pathname, std::vector&lt;std::string&gt;&amp; lst)
++{
++  DIR* dp = ::opendir(pathname.c_str());
++
++  if (dp == 0)
++    {
++      std::cout &lt;&lt; &quot;System: Couldn't open: &quot; &lt;&lt; pathname &lt;&lt; std::endl;
++    }
++  else
++    {
++      dirent* de = 0;
++      while ((de = ::readdir(dp)) != 0)
++        {
++          if (strcmp(de-&gt;d_name, &quot;.&quot;)  != 0 &amp;&amp;
++              strcmp(de-&gt;d_name, &quot;..&quot;) != 0)
++            {
++              if (de-&gt;d_type == DT_DIR)
++                { // Avoid stat'ing on file systems that don't need it
++                  open_directory_recursivly(pathname + &quot;/&quot; + de-&gt;d_name, lst);
++                } // FIXME: Check for DT_UNKNOWN, DT_FILE, etc.
++              else
++                {
++                  std::string new_path = pathname + &quot;/&quot; + de-&gt;d_name;
++                  if (is_directory(new_path))
++                    {
++                      open_directory_recursivly(pathname + &quot;/&quot; + de-&gt;d_name, lst);
++                    }
++                  else
++                    {
++                      lst.push_back(new_path);
++                    }
++                }
++            }
++        }
++
++      closedir(dp);
++    }
++}
++
++std::vector&lt;std::string&gt;
++Filesystem::open_directory(const std::string&amp; pathname)
++{
++  std::vector&lt;std::string&gt; dir_list;
++
++  DIR* dp    = 0;
++  dirent* de = 0;
++
++  dp = ::opendir(pathname.c_str());
++
++  if (dp == 0)
++    {
++      std::cout &lt;&lt; &quot;System: Couldn't open: &quot; &lt;&lt; pathname &lt;&lt; std::endl;
++    }
++  else
++    {
++      while ((de = ::readdir(dp)) != 0)
++        {
++          if (strcmp(de-&gt;d_name, &quot;.&quot;)  != 0 &amp;&amp;
++              strcmp(de-&gt;d_name, &quot;..&quot;) != 0)
++            dir_list.push_back(pathname + &quot;/&quot; + de-&gt;d_name);
++        }
++
++      closedir(dp);
++    }
++
++  return dir_list;
++}
++#if 0
++std::string
++Filesystem::getxattr(const std::string&amp; pathname)
++{
++  char buf[2048];
++  int len;
++  if ((len = ::getxattr(pathname.c_str(), &quot;user.griv.md5&quot;, buf, 2048)) &lt; 0)
++    {
++      if (errno == ENOATTR)
++        return &quot;&quot;;
++      else
++        throw std::runtime_error(&quot;Couldn't get xattr for &quot; + pathname);
++    }
++
++  return std::string(buf, len);
++}
++#endif
++void
++Filesystem::init()
++{
++  char* home;
++  if ((home = getenv(&quot;HOME&quot;)))
++    {
++      home_directory = home;
++    }
++  else
++    {
++      throw std::runtime_error(&quot;Couldn't get HOME environment variable&quot;);
++    }
++
++  mkdir(home_directory + &quot;/.griv&quot;);
++}
++
++void
++Filesystem::mkdir(const std::string&amp; pathname)
++{
++  if (!Filesystem::exist(pathname))
++    {
++      if (::mkdir(pathname.c_str(), S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IXGRP) != 0)
++	{
++	  throw std::runtime_error(&quot;Filesystem::mkdir: &quot; + pathname + &quot;: &quot; + strerror(errno));
++	}
++      else
++	{
++	  std::cout &lt;&lt; &quot;Filesystem::mkdir: &quot; &lt;&lt; pathname &lt;&lt; std::endl;
++	}
++    }
++}
++
++void
++Filesystem::deinit()
++{
++}
++
++bool
++Filesystem::has_extension(const std::string&amp; str, const std::string&amp; suffix)
++{
++  if (str.length() &gt;= suffix.length())
++    return str.compare(str.length() - suffix.length(), suffix.length(), suffix) == 0;
++  else
++    return false;
++}
++
++void
++Filesystem::copy_mtime(const std::string&amp; from_filename, const std::string&amp; to_filename)
++{
++  struct stat stat_buf;
++  if (stat(from_filename.c_str(), &amp;stat_buf) != 0)
++    {
++      throw std::runtime_error(from_filename + &quot;: &quot; + strerror(errno));
++    }
++
++  struct utimbuf time_buf; 
++  time_buf.actime  = stat_buf.st_atime;
++  time_buf.modtime = stat_buf.st_mtime;
++
++  if (utime(to_filename.c_str(), &amp;time_buf) != 0)
++    {
++      std::cout &lt;&lt; &quot;Filesystem:copy_mtime: &quot; &lt;&lt; to_filename &lt;&lt; &quot;: &quot; &lt;&lt; strerror(errno) &lt;&lt; std::endl;
++    }
++}
++
++unsigned int
++Filesystem::get_mtime(const std::string&amp; filename)
++{
++  struct stat stat_buf;
++  if (stat(filename.c_str(), &amp;stat_buf) != 0)
++    {
++      throw std::runtime_error(filename + &quot;: &quot; + strerror(errno));
++    } 
++  return stat_buf.st_mtime;
++}
++
++void
++Filesystem::generate_jpeg_file_list(const std::string&amp; pathname, std::vector&lt;std::string&gt;&amp; file_list)
++{
++  std::vector&lt;std::string&gt; lst;
++  if (is_directory(pathname))
++    open_directory_recursivly(pathname, lst);
++  else
++    lst.push_back(pathname);
++  
++  for(std::vector&lt;std::string&gt;::iterator i = lst.begin(); i != lst.end(); ++i)
++    {
++      if (Filesystem::has_extension(*i, &quot;.jpg&quot;)  ||
++          Filesystem::has_extension(*i, &quot;.JPG&quot;)  ||
++          Filesystem::has_extension(*i, &quot;.jpe&quot;)  ||
++          Filesystem::has_extension(*i, &quot;.JPE&quot;)  ||
++          Filesystem::has_extension(*i, &quot;.JPEG&quot;) ||
++          Filesystem::has_extension(*i, &quot;.jpeg&quot;))
++        {
++          file_list.push_back(&quot;<A HREF="file://">file://</A>&quot; + Filesystem::realpath(*i)); // realpath slow?
++        }
++    }
++}
++
++std::string
++Filesystem::realpath_system(const std::string&amp; pathname)
++{
++  char* result = ::realpath(pathname.c_str(), NULL);
++  std::string res = result;
++  free(result);
++  
++  return res;
++}
++
++std::string
++Filesystem::realpath_fast(const std::string&amp; pathname)
++{
++  std::string fullpath;
++  std::string drive;
++  
++  if (pathname.size() &gt; 0 &amp;&amp; pathname[0] == '/')
++    {
++      fullpath = pathname;
++    }
++#ifdef WIN32
++  else if (pathname.size() &gt; 2 &amp;&amp; pathname[1] == ':' &amp;&amp; pathname[2] == '/')
++    {
++      drive = pathname.substr(0, 2);
++      fullpath = pathname;
++    }
++#endif
++  else
++    {
++      char buf[PATH_MAX];
++      if (getcwd(buf, PATH_MAX) == 0)
++        {
++          std::cout &lt;&lt; &quot;System::realpath: Error: couldn't getcwd()&quot; &lt;&lt; std::endl;
++          return pathname;
++        }
++#ifdef WIN32
++      for (char *p = buf; *p; ++p)
++        {
++          if (*p == '\\')
++            *p = '/';
++        }
++      drive.assign(buf, 2);
++#endif
++      
++      fullpath = fullpath + buf + &quot;/&quot; + pathname;
++    }
++  
++  std::string result;
++  std::string::reverse_iterator last_slash = fullpath.rbegin();
++  int skip = 0;
++  // /foo/bar/../../bar/baz/
++  //std::cout &lt;&lt; &quot;fullpath: '&quot; &lt;&lt; fullpath &lt;&lt; &quot;'&quot; &lt;&lt; std::endl;
++  for(std::string::reverse_iterator i = fullpath.rbegin(); i != fullpath.rend(); ++i)
++    { // FIXME: Little crude and hackish
++      if (*i == '/')
++        {
++          std::string dir(last_slash, i); 
++          //std::cout &lt;&lt; &quot;'&quot; &lt;&lt; dir &lt;&lt; &quot;'&quot; &lt;&lt; std::endl;
++          if (dir == &quot;..&quot; || dir == &quot;/..&quot;)
++            {
++              skip += 1;
++            }
++          else if (dir == &quot;.&quot; || dir == &quot;/.&quot; || dir.empty() || dir == &quot;/&quot;)
++            {
++              // pass
++            }
++          else
++            {
++              if (skip == 0)
++                {
++                  result += dir;
++                }
++              else
++                skip -= 1;
++            }
++
++          last_slash = i;
++        }
++    }
++  
++  return drive + &quot;/&quot; + std::string(result.rbegin(), result.rend());
++}
++
++std::string
++Filesystem::realpath(const std::string&amp; pathname)
++{
++  return realpath_fast(pathname);
++}
++
++void
++Filesystem::readlines_from_file(const std::string&amp; pathname, std::vector&lt;std::string&gt;&amp; lst)
++{
++  std::ifstream in(pathname.c_str());
++
++  if (!in)
++    throw std::runtime_error(&quot;Couldn't open file: &quot; + pathname);
++  
++  std::string line;
++  while(std::getline(in, line))
++   {
++     lst.push_back(line);
++   }
++  in.close();
++}
++
++/* EOF */
+
+Copied: trunk/griv/new/filesystem.hpp (from rev 2272, trunk/griv/filesystem.hpp)
+===================================================================
+--- trunk/griv/filesystem.hpp	2008-06-27 12:16:03 UTC (rev 2272)
++++ trunk/griv/new/filesystem.hpp	2008-08-06 21:46:34 UTC (rev 2278)
+@@ -0,0 +1,68 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_FILESYSTEM_HPP
++#define HEADER_FILESYSTEM_HPP
++
++#include &lt;string&gt;
++#include &lt;vector&gt;
++
++class Filesystem
++{
++private:
++  static std::string home_directory;
++
++public:
++  static bool is_directory(const std::string&amp; pathname);
++  static bool exist(const std::string&amp; pathname);
++  static void mkdir(const std::string&amp; pathname);
++  static std::vector&lt;std::string&gt; open_directory(const std::string&amp; pathname);
++
++  static void open_directory_recursivly(const std::string&amp; pathname, std::vector&lt;std::string&gt;&amp; lst);
++
++  static void readlines_from_file(const std::string&amp; pathname, std::vector&lt;std::string&gt;&amp; lst);
++
++  static std::string getxattr(const std::string&amp; pathname);
++  static std::string get_home() { return home_directory; }
++
++  static std::string realpath_system(const std::string&amp; pathname);
++  static std::string realpath_fast(const std::string&amp; pathname);
++  static std::string realpath(const std::string&amp; pathname);
++
++
++  static bool has_extension(const std::string&amp; pathname, const std::string&amp; ext);
++  static void copy_mtime(const std::string&amp; from_filename, const std::string&amp; to_filename);
++  static unsigned int get_mtime(const std::string&amp; filename);
++  
++  /** Generate a recursive list of all JPEGs in pathname */
++  static void generate_jpeg_file_list(const std::string&amp; pathname, std::vector&lt;std::string&gt;&amp; file_list);
++
++  static void init();
++  static void deinit();
++};
++
++#endif
++
++/* EOF */
+
+Modified: trunk/griv/new/griv.cpp
+===================================================================
+--- trunk/griv/new/griv.cpp	2008-08-06 21:35:22 UTC (rev 2277)
++++ trunk/griv/new/griv.cpp	2008-08-06 21:46:34 UTC (rev 2278)
+@@ -38,15 +38,18 @@
+ #include &quot;software_surface.hpp&quot;
+ #include &quot;file_database.hpp&quot;
+ #include &quot;tile_database.hpp&quot;
++#include &quot;filesystem.hpp&quot;
+ #include &quot;griv.hpp&quot;
+ 
+ Griv::Griv()
+ {
+   FreeImage_Initialise();
++  Filesystem::init();
+ }
+ 
+ Griv::~Griv()
+ {
++  Filesystem::deinit();
+   FreeImage_DeInitialise();
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001297.html">[Windstille-commit] r2277 - trunk/griv/new
+</A></li>
+	<LI>Next message: <A HREF="001299.html">[Windstille-commit] r2279 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1298">[ date ]</a>
+              <a href="thread.html#1298">[ thread ]</a>
+              <a href="subject.html#1298">[ subject ]</a>
+              <a href="author.html#1298">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

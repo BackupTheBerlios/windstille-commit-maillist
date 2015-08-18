@@ -1,0 +1,795 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1237 - trunk/tools
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1237%20-%20trunk/tools&In-Reply-To=%3C200601200104.k0K14UL8020018%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000889.html">
+   <LINK REL="Next"  HREF="000891.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1237 - trunk/tools</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1237%20-%20trunk/tools&In-Reply-To=%3C200601200104.k0K14UL8020018%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1237 - trunk/tools">grumbel at berlios.de
+       </A><BR>
+    <I>Fri Jan 20 02:04:30 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000889.html">[Windstille-commit] r1236 - trunk/tools
+</A></li>
+        <LI>Next message: <A HREF="000891.html">[Windstille-commit] r1238 - trunk/tools
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#890">[ date ]</a>
+              <a href="thread.html#890">[ thread ]</a>
+              <a href="subject.html#890">[ subject ]</a>
+              <a href="author.html#890">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-01-20 02:04:23 +0100 (Fri, 20 Jan 2006)
+New Revision: 1237
+
+Added:
+   trunk/tools/data.py
+   trunk/tools/helper.py
+   trunk/tools/windstille_export2.py
+Modified:
+   trunk/tools/windstille_export.py
+Log:
+- rewrote most of the exporter
+
+Added: trunk/tools/data.py
+===================================================================
+--- trunk/tools/data.py	2006-01-19 01:21:48 UTC (rev 1236)
++++ trunk/tools/data.py	2006-01-20 01:04:23 UTC (rev 1237)
+@@ -0,0 +1,179 @@
++import struct, shlex, os.path, math
++
++# SAMPLEFRAMES, only export every nth frame of the animation
++DEFAULT_SAMPLERATE = 5
++# ZOOM, is multiplied with all vertex coordinates
++ZOOM = 32.0
++DEFAULT_SPEED = 1.0
++SPEED_MULTIPLIER = 9.8
++
++class MeshData:
++  def __init__(self, texture_filename):
++    # Filename of the used texture
++    self.texture_filename = texture_filename
++
++    # [FaceData, ...]
++    self.faces            = []
++
++    self.vertices         = []
++
++    # Table to translate (object, index) to new_index
++    # Format: [[object, index, new_index], ...]
++    self.transtable       = []
++
++  def transtable_has_vertex(self, new_object, new_index):
++      for (object, index, new_index) in self.transtable:
++          if object == new_object and index == new_object:
++              return True
++          else:
++              return False
++
++  def translate(self, vert):
++      &quot;&quot;&quot;Translate a vertex given as object, index pair to its
++      corresponding index, as used in the wsprite file&quot;&quot;&quot;
++      
++      for (object, index, new_index) in self.transtable:
++          if object == vert.object and index == vert.index:
++              return new_index
++      
++      print &quot;MeshData: Couldn't translate vertex: %s, %s&quot; % (vert.object, vert.index)
++      return 0
++
++  def finalize(self):
++      &quot;&quot;&quot;Reorders vertex indexes and merge vertexes which have the same
++      UV coordinates&quot;&quot;&quot;
++
++      for face in self.faces:
++          for vert in face.verts:
++              if not self.transtable_has_vertex(vert.object, vert.index):
++                  new_index = len(self.transtable)
++                  self.transtable.append([vert.object, vert.index, new_index])
++                  self.vertices.append(vert)
++
++class FaceData:
++    def __init__(self, verts, normal):
++        self.verts   = verts
++        self.normal  = normal
++
++class VertexData:
++    def __init__(self, object, index, uv, normal):
++        self.object = object
++        self.index  = index
++        self.uv     = uv
++        self.normal = normal
++
++class AttachmentPointData:
++    &quot;&quot;&quot;Data for an attachment point, its location and its rotation&quot;&quot;&quot;
++    def __init__(self, loc, quat):
++        self.loc  = loc
++        self.quat = quat
++
++class FrameData:
++    &quot;&quot;&quot; Data used for a single frame in an action &quot;&quot;&quot;
++    def __init__(self, vertex_locs, attachment_points):
++        # Format: [[[x,y,z], ...], [[x,y,z],  ...], ...] (one list for each Mesh)
++        self.vertex_locs        = vertex_locs
++
++        # [AttachmentPointData, ...]
++        self.attachment_points = attachment_points
++
++
++class ActionConfig:
++    &quot;&quot;&quot;ActionConfig handles the properties of a single
++    action, ie. when it starts, when it stops, its speed, how many
++    spamles should be taken, etc.&quot;&quot;&quot;
++
++    def __init__(self, first_frame, last_frame, speed, samplerate, markers):
++        self.first_frame = first_frame
++        self.last_frame  = last_frame
++        self.speed       = speed
++        self.samplerate  = samplerate
++        self.markers     = markers
++        self.numframes   = last_frame - first_frame + 1
++
++    def __str__(self):
++        return &quot;Frames: %3i - %3i, speed: %3.2f, Samplerate: %3d&quot; % (self.first_frame, self.last_frame,
++                                                                         self.speed, self.samplerate)
++
++    # config entry (first_frame, last_frame, speed, samplerate, markers[])
++    #  a marker is (name, frame)
++    def parse(text):     
++        def expect_string():
++            res = lex.get_token()
++            if res == lex.eof:
++                raise Exception, &quot;Expected string, got EOF&quot;
++            return res
++
++        def expect_int():
++            res = lex.get_token()
++            if res == lex.eof:
++                raise Exception, &quot;Expected in, got EOF&quot;
++            return int(res)
++
++        def expect_float():
++            res = lex.get_token()
++            if res == lex.eof:
++                raise Exception, &quot;Expected float, got EOF&quot;
++            return float(res)
++
++        def expect_dash():
++            res = lex.get_token()
++            if res == lex.eof:
++                raise Exception, &quot;Expected '-', got EOF&quot;
++            elif res != &quot;-&quot;:
++                raise Exception, &quot;Expected '-', got '%s'&quot; % res
++
++        lex = shlex.shlex(text)
++        lex.wordchars += &quot;.&quot;
++
++        actionconfig = {}
++        while True:
++            token = lex.get_token()
++            if token == lex.eof:
++                break
++            lex.push_token(token)
++            action_name = expect_string()
++            first_frame = expect_int()
++            expect_dash()
++            last_frame = expect_int()
++
++            token = lex.get_token()
++            if token == &quot;speed&quot;:
++                speed = expect_float()
++            else:
++                lex.push_token(token)
++                speed = DEFAULT_SPEED
++
++            token = lex.get_token()
++            if token == &quot;samplerate&quot;:
++                samplerate = expect_int()
++            else:
++                lex.push_token(token)
++                samplerate = DEFAULT_SAMPLERATE
++
++            token = lex.get_token()
++            markers = []
++            while token == &quot;marker&quot;:
++                marker_name = expect_string()
++                marker_frame = expect_int()
++                markers.append( (marker_name, marker_frame) )
++                token = lex.get_token()
++            lex.push_token(token)
++
++            actionconfig[action_name] = ActionConfig(first_frame, last_frame, speed, samplerate, markers)
++
++        return actionconfig
++    parse = staticmethod(parse)
++
++class ActionData:
++  def __init__(self, name, config, frame_data):
++    # name as string
++    self.name       = name
++
++    # ActionConfig
++    self.config     = config
++
++    # FrameData (filled out later in the WindstilleExporter)
++    self.frame_data = frame_data
++
++# EOF #
+
+Added: trunk/tools/helper.py
+===================================================================
+--- trunk/tools/helper.py	2006-01-19 01:21:48 UTC (rev 1236)
++++ trunk/tools/helper.py	2006-01-20 01:04:23 UTC (rev 1237)
+@@ -0,0 +1,60 @@
++import Blender
++import string
++
++def matrix2quaternion(m):
++  tr = 1.0 + m[0][0] + m[1][1] + m[2][2]
++  if tr &gt; .00001:
++    s = math.sqrt(tr)
++    w = s / 2.0
++    s = 0.5 / s
++    x = (m[1][2] - m[2][1]) * s
++    y = (m[2][0] - m[0][2]) * s
++    z = (m[0][1] - m[1][0]) * s
++  elif m[0][0] &gt; m[1][1] and m[0][0] &gt; m[2][2]:
++    s = math.sqrt(1.0 + m[0][0] - m[1][1] - m[2][2])
++    x = s / 2.0
++    s = 0.5 / s
++    y = (m[0][1] + m[1][0]) * s
++    z = (m[2][0] + m[0][2]) * s
++    w = (m[1][2] - m[2][1]) * s
++  elif m[1][1] &gt; m[2][2]:
++    s = math.sqrt(1.0 + m[1][1] - m[0][0] - m[2][2])
++    y = s / 2.0
++    s = 0.5 / s
++    x = (m[0][1] + m[1][0]) * s
++    z = (m[1][2] + m[2][1]) * s
++    w = (m[2][0] - m[0][2]) * s
++  else:
++    s = math.sqrt(1.0 + m[2][2] - m[0][0] - m[1][1])
++    z = s / 2.0
++    s = 0.5 / s
++    x = (m[2][0] + m[0][2]) * s
++    y = (m[1][2] + m[2][1]) * s
++    w = (m[0][1] - m[1][0]) * s
++
++  return quaternion_normalize([w, x, y, z])
++
++def quaternion_normalize(q):
++  l = math.sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3])
++  return q[0] / l, q[1] / l, q[2] / l, q[3] / l
++
++def quaternion_to_axisangle(q):
++  cos_a = q[0]
++  angle = math.acos(cos_a) * 2.0
++  sin_a = math.sqrt(1.0 - cos_a * cos_a)
++  if(sin_a &lt; .0005 or sin_a &gt; .0005): sin_a = 1
++  return angle, q[1]/sin_a, q[2]/sin_a, q[3]/sin_a
++
++##########################################################
++def get_text(textname):
++  &quot;&quot;&quot;Little shortcut function to return the content of
++  Blender.Text.get(textname) as a single string and do a little error
++  handling in addition&quot;&quot;&quot; 
++  textobj = Blender.Text.Get(textname)
++  if not textobj:
++    print &quot;WARNING: Text '%s' not found&quot; % textname
++    return &quot;&quot;
++  else:
++    return string.join(textobj.asLines(), &quot;\n&quot;)
++
++# EOF #
+
+Modified: trunk/tools/windstille_export.py
+===================================================================
+--- trunk/tools/windstille_export.py	2006-01-19 01:21:48 UTC (rev 1236)
++++ trunk/tools/windstille_export.py	2006-01-20 01:04:23 UTC (rev 1237)
+@@ -47,50 +47,6 @@
+ # DO NOT change this
+ FORMAT_VERSION = 2
+ 
+-def matrix2quaternion(m):
+-  tr = 1.0 + m[0][0] + m[1][1] + m[2][2]
+-  if tr &gt; .00001:
+-    s = math.sqrt(tr)
+-    w = s / 2.0
+-    s = 0.5 / s
+-    x = (m[1][2] - m[2][1]) * s
+-    y = (m[2][0] - m[0][2]) * s
+-    z = (m[0][1] - m[1][0]) * s
+-  elif m[0][0] &gt; m[1][1] and m[0][0] &gt; m[2][2]:
+-    s = math.sqrt(1.0 + m[0][0] - m[1][1] - m[2][2])
+-    x = s / 2.0
+-    s = 0.5 / s
+-    y = (m[0][1] + m[1][0]) * s
+-    z = (m[2][0] + m[0][2]) * s
+-    w = (m[1][2] - m[2][1]) * s
+-  elif m[1][1] &gt; m[2][2]:
+-    s = math.sqrt(1.0 + m[1][1] - m[0][0] - m[2][2])
+-    y = s / 2.0
+-    s = 0.5 / s
+-    x = (m[0][1] + m[1][0]) * s
+-    z = (m[1][2] + m[2][1]) * s
+-    w = (m[2][0] - m[0][2]) * s
+-  else:
+-    s = math.sqrt(1.0 + m[2][2] - m[0][0] - m[1][1])
+-    z = s / 2.0
+-    s = 0.5 / s
+-    x = (m[2][0] + m[0][2]) * s
+-    y = (m[1][2] + m[2][1]) * s
+-    w = (m[0][1] - m[1][0]) * s
+-
+-  return quaternion_normalize([w, x, y, z])
+-
+-def quaternion_normalize(q):
+-  l = math.sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3])
+-  return q[0] / l, q[1] / l, q[2] / l, q[3] / l
+-
+-def quaternion_to_axisangle(q):
+-  cos_a = q[0]
+-  angle = math.acos(cos_a) * 2.0
+-  sin_a = math.sqrt(1.0 - cos_a * cos_a)
+-  if(sin_a &lt; .0005 or sin_a &gt; .0005): sin_a = 1
+-  return angle, q[1]/sin_a, q[2]/sin_a, q[3]/sin_a
+-
+ # config entry (first_frame, last_frame, speed, samplerate, markers[])
+ #  a marker is (name, frame)
+ def parse_actionconfig(text):
+@@ -182,7 +138,7 @@
+     # Filename of the used texture
+     self.texture_filename = texture_filename
+ 
+-    # [[VertexData, VertexData, VertexData], ...]
++    # [FaceData, ...]
+     self.faces            = faces
+ 
+     # Table to translate (object, index) to new_index
+@@ -221,11 +177,10 @@
+     raise &quot;MeshData: Couldn't translate vertex: %s, %s&quot; % (arg_object, arg_index)
+ 
+ class FaceData:
+-  def __init__(self, vertices, normal):
+-    self.vertices = []
+-    self.normal   = normal
++  def __init__(self, verts, normal):
++    self.verts   = verts
++    self.normal  = normal
+ 
+-
+ class VertexData:
+   def __init__(self, object, index, uv, normal):
+     self.object = object
+@@ -646,11 +601,11 @@
+       ### Mesh Data:
+       ## Vertex indices of triangles
+       for face in mesh.faces:
+-        out.write(struct.pack(&quot;=HHH&quot;, face[0].index,  face[1].index,  face[2].index))
++        out.write(struct.pack(&quot;=HHH&quot;, face.verts[0].index,  face.verts[1].index,  face.verts[2].index))
+ 
+       ## Normal
+-      for face in mesh.faces: ## FIXME: Wrong
+-        out.write(struct.pack(&quot;=fff&quot;, face[0].normal, face[1].normal, face[2].normal))
++      for face in mesh.faces:
++        out.write(struct.pack(&quot;=fff&quot;, face.normal, face.normal, face.normal))
+ 
+       ## UV Coordinates
+       for face in mesh.faces: 
+@@ -669,7 +624,7 @@
+     ## Marker, FIXME: Are markers per action, or global?
+     for marker in action.config.markers:
+       out.write(struct.pack(&quot;=64sH&quot;, marker[0], \
+-                            (frame - action.config.first_frame) / action.config.samplerate))
++                            (marker[1] - action.config.first_frame) / action.config.samplerate))
+ 
+     ## Action Data
+     for action in self.action_data:
+
+Added: trunk/tools/windstille_export2.py
+===================================================================
+--- trunk/tools/windstille_export2.py	2006-01-19 01:21:48 UTC (rev 1236)
++++ trunk/tools/windstille_export2.py	2006-01-20 01:04:23 UTC (rev 1237)
+@@ -0,0 +1,360 @@
++#!BPY
++
++&quot;&quot;&quot;
++Name: 'Windstille Exporter V2'
++Blender: 233
++Group: 'Export'
++Tip: 'Export meshes/actions to windstille format'
++&quot;&quot;&quot;
++
++##  $Id: windstille_main.hxx,v 1.4 2003/11/07 13:00:39 grumbel Exp $
++## 
++##  Windstille - A Jump'n Shoot Game
++##  Copyright (C) 2005 Matthias Braun &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">matze at braunis.de</A>&gt;,
++##                     Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++##
++##  This program is free software; you can redistribute it and/or
++##  modify it under the terms of the GNU General Public License
++##  as published by the Free Software Foundation; either version 2
++##  of the License, or (at your option) any later version.
++##
++##  This program is distributed in the hope that it will be useful,
++##  but WITHOUT ANY WARRANTY; without even the implied warranty of
++##  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++##  GNU General Public License for more details.
++## 
++##  You should have received a copy of the GNU General Public License
++##  along with this program; if not, write to the Free Software
++##  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++# Simple Python script that shows how to export animations from
++# Blender
++# Put this script in your $HOME/.blender/scripts directory.
++#
++# See windstille/docs/models.txt for more details
++
++import struct, shlex, os.path, math
++import Blender
++from Blender import NMesh
++from Blender import Window
++from helper import *
++from data import * 
++
++# SAMPLEFRAMES, only export every nth frame of the animation
++DEFAULT_SAMPLERATE = 5
++# ZOOM, is multiplied with all vertex coordinates
++ZOOM = 32.0
++DEFAULT_SPEED = 1.0
++SPEED_MULTIPLIER = 9.8
++# DO NOT change this
++FORMAT_VERSION = 2
++
++class WindstilleSprite:
++  ########################################################
++  def __init__(self):
++      &quot;&quot;&quot; Create a WindstilleSprite from the current scene&quot;&quot;&quot;
++      ### References to Blender internals
++      # List of Blender mesh objects that should get exported (everything on
++      # seperate layer is ignored)
++      self.mesh_objects    = []
++
++      # Blender armature object
++      self.armature_object = None
++
++      # Blender attachment objects, ie. Empties
++      self.attachment_objects = []
++
++      # Name of the actions as string
++      self.actions = []
++
++      # { actionname : ActionConfig, ... }
++      self.actionconfigs = {}
++      
++      ### Converted Data
++      # List of mesh_data, ie. data we collected and converted ourself from Blender
++      self.mesh_data   = []
++            
++      # Used to store animation data (vertex position and such)
++      self.action_data = []
++
++      ### Start collecting data
++      # Collect Action Config
++      self.collect_actionconfig()
++      # Fill out Blender internal references
++      self.collect_data()
++      # Data for all Meshes
++      self.collect_object_data()
++      # Collect data for the Actions and Animations
++      self.collect_animation_data()
++
++  def collect_actionconfig(self):
++      try:
++          self.actionconfigs = ActionConfig.parse(get_text(&quot;actionconfig&quot;))
++      except Exception, message:
++          raise Exception, &quot;Error: Parse Error in actionconfig:&quot; + str(message)
++      
++  def collect_data(self):
++      &quot;&quot;&quot;Convert Blender data structures into something that is used by
++      this export script&quot;&quot;&quot;
++
++      scene  = Blender.Scene.getCurrent()
++      layers = scene.Layers
++
++      # compose list of meshs to export
++      for obj in Blender.Object.Get():
++          data = obj.getData()
++          if (type(data) is not Blender.Types.NMeshType) or not data.faces:
++              pass # ignore anything that isn't a mesh
++          elif (obj.Layers &amp; layers) == 0:
++              print &quot;Skipping \&quot;%s\&quot; because it is on different layer&quot; % obj.getName()
++          else:
++              texture = data.faces[0].image
++              self.mesh_objects.append(obj)
++
++      # search for armature object
++      self.armature_object = Blender.Object.Get(&quot;Armature&quot;)
++      if self.armature_object and self.armature_object.getType() != &quot;Armature&quot;:
++          print &quot;Warning: object named 'Armature' is not an armature!&quot;
++          self.armature_object = None
++
++      # compose list of objects for attachment points
++      for obj in Blender.Object.Get():
++          if obj.getType() == 'Empty' and obj.getName().startswith(&quot;A:&quot;):
++              self.attachment_objects.append(obj)
++
++      # compose list of actions to export
++      if not self.armature_object:
++          self.actions.append(&quot;Default&quot;)
++      else:
++          for action in Blender.Armature.NLA.GetActions().iteritems():
++              self.actions.append(action[1])
++        
++  ### END: def collect_data()
++
++  def collect_animation_data(self):
++      for index, action in enumerate(self.actions):
++          Window.DrawProgressBar(float(index)/len(self.mesh_data)*0.5,
++                                 &quot;Collection Action %s&quot; % (action.name))
++          
++          action.setActive(self.armature_object)
++
++          # find/autodetect config
++          if self.actionconfigs.has_key(action.getName()):
++              actioncfg = self.actionconfigs[action.getName()]
++          else:
++              print &quot;Error: No config for action '%s' defined.&quot; % action.getName()
++              actioncfg = ActionConfig(1, 1, DEFAULT_SPEED, DEFAULT_SAMPLERATE, [])
++
++          frame_data = []
++          for frame in range(actioncfg.first_frame, actioncfg.last_frame+1, actioncfg.samplerate):
++              Blender.Set(&quot;curframe&quot;, int(frame))
++              frame_data.append(self.collect_frame_data())
++
++          self.action_data.append(ActionData(action.getName(), actioncfg, frame_data))
++
++  def collect_object_data(self):
++    for obj in self.mesh_objects:
++      self.mesh_data += self.collect_mesh_data(obj)
++
++    # insert code to merge meshes here
++
++    # Create the transtable
++    for mesh in self.mesh_data:
++      mesh.finalize()
++
++  def collect_mesh_data(self, obj):
++      &quot;&quot;&quot;
++      Returns mesh_data as dict with format:
++      key: texture_filename
++      val: MeshData
++      &quot;&quot;&quot;
++      mesh_data = {}
++
++      for face in obj.getData().faces:
++          if face.image:
++              texture_filename = face.image.filename
++          else:
++              texture_filename = &quot;//404.png&quot; # FIXME: what is // good for?
++
++          if not mesh_data.has_key(texture_filename):
++              mesh_data[texture_filename] = MeshData(texture_filename)
++
++          faces = []
++          for v in [0, 1, 2]:
++              faces.append(VertexData(obj, face.v[v].index,
++                                      [face.uv[v][0], 1.0-face.uv[v][1]],
++                                      [face.normal[1], -face.normal[2], -face.normal[0]]))
++          mesh_data[texture_filename].faces.append(FaceData(faces,
++                                                            [face.normal[1], -face.normal[2], -face.normal[0]]))
++
++          # Write out another triangle in case we have a quad: index, u, v
++          faces = []
++          if len(face.v) == 4:
++              for v in [0, 2, 3]:
++                  faces.append(VertexData(obj, face.v[v].index,
++                                          [face.uv[v][0], 1.0-face.uv[v][1]],
++                                          [face.normal[1], -face.normal[2], -face.normal[0]]))
++              mesh_data[texture_filename].faces.append(FaceData(faces,
++                                                                [face.normal[1], -face.normal[2], -face.normal[0]]))
++
++      return mesh_data.values()
++
++  def collect_frame_data(self):
++      &quot;&quot;&quot;
++      Collect all data for the given object in a single frame, frame
++      has to be selected outside of this function.
++      Format:
++      [[[vertex_pos_x, vertex_pos_y, vertex_pos_z], ...],
++      [[attachment_pos_x, attachment_pos_y, attachment_pos_z,
++      attachment_quat1, attachment_quat2, attachment_quat3, attachment_quat4], ...]]
++       &quot;&quot;&quot;
++   
++      meshs = []
++      attachment_points = []
++
++      obj = None
++
++      # no triangles here (those are global), just vertexes (those are local)
++      for mesh_data in self.mesh_data:
++          vertex_positions = []
++          for vertex in mesh_data.transtable:
++              if obj != vertex[0]:
++                  obj  = vertex[0]
++                  data = Blender.NMesh.GetRawFromObject(obj.getName())
++
++              index = vertex[1]
++
++              m = obj.getMatrix()
++
++              # location: action/frame/mesh/vertices
++              v = data.verts[index]
++              vertex_positions.append([+(m[0][1]*v[0] + m[1][1]*v[1] + m[2][1]*v[2] + m[3][1]) * ZOOM,
++                                       -(m[0][2]*v[0] + m[1][2]*v[1] + m[2][2]*v[2] + m[3][2]) * ZOOM,
++                                       -(m[0][0]*v[0] + m[1][0]*v[1] + m[2][0]*v[2] + m[3][0]) * ZOOM])
++          meshs.append(vertex_positions)
++
++      # attachment points
++      for obj in self.attachment_objects:
++          m    = obj.matrixWorld
++          loc  = (m[3][0] * ZOOM, m[3][1] * ZOOM, m[3][2] * ZOOM)
++          quat = matrix2quaternion(m)      
++          attachment_points.append(AttachmentPoint([loc[1], -loc[2], -loc[0]],
++                                                   [quat[0], quat[2], quat[3], quat[1]]))
++
++      return FrameData(meshs, attachment_points)
++
++  def write(self, out):
++      &quot;&quot;&quot;This is a new version of write_file(), instead of using blender
++      internals, it uses the collected data&quot;&quot;&quot;
++
++      ### Write magic, version and counts for mesh, attachment_points and actions
++      out.write(struct.pack(&quot;=4sHHHH&quot;, &quot;W3DS&quot;,
++                            FORMAT_VERSION, \
++                            len(self.mesh_data),
++                            len(self.attachment_objects),
++                            len(self.action_data)))
++
++      ### Mesh Header:
++      for mesh in self.mesh_data:
++          out.write(struct.pack(&quot;=64sHH&quot;,
++                                mesh.texture_filename,
++                                len(mesh.faces),
++                                len(mesh.vertices)))
++          ### Mesh Data:
++          ## Vertex indices of triangles
++          for face in mesh.faces:
++              out.write(struct.pack(&quot;=HHH&quot;,
++                                    mesh.translate(face.verts[0]),
++                                    mesh.translate(face.verts[1]),
++                                    mesh.translate(face.verts[2])))
++
++          ## Normal
++          for face in mesh.faces:
++              out.write(struct.pack(&quot;=fff&quot;, face.normal[0], face.normal[1], face.normal[2]))
++
++          ## UV Coordinates
++          for vert in mesh.vertices:
++            out.write(struct.pack(&quot;=ff&quot;, vert.uv[0], vert.uv[1]))
++
++      ### Attachment points
++      for obj in self.attachment_objects:
++          out.write(struct.pack(&quot;=64s&quot;, obj.getName()[2:]))
++
++      ## Action Header
++      for index, action in enumerate(self.action_data):
++          Window.DrawProgressBar(0.5 + float(index)/len(self.mesh_data) * 0.5,
++                                 &quot;Writing Action %s&quot; % (action.name))
++
++          out.write(struct.pack(&quot;=64sfHH&quot;,
++                                action.name, 
++                                action.config.speed * SPEED_MULTIPLIER,
++                                len(action.config.markers),
++                                len(action.frame_data)))
++          
++          ## Marker
++          for (marker_name, marker_frame) in action.config.markers:
++              out.write(struct.pack(&quot;=64sH&quot;,
++                                    marker_name, 
++                                    (marker_frame - action.config.first_frame) / action.config.samplerate))
++
++          ## Action Data
++          for frame in action.frame_data:
++              ### Vertex positions
++              for mesh in frame.vertex_locs:
++                  for vert in mesh:
++                      out.write(struct.pack(&quot;=fff&quot;, vert[0], vert[1], vert[2]))
++              ### Attachment Points
++              for at in frame.attachment_points:
++                  out.write(struct.pack(&quot;=fffffff&quot;,
++                                        at.loc[0],  at.loc[1],  at.loc[2],
++                                        at.quat[0], at.quat[1], at.quat[2], at.quat[3]))
++    ### DONE ###
++
++  def print_stats(self):
++      &quot;&quot;&quot;Print some stats, vertex count, face count and such&quot;&quot;&quot;
++      print &quot;+====================================================================&quot;
++      print &quot;| WindstilleSprite&quot;
++      print &quot;+====================================================================&quot;
++      print &quot;| Mesh Count:     &quot;, len(self.mesh_data)
++      print &quot;| Mesh Objects:   &quot;, self.mesh_objects
++      print &quot;| Actions:        &quot;, self.actions
++      print &quot;| AttachmentObjs: &quot;, self.attachment_objects
++      print &quot;| Meshs: &quot;
++      for mesh in self.mesh_data:
++          print &quot;|   Mesh:       &quot;, mesh
++          print &quot;|     Texture:  &quot;, mesh.texture_filename
++          print &quot;|     Faces:    &quot;, len(mesh.faces)
++          print &quot;|     Vertices: &quot;, len(mesh.vertices)
++          print &quot;|&quot;
++      print &quot;| Actions: &quot;
++      for action in self.action_data:
++          print &quot;|   Name:        &quot;, action.name
++          print &quot;|   Config:      &quot;, action.config
++          print &quot;|   Frames:      &quot;, len(action.frame_data)
++          print &quot;|   Vertices:    &quot;, [len(x) for x in action.frame_data[0].vertex_locs]
++          print &quot;|   Attachments: &quot;, len(action.frame_data[0].attachment_points)
++          print &quot;|&quot;
++      print &quot;+====================================================================&quot;
++    
++def export(filename):
++    data = WindstilleSprite()
++
++    file = open(filename, &quot;wb&quot;)
++    data.write(file)
++    file.close()
++
++    data.print_stats()
++
++########################################################
++def fs_callback(filename):
++    print &quot;=== Exporting: %s ===&quot; % (filename)
++    export(filename)
++    Window.DrawProgressBar(1.0, &quot;Finished writing %s&quot; % (filename)) 
++    print &quot;=== Windstille Exporter done, wrote %s ===&quot; % (filename)
++
++defaultname = Blender.Get(&quot;filename&quot;)
++if defaultname.endswith(&quot;.blend&quot;):
++    defaultname = defaultname[0:len(defaultname) - len(&quot;.blend&quot;)] + &quot;.wsprite&quot;
++Window.FileSelector(fs_callback, &quot;Windstille Export&quot;, defaultname)
++
++# EOF #
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000889.html">[Windstille-commit] r1236 - trunk/tools
+</A></li>
+	<LI>Next message: <A HREF="000891.html">[Windstille-commit] r1238 - trunk/tools
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#890">[ date ]</a>
+              <a href="thread.html#890">[ thread ]</a>
+              <a href="subject.html#890">[ subject ]</a>
+              <a href="author.html#890">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

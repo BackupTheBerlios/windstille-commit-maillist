@@ -1,0 +1,404 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2377 - in trunk/griv: . src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2377%20-%20in%20trunk/griv%3A%20.%20src&In-Reply-To=%3C200808311203.m7VC3N0k024526%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001373.html">
+   <LINK REL="Next"  HREF="001375.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2377 - in trunk/griv: . src</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2377%20-%20in%20trunk/griv%3A%20.%20src&In-Reply-To=%3C200808311203.m7VC3N0k024526%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2377 - in trunk/griv: . src">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Aug 31 14:03:23 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001373.html">[Windstille-commit] r2376 - trunk/griv/src
+</A></li>
+        <LI>Next message: <A HREF="001375.html">[Windstille-commit] r2378 - in trunk/griv: . src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1374">[ date ]</a>
+              <a href="thread.html#1374">[ thread ]</a>
+              <a href="subject.html#1374">[ subject ]</a>
+              <a href="author.html#1374">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-31 14:03:21 +0200 (Sun, 31 Aug 2008)
+New Revision: 2377
+
+Modified:
+   trunk/griv/TODO
+   trunk/griv/src/database_thread.cpp
+   trunk/griv/src/file_database.cpp
+   trunk/griv/src/framebuffer.cpp
+   trunk/griv/src/framebuffer.hpp
+   trunk/griv/src/griv.cpp
+   trunk/griv/src/griv.hpp
+   trunk/griv/src/image.hpp
+   trunk/griv/src/viewer.cpp
+   trunk/griv/src/viewer_thread.cpp
+   trunk/griv/src/viewer_thread.hpp
+   trunk/griv/src/workspace.cpp
+   trunk/griv/src/workspace.hpp
+Log:
+Added fullscreen and geometry options, moved sorting to Workspace
+
+Modified: trunk/griv/TODO
+===================================================================
+--- trunk/griv/TODO	2008-08-31 09:45:01 UTC (rev 2376)
++++ trunk/griv/TODO	2008-08-31 12:03:21 UTC (rev 2377)
+@@ -1,11 +1,16 @@
+ [[ Griv ToDo ]]
+ 
++* trackball control
++
++* add more command line options:
++
++  --aspect
++  --select (?)
++
+ * hide mouse cursor on request
+ 
+ * build &quot;scons configure&quot; like stuff, see Pingus for reference
+ 
+-* allow rotation of view, maybe later of images
+-
+ * save color or a 8x8 thumbnail in the FileEntry, for faster loading, also save 1x1 Color in FileEntry
+ 
+ * store the max_tile size into the FileTable
+@@ -101,7 +106,12 @@
+ 
+ * Grayscale JPEGs aren't supported either (easy to fix)
+ 
++* allow rotation of images
+ 
++* record how long an image has been viewed and allow to display which
++  images have been viewed most
++
++
+ Random Notes:
+ =============
+ 
+
+Modified: trunk/griv/src/database_thread.cpp
+===================================================================
+--- trunk/griv/src/database_thread.cpp	2008-08-31 09:45:01 UTC (rev 2376)
++++ trunk/griv/src/database_thread.cpp	2008-08-31 12:03:21 UTC (rev 2377)
+@@ -206,6 +206,12 @@
+                 {
+                   StoreTileDatabaseMessage* tile_msg = static_cast&lt;StoreTileDatabaseMessage*&gt;(msg);
+                   
++                  if (0)
++                  std::cout &lt;&lt; &quot;Received Tile: &quot;
++                            &lt;&lt; tile_msg-&gt;tile.fileid &lt;&lt; &quot; pos: &quot; 
++                            &lt;&lt; tile_msg-&gt;tile.pos  &lt;&lt; &quot; scale: &quot; 
++                            &lt;&lt; tile_msg-&gt;tile.scale &lt;&lt; std::endl;
++
+                   for(std::list&lt;TileDatabaseMessage*&gt;::iterator i = tile_queue.begin(); i != tile_queue.end();)
+                     {
+                       if (tile_msg-&gt;tile.fileid == (*i)-&gt;file_entry.fileid &amp;&amp;
+
+Modified: trunk/griv/src/file_database.cpp
+===================================================================
+--- trunk/griv/src/file_database.cpp	2008-08-31 09:45:01 UTC (rev 2376)
++++ trunk/griv/src/file_database.cpp	2008-08-31 12:03:21 UTC (rev 2377)
+@@ -63,7 +63,7 @@
+ 
+   get_by_filename_stmt.prepare(&quot;SELECT * FROM files WHERE filename = ?1;&quot;);
+   get_by_file_id_stmt.prepare(&quot;SELECT * FROM files WHERE rowid = ?1;&quot;);
+-  get_all_stmt.prepare(&quot;SELECT * FROM files ORDER BY filename&quot;);
++  get_all_stmt.prepare(&quot;SELECT * FROM files&quot;);
+ }
+  
+ FileDatabase::~FileDatabase()
+
+Modified: trunk/griv/src/framebuffer.cpp
+===================================================================
+--- trunk/griv/src/framebuffer.cpp	2008-08-31 09:45:01 UTC (rev 2376)
++++ trunk/griv/src/framebuffer.cpp	2008-08-31 12:03:21 UTC (rev 2377)
+@@ -37,7 +37,7 @@
+ Size Framebuffer::desktop_resolution;
+ 
+ void
+-Framebuffer::set_video_mode(const Size&amp; size)
++Framebuffer::set_video_mode(const Size&amp; size, bool fullscreen)
+ {
+   assert(screen == 0);
+ 
+@@ -54,8 +54,17 @@
+   desktop_resolution = Size(info-&gt;current_w, info-&gt;current_h);
+ 
+   flags = SDL_RESIZABLE | SDL_OPENGL;
+-  screen = SDL_SetVideoMode(800, 600, 0, flags);
+ 
++  if (fullscreen)
++    {
++      flags |= SDL_FULLSCREEN;
++      screen = SDL_SetVideoMode(desktop_resolution.width, desktop_resolution.height, 0, flags);
++    }
++  else
++    {
++      screen = SDL_SetVideoMode(size.width, size.height, 0, flags);
++    }
++
+   if (screen == NULL) 
+     {
+       std::cout &lt;&lt; &quot;Unable to set video mode: &quot; &lt;&lt; SDL_GetError() &lt;&lt; std::endl;
+
+Modified: trunk/griv/src/framebuffer.hpp
+===================================================================
+--- trunk/griv/src/framebuffer.hpp	2008-08-31 09:45:01 UTC (rev 2376)
++++ trunk/griv/src/framebuffer.hpp	2008-08-31 12:03:21 UTC (rev 2377)
+@@ -56,7 +56,7 @@
+   static Size desktop_resolution;
+ 
+ public:
+-  static void set_video_mode(const Size&amp; size);
++  static void set_video_mode(const Size&amp; size, bool fullscreen);
+ 
+   static void toggle_fullscreen();
+ 
+
+Modified: trunk/griv/src/griv.cpp
+===================================================================
+--- trunk/griv/src/griv.cpp	2008-08-31 09:45:01 UTC (rev 2376)
++++ trunk/griv/src/griv.cpp	2008-08-31 12:03:21 UTC (rev 2377)
+@@ -53,6 +53,8 @@
+ #include &quot;griv.hpp&quot;
+ 
+ Griv::Griv()
++  : fullscreen(false),
++    geometry(800, 600)
+ {
+   Filesystem::init();
+ }
+@@ -228,7 +230,7 @@
+   JPEGDecoderThread   jpeg_thread;
+   DatabaseThread      database_thread(database);
+   TileGeneratorThread tile_generator_thread;
+-  ViewerThread        viewer_thread;
++  ViewerThread        viewer_thread(geometry, fullscreen);
+ 
+   jpeg_thread.start();
+   database_thread.start();
+@@ -282,6 +284,8 @@
+                 &lt;&lt; &quot;\n&quot;
+                 &lt;&lt; &quot;Options:\n&quot;
+                 &lt;&lt; &quot;  -d, --database FILE    Use FILE has database (default: test.sqlite)\n&quot;
++                &lt;&lt; &quot;  -f, --fullscreen       Start in fullscreen mode\n&quot;
++                &lt;&lt; &quot;  -g, --geometry WxH     Start with window size WxH\n&quot;        
+                 &lt;&lt; &quot;\n&quot;
+                 &lt;&lt; &quot;If you do not supply any files, the whole content of the given database will be displayed.&quot;
+                 &lt;&lt; std::endl;
+@@ -326,6 +330,20 @@
+                       throw std::runtime_error(std::string(argv[i-1]) + &quot; requires an argument&quot;);
+                     }
+                 }
++              else if (strcmp(argv[i], &quot;--geometry&quot;) == 0 ||
++                       strcmp(argv[i], &quot;-g&quot;) == 0)
++                {
++                  i += 1;
++                  if (i &lt; argc)
++                    sscanf(argv[i], &quot;%dx%d&quot;, &amp;geometry.width, &amp;geometry.height);
++                  else
++                    throw std::runtime_error(std::string(&quot;Option &quot;) + argv[i-1] + &quot; requires an argument&quot;);
++                }
++              else if (strcmp(argv[i], &quot;--fullscreen&quot;) == 0 ||
++                       strcmp(argv[i], &quot;-f&quot;) == 0)
++                {
++                  fullscreen = true;
++                }
+               else
+                 {
+                   throw std::runtime_error(&quot;Unknown option &quot; + std::string(argv[i]));
+
+Modified: trunk/griv/src/griv.hpp
+===================================================================
+--- trunk/griv/src/griv.hpp	2008-08-31 09:45:01 UTC (rev 2376)
++++ trunk/griv/src/griv.hpp	2008-08-31 12:03:21 UTC (rev 2377)
+@@ -20,10 +20,15 @@
+ 
+ #ifndef HEADER_GRIV_HPP
+ #define HEADER_GRIV_HPP
++
++#include &quot;math/size.hpp&quot;
+ 
+ class Griv
+ {
+ private:
++  bool fullscreen;
++  Size geometry;
++
+ public:
+   Griv();
+   ~Griv();
+
+Modified: trunk/griv/src/image.hpp
+===================================================================
+--- trunk/griv/src/image.hpp	2008-08-31 09:45:01 UTC (rev 2376)
++++ trunk/griv/src/image.hpp	2008-08-31 12:03:21 UTC (rev 2377)
+@@ -92,6 +92,8 @@
+   void cache_cleanup();
+   void print_info();
+ 
++  std::string get_filename() const;
++
+   operator bool() const { return impl.get(); }
+ 
+   /** Syncronized function to require data from other threads */
+
+Modified: trunk/griv/src/viewer.cpp
+===================================================================
+--- trunk/griv/src/viewer.cpp	2008-08-31 09:45:01 UTC (rev 2376)
++++ trunk/griv/src/viewer.cpp	2008-08-31 12:03:21 UTC (rev 2377)
+@@ -166,6 +166,10 @@
+               workspace.cache_cleanup();
+               break;
+ 
++            case SDLK_s:
++              workspace.sort();
++              break;
++
+             case SDLK_i:
+               workspace.print_info();
+               break;
+
+Modified: trunk/griv/src/viewer_thread.cpp
+===================================================================
+--- trunk/griv/src/viewer_thread.cpp	2008-08-31 09:45:01 UTC (rev 2376)
++++ trunk/griv/src/viewer_thread.cpp	2008-08-31 12:03:21 UTC (rev 2377)
+@@ -35,7 +35,9 @@
+ 
+ ViewerThread* ViewerThread::current_ = 0;
+ 
+-ViewerThread::ViewerThread()
++ViewerThread::ViewerThread(const Size&amp; geometry, bool fullscreen)
++  : geometry(geometry),
++    fullscreen(fullscreen)
+ {
+   current_ = this;
+ }
+@@ -55,7 +57,7 @@
+ {
+   Workspace workspace;
+ 
+-  Framebuffer::set_video_mode(Size(800, 600));
++  Framebuffer::set_video_mode(geometry, fullscreen);
+ 
+   workspace.layout(4,3);
+ 
+
+Modified: trunk/griv/src/viewer_thread.hpp
+===================================================================
+--- trunk/griv/src/viewer_thread.hpp	2008-08-31 09:45:01 UTC (rev 2376)
++++ trunk/griv/src/viewer_thread.hpp	2008-08-31 12:03:21 UTC (rev 2377)
+@@ -26,6 +26,7 @@
+ #ifndef HEADER_VIEWER_THREAD_HPP
+ #define HEADER_VIEWER_THREAD_HPP
+ 
++#include &quot;math/size.hpp&quot;
+ #include &quot;thread.hpp&quot;
+ #include &quot;thread_message_queue.hpp&quot;
+ 
+@@ -45,10 +46,13 @@
+   static ViewerThread* current() { return current_; }
+   
+ private:
++  Size geometry;
++  bool fullscreen;
++
+   ThreadMessageQueue&lt;FileEntry&gt;   file_queue;
+ 
+ public:
+-  ViewerThread();
++  ViewerThread(const Size&amp; geometry, bool fullscreen);
+   virtual ~ViewerThread();
+ 
+   int run();
+
+Modified: trunk/griv/src/workspace.cpp
+===================================================================
+--- trunk/griv/src/workspace.cpp	2008-08-31 09:45:01 UTC (rev 2376)
++++ trunk/griv/src/workspace.cpp	2008-08-31 12:03:21 UTC (rev 2377)
+@@ -56,6 +56,8 @@
+ void
+ Workspace::layout(float aspect_w, float aspect_h)
+ {
++  sort();
++
+   if (!images.empty())
+     {     
+       int w = int(Math::sqrt(aspect_w * images.size() / aspect_h));
+@@ -114,7 +116,21 @@
+     }
+ }
+ 
++struct ImageSorter
++{
++  bool operator()(const Image&amp; lhs, const Image&amp; rhs)
++  {
++    return lhs.get_filename() &lt; rhs.get_filename();
++  }
++};
++
+ void
++Workspace::sort()
++{
++  std::sort(images.begin(), images.end(), ImageSorter());
++}
++
++void
+ Workspace::clear_cache()
+ {
+   for(Images::iterator i = images.begin(); i != images.end(); ++i)
+
+Modified: trunk/griv/src/workspace.hpp
+===================================================================
+--- trunk/griv/src/workspace.hpp	2008-08-31 09:45:01 UTC (rev 2376)
++++ trunk/griv/src/workspace.hpp	2008-08-31 12:03:21 UTC (rev 2377)
+@@ -46,6 +46,7 @@
+   void draw(const Rectf&amp; cliprect, float scale);
+   void update(float delta);
+ 
++  void sort();
+   void layout(float aspect_w, float aspect_h);
+   void clear_cache();
+   void cache_cleanup();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001373.html">[Windstille-commit] r2376 - trunk/griv/src
+</A></li>
+	<LI>Next message: <A HREF="001375.html">[Windstille-commit] r2378 - in trunk/griv: . src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1374">[ date ]</a>
+              <a href="thread.html#1374">[ thread ]</a>
+              <a href="subject.html#1374">[ subject ]</a>
+              <a href="author.html#1374">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

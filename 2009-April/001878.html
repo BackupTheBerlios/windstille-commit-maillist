@@ -1,0 +1,273 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2881 - trunk/windstille/src/display
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2881%20-%20trunk/windstille/src/display&In-Reply-To=%3C200904062331.n36NVWoT032708%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001877.html">
+   <LINK REL="Next"  HREF="001879.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2881 - trunk/windstille/src/display</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2881%20-%20trunk/windstille/src/display&In-Reply-To=%3C200904062331.n36NVWoT032708%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2881 - trunk/windstille/src/display">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Apr  7 01:31:32 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001877.html">[Windstille-commit] r2880 -	trunk/windstille/data/sectors/trainstation
+</A></li>
+        <LI>Next message: <A HREF="001879.html">[Windstille-commit] r2882 - trunk/windstille/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1878">[ date ]</a>
+              <a href="thread.html#1878">[ thread ]</a>
+              <a href="subject.html#1878">[ subject ]</a>
+              <a href="author.html#1878">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-04-07 01:31:21 +0200 (Tue, 07 Apr 2009)
+New Revision: 2881
+
+Modified:
+   trunk/windstille/src/display/software_surface.cpp
+   trunk/windstille/src/display/software_surface.hpp
+   trunk/windstille/src/display/texture.cpp
+   trunk/windstille/src/display/texture.hpp
+   trunk/windstille/src/display/texture_packer.cpp
+Log:
+Generate the 1px border via OpenGL calls, instead of via in software
+
+Modified: trunk/windstille/src/display/software_surface.cpp
+===================================================================
+--- trunk/windstille/src/display/software_surface.cpp	2009-04-06 03:07:44 UTC (rev 2880)
++++ trunk/windstille/src/display/software_surface.cpp	2009-04-06 23:31:21 UTC (rev 2881)
+@@ -175,22 +175,6 @@
+     }
+ }
+ 
+-SoftwareSurface
+-SoftwareSurface::add_1px_border() const
+-{
+-  SoftwareSurface surface(get_width()+2, get_height()+2);
+-
+-  // FIXME: Really slow and leaves out the edge pixels
+-  blit(surface, 1, 0);
+-  blit(surface, 1, 2);
+-  blit(surface, 0, 1);
+-  blit(surface, 2, 1);
+-
+-  blit(surface, 1, 1);
+-
+-  return surface;
+-}
+-
+ void
+ SoftwareSurface::save_png(const std::string&amp; filename) const
+ {
+
+Modified: trunk/windstille/src/display/software_surface.hpp
+===================================================================
+--- trunk/windstille/src/display/software_surface.hpp	2009-04-06 03:07:44 UTC (rev 2880)
++++ trunk/windstille/src/display/software_surface.hpp	2009-04-06 23:31:21 UTC (rev 2881)
+@@ -52,11 +52,6 @@
+   void blit(SoftwareSurface&amp; dst, int x, int y) const;
+   void blit(const Rect&amp; src_rect, SoftwareSurface&amp; dst, int x, int y) const;
+ 
+-  /** Creates a copy of the original surface with an added a 1pix
+-      border around the original. The border contains duplicates the
+-      edge pixels.  */
+-  SoftwareSurface add_1px_border() const;
+-
+   void save_png(const std::string&amp; filename) const;
+ 
+   SDL_Surface* get_surface() const;
+
+Modified: trunk/windstille/src/display/texture.cpp
+===================================================================
+--- trunk/windstille/src/display/texture.cpp	2009-04-06 03:07:44 UTC (rev 2880)
++++ trunk/windstille/src/display/texture.cpp	2009-04-06 23:31:21 UTC (rev 2881)
+@@ -21,6 +21,8 @@
+ #include &lt;iostream&gt;
+ #include &lt;GL/glew.h&gt;
+ #include &lt;GL/gl.h&gt;
++
++#include &quot;math/rect.hpp&quot;
+ #include &quot;texture.hpp&quot;
+ #include &quot;display/software_surface.hpp&quot;
+ #include &quot;display/opengl_state.hpp&quot;
+@@ -172,6 +174,40 @@
+ }
+ 
+ void
++Texture::put(const SoftwareSurface&amp; image, const Rect&amp; srcrect, int x, int y)
++{
++  GLint sdl_format;
++
++  if (image.get_bytes_per_pixel() == 3)
++    {
++      sdl_format = GL_RGB;
++    }
++  else if (image.get_bytes_per_pixel() == 4)
++    {
++      sdl_format = GL_RGBA;
++    }
++  else
++    {
++      throw std::runtime_error(&quot;Texture: Image format not supported&quot;);
++    }
++
++  OpenGLState state;
++  state.bind_texture(*this);
++  state.activate();
++
++  // FIXME: Add some checks here to make sure image has the right format 
++  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
++  glPixelStorei(GL_UNPACK_ROW_LENGTH,
++                image.get_pitch() / image.get_bytes_per_pixel());
++
++  glTexSubImage2D(impl-&gt;target, 0, x, y,
++                  srcrect.get_width(), srcrect.get_height(), sdl_format, GL_UNSIGNED_BYTE,
++                  static_cast&lt;uint8_t*&gt;(image.get_pixels())
++                  + srcrect.top  * image.get_pitch()
++                  + srcrect.left * image.get_bytes_per_pixel());
++}
++
++void
+ Texture::put(const SoftwareSurface&amp; image, int x, int y)
+ {
+   GLint sdl_format;
+
+Modified: trunk/windstille/src/display/texture.hpp
+===================================================================
+--- trunk/windstille/src/display/texture.hpp	2009-04-06 03:07:44 UTC (rev 2880)
++++ trunk/windstille/src/display/texture.hpp	2009-04-06 23:31:21 UTC (rev 2881)
+@@ -27,6 +27,7 @@
+ 
+ class SoftwareSurface;
+ class TextureImpl;
++class Rect;
+ 
+ class Texture
+ {
+@@ -66,6 +67,10 @@
+ 
+   /** Uploads the given image to the given coordinates */
+   void put(const SoftwareSurface&amp; image, int x, int y);
++  
++  /** Uploads the given subsection \a srcrect of \a image to the given
++      coordinates */
++  void put(const SoftwareSurface&amp; image, const Rect&amp; srcrect, int x, int y);
+ 
+   GLuint get_handle() const;
+   
+
+Modified: trunk/windstille/src/display/texture_packer.cpp
+===================================================================
+--- trunk/windstille/src/display/texture_packer.cpp	2009-04-06 03:07:44 UTC (rev 2880)
++++ trunk/windstille/src/display/texture_packer.cpp	2009-04-06 23:31:21 UTC (rev 2881)
+@@ -52,7 +52,10 @@
+             used = true;
+             out_rect = Rect(Point(rect.left, rect.top), size);
+ 
+-            // FIXME: Make this alterate between horizontal and vertical splitting
++            // FIXME: Make this alterate between horizontal and
++            // vertical splitting or chose whichever split options
++            // leads to less 'ugly' rectangle (how much different does
++            // this make in terms of packing density?)
+             left.reset(new TextureSpace(Rect(out_rect.left,  out_rect.bottom,
+                                              out_rect.right, rect.bottom)));
+ 
+@@ -144,12 +147,12 @@
+ }
+ 
+ Surface
+-TexturePacker::upload(const SoftwareSurface&amp; in_surface)
++TexturePacker::upload(const SoftwareSurface&amp; surface)
+ {
+   // Add a 1px border around surfaces to avoid blending artifacts
+-  SoftwareSurface surface = in_surface.add_1px_border();
++  //SoftwareSurface surface = in_surface.add_1px_border();
+ 
+-  Size    size(surface.get_width(), surface.get_height());
++  Size    size(surface.get_width()+2, surface.get_height()+2);
+   Rect    rect;
+   Texture texture;
+ 
+@@ -159,14 +162,38 @@
+     }
+   else
+     {
+-      texture.put(surface, rect.left, rect.top);
++      // duplicate border pixel
+ 
+-      //std::cout &lt;&lt; &quot;Texture: &quot; &lt;&lt; texture.get_handle() &lt;&lt; &quot; &quot; &lt;&lt; rect &lt;&lt; std::endl;
++      // top
++      texture.put(surface, Rect(Point(0, 0), Size(surface.get_width(), 1)), 
++                  rect.left+1, rect.top);
++      // bottom
++      texture.put(surface, Rect(Point(0, surface.get_height()-1), Size(surface.get_width(), 1)), 
++                  rect.left+1, rect.bottom-1);
++      // left
++      texture.put(surface, Rect(Point(0, 0), Size(1, surface.get_height())), 
++                  rect.left, rect.top+1);
++      // right
++      texture.put(surface, Rect(Point(surface.get_width()-1, 0), Size(1, surface.get_height())),
++                  rect.right-1, rect.top+1);
+ 
++      // duplicate corner pixels
++      texture.put(surface, Rect(Point(0, 0), Size(1, 1)), 
++                  rect.left, rect.top);     
++      texture.put(surface, Rect(Point(surface.get_width()-1, 0), Size(1, 1)), 
++                  rect.right-1, rect.top);
++      texture.put(surface, Rect(Point(surface.get_width()-1, surface.get_height()-1), Size(1, 1)), 
++                  rect.right-1, rect.bottom-1);
++      texture.put(surface, Rect(Point(0, surface.get_height()-1), Size(1, 1)),
++                  rect.left, rect.bottom-1);
++
++      // draw the main surface
++      texture.put(surface, rect.left+1, rect.top+1);
++
+       return Surface(texture,
+                      Rectf(float(rect.left+1)  / texture.get_width(), float(rect.top+1)    / texture.get_height(),
+                            float(rect.right-1) / texture.get_width(), float(rect.bottom-1) / texture.get_height()),
+-                     in_surface.get_width(), in_surface.get_height());
++                     surface.get_width(), surface.get_height());
+     }
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001877.html">[Windstille-commit] r2880 -	trunk/windstille/data/sectors/trainstation
+</A></li>
+	<LI>Next message: <A HREF="001879.html">[Windstille-commit] r2882 - trunk/windstille/src/display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1878">[ date ]</a>
+              <a href="thread.html#1878">[ thread ]</a>
+              <a href="subject.html#1878">[ subject ]</a>
+              <a href="author.html#1878">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

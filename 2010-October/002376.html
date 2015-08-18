@@ -1,0 +1,774 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3379 - trunk/windstille
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2010-October/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3379%20-%20trunk/windstille&In-Reply-To=%3C20101023204915.2D80F4802A6%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002375.html">
+   <LINK REL="Next"  HREF="002377.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3379 - trunk/windstille</H1>
+    <B>grumbel at mail.berlios.de</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3379%20-%20trunk/windstille&In-Reply-To=%3C20101023204915.2D80F4802A6%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3379 - trunk/windstille">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Oct 23 22:49:15 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002375.html">[Windstille-commit] r3378 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="002377.html">[Windstille-commit] r3380 - trunk/windstille
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2376">[ date ]</a>
+              <a href="thread.html#2376">[ thread ]</a>
+              <a href="subject.html#2376">[ subject ]</a>
+              <a href="author.html#2376">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2010-10-23 22:49:14 +0200 (Sat, 23 Oct 2010)
+New Revision: 3379
+
+Added:
+   trunk/windstille/scons_tests.py
+Modified:
+   trunk/windstille/SConscript
+Log:
+Started rewriting the SConstruct a bit to have a more flexible structure
+
+Modified: trunk/windstille/SConscript
+===================================================================
+--- trunk/windstille/SConscript	2010-10-23 20:48:28 UTC (rev 3378)
++++ trunk/windstille/SConscript	2010-10-23 20:49:14 UTC (rev 3379)
+@@ -17,10 +17,13 @@
+ 
+ import time
+ import os
++import sys
++import scons_tests
++from pprint import pprint
+ 
+ start_time = time.time()
+ 
+-CacheDir('cache')
++# CacheDir('cache')
+ 
+ preset_cxxflags = {
+     'release':     [ &quot;-O3&quot;, &quot;-s&quot;  ],
+@@ -34,6 +37,7 @@
+                      &quot;-Wnon-virtual-dtor&quot;,
+                      &quot;-Weffc++&quot;,
+                      &quot;-Wconversion&quot;,
++                     # &quot;-Wold-style-cast&quot;,
+                      &quot;-Werror&quot;,
+                      &quot;-Wshadow&quot;,
+                      &quot;-Wcast-qual&quot;,
+@@ -45,8 +49,6 @@
+                      ]
+     }
+ 
+-
+-
+ preset_linkflags = {
+     'release': [],
+     'profile': [ &quot;-pg&quot; ],
+@@ -55,102 +57,61 @@
+     }
+ 
+ 
+-# YACC
+-yacc_test_text = &quot;&quot;&quot;
+-%{
+-#include &lt;stdio.h&gt;
++def MakeEnvironment(packages, cfg):
++    env = Environment(ENV=os.environ)
+ 
+-/* MSVC++ needs this before it can swallow Bison output */
+-#ifdef _MSC_VER
+-# define __STDC__
+-#endif
+-%}
+-%token MSG
+-%start ROOT
+-%%
+-ROOT:
+-    MSG { printf(&quot;HELLO&quot;); } 
+-    ;
+-%%
+-&quot;&quot;&quot;
++    for pkg in packages:
++        if type(pkg) == str:
++            if pkg in cfg:
++                env.Append(**cfg[pkg])
++            else:
++                raise Exception(&quot;Unknown package: %s&quot; % pkg)
++        elif type(pkg) == dict:
++            env.Append(**pkg)
++        else:
++            raise Exception(&quot;Unknown package type: %s&quot; % pkg)
+ 
+-def CheckYacc(context):
+-    context.Message(&quot;Checking for Yacc ('%s')... &quot; % context.env.get('YACC'))
+-    is_ok = context.TryCompile(yacc_test_text,&quot;.y&quot;)
+-    context.Result(is_ok)
+-    return is_ok
+-
+-# LEX
+-lex_test_text = &quot;&quot;&quot;
+-%{
+-#include &lt;stdio.h&gt;
+-%}
+-DIGIT	[0-9]
+-ID		[a-z][a-z0-9]*
+-%%
+-{DIGIT}+	{
+-		printf(&quot;A digit: %s\\n&quot;,yytext);
+-	}
++    return env
+ 
+-[ \\t\\n]+    /* ignore */
++def BuildProgram(target, sources, packages = [], cfg = {}):
++    env = MakeEnvironment(packages, cfg)
++    return env.Program(target, sources)
+ 
+-.			{
+-		printf(&quot;Unrecognized guff&quot;);
+-	}
+-%%
+-main(){
+-	yylex();
+-}
+-&quot;&quot;&quot;
++def BuildStaticLibrary(target, sources, packages = [], cfg = {}):
++    env = MakeEnvironment(packages, cfg)
++    return env.StaticLibrary(target, sources)
+ 
+-def CheckLex(context):
+-    context.Message(&quot;Checking for Lex ('%s')... &quot; % context.env.get('LEX'))
+-    is_ok = context.TryCompile(lex_test_text,&quot;.l&quot;)
+-    context.Result(is_ok)
+-    return is_ok
++def ParseConfig(cmd):
++    env = Environment()
++    env['ENV']['PATH'] = os.environ['PATH']
++    env.ParseConfig(cmd)
+ 
+-
+-def Check32bit(context):
+-    check32bit_test_source_file = &quot;&quot;&quot;
+-#include &lt;stdio.h&gt;
+-int main()
+-{
+-   printf(&quot;%dbit&quot;, sizeof(void*)*8);
+-   return 0;
+-}
+-    &quot;&quot;&quot;
+-    context.Message('Checking for bits... ')
+-    (suc, output) = context.TryRun(check32bit_test_source_file, '.cpp')
+-    if suc:
+-        context.Result(output)
+-    else:
+-        context.Result(&quot;test error&quot;)
+-    return output
++    cfg = {}
+ 
++    for var in [ 'CCFLAGS', 'CPPDEFINES', 'CPPPATH', 'LIBS', 'LIBPATH' ]:
++        if var in env and env[var] != []:
++            cfg[var]  = env[var] 
++
++    # if 'CCFLAGS' in cfg:
++    #     cfg['CXXFLAGS'] = cfg['CCFLAGS']
++
++    return cfg
+ 
+ class Project:
+     def __init__(self):
+         self.features = {
+-            &quot;64bit&quot; : 0,
+-            &quot;cwiid&quot; : 0
++            &quot;64bit&quot; : False,
++            &quot;cwiid&quot; : False
+             }
+ 
+-    def build_all(self):
+-        self.env = Environment()
++        self.env = Environment(ENV=os.environ)
+ 
+-        if not GetOption('clean'):
+-            self.configure()
++    def configure(self):
++        # windstille_env.ParseConfig('sdl-config --cflags --libs | sed &quot;s/-I/-isystem/g&quot;')
++        # windstille_env.ParseConfig('freetype-config --libs --cflags | sed &quot;s/-I/-isystem/g&quot;')
+ 
+-        self.build_squirrel()
+-        self.build_miniswig()
+-        self.build_binreloc()
+-        self.build_wstlib()
+-        self.build_windstille()
+-        self.build_windstille_editor()
+-        self.build_windstille_data()
+-        self.build_testapps()
++        #     }
+ 
+-    def configure(self):
+         # FIXME: None of the options are used, as only self.features
+         # makes it across function calls
+ 
+@@ -173,15 +134,17 @@
+         Help(opts.GenerateHelpText(self.env))
+ 
+         if 'BUILD' in self.env:
++            print &quot;Build Type: %s&quot; % self.env['BUILD']
+             self.env.Append(CXXFLAGS  = preset_cxxflags[self.env['BUILD']],
+                             LINKFLAGS = preset_linkflags[self.env['BUILD']])
+         else:
++            print &quot;Build Type: release&quot;
+             self.env.Append(CXXFLAGS  = preset_cxxflags['release'],
+                             LINKFLAGS = preset_linkflags['release'])
+ 
+-        conf = Configure(self.env, custom_tests = { 'Check32bit' : Check32bit,
+-                                                    'CheckYacc'  : CheckYacc,
+-                                                    'CheckLex'   : CheckLex})
++        conf = Configure(self.env, custom_tests = { 'Check32bit' : scons_tests.Check32bit,
++                                                    'CheckYacc'  : scons_tests.CheckYacc,
++                                                    'CheckLex'   : scons_tests.CheckLex})
+ 
+         if self.env['CXX']:
+             print &quot;Using C++ compiler...&quot;, self.env['CXX']
+@@ -189,12 +152,75 @@
+             print &quot;Error: C++ compiler missing&quot;
+             Exit(1)
+ 
++        self.cfg = {}
++        cfg = self.cfg
++
++        if sys.platform == 'darwin':
++            cfg['OpenAL']    = { 'LINKFLAGS' : [ '-framework', 'OpenAL' ] }
++            cfg['OpenGL']    = { 'LINKFLAGS' : [ '-framework', 'OpenGL' ] }
++            cfg['GLEW']      = { 'LIBS' : [ 'GLEW' ] }
++            cfg['SDL']       = { 'LINKFLAGS' : [ '-framework', 'SDL' ] }
++            cfg['SDL_image'] = { 'LINKFLAGS' : [ '-framework', 'SDL_image' ] }
++            cfg['ogg']       = ParseConfig(&quot;pkg-config ogg --cflags --libs&quot;)
++            cfg['vorbis']    = ParseConfig(&quot;pkg-config vorbis --cflags --libs&quot;)
++            cfg['boost_signals']    = { 'LIBS' : [ 'boost_signals' ] }
++            cfg['boost_filesystem'] = { 'LIBS' : [ 'boost_filesystem' ] }
++
++        else:
++            cfg['OpenGL']           = { 'LIBS' : [ 'GL', 'GLU' ] }
++            cfg['OpenAL']           = { 'LIBS' : [ 'openal' ] }
++            cfg['GLEW']             = { 'LIBS' : [ 'GLEW' ] }
++            cfg['SDL']              = ParseConfig(&quot;sdl-config --cflags --libs&quot;)
++            cfg['SDL_image']        = { 'LIBS' : [ 'SDL_image' ] }
++            cfg['ogg']              = ParseConfig(&quot;pkg-config ogg --cflags --libs&quot;)
++            cfg['vorbis']           = ParseConfig(&quot;pkg-config vorbis --cflags --libs&quot;)
++            cfg['vorbisfile']       = ParseConfig(&quot;pkg-config vorbisfile --cflags --libs&quot;)
++
++            # FIXME: Add configure checks for exact boost library name (can be with or without -mt
++            cfg['boost_signals']    = { 'LIBS' : [ 'boost_signals' ] }
++            cfg['boost_filesystem'] = { 'LIBS' : [ 'boost_filesystem' ] }
++
++            cfg['curl']             = ParseConfig(&quot;pkg-config --cflags --libs libcurl | sed 's/-I/-isystem/g'&quot;)
++            cfg['png']              = ParseConfig(&quot;pkg-config --cflags --libs libpng | sed 's/-I/-isystem/g'&quot;)
++            cfg['jpeg']             = { 'LIBS' : [ 'jpeg' ] }
++            cfg['gtkmm-2.4']        = ParseConfig(&quot;pkg-config --cflags --libs gtkmm-2.4 | sed 's/-I/-isystem/g'&quot;)
++            cfg['gtkglextmm-1.2']   = ParseConfig(&quot;pkg-config --cflags --libs gtkglextmm-1.2 | sed 's/-I/-isystem/g'&quot;)
++            cfg['freetype']         = ParseConfig(&quot;freetype-config --libs --cflags | sed 's/-I/-isystem/g'&quot;)
++            cfg['binreloc']         = { 'CPPDEFINES' : [ 'HAVE_BINRELOC' ],
++                                        'CPPPATH' : [ 'external/binreloc-2.0/' ],
++                                        'LIBS' : [ File('libbinreloc.a') ] }
++            cfg['squirrel']         = { 'CPPPATH' : [ 'external/SQUIRREL2/include/' ],
++                                        'LIBS' : [ File('libsquirrel.a') ],
++                                        'CPPDEFINES' : [] # empty, but it is needed later on
++                                        }
++
++        cfg['windstille']    = { 'CPPPATH' : [ '.', 'src', 'src/scripting' ] }
++        cfg['test']          = { 'CPPDEFINES' : [ '__TEST__' ],
++                                 'OBJPREFIX'  : &quot;test__&quot; }
++
++        cfg['wst_display']   = { 'LIBS' : [ File('libwst_display.a') ] }
++        cfg['wst_math']      = { 'LIBS' : [ File('libwst_math.a') ] }
++        cfg['wst_navgraph']  = { 'LIBS' : [ File('libwst_navgraph.a') ] }
++        cfg['wst_particles'] = { 'LIBS' : [ File('libwst_particles.a') ] }
++        cfg['wst_sound']     = { 'LIBS' : [ File('libwst_sound.a') ] }
++        cfg['wst_system']    = { 'LIBS' : [ File('libwst_system.a') ] }
++        cfg['wst_util']      = { 'LIBS' : [ File('libwst_util.a') ] }
++
++        if False:
++            print
++            print &quot;Current Configuration:&quot;
++            print &quot;======================&quot;
++            for k, v in self.cfg.items():
++                print &quot;cfg['%s'] = %s&quot; % (k, v)
++            print
++
+         if conf.Check32bit() == &quot;64bit&quot;:
+             # conf.env.Append(CXXFLAGS=&quot;-D_SQ64&quot;)
+-            self.features[&quot;64bit&quot;] = 1
++            self.features[&quot;64bit&quot;] = True
++            cfg['squirrel']['CPPDEFINES'] += ['_SQ64']
+ 
+         if conf.CheckLib('cwiid'):
+-            self.features[&quot;cwiid&quot;] = 1
++            self.features[&quot;cwiid&quot;] = True
+ 
+         if not conf.CheckLex():
+             print &quot;lex or flex not found, aborting.&quot;
+@@ -204,8 +230,19 @@
+             print &quot;yacc or bison not found, aborting.&quot;
+             Exit(1)
+ 
+-        self.env = conf.Finish()
++        self.env = conf.Finish()       
+ 
++    def build_all(self):
++        self.build_squirrel()
++        self.build_miniswig()
++        self.build_binreloc()
++        self.build_wstlib()
++        self.build_windstille()
++        self.build_windstille_editor()
++        self.build_windstille_data()
++        self.build_test_apps()
++        self.build_extra_apps()
++
+     def build_squirrel(self):
+         squirrel_env = Environment()
+         squirrel_env.Append(CPPPATH  = ['external/SQUIRREL2/include'],
+@@ -218,7 +255,6 @@
+                                                        Glob('external/SQUIRREL2/squirrel/*.cpp') +
+                                                        Glob('external/SQUIRREL2/sqstdlib/*.cpp'))
+ 
+-
+     def build_miniswig(self):
+         miniswig_env = Environment()
+         miniswig_env.Append(CPPPATH=['.', 'external/miniswig/'],
+@@ -242,89 +278,141 @@
+                     ['src/scripting/interface.hpp',
+                      'src/scripting/game_objects.hpp'])
+ 
+-        env.Depends(env.Command(['src/scripting/wrapper.cpp', 'src/scripting/wrapper.hpp'], 'src/scripting/miniswig.tmp',
++        env.Depends(env.Command(['src/scripting/wrapper.cpp', 'src/scripting/wrapper.hpp'],
++                                'src/scripting/miniswig.tmp',
+                                 [&quot;$MINISWIG --input $SOURCE --output-cpp ${TARGETS[0]} --output-hpp ${TARGETS[1]} &quot;+
+                                  &quot;--module windstille --select-namespace Scripting&quot;]),
+                     miniswig_bin)
+ 
+     def build_binreloc(self):
+-        self.binreloc_lib = StaticLibrary(&quot;binreloc&quot;, [&quot;external/binreloc-2.0/binreloc.c&quot;], CPPDEFINES=[&quot;ENABLE_BINRELOC&quot;])
++        self.binreloc_lib = StaticLibrary(&quot;binreloc&quot;, [&quot;external/binreloc-2.0/binreloc.c&quot;],
++                                          CPPDEFINES=[&quot;ENABLE_BINRELOC&quot;])
+ 
+     def build_wstlib(self):
+-        wstlib_env    = self.env.Clone()
+-        wstlib_env.Append(CPPPATH=['src', 'external/binreloc-2.0/', &quot;src/scripting/&quot;],
+-                          CPPDEFINES=[&quot;HAVE_BINRELOC&quot;])
+-        self.util_lib      = wstlib_env.StaticLibrary('util', Glob('src/lisp/*.cpp') + Glob('src/util/*.cpp'))
+-        self.math_lib      = wstlib_env.StaticLibrary('math', Glob('src/math/*.cpp'))
+-        self.navgraph_lib  = wstlib_env.StaticLibrary('navgraph', Glob('src/navigation/*.cpp'))
+-        self.particles_lib = wstlib_env.StaticLibrary('particles', Glob('src/particles/*.cpp'))
++        if False:
++            wstlib_env    = self.env.Clone()
++            wstlib_env.Append(CPPPATH=['src', 'external/binreloc-2.0/', &quot;src/scripting/&quot;],
++                              CPPDEFINES=[&quot;HAVE_BINRELOC&quot;])
++            self.util_lib      = wstlib_env.StaticLibrary('wst_util', Glob('src/lisp/*.cpp') + Glob('src/util/*.cpp'))
++            self.math_lib      = wstlib_env.StaticLibrary('wst_math', Glob('src/math/*.cpp'))
++            self.navgraph_lib  = wstlib_env.StaticLibrary('wst_navgraph', Glob('src/navigation/*.cpp'))
++            self.particles_lib = wstlib_env.StaticLibrary('wst_particles', Glob('src/particles/*.cpp'))
++            self.sound_lib     = wstlib_env.StaticLibrary('wst_sound', Glob('src/sound/*.cpp'))
+ 
+-        # libdisplay
+-        display_env = wstlib_env.Clone()
+-        display_env.ParseConfig('sdl-config --cflags --libs | sed &quot;s/-I/-isystem/g&quot;')
+-        display_env.ParseConfig('freetype-config --libs --cflags | sed &quot;s/-I/-isystem/g&quot;')
+-        self.display_lib = display_env.StaticLibrary('display', 
+-                                                     Glob('src/font/*.cpp') +
+-                                                     Glob('src/display/*.cpp') +
+-                                                     Glob('src/scenegraph/*.cpp') +
+-                                                     Glob('src/sprite2d/*.cpp') +
+-                                                     Glob('src/sprite3d/*.cpp'))
++            # libdisplay
++            display_env = wstlib_env.Clone()
++            display_env.ParseConfig('sdl-config --cflags --libs | sed &quot;s/-I/-isystem/g&quot;')
++            display_env.ParseConfig('freetype-config --libs --cflags | sed &quot;s/-I/-isystem/g&quot;')
++            self.display_lib = display_env.StaticLibrary('wst_display', 
++                                                         Glob('src/font/*.cpp') +
++                                                         Glob('src/display/*.cpp') +
++                                                         Glob('src/scenegraph/*.cpp') +
++                                                         Glob('src/sprite2d/*.cpp') +
++                                                         Glob('src/sprite3d/*.cpp'))
++            self.system_lib = display_env.StaticLibrary('system', Glob('src/system/*.cpp'))
+ 
++        pkgs = [ 'windstille', 'binreloc' ]
++        BuildStaticLibrary('wst_util',
++                           Glob('src/lisp/*.cpp') +
++                           Glob('src/util/*.cpp'),
++                           pkgs, self.cfg)
++        BuildStaticLibrary('wst_math', Glob('src/math/*.cpp'), pkgs, self.cfg)
++        BuildStaticLibrary('wst_navgraph', Glob('src/navigation/*.cpp'), pkgs, self.cfg)
++        BuildStaticLibrary('wst_particles', Glob('src/particles/*.cpp'), pkgs, self.cfg)
++        BuildStaticLibrary('wst_sound', Glob('src/sound/*.cpp'), pkgs, self.cfg)
++        BuildStaticLibrary('wst_display', 
++                           Glob('src/font/*.cpp') +
++                           Glob('src/display/*.cpp') +
++                           Glob('src/scenegraph/*.cpp') +
++                           Glob('src/sprite2d/*.cpp') +
++                           Glob('src/sprite3d/*.cpp'),
++                           pkgs + [ 'freetype', 'SDL' ], self.cfg)
++        BuildStaticLibrary('wst_system', Glob('src/system/*.cpp'), pkgs + [ 'SDL' ], self.cfg)
++
+     def build_windstille(self):
+-        windstille_env = self.env.Clone()
+-        windstille_env.Append(CPPPATH=['src', '.', 'external/SQUIRREL2/include/', 'src/scripting/'],
+-                              CPPDEFINES=[&quot;HAVE_BINRELOC&quot;],
+-                              LIBS=[self.particles_lib, self.navgraph_lib, self.display_lib, 
+-                                    self.util_lib, self.math_lib, 
+-                                    self.binreloc_lib, self.squirrel_lib, 
+-                                    'GL', 'GLU', 'GLEW',
+-                                    'physfs', 'SDL_image', 'openal', 'ogg', 'vorbis', 'vorbisfile', 'png',
+-                                    # FIXME: Add configure checks for exact boost library name
+-                                    'boost_signals-mt', 'boost_filesystem-mt'])
++        if False:
++            windstille_env = self.env.Clone()
++            windstille_env.Append(CPPPATH=['src', '.', 'external/SQUIRREL2/include/', 'src/scripting/'],
++                                  CPPDEFINES=[&quot;HAVE_BINRELOC&quot;],
++                                  LIBS=[self.particles_lib, self.navgraph_lib, self.display_lib, 
++                                        self.util_lib, self.math_lib, self.sound_lib,
++                                        self.squirrel_lib,
++                                        'GL', 'GLU', 'GLEW',
++                                        'SDL_image', 'openal', 'ogg', 'vorbis', 'vorbisfile', 'png',
++                                        'boost_signals', 'boost_filesystem'])
+ 
+-        windstille_env.ParseConfig('sdl-config --cflags --libs | sed &quot;s/-I/-isystem/g&quot;')
+-        windstille_env.ParseConfig('freetype-config --libs --cflags | sed &quot;s/-I/-isystem/g&quot;')
++            windstille_env.ParseConfig('sdl-config --cflags --libs | sed &quot;s/-I/-isystem/g&quot;')
++            windstille_env.ParseConfig('freetype-config --libs --cflags | sed &quot;s/-I/-isystem/g&quot;')
+ 
+-        if self.features['64bit']:
+-            windstille_env.Append(CPPDEFINES = '_SQ64')
++            if self.features['64bit']:
++                windstille_env.Append(CPPDEFINES = '_SQ64')
+ 
+-        if self.features['cwiid']:
+-            windstille_env.Append(CPPDEFINES = 'HAVE_CWIID')
+-            windstille_env.Append(LIBS = 'cwiid')
++            if self.features['cwiid']:
++                windstille_env.Append(CPPDEFINES = 'HAVE_CWIID')
++                windstille_env.Append(LIBS = 'cwiid')
+ 
+-        windstille_env.Program('windstille',
+-                               Glob('src/app/*.cpp') +
+-                               Glob('src/armature/*.cpp') +
+-                               Glob('src/collision/*.cpp') +
+-                               Glob('src/engine/*.cpp') +
+-                               Glob('src/gui/*.cpp') +
+-                               Glob('src/hud/*.cpp') +
+-                               Glob('src/input/*.cpp') +
+-                               Glob('src/objects/*.cpp') +
+-                               Glob('src/properties/*.cpp') +
+-                               Glob('src/screen/*.cpp') +
+-                               Glob('src/scripting/*.cpp') +
+-                               Glob('src/sound/*.cpp') +
+-                               Glob('src/tile/*.cpp'))
++            windstille_env.Program('windstille',
++                                   Glob('src/app/*.cpp') +
++                                   Glob('src/armature/*.cpp') +
++                                   Glob('src/collision/*.cpp') +
++                                   Glob('src/engine/*.cpp') +
++                                   Glob('src/gui/*.cpp') +
++                                   Glob('src/hud/*.cpp') +
++                                   Glob('src/input/*.cpp') +
++                                   Glob('src/objects/*.cpp') +
++                                   Glob('src/properties/*.cpp') +
++                                   Glob('src/screen/*.cpp') +
++                                   Glob('src/scripting/*.cpp') +
++                                   Glob('src/tile/*.cpp'))
+ 
++        BuildProgram('windstille',
++                     Glob('src/app/*.cpp') +
++                     Glob('src/armature/*.cpp') +
++                     Glob('src/collision/*.cpp') +
++                     Glob('src/engine/*.cpp') +
++                     Glob('src/gui/*.cpp') +
++                     Glob('src/hud/*.cpp') +
++                     Glob('src/input/*.cpp') +
++                     Glob('src/objects/*.cpp') +
++                     Glob('src/properties/*.cpp') +
++                     Glob('src/screen/*.cpp') +
++                     Glob('src/scripting/*.cpp') +
++                     Glob('src/tile/*.cpp'),
++                     [ 'windstille',
++                       'wst_particles', 'wst_navgraph', 'wst_display', 'wst_util', 'wst_math', 'wst_sound',
++                       'OpenGL', 'GLEW',
++                       'freetype',
++                       'SDL', 'SDL_image',
++                       'OpenAL', 'ogg', 'vorbis', 'vorbisfile', 
++                       'squirrel', 'png', 'binreloc',
++                       'boost_signals', 'boost_filesystem' ],
++                     self.cfg)
++
+     def build_windstille_editor(self):
+-        editor_env = self.env.Clone()
+-        editor_env.Append(CPPPATH=['src'],
+-                          CPPDEFINES=[&quot;HAVE_BINRELOC&quot;],
+-                          LIBS = [self.particles_lib, self.navgraph_lib, self.display_lib,
+-                                  self.util_lib, self.math_lib, self.binreloc_lib,
+-                                  'GL', 'GLEW', 'SDL_image', 'physfs', 'boost_filesystem-mt'])
++        if False:
++            editor_env = self.env.Clone()
++            editor_env.Append(CPPPATH=['src'],
++                              CPPDEFINES=[&quot;HAVE_BINRELOC&quot;],
++                              LIBS = [self.particles_lib, self.navgraph_lib, self.display_lib,
++                                      self.util_lib, self.math_lib, self.binreloc_lib,
++                                      'GL', 'GLEW', 'SDL_image', 'boost_filesystem'])
+ 
+-        editor_env.ParseConfig('Magick++-config --libs --cppflags | sed &quot;s/-I/-isystem/g&quot;')
+-        editor_env.ParseConfig('sdl-config --cflags --libs | sed &quot;s/-I/-isystem/g&quot;')
+-        editor_env.ParseConfig('pkg-config --cflags --libs libcurl | sed &quot;s/-I/-isystem/g&quot;')
+-        editor_env.ParseConfig('pkg-config --cflags --libs libpng | sed &quot;s/-I/-isystem/g&quot;')
++            # editor_env.ParseConfig('Magick++-config --libs --cppflags | sed &quot;s/-I/-isystem/g&quot;')
++            editor_env.ParseConfig('sdl-config --cflags --libs | sed &quot;s/-I/-isystem/g&quot;')
++            editor_env.ParseConfig('pkg-config --cflags --libs libcurl | sed &quot;s/-I/-isystem/g&quot;')
++            editor_env.ParseConfig('pkg-config --cflags --libs libpng | sed &quot;s/-I/-isystem/g&quot;')
+ 
+-        # Turn -I options into -isystem, so we don't get warnings from external libraries
+-        editor_env.ParseConfig('pkg-config --cflags --libs gtkmm-2.4 | sed &quot;s/-I/-isystem/g&quot;')
+-        editor_env.ParseConfig('pkg-config --cflags --libs gtkglextmm-1.2 | sed &quot;s/-I/-isystem/g&quot;')
++            # Turn -I options into -isystem, so we don't get warnings from external libraries
++            editor_env.ParseConfig('pkg-config --cflags --libs gtkmm-2.4 | sed &quot;s/-I/-isystem/g&quot;')
++            editor_env.ParseConfig('pkg-config --cflags --libs gtkglextmm-1.2 | sed &quot;s/-I/-isystem/g&quot;')
+ 
+-        editor_env.Program('windstille-editor', Glob('src/editor/*.cpp'))
++        pkgs = [ 'SDL', 'SDL_image',
++                 'boost_filesystem',
++                 'gtkglextmm-1.2' , 'gtkmm-2.4', 'SDL', 'curl', 'png', 'binreloc', 'OpenGL', 'GLEW',
++                 'windstille',
++                 'wst_particles', 'wst_navgraph', 'wst_display', 'wst_util', 'wst_math', 'wst_sound',
++                 'binreloc', 'jpeg' ]
++        BuildProgram('windstille-editor', Glob('src/editor/*.cpp'), pkgs, self.cfg)
+ 
+         # FIXME: temporary dirty hack
+         # test_editor_env = editor_env.Clone(OBJPREFIX=&quot;test_&quot;)
+@@ -332,30 +420,51 @@
+         # test_editor_env.Program('test_animation_widget',
+         #                        [f for f in Glob('src/editor/*.cpp') if f.get_path() != &quot;src/editor/main.cpp&quot;])
+ 
+-    def build_testapps(self):
+-        env = self.env.Clone()
+-        env.Append(OBJPREFIX=&quot;test__&quot;,
+-                   CPPPATH=['src'],
+-                   CPPDEFINES=[&quot;__TEST__&quot;])
+-        env.Program(&quot;test_babyxml&quot;, [&quot;src/util/baby_xml.cpp&quot;])
+-        env.Program(&quot;test_response_curve&quot;, [&quot;src/util/response_curve.cpp&quot;])
+-        env.Program(&quot;test_random&quot;, [&quot;src/math/random.cpp&quot;])
+-        env.Program(&quot;test_pathname&quot;, [&quot;src/util/pathname.cpp&quot;], LIBS=['boost_filesystem-mt'])
+-        env.Program(&quot;test_directory&quot;, [&quot;src/util/directory.cpp&quot;], LIBS=['boost_filesystem-mt', self.util_lib])
+-        env.Program(&quot;test_easing&quot;, [&quot;src/math/easing.cpp&quot;])
++    def build_extra_apps(self):
++        if False:
++            env = self.env.Clone()
++            env.Append(CPPPATH = [&quot;src/&quot;, &quot;extra/&quot;])
++            env.ParseConfig('sdl-config --cflags --libs | sed &quot;s/-I/-isystem/g&quot;')
++            env.Append(LIBS = [&quot;SDL_image&quot;, &quot;GL&quot;, &quot;GLEW&quot;, &quot;png&quot;, &quot;boost_filesystem&quot;,
++                               self.display_lib, self.util_lib, self.math_lib, self.sound_lib, self.util_lib, self.system_lib,
++                               'openal', 'ogg', 'vorbis', 'vorbisfile'])
+ 
+-        # FIXME: Little dirty, need to clean up the testcase stuff
+-        sdl_env = env.Clone()
+-        sdl_env.ParseConfig('sdl-config --cflags --libs | sed &quot;s/-I/-isystem/g&quot;')
+-                        
+-        sdl_env.Program(&quot;test_scissor_drawable&quot;,
+-                        [&quot;test/scissor_drawable/scissor_drawable.cpp&quot;],
+-                        CPPPATH=sdl_env[&quot;CPPPATH&quot;],
+-                        CPPDEFINES=sdl_env[&quot;CPPDEFINES&quot;],
+-                        CXXFLAGS=sdl_env[&quot;CXXFLAGS&quot;] + ['-g3', &quot;-O0&quot;],
+-                        LIBS=[self.display_lib, self.math_lib, self.util_lib, self.binreloc_lib,
+-                              'png', 'GL', 'GLEW', 'SDL_image', 'boost_filesystem-mt'] + sdl_env[&quot;LIBS&quot;])
++        pkgs = [ 'SDL', 'SDL_image', 'OpenGL', 'GLEW', 'png', 'boost_filesystem',
++                 'windstille',
++                 'wst_particles', 'wst_navgraph', 'wst_display', 'wst_math', 'wst_sound', 'wst_system', 'wst_util',
++                 'OpenAL', 'ogg', 'vorbis', 'vorbisfile']
+ 
++        BuildProgram(&quot;slideshow&quot;, Glob(&quot;extra/slideshow/*.cpp&quot;) + Glob(&quot;extra/slideshow/plugins/*.cpp&quot;),
++                     pkgs + [ { 'CPPPATH' : 'extra/' } ], self.cfg)
++        BuildProgram(&quot;shadertest&quot;, Glob(&quot;extra/shadertest/*.cpp&quot;), pkgs, self.cfg)
++        BuildProgram(&quot;lensflare&quot;, Glob(&quot;extra/lensflare/*.cpp&quot;), pkgs, self.cfg)
++        BuildProgram(&quot;memleak&quot;, Glob(&quot;extra/memleak/*.cpp&quot;), pkgs, self.cfg)
++
++        for filename in Glob(&quot;extra/*.cpp&quot;, strings=True):
++            BuildProgram(filename[:-4], filename, pkgs, self.cfg)
++
++    def build_test_apps(self):
++        pkgs = [ 'test', 'windstille' ]
++        
++        BuildProgram(&quot;test_babyxml&quot;, [&quot;src/util/baby_xml.cpp&quot;], pkgs, self.cfg)
++        BuildProgram(&quot;test_response_curve&quot;, [&quot;src/util/response_curve.cpp&quot;], pkgs, self.cfg)
++        BuildProgram(&quot;test_random&quot;, [&quot;src/math/random.cpp&quot;], pkgs, self.cfg)
++        BuildProgram(&quot;test_pathname&quot;, [&quot;src/util/pathname.cpp&quot;], pkgs + [ 'boost_filesystem' ], self.cfg)
++        BuildProgram(&quot;test_directory&quot;, [&quot;src/util/directory.cpp&quot;], pkgs + [ 'boost_filesystem', 'wst_util' ], self.cfg)
++        BuildProgram(&quot;test_easing&quot;, [&quot;src/math/easing.cpp&quot;], pkgs, self.cfg)
++
++        BuildProgram(&quot;test_scissor_drawable&quot;, [&quot;test/scissor_drawable/scissor_drawable.cpp&quot;],
++                     pkgs + [ 'SDL', 'OpenGL', 'GLEW', 'png', 'SDL_image', 'boost_filesystem', 
++                              'wst_particles', 'wst_navgraph', 'wst_display', 'wst_math', 'wst_sound', 'wst_system', 'wst_util',
++                              'binreloc' ],
++                     self.cfg)
++
++        BuildProgram(&quot;test_shader_drawable&quot;, [ &quot;test/shader_drawable/shader_drawable.cpp&quot; ],
++                     pkgs + [ 'SDL', 'OpenGL', 'GLEW', 'png', 'SDL_image', 'boost_filesystem', 
++                              'wst_particles', 'wst_navgraph', 'wst_display', 'wst_math', 'wst_sound', 'wst_system', 'wst_util',
++                              'binreloc' ],
++                     self.cfg)
++                
+     def build_windstille_data(self):
+         data_env = self.env.Clone()
+ 
+@@ -377,9 +486,17 @@
+             for filename in Glob(pattern):
+                 File(filename)
+ 
++Alias('configure')
++
+ project = Project()
+-project.build_all()
+ 
++if 'configure' in COMMAND_LINE_TARGETS or \
++   not (File('config.py').exists() and not GetOption('clean')):
++    project.configure()
++    project.build_all()
++else:
++    project.build_all()
++
+ print &quot;Time reading SConscript: %.2fsec&quot; % (time.time() - start_time)
+ 
+ # EOF #
+
+Added: trunk/windstille/scons_tests.py
+===================================================================
+--- trunk/windstille/scons_tests.py	                        (rev 0)
++++ trunk/windstille/scons_tests.py	2010-10-23 20:49:14 UTC (rev 3379)
+@@ -0,0 +1,90 @@
++##  Windstille - A Sci-Fi Action-Adventure Game
++##  Copyright (C) 2000,2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++##
++##  This program is free software: you can redistribute it and/or modify
++##  it under the terms of the GNU General Public License as published by
++##  the Free Software Foundation, either version 3 of the License, or
++##  (at your option) any later version.
++##  
++##  This program is distributed in the hope that it will be useful,
++##  but WITHOUT ANY WARRANTY; without even the implied warranty of
++##  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++##  GNU General Public License for more details.
++##  
++##  You should have received a copy of the GNU General Public License
++##  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++
++# YACC
++yacc_test_text = &quot;&quot;&quot;
++%{
++#include &lt;stdio.h&gt;
++
++/* MSVC++ needs this before it can swallow Bison output */
++#ifdef _MSC_VER
++# define __STDC__
++#endif
++%}
++%token MSG
++%start ROOT
++%%
++ROOT:
++    MSG { printf(&quot;HELLO&quot;); } 
++    ;
++%%
++&quot;&quot;&quot;
++
++def CheckYacc(context):
++    context.Message(&quot;Checking for Yacc ('%s')... &quot; % context.env.get('YACC'))
++    is_ok = context.TryCompile(yacc_test_text,&quot;.y&quot;)
++    context.Result(is_ok)
++    return is_ok
++
++# LEX
++lex_test_text = &quot;&quot;&quot;
++%{
++#include &lt;stdio.h&gt;
++%}
++DIGIT	[0-9]
++ID		[a-z][a-z0-9]*
++%%
++{DIGIT}+	{
++		printf(&quot;A digit: %s\\n&quot;,yytext);
++	}
++
++[ \\t\\n]+    /* ignore */
++
++.			{
++		printf(&quot;Unrecognized guff&quot;);
++	}
++%%
++main(){
++	yylex();
++}
++&quot;&quot;&quot;
++
++def CheckLex(context):
++    context.Message(&quot;Checking for Lex ('%s')... &quot; % context.env.get('LEX'))
++    is_ok = context.TryCompile(lex_test_text,&quot;.l&quot;)
++    context.Result(is_ok)
++    return is_ok
++
++
++def Check32bit(context):
++    check32bit_test_source_file = &quot;&quot;&quot;
++#include &lt;stdio.h&gt;
++int main()
++{
++   printf(&quot;%dbit&quot;, sizeof(void*)*8);
++   return 0;
++}
++    &quot;&quot;&quot;
++    context.Message('Checking for bits... ')
++    (suc, output) = context.TryRun(check32bit_test_source_file, '.cpp')
++    if suc:
++        context.Result(output)
++    else:
++        context.Result(&quot;test error&quot;)
++    return output
++
++
++# EOF #
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002375.html">[Windstille-commit] r3378 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="002377.html">[Windstille-commit] r3380 - trunk/windstille
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2376">[ date ]</a>
+              <a href="thread.html#2376">[ thread ]</a>
+              <a href="subject.html#2376">[ subject ]</a>
+              <a href="author.html#2376">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

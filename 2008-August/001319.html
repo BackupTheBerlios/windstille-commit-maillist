@@ -1,0 +1,387 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2299 - trunk/griv/new
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2299%20-%20trunk/griv/new&In-Reply-To=%3C200808091054.m79AsDGa001383%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001318.html">
+   <LINK REL="Next"  HREF="001320.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2299 - trunk/griv/new</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2299%20-%20trunk/griv/new&In-Reply-To=%3C200808091054.m79AsDGa001383%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2299 - trunk/griv/new">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Aug  9 12:54:13 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001318.html">[Windstille-commit] r2298 - trunk/griv/new
+</A></li>
+        <LI>Next message: <A HREF="001320.html">[Windstille-commit] r2300 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1319">[ date ]</a>
+              <a href="thread.html#1319">[ thread ]</a>
+              <a href="subject.html#1319">[ subject ]</a>
+              <a href="author.html#1319">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-09 12:54:11 +0200 (Sat, 09 Aug 2008)
+New Revision: 2299
+
+Modified:
+   trunk/griv/new/TODO
+   trunk/griv/new/image.cpp
+   trunk/griv/new/image.hpp
+   trunk/griv/new/math.hpp
+   trunk/griv/new/software_surface.cpp
+   trunk/griv/new/surface.cpp
+   trunk/griv/new/texture.cpp
+   trunk/griv/new/workspace.cpp
+Log:
+Some bugfixing and cleanup
+
+Modified: trunk/griv/new/TODO
+===================================================================
+--- trunk/griv/new/TODO	2008-08-09 01:40:51 UTC (rev 2298)
++++ trunk/griv/new/TODO	2008-08-09 10:54:11 UTC (rev 2299)
+@@ -1,10 +1,12 @@
+ [[ Griv ToDo ]]
+ 
+-* multi threading
++* multi-threading for the interface
++* multi-threading in the tile generator for multicore
+ * faster image handling, FreeImage is not good enough
+ * do something about the seams on tile borders
+ * proper handling of locked DB
+ * faster incremental tile generation
++* variable size images on the workspace
+ 
+ Image Library Requirements:
+ ===========================
+
+Modified: trunk/griv/new/image.cpp
+===================================================================
+--- trunk/griv/new/image.cpp	2008-08-09 01:40:51 UTC (rev 2298)
++++ trunk/griv/new/image.cpp	2008-08-09 10:54:11 UTC (rev 2299)
+@@ -38,17 +38,18 @@
+ Image::Image(int fileid, const std::string&amp; filename, const Size&amp; size)
+   : fileid(fileid),
+     filename(filename),
+-    size(size)    
++    size(size),
++    scale(1.0f)
+ {
+-  int scale = 0;
++  int tiledb_scale = 0;
+   Size tmpsize = size;
+   do {
+-    tmpsize.width /= 2;
++    tmpsize.width  /= 2;
+     tmpsize.height /= 2;
+-    scale += 1;
+-  } while (tmpsize.width &gt; 32 ||
++    tiledb_scale += 1;
++  } while (tmpsize.width  &gt; 32 ||
+            tmpsize.height &gt; 32);
+-  max_scale = scale;
++  max_tiledb_scale = tiledb_scale;
+ }
+ 
+ void
+@@ -63,7 +64,19 @@
+   return pos;
+ }
+ 
++void
++Image::set_scale(float f)
++{
++  scale = f;
++}
++
+ float
++Image::get_scale() const
++{
++  return scale;
++}
++
++float
+ Image::get_width() const
+ {
+   return size.width;
+@@ -104,25 +117,26 @@
+ void
+ Image::draw(const Rectf&amp; cliprect, float fscale)
+ {
+-  Rectf image_rect(pos, Sizef(size));
+-  Rectf image_region = image_rect.clip_to(cliprect);
++  Rectf image_rect(pos, Sizef(size * scale)); // in world coordinates
+ 
+   //Framebuffer::draw_rect(image_rect);
+   //Framebuffer::draw_rect(image_region);
+ 
+   if (cliprect.is_overlapped(image_rect))
+     {
++      Rectf image_region = image_rect.clip_to(cliprect); // visible part of the image
++
+       // scale factor for requesting the tile from the TileDatabase
+-      int tile_scale = Math::clamp(0, static_cast&lt;int&gt;(1.0f / Math::sqrt(fscale)), max_scale);
+-      int scale_factor = (1 &lt;&lt; (tile_scale));
++      int tiledb_scale = Math::max(0, static_cast&lt;int&gt;(log(1.0f / (fscale)) / log(2)));
++      int scale_factor = Math::pow2(tiledb_scale);
+ 
+-      int scaled_width  = size.width  / scale_factor;
+-      int scaled_height = size.height / scale_factor;
++      int scaled_width  = image_rect.get_width()  / scale_factor;
++      int scaled_height = image_rect.get_height() / scale_factor;
+ 
+       if (scaled_width  &lt; 256 &amp;&amp; scaled_height &lt; 256)
+         { // So small that only one tile is to be drawn
+           //Framebuffer::draw_rect(Rectf(pos, size));
+-          get_tile(0, 0, tile_scale).draw(Rectf(pos, size));
++          get_tile(0, 0, Math::min(max_tiledb_scale, tiledb_scale)).draw(image_rect);
+         }
+       else
+         {
+@@ -137,18 +151,21 @@
+           for(int y = start_y; y &lt; end_y; y += 1)
+             for(int x = start_x; x &lt; end_x; x += 1)
+               {
+-                Surface surface = get_tile(x, y, tile_scale);
++                Surface surface = get_tile(x, y, tiledb_scale);
++                surface.draw(Rectf(pos.x + (x * tilesize), 
++                                   pos.y + (y * tilesize), 
++                                   pos.x + ((x * tilesize) + (surface.get_width()  * scale_factor)),
++                                   pos.y + ((y * tilesize) + (surface.get_height() * scale_factor))));
+ 
+-                // FIXME: Causes visible rounding errors
+-                surface.draw(Rectf(pos + Vector2f(x*tilesize, y*tilesize), 
+-                                   surface.get_size() * scale_factor));
+-                //Framebuffer::draw_rect(Rectf(pos + Vector2f(x*tilesize, y*tilesize),
+-                //                             Sizef(tilesize, tilesize)));
++                Framebuffer::draw_rect(Rectf(pos + Vector2f(x*tilesize, y*tilesize),
++                                             Sizef(tilesize, tilesize)));
+               }
+         }
+     }
+   else
+     {
++      // Image is not visible so clear the cache
++      // FIXME: We should keep at least some tiles or wait with the cache purge a bit longer
+       cache.clear();
+     }
+ }
+
+Modified: trunk/griv/new/image.hpp
+===================================================================
+--- trunk/griv/new/image.hpp	2008-08-09 01:40:51 UTC (rev 2298)
++++ trunk/griv/new/image.hpp	2008-08-09 10:54:11 UTC (rev 2299)
+@@ -44,21 +44,27 @@
+   int fileid;
+   std::string filename;
+   Size size;
+-  int max_scale;
++  float scale;
+ 
++  int max_tiledb_scale;
+   Vector2f pos;
+ 
+   typedef std::map&lt;uint32_t, Surface&gt; Cache; 
+   Cache cache;
+ 
+   Surface get_tile(int x, int y, int tile_scale);
++
+ public:
+   Image(int fileid, const std::string&amp; filename, const Size&amp; size);
+ 
++  void draw(const Rectf&amp; cliprect, float scale);
++
+   void set_pos(const Vector2f&amp; pos);
+-  void draw(const Rectf&amp; cliprect, float scale);
+-  
+   Vector2f get_pos() const;
++
++  void  set_scale(float f);
++  float get_scale() const;
++
+   float get_width() const;
+   float get_height() const;
+ };
+
+Modified: trunk/griv/new/math.hpp
+===================================================================
+--- trunk/griv/new/math.hpp	2008-08-09 01:40:51 UTC (rev 2298)
++++ trunk/griv/new/math.hpp	2008-08-09 10:54:11 UTC (rev 2299)
+@@ -113,6 +113,12 @@
+   return n;
+ }
+ 
++/** Calculates 2^n */
++inline int pow2(int n)
++{
++  return (1 &lt;&lt; n);
++}
++
+ inline bool is_power_of_two(int n)
+ {
+   return (n &gt; 0) &amp;&amp; ((n &amp; (n - 1)) == 0);
+
+Modified: trunk/griv/new/software_surface.cpp
+===================================================================
+--- trunk/griv/new/software_surface.cpp	2008-08-09 01:40:51 UTC (rev 2298)
++++ trunk/griv/new/software_surface.cpp	2008-08-09 10:54:11 UTC (rev 2299)
+@@ -173,7 +173,7 @@
+ SoftwareSurface::from_data(const Blob&amp; blob)
+ {
+   FIMEMORY* mem    = FreeImage_OpenMemory(static_cast&lt;BYTE*&gt;(blob.get_data()), blob.size());
+-  FIBITMAP* bitmap = FreeImage_LoadFromMemory(FIF_JPEG, mem, JPEG_QUALITYSUPERB);
++  FIBITMAP* bitmap = FreeImage_LoadFromMemory(FIF_JPEG, mem, 0);
+   FreeImage_CloseMemory(mem);
+   return SoftwareSurface(bitmap);
+ }
+
+Modified: trunk/griv/new/surface.cpp
+===================================================================
+--- trunk/griv/new/surface.cpp	2008-08-09 01:40:51 UTC (rev 2298)
++++ trunk/griv/new/surface.cpp	2008-08-09 10:54:11 UTC (rev 2299)
+@@ -70,17 +70,20 @@
+         glEnable(GL_TEXTURE_2D);
+         glColor3f(1.0f, 1.0f, 1.0f);
+         
++        // Since FreeImage is giving us the images upside down, we
++        // place them at the bottom of the texture instead of the top
++        // to avoid blending artifacts
+         glBegin(GL_QUADS);
+-        glTexCoord2f(      0, uv.height);
++        glTexCoord2f(      0, 1.0f);
+         glVertex2f(rect.left, rect.top);
+ 
+-        glTexCoord2f(uv.width, uv.height);
++        glTexCoord2f(uv.width, 1.0f);
+         glVertex2f(rect.right, rect.top);
+ 
+-        glTexCoord2f(uv.width, 0);
++        glTexCoord2f(uv.width, 1.0f - uv.height);
+         glVertex2f(rect.right, rect.bottom);
+ 
+-        glTexCoord2f(      0,  0);
++        glTexCoord2f(      0,  1.0f - uv.height);
+         glVertex2f(rect.left, rect.bottom);
+         glEnd();
+       }   
+
+Modified: trunk/griv/new/texture.cpp
+===================================================================
+--- trunk/griv/new/texture.cpp	2008-08-09 01:40:51 UTC (rev 2298)
++++ trunk/griv/new/texture.cpp	2008-08-09 10:54:11 UTC (rev 2299)
+@@ -52,15 +52,23 @@
+     glBindTexture(GL_TEXTURE_2D, handle);
+     glEnable(GL_TEXTURE_2D);
+ 
++    char* pixels = 0;
++    if (size.width  != srcrect.get_height() || 
++        size.height != srcrect.get_height())
++      {
++        pixels = new char[size.get_area() * 3];
++        memset(pixels, 0, size.get_area() * 3);
++      }
++
+     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB,
+                  size.width, size.height,
+                  0, /* border */
+                  GL_RGB,
+                  GL_UNSIGNED_BYTE,
+-                 0 /* pixels */);
++                 pixels);
++    delete[] pixels;
+ 
+     assert_gl(&quot;packing image texture&quot;);
+-
+     
+     //if (src.get_pitch() % 3 != 0)
+     //{
+@@ -73,7 +81,8 @@
+     
+     // Upload the subimage
+     glTexSubImage2D(GL_TEXTURE_2D, 0, 
+-                    0, 0, srcrect.get_width(), srcrect.get_height(), GL_BGR,
++                    0, size.height-srcrect.get_height(),
++                    srcrect.get_width(), srcrect.get_height(), GL_BGR,
+                     GL_UNSIGNED_BYTE, 
+                     (Uint8*)src.get_data() + (src.get_pitch() * srcrect.top) + (srcrect.left * 3));
+ 
+@@ -83,7 +92,6 @@
+     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,     GL_CLAMP);
+     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,     GL_CLAMP);
+-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R,     GL_CLAMP);
+ 
+     assert_gl(&quot;setting texture parameters&quot;);
+   }
+
+Modified: trunk/griv/new/workspace.cpp
+===================================================================
+--- trunk/griv/new/workspace.cpp	2008-08-09 01:40:51 UTC (rev 2298)
++++ trunk/griv/new/workspace.cpp	2008-08-09 10:54:11 UTC (rev 2299)
+@@ -34,6 +34,8 @@
+ Workspace::add_image(int fileid, const std::string&amp; filename, const Size&amp; size)
+ {
+   images.push_back(Image(fileid, filename, size));
++  //images.back().set_scale(Math::min(1024.0f / size.width,
++  //                                  1024.0f / size.height));
+ }
+ 
+ void
+@@ -54,13 +56,13 @@
+         {
+           if ((i/w) % 2 == 0)
+             {
+-              images[i].set_pos(Vector2f((i % w) * 3500.0f,
+-                                         (i / w) * 3500.0f));
++              images[i].set_pos(Vector2f((i % w) * 1024.0f,
++                                         (i / w) * 1024.0f));
+             }
+           else
+             {
+-              images[i].set_pos(Vector2f((w - (i % w)-1) * 3500.0f,
+-                                         (i / w) * 3500.0f));
++              images[i].set_pos(Vector2f((w - (i % w)-1) * 1024.0f,
++                                         (i / w)         * 1024.0f));
+             }
+         }
+     }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001318.html">[Windstille-commit] r2298 - trunk/griv/new
+</A></li>
+	<LI>Next message: <A HREF="001320.html">[Windstille-commit] r2300 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1319">[ date ]</a>
+              <a href="thread.html#1319">[ thread ]</a>
+              <a href="subject.html#1319">[ subject ]</a>
+              <a href="author.html#1319">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

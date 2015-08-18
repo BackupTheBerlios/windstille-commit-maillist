@@ -1,0 +1,184 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3318 - trunk/windstille/src/sound
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2010-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3318%20-%20trunk/windstille/src/sound&In-Reply-To=%3C20100720013914.1D79E480B05%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002314.html">
+   <LINK REL="Next"  HREF="002316.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3318 - trunk/windstille/src/sound</H1>
+    <B>grumbel at mail.berlios.de</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3318%20-%20trunk/windstille/src/sound&In-Reply-To=%3C20100720013914.1D79E480B05%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3318 - trunk/windstille/src/sound">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Jul 20 03:39:14 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002314.html">[Windstille-commit] r3317 - in trunk/windstille/src: app editor	engine gui screen scripting sound util
+</A></li>
+        <LI>Next message: <A HREF="002316.html">[Windstille-commit] r3319 - in trunk/windstille/src: sound sprite3d	util
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2315">[ date ]</a>
+              <a href="thread.html#2315">[ thread ]</a>
+              <a href="subject.html#2315">[ subject ]</a>
+              <a href="author.html#2315">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2010-07-20 03:39:13 +0200 (Tue, 20 Jul 2010)
+New Revision: 3318
+
+Modified:
+   trunk/windstille/src/sound/ogg_sound_file.cpp
+   trunk/windstille/src/sound/ogg_sound_file.hpp
+Log:
+Switched OGG reading from PHYSFS to C++ stream
+
+
+Modified: trunk/windstille/src/sound/ogg_sound_file.cpp
+===================================================================
+--- trunk/windstille/src/sound/ogg_sound_file.cpp	2010-07-20 01:11:24 UTC (rev 3317)
++++ trunk/windstille/src/sound/ogg_sound_file.cpp	2010-07-20 01:39:13 UTC (rev 3318)
+@@ -21,11 +21,11 @@
+ #include &quot;util/pathname.hpp&quot;
+ 
+ OggSoundFile::OggSoundFile(const Pathname&amp; filename) :
+-  file(PHYSFS_openRead(filename.get_physfs_path().c_str())),
++  m_in(filename.get_sys_path().c_str(), std::ios::binary),
+   vorbis_file()
+ {
+   ov_callbacks callbacks = { cb_read, cb_seek, cb_close, cb_tell };
+-  ov_open_callbacks(file, &amp;vorbis_file, 0, 0, callbacks);
++  ov_open_callbacks(&amp;m_in, &amp;vorbis_file, 0, 0, callbacks);
+ 
+   vorbis_info* vi = ov_info(&amp;vorbis_file, -1);
+   channels = vi-&gt;channels;
+@@ -70,36 +70,37 @@
+ size_t
+ OggSoundFile::cb_read(void* ptr, size_t size, size_t nmemb, void* source)
+ {
+-  PHYSFS_file* file = reinterpret_cast&lt;PHYSFS_file*&gt; (source);
+-  
+-  PHYSFS_sint64 res 
+-    = PHYSFS_read(file, ptr, static_cast&lt;PHYSFS_uint32&gt; (size),
+-                  static_cast&lt;PHYSFS_uint32&gt; (nmemb));
+-  if(res &lt;= 0)
+-    return 0;
+-
+-  return static_cast&lt;size_t&gt; (res);
++  std::ifstream&amp; in = *reinterpret_cast&lt;std::ifstream*&gt;(source);
++  if (!in.read(static_cast&lt;char*&gt;(ptr), size * nmemb))
++  {
++    return -1;
++  }
++  else
++  {
++    return in.gcount();
++  }
+ }
+ 
+ int
+ OggSoundFile::cb_seek(void* source, ogg_int64_t offset, int whence)
+ {
+-  PHYSFS_file* file = reinterpret_cast&lt;PHYSFS_file*&gt; (source);
+-
+   switch(whence) 
+   {
+     case SEEK_SET:
+-      if(PHYSFS_seek(file, static_cast&lt;PHYSFS_uint64&gt; (offset)) == 0)
++      if (!reinterpret_cast&lt;std::ifstream*&gt;(source)-&gt;seekg(offset, std::ios::beg))
+         return -1;
+       break;
++
+     case SEEK_CUR:
+-      if(PHYSFS_seek(file, PHYSFS_tell(file) + offset) == 0)
++      if (!reinterpret_cast&lt;std::ifstream*&gt;(source)-&gt;seekg(offset, std::ios::cur))
+         return -1;
+       break;
++
+     case SEEK_END:
+-      if(PHYSFS_seek(file, PHYSFS_fileLength(file) + offset) == 0)
++      if (!reinterpret_cast&lt;std::ifstream*&gt;(source)-&gt;seekg(offset, std::ios::end))
+         return -1;
+       break;
++
+     default:
+       return -1;
+   }
+@@ -109,16 +110,14 @@
+ int
+ OggSoundFile::cb_close(void* source)
+ {
+-  PHYSFS_file* file = reinterpret_cast&lt;PHYSFS_file*&gt; (source);
+-  PHYSFS_close(file);
++  reinterpret_cast&lt;std::ifstream*&gt;(source)-&gt;close();
+   return 0;
+ }
+ 
+ long
+ OggSoundFile::cb_tell(void* source)
+ {
+-  PHYSFS_file* file = reinterpret_cast&lt;PHYSFS_file*&gt; (source);
+-  return static_cast&lt;long&gt; (PHYSFS_tell(file));
++  return reinterpret_cast&lt;std::ifstream*&gt;(source)-&gt;tellg();
+ }
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/sound/ogg_sound_file.hpp
+===================================================================
+--- trunk/windstille/src/sound/ogg_sound_file.hpp	2010-07-20 01:11:24 UTC (rev 3317)
++++ trunk/windstille/src/sound/ogg_sound_file.hpp	2010-07-20 01:39:13 UTC (rev 3318)
+@@ -21,6 +21,7 @@
+ 
+ #include &lt;vorbis/vorbisfile.h&gt;
+ #include &lt;physfs.h&gt;
++#include &lt;fstream&gt;
+ 
+ #include &quot;sound/sound_file.hpp&quot;
+ 
+@@ -45,7 +46,7 @@
+   static int    cb_close(void* source);
+   static long   cb_tell(void* source);
+   
+-  PHYSFS_file* file;
++  std::ifstream  m_in;
+   OggVorbis_File vorbis_file;
+ 
+   int channels;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002314.html">[Windstille-commit] r3317 - in trunk/windstille/src: app editor	engine gui screen scripting sound util
+</A></li>
+	<LI>Next message: <A HREF="002316.html">[Windstille-commit] r3319 - in trunk/windstille/src: sound sprite3d	util
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2315">[ date ]</a>
+              <a href="thread.html#2315">[ thread ]</a>
+              <a href="subject.html#2315">[ subject ]</a>
+              <a href="author.html#2315">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

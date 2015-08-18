@@ -1,0 +1,222 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2773 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2773%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200903262311.n2QNBjaW030411%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001769.html">
+   <LINK REL="Next"  HREF="001771.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2773 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2773%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200903262311.n2QNBjaW030411%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2773 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Mar 27 00:11:45 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001769.html">[Windstille-commit] r2772 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="001771.html">[Windstille-commit] r2774 - in trunk/windstille/data: editor	images/decal
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1770">[ date ]</a>
+              <a href="thread.html#1770">[ thread ]</a>
+              <a href="subject.html#1770">[ subject ]</a>
+              <a href="author.html#1770">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-27 00:11:44 +0100 (Fri, 27 Mar 2009)
+New Revision: 2773
+
+Modified:
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/editor_window.hpp
+   trunk/windstille/src/editor/selection.cpp
+   trunk/windstille/src/editor/selection.hpp
+Log:
+Implemented Cut/Copy/Paste
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-03-26 18:29:20 UTC (rev 2772)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-03-26 23:11:44 UTC (rev 2773)
+@@ -165,9 +165,12 @@
+   action_group-&gt;add(Gtk::Action::create(&quot;MenuEdit&quot;,    &quot;_Edit&quot;));
+   action_group-&gt;add(Gtk::Action::create(&quot;Undo&quot;,        Gtk::Stock::UNDO));
+   action_group-&gt;add(Gtk::Action::create(&quot;Redo&quot;,        Gtk::Stock::REDO));
+-  action_group-&gt;add(Gtk::Action::create(&quot;Cut&quot;,         Gtk::Stock::CUT));
+-  action_group-&gt;add(Gtk::Action::create(&quot;Copy&quot;,        Gtk::Stock::COPY));
+-  action_group-&gt;add(Gtk::Action::create(&quot;Paste&quot;,       Gtk::Stock::PASTE));
++  action_group-&gt;add(Gtk::Action::create(&quot;Cut&quot;,         Gtk::Stock::CUT),
++                    sigc::mem_fun(*this, &amp;EditorWindow::on_cut));
++  action_group-&gt;add(Gtk::Action::create(&quot;Copy&quot;,        Gtk::Stock::COPY),
++                    sigc::mem_fun(*this, &amp;EditorWindow::on_copy));
++  action_group-&gt;add(Gtk::Action::create(&quot;Paste&quot;,       Gtk::Stock::PASTE),
++                    sigc::mem_fun(*this, &amp;EditorWindow::on_paste));
+ 
+   action_group-&gt;add(Gtk::Action::create(&quot;Delete&quot;,      Gtk::Stock::DELETE),
+                     sigc::bind(sigc::mem_fun(*this, &amp;EditorWindow::call_with_windstille_widget), &amp;WindstilleWidget::selection_delete));
+@@ -260,9 +263,6 @@
+   // Disable unimplemented stuff:
+   action_group-&gt;get_action(&quot;Undo&quot;)-&gt;set_sensitive(false);
+   action_group-&gt;get_action(&quot;Redo&quot;)-&gt;set_sensitive(false);
+-  action_group-&gt;get_action(&quot;Cut&quot;)-&gt;set_sensitive(false);
+-  action_group-&gt;get_action(&quot;Copy&quot;)-&gt;set_sensitive(false);
+-  action_group-&gt;get_action(&quot;Paste&quot;)-&gt;set_sensitive(false);
+ 
+   Gtk::Toolbar* toolbar = static_cast&lt;Gtk::Toolbar*&gt;(ui_manager-&gt;get_widget(&quot;/ToolBar&quot;));
+   toolbar-&gt;append(*(Gtk::manage(new Gtk::SeparatorToolItem())));
+@@ -640,5 +640,44 @@
+       std::cout &lt;&lt; &quot;Snap Off&quot; &lt;&lt; std::endl;
+     }
+ }
++
++void
++EditorWindow::on_cut()
++{
++  if (WindstilleWidget* wst = get_windstille_widget())
++    {
++      clipboard = wst-&gt;get_selection()-&gt;clone();
++      wst-&gt;selection_delete();
++      queue_draw();
++    }
++}
++
++void
++EditorWindow::on_copy()
++{
++  if (WindstilleWidget* wst = get_windstille_widget())
++    {
++      clipboard = wst-&gt;get_selection()-&gt;clone();
++    }
++}
++
++void
++EditorWindow::on_paste()
++{
++  if (clipboard.get())
++    {
++      if (WindstilleWidget* wst = get_windstille_widget())
++        {
++          for(Selection::reverse_iterator i = clipboard-&gt;rbegin(); i != clipboard-&gt;rend(); ++i)
++            {
++              wst-&gt;get_sector_model()-&gt;add(*i);
++            }
++
++          wst-&gt;set_selection(clipboard);
++          clipboard = clipboard-&gt;clone();
++          queue_draw();
++        }
++    }
++}
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/editor_window.hpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.hpp	2009-03-26 18:29:20 UTC (rev 2772)
++++ trunk/windstille/src/editor/editor_window.hpp	2009-03-26 23:11:44 UTC (rev 2773)
+@@ -28,6 +28,7 @@
+ #include &lt;gtkmm/window.h&gt;
+ #include &lt;gtkmm/notebook.h&gt;
+ 
++#include &quot;selection.hpp&quot;
+ #include &quot;minimap_widget.hpp&quot;
+ #include &quot;object_selector.hpp&quot;
+ #include &quot;object_tree.hpp&quot;
+@@ -76,7 +77,8 @@
+   LayerWidget* layer_widget;
+ 
+   sigc::connection  timeout_connection;
+-  
++  SelectionHandle   clipboard;
++
+ public:
+   EditorWindow(const Glib::RefPtr&lt;const Gdk::GL::Config&gt;&amp; glconfig);
+   virtual ~EditorWindow();
+@@ -100,6 +102,10 @@
+   void on_zoom_in();
+   void on_zoom_out();
+   void on_zoom_100();
++
++  void on_cut();
++  void on_copy();
++  void on_paste();
+   
+   void on_layer_toggle(int layer, bool status);
+ 
+
+Modified: trunk/windstille/src/editor/selection.cpp
+===================================================================
+--- trunk/windstille/src/editor/selection.cpp	2009-03-26 18:29:20 UTC (rev 2772)
++++ trunk/windstille/src/editor/selection.cpp	2009-03-26 23:11:44 UTC (rev 2773)
+@@ -86,5 +86,18 @@
+       (*i)-&gt;on_move_end(offset);
+     }
+ }
++
++SelectionHandle
++Selection::clone() const
++{
++  SelectionHandle selection = Selection::create();
++
++  for(Objects::const_iterator i = objects.begin(); i != objects.end(); ++i)
++    {
++      selection-&gt;add((*i)-&gt;clone());
++    }
++
++  return selection;
++}
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/selection.hpp
+===================================================================
+--- trunk/windstille/src/editor/selection.hpp	2009-03-26 18:29:20 UTC (rev 2772)
++++ trunk/windstille/src/editor/selection.hpp	2009-03-26 23:11:44 UTC (rev 2773)
+@@ -63,6 +63,9 @@
+   void on_move_update(const Vector2f&amp; offset);
+   void on_move_end(const Vector2f&amp; offset);
+   
++  /** Performs a deep clone of the selection */
++  SelectionHandle clone() const;
++
+ private:
+   Selection(const Selection&amp;);
+   Selection&amp; operator=(const Selection&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001769.html">[Windstille-commit] r2772 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="001771.html">[Windstille-commit] r2774 - in trunk/windstille/data: editor	images/decal
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1770">[ date ]</a>
+              <a href="thread.html#1770">[ thread ]</a>
+              <a href="subject.html#1770">[ subject ]</a>
+              <a href="author.html#1770">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

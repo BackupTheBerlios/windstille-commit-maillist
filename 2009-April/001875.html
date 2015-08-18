@@ -1,0 +1,332 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2878 - in trunk/windstille/src: display editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2878%20-%20in%20trunk/windstille/src%3A%20display%20editor&In-Reply-To=%3C200904060302.n3632XDa020387%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001874.html">
+   <LINK REL="Next"  HREF="001876.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2878 - in trunk/windstille/src: display editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2878%20-%20in%20trunk/windstille/src%3A%20display%20editor&In-Reply-To=%3C200904060302.n3632XDa020387%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2878 - in trunk/windstille/src: display editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Apr  6 05:02:33 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001874.html">[Windstille-commit] r2877 - trunk/windstille/src/util
+</A></li>
+        <LI>Next message: <A HREF="001876.html">[Windstille-commit] r2879 - trunk/windstille/data/images/decal
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1875">[ date ]</a>
+              <a href="thread.html#1875">[ thread ]</a>
+              <a href="subject.html#1875">[ subject ]</a>
+              <a href="author.html#1875">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-04-06 05:02:31 +0200 (Mon, 06 Apr 2009)
+New Revision: 2878
+
+Modified:
+   trunk/windstille/src/display/software_surface.cpp
+   trunk/windstille/src/display/software_surface.hpp
+   trunk/windstille/src/display/surface_manager.cpp
+   trunk/windstille/src/display/surface_manager.hpp
+   trunk/windstille/src/display/texture.cpp
+   trunk/windstille/src/display/texture.hpp
+   trunk/windstille/src/display/texture_packer.cpp
+   trunk/windstille/src/display/texture_packer.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+Log:
+Hacked together function to dump all Textures in the TexturePacker
+
+Modified: trunk/windstille/src/display/software_surface.cpp
+===================================================================
+--- trunk/windstille/src/display/software_surface.cpp	2009-04-06 03:01:19 UTC (rev 2877)
++++ trunk/windstille/src/display/software_surface.cpp	2009-04-06 03:02:31 UTC (rev 2878)
+@@ -16,6 +16,9 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
++#include &lt;boost/scoped_array.hpp&gt;
++#include &lt;png.h&gt;
++#include &lt;errno.h&gt;
+ #include &lt;iostream&gt;
+ #include &lt;sstream&gt;
+ #include &lt;stdexcept&gt;
+@@ -177,15 +180,68 @@
+ {
+   SoftwareSurface surface(get_width()+2, get_height()+2);
+ 
+-  // FIXME: Really slow
+-  blit(surface, 0, 0);
+-  blit(surface, 2, 0);
+-  blit(surface, 0, 2);
+-  blit(surface, 2, 2);
++  // FIXME: Really slow and leaves out the edge pixels
++  blit(surface, 1, 0);
++  blit(surface, 1, 2);
++  blit(surface, 0, 1);
++  blit(surface, 2, 1);
+ 
+   blit(surface, 1, 1);
+ 
+   return surface;
+ }
++
++void
++SoftwareSurface::save_png(const std::string&amp; filename) const
++{
++  // FIXME: This is upside down  
++  if (get_bits_per_pixel() != 32)
++    {
++      std::cout &lt;&lt; &quot;SoftwareSurface::save_png(): Unsupported pixel format&quot; &lt;&lt; std::endl;
++      return;
++    }
++
++  FILE* fp = fopen(filename.c_str(), &quot;w&quot;);
++
++  if (!fp)
++    {
++      std::cout &lt;&lt; &quot;Error: Couldn't save screenshot: &quot; &lt;&lt; strerror(errno) &lt;&lt; std::endl;
++      return;
++    }
++  else
++    {
++      int pitch   = get_pitch();
++      png_structp png_ptr;
++      png_infop   info_ptr;
++      png_byte* pixels = static_cast&lt;png_byte*&gt;(get_pixels());
++
++      png_ptr  = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
++      info_ptr = png_create_info_struct(png_ptr);
++
++      png_init_io(png_ptr, fp);
++
++      png_set_IHDR(png_ptr, info_ptr, 
++                   get_width(), get_height(), 8 /* bitdepth */,
++                   PNG_COLOR_TYPE_RGBA,
++                   PNG_INTERLACE_NONE, 
++                   PNG_COMPRESSION_TYPE_BASE, 
++                   PNG_FILTER_TYPE_BASE);
++      
++      png_set_compression_level(png_ptr, 6);
++      png_write_info(png_ptr, info_ptr);
++
++      boost::scoped_array&lt;png_bytep&gt; row_pointers(new png_bytep[get_height()]);
++   
++      // generate row pointers
++      for (int k = 0; k &lt; get_height(); k++)
++        row_pointers[k] = reinterpret_cast&lt;png_byte*&gt;(pixels + ((get_height() - k - 1) * pitch));
++
++      png_write_image(png_ptr, row_pointers.get());
++
++      png_write_end(png_ptr, info_ptr);
++
++      fclose(fp);
++    }
++}
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/display/software_surface.hpp
+===================================================================
+--- trunk/windstille/src/display/software_surface.hpp	2009-04-06 03:01:19 UTC (rev 2877)
++++ trunk/windstille/src/display/software_surface.hpp	2009-04-06 03:02:31 UTC (rev 2878)
+@@ -57,6 +57,8 @@
+       edge pixels.  */
+   SoftwareSurface add_1px_border() const;
+ 
++  void save_png(const std::string&amp; filename) const;
++
+   SDL_Surface* get_surface() const;
+ 
+   bool is_at(int x, int y) const;
+
+Modified: trunk/windstille/src/display/surface_manager.cpp
+===================================================================
+--- trunk/windstille/src/display/surface_manager.cpp	2009-04-06 03:01:19 UTC (rev 2877)
++++ trunk/windstille/src/display/surface_manager.cpp	2009-04-06 03:02:31 UTC (rev 2878)
+@@ -172,5 +172,11 @@
+         }
+     }
+ }
++
++void
++SurfaceManager::save_all_as_png() const
++{
++  texture_packer-&gt;save_all_as_png();
++}
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/display/surface_manager.hpp
+===================================================================
+--- trunk/windstille/src/display/surface_manager.hpp	2009-04-06 03:01:19 UTC (rev 2877)
++++ trunk/windstille/src/display/surface_manager.hpp	2009-04-06 03:02:31 UTC (rev 2878)
+@@ -40,7 +40,11 @@
+ public:
+   static SurfaceManager* current() { return current_; } 
+ 
++private:
+   std::auto_ptr&lt;TexturePacker&gt; texture_packer;
++  
++  typedef std::map&lt;std::string, Surface&gt; Surfaces;
++  Surfaces surfaces;
+ 
+ public:
+   SurfaceManager();
+@@ -61,9 +65,8 @@
+ 
+   /** Removes all cached Sprites that are no longer in use */
+   void cleanup();
+-  
+-  typedef std::map&lt;std::string, Surface&gt; Surfaces;
+-  Surfaces surfaces;
++
++  void save_all_as_png() const;
+ };
+ 
+ #endif
+
+Modified: trunk/windstille/src/display/texture.cpp
+===================================================================
+--- trunk/windstille/src/display/texture.cpp	2009-04-06 03:01:19 UTC (rev 2877)
++++ trunk/windstille/src/display/texture.cpp	2009-04-06 03:02:31 UTC (rev 2878)
+@@ -226,6 +226,20 @@
+   glTexParameteri(impl-&gt;target, GL_TEXTURE_MAG_FILTER, mode);
+ }
+ 
++SoftwareSurface
++Texture::get_software_surface() const
++{
++  OpenGLState state;
++  state.bind_texture(*this);
++  state.activate();
++
++  SoftwareSurface surface(impl-&gt;width, impl-&gt;height);
++
++  glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, surface.get_pixels());
++
++  return surface;
++}
++
+ Texture::operator bool() const
+ {
+   return impl.get();
+
+Modified: trunk/windstille/src/display/texture.hpp
+===================================================================
+--- trunk/windstille/src/display/texture.hpp	2009-04-06 03:01:19 UTC (rev 2877)
++++ trunk/windstille/src/display/texture.hpp	2009-04-06 03:02:31 UTC (rev 2878)
+@@ -75,6 +75,8 @@
+    */ 
+   GLenum get_target() const;
+ 
++  SoftwareSurface get_software_surface() const;
++
+   /** true if the Texture is valid and usable, false if not */
+   operator bool() const;
+ 
+
+Modified: trunk/windstille/src/display/texture_packer.cpp
+===================================================================
+--- trunk/windstille/src/display/texture_packer.cpp	2009-04-06 03:01:19 UTC (rev 2877)
++++ trunk/windstille/src/display/texture_packer.cpp	2009-04-06 03:02:31 UTC (rev 2878)
+@@ -96,6 +96,8 @@
+   ~TexturePackerTexture()
+   {}
+ 
++  Texture get_texture() const { return texture; }
++
+   bool allocate(const Size&amp; size, Rect&amp; out_rect, Texture&amp; out_texture)
+   {
+     if (space.allocate(size, out_rect))
+@@ -167,5 +169,20 @@
+                      in_surface.get_width(), in_surface.get_height());
+     }
+ }
++
++void
++TexturePacker::save_all_as_png() const
++{
++  for(Textures::const_iterator i = textures.begin(); i != textures.end(); ++i)
++    {
++      Texture texture = (*i)-&gt;get_texture();
++      SoftwareSurface surface = texture.get_software_surface();
++
++      char filename[1024];
++      sprintf(filename, &quot;/tmp/texture_packer%04d.png&quot;, int(i - textures.begin()));
++      std::cout &lt;&lt; &quot;Saving: &quot; &lt;&lt; filename &lt;&lt; std::endl;
++      surface.save_png(filename);
++    }
++}
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/display/texture_packer.hpp
+===================================================================
+--- trunk/windstille/src/display/texture_packer.hpp	2009-04-06 03:01:19 UTC (rev 2877)
++++ trunk/windstille/src/display/texture_packer.hpp	2009-04-06 03:02:31 UTC (rev 2878)
+@@ -44,6 +44,8 @@
+   Surface upload(const SoftwareSurface&amp; surface);
+   bool    allocate(const Size&amp; size, Rect&amp; rect, Texture&amp; texture);
+   
++  void save_all_as_png() const;
++
+ private:
+   TexturePacker(const TexturePacker&amp;);
+   TexturePacker&amp; operator=(const TexturePacker&amp;);
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-04-06 03:01:19 UTC (rev 2877)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-04-06 03:02:31 UTC (rev 2878)
+@@ -576,6 +576,10 @@
+         selection_duplicate();
+         break;
+ 
++      case GDK_s:
++        SurfaceManager::current()-&gt;save_all_as_png();
++        break;
++
+       case GDK_Delete:
+         selection_delete();
+         break;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001874.html">[Windstille-commit] r2877 - trunk/windstille/src/util
+</A></li>
+	<LI>Next message: <A HREF="001876.html">[Windstille-commit] r2879 - trunk/windstille/data/images/decal
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1875">[ date ]</a>
+              <a href="thread.html#1875">[ thread ]</a>
+              <a href="subject.html#1875">[ subject ]</a>
+              <a href="author.html#1875">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

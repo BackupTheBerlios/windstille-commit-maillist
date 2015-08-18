@@ -1,0 +1,1715 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2449 - in trunk: . collisiontest
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-February/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2449%20-%20in%20trunk%3A%20.%20collisiontest&In-Reply-To=%3C200902101915.n1AJFORt027714%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001445.html">
+   <LINK REL="Next"  HREF="001447.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2449 - in trunk: . collisiontest</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2449%20-%20in%20trunk%3A%20.%20collisiontest&In-Reply-To=%3C200902101915.n1AJFORt027714%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2449 - in trunk: . collisiontest">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Feb 10 20:15:24 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001445.html">[Windstille-commit] r2448 - in trunk/windstille/src: . display lisp	math sprite3d
+</A></li>
+        <LI>Next message: <A HREF="001447.html">[Windstille-commit] r2450 - trunk/collisiontest
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1446">[ date ]</a>
+              <a href="thread.html#1446">[ thread ]</a>
+              <a href="subject.html#1446">[ subject ]</a>
+              <a href="author.html#1446">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-02-10 20:15:23 +0100 (Tue, 10 Feb 2009)
+New Revision: 2449
+
+Added:
+   trunk/collisiontest/
+   trunk/collisiontest/Makefile
+   trunk/collisiontest/README
+   trunk/collisiontest/SConstruct
+   trunk/collisiontest/collision.cxx
+   trunk/collisiontest/collision.hxx
+   trunk/collisiontest/colltest.cxx
+   trunk/collisiontest/colltest.hxx
+   trunk/collisiontest/main.cxx
+Log:
+Added collisiontest_050630_1418.tgz to SVN
+
+Added: trunk/collisiontest/Makefile
+===================================================================
+--- trunk/collisiontest/Makefile	2009-02-10 19:00:41 UTC (rev 2448)
++++ trunk/collisiontest/Makefile	2009-02-10 19:15:23 UTC (rev 2449)
+@@ -0,0 +1,2 @@
++all:
++	scons
+
+Added: trunk/collisiontest/README
+===================================================================
+--- trunk/collisiontest/README	2009-02-10 19:00:41 UTC (rev 2448)
++++ trunk/collisiontest/README	2009-02-10 19:15:23 UTC (rev 2449)
+@@ -0,0 +1,10 @@
++This example is able to do:
++1) Throw boxes by clicking and holding left-mouse-button.
++2) running and jumping around with cursor keys.
++
++Tests:
++- throw boxes
++- push boxes
++- fall off from elevator
++- run under elevator
++- let you push around from elevator
+\ No newline at end of file
+
+Added: trunk/collisiontest/SConstruct
+===================================================================
+--- trunk/collisiontest/SConstruct	2009-02-10 19:00:41 UTC (rev 2448)
++++ trunk/collisiontest/SConstruct	2009-02-10 19:15:23 UTC (rev 2449)
+@@ -0,0 +1,18 @@
++import os
++import glob
++
++opts = Options('custom.py')
++opts.Add('CXXFLAGS', 'The C++ compiler flags.', '-g -O0 -Wall')
++
++env = Environment(SHLIBPREFIX='',
++                  ENV = os.environ,
++                  options=opts)
++Help(opts.GenerateHelpText(env))
++
++env.ParseConfig(&quot;pkg-config --cflags --libs clanCore-0.7 clanDisplay-0.7 clanGL-0.7 clanSignals-0.7&quot;)
++
++ptest = env.Program('main',
++                    ['main.cxx', 'colltest.cxx','collision.cxx'])
++
++# EOF #
++
+
+Added: trunk/collisiontest/collision.cxx
+===================================================================
+--- trunk/collisiontest/collision.cxx	2009-02-10 19:00:41 UTC (rev 2448)
++++ trunk/collisiontest/collision.cxx	2009-02-10 19:15:23 UTC (rev 2449)
+@@ -0,0 +1,925 @@
++#include &quot;collision.hxx&quot;
++#include &quot;colltest.hxx&quot;
++
++#include &lt;assert.h&gt;
++
++#include &lt;ClanLib/display.h&gt;
++
++/***********************************************************************
++ * CollisionResult
++ ***********************************************************************/
++
++CollisionData CollisionData::merge(const CollisionData &amp;r)
++{
++  if(state==COLLISION)
++    {
++      if((r.state==COLLISION &amp;&amp; r.col_time&lt;col_time) || r.state==STUCK)
++	*this=r;
++    }
++  else if(state==NONE)
++    *this=r;
++
++  return *this;
++}
++
++
++/***********************************************************************
++ * CollPrimitive
++ ***********************************************************************/
++
++CollPrimitive::CollPrimitive(CollisionObject *object_):object(object_)
++{
++  assert (object_);
++}
++
++CollPrimitive::~CollPrimitive()
++{
++}
++
++inline float CollPrimitive::x_velocity() const
++{
++  return object-&gt;get_movement().x;
++}
++inline float CollPrimitive::y_velocity() const
++{
++  return object-&gt;get_movement().y;
++}
++
++CL_Vector2 CollPrimitive::get_velocity() const
++{
++  return object-&gt;get_movement();
++}
++
++/***********************************************************************
++ * CollRect
++ ***********************************************************************/
++
++CollRect::CollRect(const CL_Rectf &amp;r_,CollisionObject *object_):
++  CollPrimitive(object_),rect(r_)
++  {
++  }
++
++CollPrimitive *CollRect::clone(CollisionObject *o) const
++{
++  return new CollRect(rect,o);
++}
++
++
++float CollRect::x_pos() const
++{
++  return rect.left+object-&gt;get_pos().x;
++}
++
++float CollRect::y_pos() const
++{
++  return rect.top+object-&gt;get_pos().y;
++}
++
++float CollRect::width() const
++{
++  return rect.get_width();
++}
++float CollRect::height() const
++{
++  return rect.get_height();
++}
++
++inline std::ostream&amp; operator&lt;&lt;(std::ostream&amp; out, const CollRect &amp;b)
++{
++  out&lt;&lt;&quot;(&quot;&lt;&lt;b.x_pos()&lt;&lt;&quot;,&quot;&lt;&lt;b.y_pos()&lt;&lt;&quot;,&quot;&lt;&lt;b.width()&lt;&lt;&quot;,&quot;&lt;&lt;b.height()&lt;&lt;&quot;,&quot;&lt;&lt;b.object-&gt;get_movement().x&lt;&lt;&quot;,&quot;&lt;&lt;b.object-&gt;get_movement().y&lt;&lt;&quot;)&quot;;
++  return out;
++}
++
++CL_Vector2 CollRect::get_vector0() const
++{
++  return CL_Vector2(x_pos(),y_pos());
++}
++CL_Vector2 CollRect::get_vector1() const
++{
++  return CL_Vector2(x_pos()+width(),y_pos());
++}
++CL_Vector2 CollRect::get_vector2() const
++{
++  return CL_Vector2(x_pos(),y_pos()+height());
++}
++CL_Vector2 CollRect::get_vector3() const
++{
++  return CL_Vector2(x_pos()+width(),y_pos()+height());
++}
++
++void CollRect::drawCollision() const
++{
++  CL_Gradient g(CL_Color(255, 255, 255),CL_Color(255, 255, 255),CL_Color(255, 255, 255),CL_Color(255, 255, 255));
++  CL_Gradient g2(CL_Color(0, 255, 255),CL_Color(0, 255, 255),CL_Color(0, 255, 255),CL_Color(0, 255, 255));
++
++  /*  if(object-&gt;collision)
++    CL_Display::fill_rect(CL_Rectff(CL_Pointf(i-&gt;x_pos(), i-&gt;y_pos()),
++				   CL_Sizef(i-&gt;width(), i-&gt;height())),g2);
++				   else*/
++
++  CL_Vector2 v=object-&gt;get_pos();
++  CL_Rectf r=rect;
++  r+=CL_Pointf(v.x,v.y);
++
++  CL_Display::fill_rect(r,g);
++  
++  CL_Display::draw_rect(r,
++			CL_Color(155, 155, 155));        
++  
++  CL_Display::draw_line(r.left + r.get_width()/2,
++			r.top  + r.get_height()/2,
++			r.left + r.get_width()/2 + object-&gt;get_movement().x,
++			r.top  + r.get_height()/2 + object-&gt;get_movement().y,
++			CL_Color(255, 0, 255));
++
++}
++
++/***********************************************************************
++ * CollTri
++ ***********************************************************************/
++
++CollTri::CollTri(CollisionObject *object_):
++  CollPrimitive (object_)
++{
++}
++
++CollTri::CollTri(const CL_Vector2 &amp;base_, float dx_, float dy_,CollisionObject *object_):
++  CollPrimitive (object_),
++  base(base_),
++  dx(dx_),
++  dy(dy_)
++{
++}
++
++CollPrimitive *CollTri::clone(CollisionObject *o) const
++{
++  return new CollTri(base,dx,dy,o);
++}
++
++float CollTri::width() const
++{
++  return fabs(dx);
++}
++float CollTri::height() const
++{
++  return fabs(dy);
++}
++
++float CollTri::x_pos() const
++{
++  return std::min(base.x,base.x+dx)+object-&gt;get_pos().x;
++}
++float CollTri::y_pos() const
++{
++  return std::min(base.y,base.y+dy)+object-&gt;get_pos().y;
++}
++
++CL_Vector2 CollTri::normal() const
++{
++  CL_Vector2 v(dy,dx);
++  v/=v.length();
++  return v;
++}
++
++CL_Vector2 CollTri::get_vector0() const
++{
++  return CL_Vector2(x_pos(),y_pos());
++}
++CL_Vector2 CollTri::get_vector1() const
++{
++  return CL_Vector2(x_pos()+dx,y_pos());
++}
++CL_Vector2 CollTri::get_vector2() const
++{
++  return CL_Vector2(x_pos(),y_pos()+dy);
++}
++
++void CollTri::drawCollision() const
++{
++  CL_Vector2 act_pos=object-&gt;get_pos()+base;
++  CL_Gradient g(CL_Color(255, 255, 255),CL_Color(255, 255, 255),CL_Color(255, 255, 255),CL_Color(255, 255, 255));
++
++  CL_Display::fill_triangle(act_pos.x   , act_pos.y,
++			    act_pos.x+dx, act_pos.y,
++			    act_pos.x   , act_pos.y+dy,g);
++  
++  CL_Display::draw_triangle(act_pos.x   , act_pos.y,
++			    act_pos.x+dx, act_pos.y,
++			    act_pos.x   , act_pos.y+dy,
++			    CL_Color(155, 155, 155));        
++  
++  CL_Display::draw_line(act_pos.x + dx/4,
++			act_pos.y + dy/4,
++			act_pos.x + dx/4 + object-&gt;get_movement().x,
++			act_pos.y + dy/4 + object-&gt;get_movement().y,
++			CL_Color(255, 0, 255));
++}
++
++
++/***********************************************************************
++ * CollisionObject
++ ***********************************************************************/
++
++CollisionObject::CollisionObject()
++{
++  parent=0;
++}
++
++CollisionObject::~CollisionObject()
++{
++}
++
++void CollisionObject::insertCollPrimitive(CollPrimitive *primitive)
++{
++  colliders.push_back(primitive);
++}
++
++
++
++void CollisionObject::drawCollision()
++{
++  std::list&lt;CollPrimitive*&gt;::iterator j=colliders.begin();
++
++  for(;j!=colliders.end();j++)
++    {
++      (*j)-&gt;drawCollision();
++    }
++}
++
++void CollisionObject::move(float delta)
++{
++  //  position += get_movement() * delta;
++  position += movement * delta;
++  movement -= movement * coll_engine-&gt;get_friction() * delta;
++  
++  movement += coll_engine-&gt;get_graphity() * delta;
++  
++
++  if (fabsf(movement.x) &lt; coll_engine-&gt;get_min_velocity())
++    movement.x = 0.0f;
++
++  if (fabsf(movement.y) &lt; coll_engine-&gt;get_min_velocity())
++    movement.y = 0.0f;
++
++}
++
++void 
++CollisionObject::set_movement(const CL_Vector2 &amp;m)
++{
++  movement=m;
++}
++
++
++
++/***********************************************************************
++ * helpers
++ ***********************************************************************/
++
++
++
++// LEFT means b1 is left of b2
++CollisionData collideBB(CollRect &amp;b1,CollRect &amp;b2,float delta)
++{
++  SweepResult result0 = simple_sweep_1d(b1.x_pos(), b1.width(), b1.x_velocity(),
++					b2.x_pos(), b2.width(), b2.x_velocity());
++  SweepResult result1 = simple_sweep_1d(b1.y_pos(), b1.height(), b1.y_velocity(),
++					b2.y_pos(), b2.height(), b2.y_velocity());
++
++  CollisionData result;
++  result.delta=delta;
++
++  if(result0.collision(delta) &amp;&amp; result1.collision(delta))
++    {
++      if(result0.always() &amp;&amp; result1.always())
++	result.state=CollisionData::STUCK;
++      else
++	{
++	  if(result0.begin(delta)&lt;result1.begin(delta))
++	    {
++	      // x direction prior
++	      if(b1.x_pos()&lt;b2.x_pos())
++		{
++		  result.state=CollisionData::COLLISION;
++		  result.direction=CL_Vector2(-1,0);
++		}
++	      else
++		{
++		  result.state=CollisionData::COLLISION;
++		  result.direction=CL_Vector2(1,0);
++		}
++	      result.col_time=result0.t0;
++	    }
++	  else
++	    {
++	      // x direction prior
++	      if(b1.y_pos()&lt;b2.y_pos())
++		{
++		  result.state=CollisionData::COLLISION;
++		  result.direction=CL_Vector2(0,-1);
++		}
++	      else
++		{
++		  result.state=CollisionData::COLLISION;
++		  result.direction=CL_Vector2(0,1);
++		}
++	      result.col_time=result1.t0;
++	    }
++	}
++    }
++  return result;
++}
++
++CollisionData collideBT(CollRect &amp;b1,CollTri &amp;b2,float delta)
++{
++  // get normal of the triangle's diagonal
++  CL_Vector2 normal=b2.normal();
++
++  // get triangle's coordinates along this normal
++  float b2a=b2.get_vector0().dot(normal);
++  float b2b=b2.get_vector1().dot(normal);
++  
++  float b2max=std::max(b2a,b2b);
++  float b2min=std::min(b2a,b2b);
++
++  // get box's coordinates
++
++  float b1a=b1.get_vector0().dot(normal);
++  float b1b=b1.get_vector1().dot(normal);
++  float b1c=b1.get_vector2().dot(normal);
++  float b1d=b1.get_vector3().dot(normal);
++
++  float b1max=std::max(std::max(b1a,b1b),std::max(b1c,b1d));
++  float b1min=std::min(std::min(b1a,b1b),std::min(b1c,b1d));
++
++  // get velocity
++
++  float b1vel=b1.get_velocity().dot(normal);
++  float b2vel=b2.get_velocity().dot(normal);
++
++  SweepResult result0 = simple_sweep_1d(b1.x_pos(), b1.width(), b1.x_velocity(),
++					b2.x_pos(), b2.width(), b2.x_velocity());
++  SweepResult result1 = simple_sweep_1d(b1.y_pos(), b1.height(), b1.y_velocity(),
++					b2.y_pos(), b2.height(), b2.y_velocity());
++
++  SweepResult result2 = simple_sweep_1d(b1min, b1max-b1min, b1vel,
++					b2min, b2max-b2min, b2vel);
++
++  CollisionData result;
++
++  if(result0.collision(delta) &amp;&amp; result1.collision(delta) &amp;&amp; result2.collision(delta))
++    {
++      if(result0.always() &amp;&amp; result1.always() &amp;&amp; result2.always())
++	result.state=CollisionData::STUCK;
++      else
++	{
++	  if(result0.begin(delta)&lt;result1.begin(delta))// &amp;&amp; result0.begin(delta)&lt;result2.begin(delta))
++	    {
++	      // x direction prior
++	      if(b1.x_pos()&lt;b2.x_pos())
++		{
++		  result.state=CollisionData::COLLISION;
++		  result.direction=CL_Vector2(-1,0);
++		}
++	      else
++		{
++		  result.state=CollisionData::COLLISION;
++		  result.direction=CL_Vector2(1,0);
++		}
++	      result.col_time=result0.t0;
++	    }
++	  else
++	    {
++	      // y direction prior
++	      if(b1.y_pos()&lt;b2.y_pos())
++		{
++		  result.state=CollisionData::COLLISION;
++		  result.direction=CL_Vector2(0,1);
++		}
++	      
++	      else
++		{
++		  result.state=CollisionData::COLLISION;
++		  result.direction=CL_Vector2(0,-1);
++		}
++	      result.col_time=result1.t0;
++	    }
++	}
++    }
++  //  if(result0.t0 &lt; 0 || result1.t0 &lt; 0)
++  //    result.before=true;
++  return result;
++}
++
++CollisionData collide(CollPrimitive *o1,CollPrimitive *o2,float delta)
++{
++  CollRect *b1=dynamic_cast&lt;CollRect*&gt;(o1);
++  CollRect *b2=dynamic_cast&lt;CollRect*&gt;(o2);
++  if(b1 &amp;&amp; b2)
++    {
++      return collideBB(*b1,*b2,delta);
++    }
++  else if(b1)
++    return collideBT(*b1,*dynamic_cast&lt;CollTri*&gt;(o2),delta);
++  else if(b2)
++    return collideBT(*b2,*dynamic_cast&lt;CollTri*&gt;(o1),delta);
++  //  else
++  //    return collide(dynamic_cast&lt;CollTri*&gt;(o1),dynamic_cast&lt;CollTri*&gt;(o2));
++  
++  return CollisionData();
++}
++
++CollisionData collide(CollisionObject &amp;a,CollisionObject &amp;b,float delta)
++{
++  CollisionData r;
++
++  //  if(!(a.movable or b.movable))
++  //    return r;
++
++  bool first=true;
++  std::list&lt;CollPrimitive*&gt;::iterator i=a.colliders.begin();
++  for(;i!=a.colliders.end();i++)
++    {
++      std::list&lt;CollPrimitive*&gt;::iterator j=b.colliders.begin();
++      for(;j!=b.colliders.end();j++)
++	{
++	  if(first)
++	    {
++	      r=collide(*i,*j,delta);
++	      first=false;
++	    }
++	  else
++	    r.merge(collide(*i,*j,delta));
++	}
++    }
++  return r;
++}
++
++
++
++
++
++
++
++
++/***********************************************************************
++ * Collision
++ ***********************************************************************/
++
++CollisionEngine::CollisionEngine()
++{
++  friction       = 0.01f;
++  
++  x_acceleration = 0.0f;
++  y_acceleration = 5.0f;
++
++  unstuck_velocity = 50.0f;
++  minimum_velocity = .1f;
++}
++
++CollisionEngine::~CollisionEngine()
++{
++}
++
++void
++CollisionEngine::draw()
++{
++  for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
++    {
++      (*i)-&gt;drawCollision();
++    }
++}
++
++void
++CollisionEngine::collision(CollisionObject&amp; a, CollisionObject&amp; b, const CollisionData &amp;result, float delta)
++{
++  CollisionData inv=result.invert();
++  a.prepare_collision(result,b);
++  b.prepare_collision(inv,a);
++
++  a.collision(result,b);
++  b.collision(inv,a);
++}
++
++
++
++void
++CollisionEngine::unstuck(CollisionObject&amp; a, CollisionObject&amp; b, float delta)
++{
++  // The distance A needs to unstuck from B in the given direction
++  float left   = fabsf(a.get_pos().x + a.bbox.get_width() - b.get_pos().x);
++  float right  = fabsf(b.get_pos().x + b.bbox.get_width() - a.get_pos().x);
++  float top    = fabsf(a.get_pos().y + a.bbox.get_height() - b.get_pos().y);
++  float bottom = fabsf(b.get_pos().y + b.bbox.get_height() - a.get_pos().y);
++
++  float grace =  0.05f;
++
++  float add= unstuck_velocity * delta;
++
++  add= 0.5;
++  add=50;
++  //  grace=0;
++
++  CL_Vector2 dir;
++
++  if (left &lt; right &amp;&amp; left &lt; top &amp;&amp; left &lt; bottom)
++    {
++      dir = CL_Vector2(std::min(left/2 + grace,add),0);
++    }
++  else if (right &lt; left &amp;&amp; right &lt; top &amp;&amp; right &lt; bottom)
++    {
++      dir = CL_Vector2(-std::min(right/2 + grace,add),0);
++    }
++  else if (top &lt; left &amp;&amp; top &lt; right &amp;&amp; top &lt; bottom)
++    {
++      dir = CL_Vector2( 0, std::min(top/2 + grace,add));
++    }
++  else // (bottom &lt; left &amp;&amp; bottom &lt; right &amp;&amp; bottom &lt; top)
++    {
++      dir = CL_Vector2( 0, -std::min(bottom/2 + grace,add));
++    }
++
++  if (a.unstuck_movable())
++    a.position -= dir;
++      
++  if (b.unstuck_movable())
++    b.position += dir;
++}
++
++void
++CollisionEngine::update(float delta)
++{
++  for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
++    {
++      bool moved=false;
++      Objects::iterator j = i/*objects.begin()*/;
++      j++;
++
++      for(; j != objects.end(); ++j)
++        {
++          if (i != j)
++            {
++	      CollisionData r=collide(**i,**j,delta);
++	      if(r.state!=CollisionData::NONE)//collision())
++		{
++		  collision(**i,**j,r,delta);
++		  //		  i-&gt;collision=true;
++		  //		  j-&gt;collision=true;
++
++		  if(r.col_time&gt;0)
++		    moved=true;
++		}
++            }
++        }
++      
++      //      if (i-&gt;movable &amp;&amp; !moved)
++      //      if ( !moved)
++        update(**i, delta);
++    }
++  //  return;
++  // check penetration and resolve
++  bool penetration=true;
++  int maxtries=15;
++  while(penetration)
++    {
++      penetration=false;
++      // FIXME: support this by some spatial container
++      for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
++	{
++	  if(!(*i)-&gt;unstuck())
++	    continue;
++	  Objects::iterator j = i/*objects.begin()*/;
++	  j++;
++	  
++	  for(; j != objects.end(); ++j)
++	    {
++	      if(!(*j)-&gt;unstuck())
++		continue;
++	      
++	      if (i != j &amp;&amp; ((*i)-&gt;unstuck_movable() || ((*j)-&gt;unstuck_movable())))
++		{
++		  CollisionData r=collide(**i,**j,delta/1000.0f);
++		  if(r.state!=CollisionData::NONE)
++		    {
++		      //		      collision(**i,**j,r,delta);///30.0f);
++		      penetration=true;
++		      unstuck(**i,**j,delta/3.0f);
++		    }
++		}
++	    }
++	}
++      maxtries--;
++      if(maxtries==0)
++	break;
++    }
++  //  cout&lt;&lt;(15-maxtries)&lt;&lt;endl;
++
++}
++
++void
++CollisionEngine::update(CollisionObject&amp; obj, float delta)
++{
++  obj.move(delta);
++}
++
++CollisionObject *
++CollisionEngine::add_object(CollisionObject *obj)
++{
++  objects.push_back(obj);
++  obj-&gt;coll_engine=this;
++
++  //  objects.back().id = objects.size();
++
++  return objects.back();
++}
++
++
++float CollisionEngine::get_min_velocity() const
++{
++  return minimum_velocity;
++}
++float CollisionEngine::get_friction() const
++{
++  return friction;
++}
++CL_Vector2 CollisionEngine::get_graphity() const
++{
++  return CL_Vector2(x_acceleration, y_acceleration);
++}
++
++
++/***********************************************************************
++ * PhysicalObject
++ ***********************************************************************/
++
++PhysicalObject::PhysicalObject(int x_, int y_, int w_, int h_)
++{
++  mass = 1.0f;
++  
++  friction=0.6;
++  adhesion=50.0;
++  
++  movement = CL_Vector2(0,0);
++  bbox=CL_Rectf(0,0,w_,h_);
++  position= CL_Vector2(x_,y_);
++
++  movable=true;
++
++  
++  insertCollPrimitive(new CollRect(CL_Rectf(0,0,w_,h_),this));
++
++  //  colliders.push_back(new CollRect(0,h_/2,w_,h_/2,this));
++  //  colliders.push_back(new CollTri(0,h_/2,w_,-h_/2,this));
++  
++
++  //colliders.push_back(new CollRect(0,h_/2,w_/2,h_/2,this));
++  //colliders.push_back(new CollTri(w_/2,0,w_/2,-h_/2,this));
++  //colliders.push_back(new CollTri(w_/3,-h_/2,2*w_/3,-h_/2,this));
++
++}
++
++void PhysicalObject::prepare_collision(const CollisionData &amp;data,CollisionObject &amp;other)
++{
++  if(!movable)
++    return;
++  PhysicalObject *po=dynamic_cast&lt;PhysicalObject*&gt;(&amp;other);
++  if(!po)
++    return;
++
++  coll_impulse = get_impulse () + po-&gt;get_impulse ();
++  coll_impulse*=0.5f;
++}
++
++void 
++PhysicalObject::collision(const CollisionData &amp;data,CollisionObject &amp;other)
++{
++  PhysicalObject *po=dynamic_cast&lt;PhysicalObject*&gt;(&amp;other);
++
++  if(!movable)
++    return;
++
++  if(!po)
++    {
++      if(data.direction.x!=0)
++	movement.x=0;
++      else
++	movement.y=0;
++      return;
++    }
++  if(po-&gt;movable)
++    {
++      // soft collision with impulses
++      
++      float c_fric=friction*data.delta; // current friction influence
++      
++      if (data.direction.x==0)
++	{
++	  set_impulse_y (coll_impulse.y);
++	  
++	  // apply friction in x direction
++	  set_impulse_x (coll_impulse.x * c_fric + get_impulse().x * (1.0f - c_fric));
++	}
++      else
++	{
++	  set_impulse_x (coll_impulse.x);
++	  
++	  // apply friction in y direction
++	  set_impulse_y (coll_impulse.y * c_fric + get_impulse().y * (1.0f - c_fric));
++	}
++      
++    }
++  else
++    {
++      // hard collision with wall
++      if(data.direction.x==0)
++	{
++	  if(data.direction.y==-1)
++	    movement.y*=-0.5;
++	  else
++	    movement.y*=0.0f;
++	  movement.x*=(1.0f-friction*data.delta);
++	  if(fabs(movement.x)&lt;data.delta*adhesion)
++	    movement.x=0.0f;
++	}
++      if(data.direction.y==0)
++	{
++	  movement.x*=-0.7;
++	  movement.y*=(1.0f-friction*data.delta);
++	  if (fabs (movement.y) &lt; data.delta * adhesion)
++	    movement.y=0.0f;
++	}
++    }
++}
++
++CL_Vector2 
++PhysicalObject::get_impulse() const
++{
++  return movement * mass;
++}
++
++void 
++PhysicalObject::set_impulse_x(float i)
++{
++  movement.x = i / mass;
++}
++
++void 
++PhysicalObject::set_impulse_y(float i)
++{
++  movement.y = i / mass;
++}
++
++void 
++PhysicalObject::set_movable(bool m)
++{
++  movable=m;
++}
++
++bool 
++PhysicalObject::unstuck() const
++{
++  return true;
++}
++
++bool 
++PhysicalObject::unstuck_movable() const
++{
++  return movable;
++}
++
++void 
++PhysicalObject::move(float delta)
++{
++  if(movable)
++    CollisionObject::move(delta);
++}
++
++/***********************************************************************
++ * Player
++ ***********************************************************************/
++
++Player::Player(int x_,int y_,int w_, int h_):
++  PhysicalObject(x_,y_,w_,h_)
++{
++  mass=0.2;
++  onGround=false;
++}
++
++void Player::collision(const CollisionData&amp; data, CollisionObject&amp; other)
++{
++  if(data.direction.y!=0)
++    movement.y=0;
++
++  Elevator *e=dynamic_cast&lt;Elevator*&gt;(&amp;other);
++  PhysicalObject *o=dynamic_cast&lt;PhysicalObject*&gt;(&amp;other);
++  if(e)
++    {
++      if(data.direction.y&lt;0)
++	{
++	  if(!parent)
++	    {
++	      // attach
++	      CL_Vector2 v=get_pos()-e-&gt;get_pos();
++	      parent=e;
++	      position=v;
++	      lastTouch=0;
++	    }
++	}
++    }
++  else if(o)
++    {
++      if(!o-&gt;unstuck_movable())
++	{
++	  if(data.direction.y&lt;0)
++	    {
++	      onGround=true;
++	      lastTouch=0;
++	    }
++	}
++    }
++}
++
++bool 
++Player::on_ground() const
++{
++  return onGround || parent;
++}
++
++
++void Player::set_movement(const CL_Vector2 &amp;v)
++{
++  movement=v;
++}
++
++void 
++Player::move(float delta)
++{
++  lastTouch++;
++  if(lastTouch&gt;5)
++    detachElevator();
++  PhysicalObject::move(delta);
++}
++
++void 
++Player::detachElevator()
++{
++  CL_Vector2 p=get_pos();
++  parent=0;
++  position=p;
++  onGround=false;
++}
++
++/***********************************************************************
++ * Elevator
++ ***********************************************************************/
++Elevator::Elevator()
++{
++  position=0;
++  speed=0.05;
++
++  insertCollPrimitive(new CollRect(CL_Rectf(0,0,60,8),this));
++  bbox=CL_Rectf(0,0,60,8);
++  //  mass=1000;
++  //  movement=CL_Vector2(0,0);
++}
++void 
++Elevator::move(float delta)
++{
++  position+=delta*speed;
++  if(position&gt;points.size())
++    {
++      position-=points.size();
++    }
++
++  int p=(int)position;
++  int p2=p+1;
++  if(p2&gt;=points.size())
++    p2=0;
++  CL_Vector2 p0=points[p];
++  CL_Vector2 p1=points[p2];
++
++  float a=position-p;
++  
++  CollisionObject::position=p0*(1.0f-a)+p1*a;
++}
++
++bool 
++Elevator::unstuck() const
++{
++  return true;
++}
++bool 
++Elevator::unstuck_movable() const
++{
++  return false;
++}
++
++void 
++Elevator::collision(const CollisionData&amp; data, CollisionObject&amp; other)
++{
++}
++
++void 
++Elevator::insertPoint(const CL_Vector2 &amp;p)
++{
++  points.push_back(p);
++}
+
+
+Property changes on: trunk/collisiontest/collision.cxx
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/collisiontest/collision.hxx
+===================================================================
+--- trunk/collisiontest/collision.hxx	2009-02-10 19:00:41 UTC (rev 2448)
++++ trunk/collisiontest/collision.hxx	2009-02-10 19:15:23 UTC (rev 2449)
+@@ -0,0 +1,328 @@
++#ifndef HEADER_COLLISION_HXX
++#define HEADER_COLLISION_HXX
++
++#include &lt;iostream&gt;
++#include &lt;list&gt;
++#include &lt;vector&gt;
++
++#include &lt;ClanLib/Core/Math/vector2.h&gt;
++#include &lt;ClanLib/Core/Math/rect.h&gt;
++
++using namespace std;
++
++class CollisionObject;
++class CollRect;
++
++struct CollPrimitive
++{
++protected:
++  CollisionObject *object;
++public:
++  CollPrimitive(CollisionObject *object_);
++  virtual ~CollPrimitive();
++  virtual CollPrimitive *clone(CollisionObject *o) const=0;
++
++  virtual float x_pos() const=0;
++  virtual float y_pos() const=0;
++  virtual float width() const=0;
++  virtual float height() const=0;
++
++  float x_velocity() const;
++  float y_velocity() const;
++  CL_Vector2 get_velocity() const;
++
++  virtual void drawCollision() const=0;
++
++  friend std::ostream&amp; operator&lt;&lt;(std::ostream&amp; out, const CollRect &amp;b);
++
++};
++
++
++class CollRect:public CollPrimitive
++{
++  CL_Rectf rect;
++
++public:
++  CollRect(const CL_Rectf &amp;r_,CollisionObject *object_);
++
++  virtual CollPrimitive *clone(CollisionObject *o) const;
++  float x_pos() const;
++  float y_pos() const;
++  float width() const;
++  float height() const;
++
++  CL_Vector2 get_vector0() const;
++  CL_Vector2 get_vector1() const;
++  CL_Vector2 get_vector2() const;
++  CL_Vector2 get_vector3() const;
++
++  virtual void drawCollision() const;
++};
++
++inline std::ostream&amp; operator&lt;&lt;(std::ostream&amp; out, const CollRect &amp;b);
++
++class CollTri:public CollPrimitive
++{
++  CL_Vector2 base;
++
++  float dx;
++  float dy;
++
++public:
++  CollTri(CollisionObject *object_);
++  CollTri(const CL_Vector2 &amp;base_, float w_, float h_,CollisionObject *object_);
++  virtual CollPrimitive *clone(CollisionObject *o) const;
++
++  float x_pos() const;
++  float y_pos() const;
++  float width() const;
++  float height() const;
++
++  // normal - normalized!
++  CL_Vector2 normal() const;
++
++  CL_Vector2 get_vector0() const;
++  CL_Vector2 get_vector1() const;
++  CL_Vector2 get_vector2() const;
++
++  virtual void drawCollision() const;
++};
++
++struct CollisionData
++{
++  enum State {NONE,STUCK,COLLISION};
++  // points into direction from where the other object came
++  CL_Vector2 direction;
++  
++  State state;
++
++  // size of time frame
++  float delta; 
++
++  // time of collision
++  float col_time;
++
++  CollisionData()
++  {
++    state=NONE;
++    col_time=0;
++  }
++
++  CollisionData merge(const CollisionData &amp;r);
++
++  CollisionData invert() const
++  {
++    CollisionData r(*this);
++    r.direction*=-1;
++
++    return r;
++  }
++
++  
++};
++inline std::ostream &amp;operator&lt;&lt;(std::ostream &amp;o,const CollisionData &amp;r)
++{
++  o&lt;&lt;&quot;(&quot;&lt;&lt;r.direction.x&lt;&lt;&quot;,&quot;&lt;&lt;r.direction.y&lt;&lt;&quot;,&quot;&lt;&lt;r.col_time&lt;&lt;&quot;)&quot;;
++  return o;
++}
++
++class CollisionEngine;
++
++class CollisionObject
++{
++
++public:
++  /*  CollisionObject(const CollisionObject &amp;o);
++  CollisionObject(float x_,float y_,float w_,float h_);
++
++
++  CL_Vector2 get_impulse() const;
++  void set_impulse_x(float i);
++  void set_impulse_y(float i);
++
++  void hard_collision(const CollisionData &amp;result, float delta);
++  void soft_collision(const CollisionData &amp;result, CL_Vector2 impulse_, float delta_);
++
++  friend CollisionData collide(CollisionObject &amp;a,CollisionObject &amp;b,float delta);
++  
++  void drawCollision();
++*/
++
++  CollisionObject();
++  virtual ~CollisionObject();
++
++  CL_Vector2 get_pos() const
++  {
++    if(parent != 0)
++      return parent-&gt;get_pos() + position;
++    
++    return position;
++  }
++
++  CL_Vector2 get_movement() const
++  {
++    if(parent != 0)
++      return parent-&gt;get_movement() + movement;
++
++    return movement;
++  }
++
++  void set_movement(const CL_Vector2 &amp;m);
++
++  //  void attach(CollisionObject &amp;o);
++  //  void detach(CollisionObject &amp;o);
++
++
++  // this function is for preparing impulse collisions
++  // you have to calculate the resulting impulse for both object before changing,
++  // so this is called for both objects first and then collision() for both.
++  //
++  // this isn't really fast, because everything's done twice, maybe someone has a better idea?
++  virtual void prepare_collision(const CollisionData &amp;data, CollisionObject &amp;other)
++  {
++  }
++  virtual void collision(const CollisionData&amp; data, CollisionObject&amp; other) = 0; 
++
++  virtual void move(float delta);
++
++  void insertCollPrimitive(CollPrimitive *primitive);
++
++  // debugging helpers
++  void drawCollision();
++
++  // this functions support unstucking, which needs to be done, when more than 2 object stack over one another
++  // should this object be unstuck ??
++  virtual bool unstuck() const=0;
++  // is this object movable ?
++  virtual bool unstuck_movable() const=0;
++  
++  // is this object movable
++
++protected:
++  /// only rectangular objects for now
++  CL_Rectf bbox;
++ 
++  /// position of the object
++  CL_Vector2 position;
++  /// movement till next frame
++  CL_Vector2 movement;
++
++  CollisionObject* parent;
++  std::vector&lt;CollisionObject*&gt; children;
++
++
++private:
++  std::list&lt;CollPrimitive*&gt; colliders;
++  CollisionEngine *coll_engine;
++
++  friend class CollisionEngine;
++  friend CollisionData collide(CollisionObject &amp;a,CollisionObject &amp;b,float delta);
++};
++
++
++
++class CollisionEngine
++{
++  typedef std::list&lt;CollisionObject*&gt; Objects;
++
++public:
++
++  CollisionEngine();
++  ~CollisionEngine();
++
++  void draw();
++  void update(float delta);
++  void update(CollisionObject&amp; obj, float delta);
++  void collision(CollisionObject&amp; a, CollisionObject&amp; b, const CollisionData &amp;result, float delta);
++
++  CollisionObject* add_object(CollisionObject *obj);
++
++  float get_min_velocity() const;
++  float get_friction() const;
++  CL_Vector2 get_graphity() const;
++
++private:
++  Objects objects;
++
++  float friction;
++  float unstuck_velocity;
++
++  float x_acceleration;
++  float y_acceleration;
++
++  float minimum_velocity;
++
++  void unstuck(CollisionObject&amp; a, CollisionObject&amp; b, float delta);
++
++};
++
++class PhysicalObject:public CollisionObject
++{
++public:
++  PhysicalObject(int x_,int y_,int w_, int h_);
++
++
++  virtual void prepare_collision(const CollisionData &amp;data, CollisionObject &amp;other);
++
++  virtual void collision(const CollisionData&amp; data, CollisionObject&amp; other); 
++
++  void set_movable(bool m);
++
++  virtual bool unstuck() const;
++  virtual bool unstuck_movable() const;
++
++  virtual void move(float delta);
++
++protected:
++
++  CL_Vector2 get_impulse() const;
++  void set_impulse_x(float i);
++  void set_impulse_y(float i);
++
++  CL_Vector2 coll_impulse;
++
++  float mass;
++
++  bool movable;
++
++  float friction;
++  float adhesion;
++};
++
++class Player:public PhysicalObject
++{
++  int lastTouch;
++  bool onGround;
++public:
++  Player(int x_,int y_,int w_, int h_);
++
++  virtual void collision(const CollisionData&amp; data, CollisionObject&amp; other); 
++
++  void set_movement(const CL_Vector2 &amp;v);
++  virtual void move(float delta);
++
++  bool on_ground() const;
++
++  void detachElevator();
++};
++
++class Elevator:public CollisionObject
++{
++  std::vector&lt;CL_Vector2&gt; points;
++  float position;
++  float speed;
++public:
++  Elevator();
++  void move(float delta);
++
++  virtual void collision(const CollisionData&amp; data, CollisionObject&amp; other);
++
++  virtual bool unstuck() const;
++  virtual bool unstuck_movable() const;
++
++
++  void insertPoint(const CL_Vector2 &amp;p);
++};
++
++
++#endif
+
+
+Property changes on: trunk/collisiontest/collision.hxx
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/collisiontest/colltest.cxx
+===================================================================
+--- trunk/collisiontest/colltest.cxx	2009-02-10 19:00:41 UTC (rev 2448)
++++ trunk/collisiontest/colltest.cxx	2009-02-10 19:15:23 UTC (rev 2449)
+@@ -0,0 +1,63 @@
++#include &quot;colltest.hxx&quot;
++#include &quot;collision.hxx&quot;
++#include &lt;assert.h&gt;
++
++SweepResult simple_sweep_1d(float a, float aw, float av,
++			    float b, float bw, float bv)
++{
++  SweepResult res;
++  // Normalize the calculation so that only A moves and B stands still
++  float v = av - bv;
++
++  if (v &gt; 0)
++    {
++      res.t0 = (b - (a + aw)) / v;
++      res.t1 = (b + bw - a) / v;
++      res.state = SweepResult::COL_AT;
++
++      assert(res.t0 &lt;= res.t1);
++    }
++  else if (v &lt; 0)
++    {
++      res.t0 = (b + bw - a) / v;
++      res.t1 = (b - (a + aw)) / v;
++      res.state = SweepResult::COL_AT;
++
++      assert(res.t0 &lt;= res.t1);
++    }
++  else // (v == 0)
++    {
++      if ((a + aw) &lt; b || (a &gt; b + bw))
++        res.state = SweepResult::COL_NEVER;
++      else
++        res.state = SweepResult::COL_ALWAYS;
++    }
++  return res;
++}
++
++
++
++bool overlap(float a,float aw,float b,float bw)
++{
++  float a2=a+aw;
++  float b2=b+bw;
++  return ((a&gt;=b &amp;&amp; a&lt;b2) || (a2&gt;=b &amp;&amp; a2&lt;b2) || (b&gt;=a &amp;&amp; b&lt;a2) || (b2&gt;=a &amp;&amp; b2&lt;=a2));
++}
++
++void collideRectRect(InstantCollisionResult &amp;result,const CollRect &amp;a,const CollRect &amp;b)
++{
++  result.collision=overlap(a.x_pos(),a.width(),b.x_pos(),b.width()) &amp;&amp;  overlap(a.x_pos(),a.width(),b.x_pos(),b.width());
++  if(result.collision)
++    {
++      // FIXME: calculate unstuck direction and depth
++
++      
++    }
++}
++
++void collideRectTri(InstantCollisionResult &amp;result,const CollRect &amp;a,const CollTri &amp;b)
++{
++}
++void collideTriTri(InstantCollisionResult &amp;result,const CollTri &amp;a,const CollTri &amp;b)
++{
++}
+
+
+Property changes on: trunk/collisiontest/colltest.cxx
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/collisiontest/colltest.hxx
+===================================================================
+--- trunk/collisiontest/colltest.hxx	2009-02-10 19:00:41 UTC (rev 2448)
++++ trunk/collisiontest/colltest.hxx	2009-02-10 19:15:23 UTC (rev 2449)
+@@ -0,0 +1,73 @@
++#ifndef HEADER_COLLTEST_HXX
++#define HEADER_COLLTEST_HXX
++
++#define MAXF 100000.0f
++
++#include &lt;iostream&gt;
++#include &lt;ClanLib/Core/Math/vector2.h&gt;
++
++struct SweepResult
++{
++  enum CollisionState { COL_AT, COL_ALWAYS, COL_NEVER };
++  CollisionState state;
++  float t0,t1;
++
++  SweepResult()
++  {
++    state=COL_NEVER;
++  }
++
++  bool collision(float delta) const
++  {
++    return state==COL_ALWAYS || (state==COL_AT &amp;&amp; t1&gt;0 &amp;&amp; t0&lt;delta);
++  }
++
++  float begin(float delta) const
++  {
++    if(state==COL_ALWAYS || state==COL_NEVER)
++      return MAXF;
++
++    if(t0&gt;=0.0f &amp;&amp; t0&lt;delta)
++      return t0;
++    else
++      return MAXF;
++  }
++
++  bool always() const
++  {
++    return state==COL_ALWAYS;
++  }
++
++};
++
++inline std::ostream &amp;operator&lt;&lt;(std::ostream &amp;o,const SweepResult &amp;r)
++{
++  o&lt;&lt;&quot;(&quot;&lt;&lt;r.state&lt;&lt;&quot;,&quot;&lt;&lt;r.t0&lt;&lt;&quot;,&quot;&lt;&lt;r.t1&lt;&lt;&quot;)&quot;;
++  return o;
++}
++
++
++SweepResult simple_sweep_1d(float a, float aw, float av,
++			    float b, float bw, float bv);
++
++class CollRect;
++class CollTri;
++
++struct InstantCollisionResult
++{
++  float depth;
++  CL_Vector2 direction;
++  bool collision;
++
++  InstantCollisionResult()
++  {
++    collision=false;
++  }
++};
++
++void collideRectRect(InstantCollisionResult &amp;result,const CollRect &amp;a,const CollRect &amp;b);
++void collideRectTri(InstantCollisionResult &amp;result,const CollRect &amp;a,const CollTri &amp;b);
++void collideTriTri(InstantCollisionResult &amp;result,const CollTri &amp;a,const CollTri &amp;b);
++
++
++#endif
+
+
+Property changes on: trunk/collisiontest/colltest.hxx
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/collisiontest/main.cxx
+===================================================================
+--- trunk/collisiontest/main.cxx	2009-02-10 19:00:41 UTC (rev 2448)
++++ trunk/collisiontest/main.cxx	2009-02-10 19:15:23 UTC (rev 2449)
+@@ -0,0 +1,129 @@
++//  $Id$
++//
++//  Pingus - A free Lemmings clone
++//  Copyright (C) 2002 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++//
++//  This program is free software; you can redistribute it and/or
++//  modify it under the terms of the GNU General Public License
++//  as published by the Free Software Foundation; either version 2
++//  of the License, or (at your option) any later version.
++//
++//  This program is distributed in the hope that it will be useful,
++//  but WITHOUT ANY WARRANTY; without even the implied warranty of
++//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++//  GNU General Public License for more details.
++//
++//  You should have received a copy of the GNU General Public License
++//  along with this program; if not, write to the Free Software
++//  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++#include &lt;ClanLib/display.h&gt;
++#include &lt;ClanLib/core.h&gt;
++#include &lt;ClanLib/gl.h&gt;
++#include &quot;collision.hxx&quot;
++
++int main()
++{
++  CL_SetupCore    core_setup;
++  CL_SetupGL      gl_setup;
++  CL_SetupDisplay display_setup;
++
++  // Init Display
++  CL_DisplayWindow window(&quot;Physic Test&quot;, 800, 600);
++  
++  // Init Physic Engine
++  CollisionEngine physics;
++
++  bool create_object = false;
++  int x_pos;
++  int y_pos;
++
++  PhysicalObject *o1,*o2,*o3,*o4,*o5;
++  // ground
++  physics.add_object(o1=new PhysicalObject(32, 600-32, 800-32, 32));
++  physics.add_object(o2=new PhysicalObject(0, 0, 32, 600));
++  physics.add_object(o3=new PhysicalObject(800-32, 0, 32, 600));
++  physics.add_object(o4=new PhysicalObject(32, 0, 800-32, 32));
++  physics.add_object(o5=new PhysicalObject(400, 300, 100, 100));
++  o1-&gt;set_movable(false);
++  o2-&gt;set_movable(false);
++  o3-&gt;set_movable(false);
++  o4-&gt;set_movable(false);
++  o5-&gt;set_movable(false);
++
++  Elevator *e=new Elevator;
++  e-&gt;insertPoint(CL_Vector2(200,500));
++  e-&gt;insertPoint(CL_Vector2(200,400));
++  physics.add_object(e);
++
++  Elevator *e2=new Elevator;
++  e2-&gt;insertPoint(CL_Vector2(500,530));
++  e2-&gt;insertPoint(CL_Vector2(700,530));
++  physics.add_object(e2);
++
++  Player *player=new Player(100,100,32,64);
++  physics.add_object(player);
++  
++
++  bool jump=false;
++
++  // Run Main Loop
++  while(!CL_Keyboard::get_keycode(CL_KEY_ESCAPE))
++    {
++      CL_Display::clear();
++
++      physics.update(0.033f);
++      //      physics.update(0.033f);
++      //for(int i=0;i&lt;1000;i++)
++	physics.draw();
++
++      CL_Display::flip();
++
++      CL_System::keep_alive();
++
++      if (CL_Mouse::get_keycode(CL_MOUSE_LEFT) &amp;&amp; !create_object)
++        {
++          create_object = true;
++          x_pos = CL_Mouse::get_x();
++          y_pos = CL_Mouse::get_y();
++        }
++      else if (create_object &amp;&amp; !CL_Mouse::get_keycode(CL_MOUSE_LEFT))
++        {
++          create_object = false;
++
++          int n_x_pos = CL_Mouse::get_x();
++          int n_y_pos = CL_Mouse::get_y();
++
++          CollisionObject&amp; obj = *physics.add_object(new PhysicalObject(x_pos, y_pos, 16, 32));
++          obj.set_movement (CL_Vector2 ( x_pos - n_x_pos, y_pos - n_y_pos));
++        }
++
++      if(CL_Keyboard::get_keycode(CL_KEY_RIGHT))
++	{
++	  player-&gt;set_movement(CL_Vector2(15,player-&gt;get_movement().y));
++	}
++      else if(CL_Keyboard::get_keycode(CL_KEY_LEFT))
++	{
++	  player-&gt;set_movement(CL_Vector2(-15,player-&gt;get_movement().y));
++	}
++      else
++	player-&gt;set_movement(CL_Vector2(0,player-&gt;get_movement().y));
++      if(CL_Keyboard::get_keycode(CL_KEY_UP))
++	{
++	  if(player-&gt;on_ground() &amp;&amp; !jump)
++	    {
++	      player-&gt;set_movement(CL_Vector2(player-&gt;get_movement().x,-40));
++	      player-&gt;detachElevator();
++	      jump=true;
++	    }
++	}
++      else
++	jump=false;
++    }
++
++  // Deinit Collision Engine
++
++  // Deinit Display
++}
++
++/* EOF */
+
+
+Property changes on: trunk/collisiontest/main.cxx
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001445.html">[Windstille-commit] r2448 - in trunk/windstille/src: . display lisp	math sprite3d
+</A></li>
+	<LI>Next message: <A HREF="001447.html">[Windstille-commit] r2450 - trunk/collisiontest
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1446">[ date ]</a>
+              <a href="thread.html#1446">[ thread ]</a>
+              <a href="subject.html#1446">[ subject ]</a>
+              <a href="author.html#1446">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,210 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r461 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r461%20-%20trunk/src&In-Reply-To=%3C200506281035.j5SAZlXa017852%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000117.html">
+   <LINK REL="Next"  HREF="000119.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r461 - trunk/src</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r461%20-%20trunk/src&In-Reply-To=%3C200506281035.j5SAZlXa017852%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r461 - trunk/src">grumbel at sheep.berlios.de
+       </A><BR>
+    <I>Tue Jun 28 12:35:47 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000117.html">[Windstille-commit] r460 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000119.html">[Windstille-commit] r462 - trunk/data/controller
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#118">[ date ]</a>
+              <a href="thread.html#118">[ thread ]</a>
+              <a href="subject.html#118">[ subject ]</a>
+              <a href="author.html#118">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-06-28 12:35:22 +0200 (Tue, 28 Jun 2005)
+New Revision: 461
+
+Modified:
+   trunk/src/console.cxx
+   trunk/src/game_session.cxx
+   trunk/src/game_session.hxx
+Log:
+- added scripting execution to the console
+
+Modified: trunk/src/console.cxx
+===================================================================
+--- trunk/src/console.cxx	2005-06-27 21:17:13 UTC (rev 460)
++++ trunk/src/console.cxx	2005-06-28 10:35:22 UTC (rev 461)
+@@ -114,7 +114,7 @@
+                       break;
+ 
+                     case CL_KEY_ENTER:
+-                      add(&quot;&gt;&quot; + command_line);
++                      add(&quot;#&quot; + command_line);
+                       if (command_line == &quot;quit&quot; || command_line == &quot;exit&quot;)
+                         {
+                           deactive();
+@@ -128,6 +128,10 @@
+                         {
+                           GameSession::current()-&gt;set_sector(&quot;levels/newformat2.wst&quot;);
+                         }
++                      else
++                        {
++                          GameSession::current()-&gt;execute(command_line);
++                        }
+                       command_line = &quot;&quot;;
+                       break;
+ 
+
+Modified: trunk/src/game_session.cxx
+===================================================================
+--- trunk/src/game_session.cxx	2005-06-27 21:17:13 UTC (rev 460)
++++ trunk/src/game_session.cxx	2005-06-28 10:35:22 UTC (rev 461)
+@@ -21,7 +21,12 @@
+ #include &lt;math.h&gt;
+ #include &lt;ClanLib/gl.h&gt;
+ #include &lt;sstream&gt;
++#include &lt;stdarg.h&gt;
+ 
++#include &lt;squirrel.h&gt; 
++#include &lt;sqstdio.h&gt; 
++#include &lt;sqstdaux.h&gt; 
++
+ #include &quot;fonts.hxx&quot;
+ #include &quot;sector.hxx&quot;
+ #include &quot;console.hxx&quot;
+@@ -216,6 +221,17 @@
+   control_state = GAME;
+ }
+ 
++static void printfunc(HSQUIRRELVM vm, const SQChar *s,...)
++{
++  char buf[4096];
++  va_list arglist; 
++  va_start(arglist, s); 
++  //vprintf(s, arglist);
++  vsprintf(buf, s, arglist);
++  Console::current()-&gt;add(buf);
++  va_end(arglist); 
++}
++
+ void
+ GameSession::on_startup ()
+ { 
+@@ -223,6 +239,11 @@
+   slots.push_back(CL_Mouse::sig_key_down().connect(this, &amp;GameSession::on_mouse_down));
+   //CL_Display::get_current_window()-&gt;hide_cursor();
+ 
++ // creates a VM with initial stack size 1024 
++  vm = sq_open(1024);
++  sqstd_seterrorhandlers(vm);
++  sq_setprintfunc(vm, printfunc); //sets the print function
++
+   sound_manager-&gt;play_music(&quot;music/techdemo.ogg&quot;);
+   blink = 0.0f;
+ 
+@@ -367,4 +388,32 @@
+     }
+ }
+ 
++void
++GameSession::execute(const std::string&amp; str_)
++{
++  std::string str = &quot;return (&quot; + str_ + &quot;)&quot;;
++
++  int i = str.length();
++  const char* buffer = str.c_str();
++
++  if(i&gt;0){
++    int oldtop=sq_gettop(vm);
++    if(SQ_SUCCEEDED(sq_compilebuffer(vm,buffer,i,_SC(&quot;interactive console&quot;),SQTrue))){
++      sq_pushroottable(vm);
++      if(SQ_SUCCEEDED(sq_call(vm,1, 1))) {
++        scprintf(_SC(&quot;\n&quot;));
++        sq_pushroottable(vm);
++        sq_pushstring(vm,_SC(&quot;print&quot;),-1);
++        sq_get(vm,-2);
++        sq_pushroottable(vm);
++        sq_push(vm,-4);
++        sq_call(vm,2,SQFalse);
++        scprintf(_SC(&quot;\n&quot;));
++      }
++    }
++
++    sq_settop(vm,oldtop);
++  }
++}
++
+ /* EOF */
+
+Modified: trunk/src/game_session.hxx
+===================================================================
+--- trunk/src/game_session.hxx	2005-06-27 21:17:13 UTC (rev 460)
++++ trunk/src/game_session.hxx	2005-06-28 10:35:22 UTC (rev 461)
+@@ -26,6 +26,7 @@
+ #include &lt;ClanLib/Signals/slot_container.h&gt;
+ #include &quot;display/scene_context.hxx&quot;
+ #include &quot;console.hxx&quot;
++#include &quot;squirrel/include/squirrel.h&quot;
+ #include &quot;screen.hxx&quot;
+ 
+ class CL_InputEvent;
+@@ -65,6 +66,8 @@
+   void on_key_down  (const CL_InputEvent&amp; event);
+   void on_mouse_down  (const CL_InputEvent&amp; event);
+ 
++  HSQUIRRELVM vm; 
++
+   static GameSession* current_; 
+ public:
+   static GameSession* current() { return current_; } 
+@@ -83,6 +86,9 @@
+   void draw_game();
+   void update(float delta);
+ 
++  /** execute the given string in the scripting environment */
++  void execute(const std::string&amp; str);
++
+   void quit();
+ };
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000117.html">[Windstille-commit] r460 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000119.html">[Windstille-commit] r462 - trunk/data/controller
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#118">[ date ]</a>
+              <a href="thread.html#118">[ thread ]</a>
+              <a href="subject.html#118">[ subject ]</a>
+              <a href="author.html#118">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

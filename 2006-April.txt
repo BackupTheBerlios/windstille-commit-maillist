@@ -1,0 +1,4847 @@
+From grumbel at berlios.de  Mon Apr 10 01:09:23 2006
+From: grumbel at berlios.de (grumbel at BerliOS)
+Date: Mon, 10 Apr 2006 01:09:23 +0200
+Subject: [Windstille-commit] r1252 - trunk/data/images/tiles
+Message-ID: <200604092309.k39N9N73023675@sheep.berlios.de>
+
+Author: grumbel
+Date: 2006-04-10 01:08:52 +0200 (Mon, 10 Apr 2006)
+New Revision: 1252
+
+Added:
+   trunk/data/images/tiles/mine1.xcf
+   trunk/data/images/tiles/mine2.xcf
+Log:
+- some more textures
+
+Added: trunk/data/images/tiles/mine1.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/tiles/mine1.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/images/tiles/mine2.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/tiles/mine2.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+
+
+From grumbel at berlios.de  Wed Apr 12 02:27:10 2006
+From: grumbel at berlios.de (grumbel at BerliOS)
+Date: Wed, 12 Apr 2006 02:27:10 +0200
+Subject: [Windstille-commit] r1253 - in trunk/src: . sprite2d squirrel
+Message-ID: <200604120027.k3C0RApo019511@sheep.berlios.de>
+
+Author: grumbel
+Date: 2006-04-12 02:27:00 +0200 (Wed, 12 Apr 2006)
+New Revision: 1253
+
+Modified:
+   trunk/src/sprite2d/data.cpp
+   trunk/src/sprite2d/manager.cpp
+   trunk/src/sprite2dview.cpp
+   trunk/src/sprite2dview.hpp
+   trunk/src/squirrel/
+   trunk/src/windstille_main.cpp
+Log:
+- added a simple image/sprite viewer
+
+Modified: trunk/src/sprite2d/data.cpp
+===================================================================
+--- trunk/src/sprite2d/data.cpp	2006-04-09 23:08:52 UTC (rev 1252)
++++ trunk/src/sprite2d/data.cpp	2006-04-12 00:27:00 UTC (rev 1253)
+@@ -18,21 +18,53 @@
+ namespace sprite2d
+ {
+ 
++static bool has_suffix(const std::string& str, const std::string& suffix)
++{
++  if (str.length() >= suffix.length())
++    return str.compare(str.length() - suffix.length(), suffix.length(), suffix) == 0;
++  else
++    return false;
++}
++
+ Data::Data(const std::string& filename)
+ {
+   if (PHYSFS_exists(filename.c_str()))
+     {
+-      std::auto_ptr<lisp::Lisp> root (lisp::Parser::parse(filename));
+-      lisp::Properties rootp(root.get());
+-      const lisp::Lisp* sprite = 0;
+-      if(rootp.get("sprite", sprite) == false) {
+-        std::ostringstream msg;
+-        msg << "File '" << filename << "' is not a windstille sprite";
+-        throw std::runtime_error(msg.str());
+-      }
++      if (has_suffix(filename, ".sprite"))
++        {
++          std::auto_ptr<lisp::Lisp> root (lisp::Parser::parse(filename));
++          lisp::Properties rootp(root.get());
++          const lisp::Lisp* sprite = 0;
++          if(rootp.get("sprite", sprite) == false) {
++            std::ostringstream msg;
++            msg << "File '" << filename << "' is not a windstille sprite";
++            throw std::runtime_error(msg.str());
++          }
+     
+-      std::string dir = dirname(filename);
+-      parse(dir, sprite);
++          std::string dir = dirname(filename);
++          parse(dir, sprite);
++        }
++      else if (has_suffix(filename, ".png") || has_suffix(filename, ".jpg"))
++        {
++          if (PHYSFS_exists(filename.c_str()))
++            {
++              std::auto_ptr<Action> action(new Action);
++              action->name   = "default";
++              action->speed  = 1.0;
++              action->scale  = 1.0f;
++              action->offset = Vector(0, 0);
++              action->surfaces.push_back(Surface(filename));
++              actions.push_back(action.release());
++            }
++          else
++            {
++              throw std::runtime_error("Couldn't find '" + filename + "'");
++            }
++        }
++      else
++        {
++          throw std::runtime_error("Sprite filename has unknown suffix: '" + filename + "'");
++        }
+     }
+   else if (filename.length() > std::string(".sprite").length())
+     { // If sprite file is not found, we search for a file with the
+@@ -44,7 +76,7 @@
+           std::auto_ptr<Action> action(new Action);
+           action->name   = "default";
+           action->speed  = 1.0;
+-          action->scale = 1.0f;
++          action->scale  = 1.0f;
+           action->offset = Vector(0, 0);
+           action->surfaces.push_back(Surface(pngfile));
+           actions.push_back(action.release());
+
+Modified: trunk/src/sprite2d/manager.cpp
+===================================================================
+--- trunk/src/sprite2d/manager.cpp	2006-04-09 23:08:52 UTC (rev 1252)
++++ trunk/src/sprite2d/manager.cpp	2006-04-12 00:27:00 UTC (rev 1253)
+@@ -36,3 +36,5 @@
+ }
+ 
+ }
++
++/* EOF */
+
+Modified: trunk/src/sprite2dview.cpp
+===================================================================
+--- trunk/src/sprite2dview.cpp	2006-04-09 23:08:52 UTC (rev 1252)
++++ trunk/src/sprite2dview.cpp	2006-04-12 00:27:00 UTC (rev 1253)
+@@ -23,11 +23,27 @@
+ **  02111-1307, USA.
+ */
+ 
++#include <iostream>
++#include "math.hpp"
++#include "input/controller.hpp"
+ #include "sprite2dview.hpp"
+ 
+ Sprite2DView::Sprite2DView()
+ {
+-  
++  index = 0;
++
++  directory.push_back("images/test/mech1.png");
++  directory.push_back("images/test/mech2.png");
++  directory.push_back("images/test/mech3.png");
++
++  sprite      = Sprite(directory.back());
++  next_sprite = Sprite(directory.front());
++  offset = 0.0f;
++
++  mode = MANUAL; 
++  //mode = SLIDESHOW;
++  zoom = 1.0f;
++  pos  = Vector(0,0);
+ }
+ 
+ Sprite2DView::~Sprite2DView()
+@@ -37,20 +53,108 @@
+ 
+ void
+ Sprite2DView::draw()
++{ 
++  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
++
++  switch(mode)
++    {
++    case SLIDESHOW:
++      if (aspect > 4.0/3.0)
++        {
++          sprite.draw(Vector(-offset, 0));
++        }
++      else
++        {
++          sprite.draw(Vector(0, -offset));
++        } 
++      break;
++      
++    case MANUAL:
++      sprite.set_scale(zoom);
++      sprite.draw(pos);
++      break;
++    }
++}
++
++void
++Sprite2DView::update_slideshow(float delta, const Controller& controller)
+ {
+-  
++  offset += delta * 50.0f;
++
++  width  = sprite.get_width();
++  height = sprite.get_height();
++  aspect = width/height;
++
++  if (aspect > 4.0/3.0)
++    { // expand vertical
++      float scale = 600.0f/height;
++      width  *= scale;
++      height *= scale;
++      sprite.set_scale(scale);
++
++      if (offset - (width - 800) > 0)
++        {
++          offset = 0;
++
++          if (++index >= int(directory.size()))
++            index = 0;
++
++          sprite = next_sprite;
++          next_sprite = Sprite(directory[index]);
++        }
++    }
++  else
++    { // expand horizontal
++      float scale = 800.0f/width;
++      width  *= scale;
++      height *= scale;
++      sprite.set_scale(scale);
++
++      if (offset - (height - 600) > 0)
++        {
++          offset = 0;
++
++          if (++index >= int(directory.size()))
++            index = 0;
++
++          sprite = next_sprite;
++          next_sprite = Sprite(directory[index]);
++        }
++    }
+ }
+ 
+ void
+-Sprite2DView::update(float delta, const Controller& controller)
++Sprite2DView::update_manual(float delta, const Controller& controller)
+ {
++  pos.x += controller.get_axis_state(X_AXIS) * 100.0f * delta;
++  pos.y += controller.get_axis_state(Y_AXIS) * 100.0f * delta;
+   
++  if (controller.get_button_state(PRIMARY_BUTTON))
++    zoom *= 1.0f + 0.3f * delta;
++
++  if (controller.get_button_state(SECONDARY_BUTTON))
++    zoom /= 1.0f + 0.3f * delta;
++
++  sprite.update(delta);
+ }
+ 
+ void
+-Sprite2DView::set_model(const std::string& filename)
++Sprite2DView::update(float delta, const Controller& controller)
++{  
++  switch(mode) {
++  case SLIDESHOW:
++    update_slideshow(delta, controller);
++    break;
++  case MANUAL:
++    update_manual(delta, controller);
++    break;
++  }
++}
++
++void
++Sprite2DView::set_sprite(const std::string& filename)
+ {
++  sprite = Sprite(filename);
+ }
+ 
+-
+ /* EOF */
+
+Modified: trunk/src/sprite2dview.hpp
+===================================================================
+--- trunk/src/sprite2dview.hpp	2006-04-09 23:08:52 UTC (rev 1252)
++++ trunk/src/sprite2dview.hpp	2006-04-12 00:27:00 UTC (rev 1253)
+@@ -38,9 +38,24 @@
+ {
+ private:
+   SceneContext sc;
++  std::vector<std::string> directory;
+ 
++  enum Mode { SLIDESHOW, MANUAL } mode;
++  
++  // Manual Mode Variables
++  float  zoom;
++  Vector pos;
++
++  // Slideshow variables
++  float width;
++  float height;
++  float aspect;
++
++  int    index;
+   Sprite sprite;
+-  float scale;
++  Sprite next_sprite;
++  float  scale;
++  float  offset;
+ 
+ public:
+   Sprite2DView();
+@@ -49,8 +64,11 @@
+   void draw();
+   void update(float delta, const Controller& controller);
+ 
+-  void set_model(const std::string& filename);
++  void update_slideshow(float delta, const Controller& controller);
++  void update_manual(float delta, const Controller& controller);
+ 
++  void set_sprite(const std::string& filename);
++
+ private:
+   Sprite2DView (const Sprite2DView&);
+   Sprite2DView& operator= (const Sprite2DView&);
+
+
+Property changes on: trunk/src/squirrel
+___________________________________________________________________
+Name: svn:ignore
+   - libsquirrel.a
+.sconsign
+
+   + 
+libsquirrel.a
+.sconsign
+semantic.cache
+
+
+Modified: trunk/src/windstille_main.cpp
+===================================================================
+--- trunk/src/windstille_main.cpp	2006-04-09 23:08:52 UTC (rev 1252)
++++ trunk/src/windstille_main.cpp	2006-04-12 00:27:00 UTC (rev 1253)
+@@ -135,7 +135,7 @@
+         Sprite2DView* sprite2dview = new Sprite2DView();
+ 
+         if (!levelfile.empty())
+-          sprite2dview->set_model(levelfile);
++          sprite2dview->set_sprite(levelfile);
+ 
+         // Launching Sprite2DView instead of game
+         screen_manager.set_screen(sprite2dview);
+
+
+
+From grumbel at berlios.de  Fri Apr 14 03:20:39 2006
+From: grumbel at berlios.de (grumbel at BerliOS)
+Date: Fri, 14 Apr 2006 03:20:39 +0200
+Subject: [Windstille-commit] r1254 - in trunk/src: . scripting
+Message-ID: <200604140120.k3E1Kdln008288@sheep.berlios.de>
+
+Author: grumbel
+Date: 2006-04-14 03:20:11 +0200 (Fri, 14 Apr 2006)
+New Revision: 1254
+
+Modified:
+   trunk/src/config.cpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/sprite2dview.cpp
+   trunk/src/sprite2dview.hpp
+   trunk/src/windstille_main.cpp
+Log:
+- improved slideshow viewer a bit
+
+Modified: trunk/src/config.cpp
+===================================================================
+--- trunk/src/config.cpp	2006-04-12 00:27:00 UTC (rev 1253)
++++ trunk/src/config.cpp	2006-04-14 01:20:11 UTC (rev 1254)
+@@ -36,6 +36,8 @@
+ #include "command_line.hpp"
+ #include "globals.hpp"
+ 
++std::vector<std::string> arg_files;
++
+ Config config;
+ 
+ Config::Config()
+@@ -268,6 +270,7 @@
+ 
+         case CommandLine::REST_ARG:
+           set_string("levelfile", argp.get_argument());
++          arg_files.push_back(argp.get_argument());
+           break;
+         }
+     }
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2006-04-12 00:27:00 UTC (rev 1253)
++++ trunk/src/scripting/wrapper.cpp	2006-04-14 01:20:11 UTC (rev 1254)
+@@ -25,49 +25,107 @@
+   return 0;
+ }
+ 
+-static int GameObject_get_name_wrapper(HSQUIRRELVM v)
++static int GameObject_get_name_wrapper(HSQUIRRELVM vm)
+ {
+   Scripting::GameObject* _this;
+-  sq_getinstanceup(v, 1, (SQUserPointer*) &_this, 0);
++  if(SQ_FAILED(sq_getinstanceup(vm, 1, reinterpret_cast<SQUserPointer*> (&_this), 0))) {
++    sq_throwerror(vm, _SC("'get_name' called without instance"));
++    return SQ_ERROR;
++  }
+   
+-  const std::string& return_value = _this->get_name();
++  try {
++    const std::string& return_value = _this->get_name();
+   
+-  sq_pushstring(v, return_value.c_str(), return_value.size());
+-  return 1;
++    sq_pushstring(vm, return_value.c_str(), return_value.size());
++    return 1;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'get_name'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int GameObject_remove_wrapper(HSQUIRRELVM v)
++static int GameObject_remove_wrapper(HSQUIRRELVM vm)
+ {
+   Scripting::GameObject* _this;
+-  sq_getinstanceup(v, 1, (SQUserPointer*) &_this, 0);
++  if(SQ_FAILED(sq_getinstanceup(vm, 1, reinterpret_cast<SQUserPointer*> (&_this), 0))) {
++    sq_throwerror(vm, _SC("'remove' called without instance"));
++    return SQ_ERROR;
++  }
+   
+-  _this->remove();
++  try {
++    _this->remove();
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'remove'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int GameObject_set_active_wrapper(HSQUIRRELVM v)
++static int GameObject_set_active_wrapper(HSQUIRRELVM vm)
+ {
+   Scripting::GameObject* _this;
+-  sq_getinstanceup(v, 1, (SQUserPointer*) &_this, 0);
++  if(SQ_FAILED(sq_getinstanceup(vm, 1, reinterpret_cast<SQUserPointer*> (&_this), 0))) {
++    sq_throwerror(vm, _SC("'set_active' called without instance"));
++    return SQ_ERROR;
++  }
+   SQBool arg0;
+-  sq_getbool(v, 2, &arg0);
++  if(SQ_FAILED(sq_getbool(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a bool"));
++    return SQ_ERROR;
++  }
+   
+-  _this->set_active(arg0);
++  try {
++    _this->set_active(arg0);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'set_active'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int GameObject_set_parent_wrapper(HSQUIRRELVM v)
++static int GameObject_set_parent_wrapper(HSQUIRRELVM vm)
+ {
+   Scripting::GameObject* _this;
+-  sq_getinstanceup(v, 1, (SQUserPointer*) &_this, 0);
++  if(SQ_FAILED(sq_getinstanceup(vm, 1, reinterpret_cast<SQUserPointer*> (&_this), 0))) {
++    sq_throwerror(vm, _SC("'set_parent' called without instance"));
++    return SQ_ERROR;
++  }
+   const char* arg0;
+-  sq_getstring(v, 2, &arg0);
++  if(SQ_FAILED(sq_getstring(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a string"));
++    return SQ_ERROR;
++  }
+   
+-  _this->set_parent(arg0);
++  try {
++    _this->set_parent(arg0);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'set_parent'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+ static int TestObject_release_hook(SQUserPointer ptr, int )
+@@ -77,68 +135,154 @@
+   return 0;
+ }
+ 
+-static int TestObject_set_sprite_wrapper(HSQUIRRELVM v)
++static int TestObject_set_sprite_wrapper(HSQUIRRELVM vm)
+ {
+   Scripting::TestObject* _this;
+-  sq_getinstanceup(v, 1, (SQUserPointer*) &_this, 0);
++  if(SQ_FAILED(sq_getinstanceup(vm, 1, reinterpret_cast<SQUserPointer*> (&_this), 0))) {
++    sq_throwerror(vm, _SC("'set_sprite' called without instance"));
++    return SQ_ERROR;
++  }
+   const char* arg0;
+-  sq_getstring(v, 2, &arg0);
++  if(SQ_FAILED(sq_getstring(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a string"));
++    return SQ_ERROR;
++  }
+   
+-  _this->set_sprite(arg0);
++  try {
++    _this->set_sprite(arg0);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'set_sprite'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int TestObject_set_action_wrapper(HSQUIRRELVM v)
++static int TestObject_set_action_wrapper(HSQUIRRELVM vm)
+ {
+   Scripting::TestObject* _this;
+-  sq_getinstanceup(v, 1, (SQUserPointer*) &_this, 0);
++  if(SQ_FAILED(sq_getinstanceup(vm, 1, reinterpret_cast<SQUserPointer*> (&_this), 0))) {
++    sq_throwerror(vm, _SC("'set_action' called without instance"));
++    return SQ_ERROR;
++  }
+   const char* arg0;
+-  sq_getstring(v, 2, &arg0);
++  if(SQ_FAILED(sq_getstring(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a string"));
++    return SQ_ERROR;
++  }
+   
+-  _this->set_action(arg0);
++  try {
++    _this->set_action(arg0);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'set_action'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int TestObject_set_pos_wrapper(HSQUIRRELVM v)
++static int TestObject_set_pos_wrapper(HSQUIRRELVM vm)
+ {
+   Scripting::TestObject* _this;
+-  sq_getinstanceup(v, 1, (SQUserPointer*) &_this, 0);
++  if(SQ_FAILED(sq_getinstanceup(vm, 1, reinterpret_cast<SQUserPointer*> (&_this), 0))) {
++    sq_throwerror(vm, _SC("'set_pos' called without instance"));
++    return SQ_ERROR;
++  }
+   float arg0;
+-  sq_getfloat(v, 2, &arg0);
++  if(SQ_FAILED(sq_getfloat(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a float"));
++    return SQ_ERROR;
++  }
+   float arg1;
+-  sq_getfloat(v, 3, &arg1);
++  if(SQ_FAILED(sq_getfloat(vm, 3, &arg1))) {
++    sq_throwerror(vm, _SC("Argument 2 not a float"));
++    return SQ_ERROR;
++  }
+   
+-  _this->set_pos(arg0, arg1);
++  try {
++    _this->set_pos(arg0, arg1);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'set_pos'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int TestObject_set_vflip_wrapper(HSQUIRRELVM v)
++static int TestObject_set_vflip_wrapper(HSQUIRRELVM vm)
+ {
+   Scripting::TestObject* _this;
+-  sq_getinstanceup(v, 1, (SQUserPointer*) &_this, 0);
++  if(SQ_FAILED(sq_getinstanceup(vm, 1, reinterpret_cast<SQUserPointer*> (&_this), 0))) {
++    sq_throwerror(vm, _SC("'set_vflip' called without instance"));
++    return SQ_ERROR;
++  }
+   SQBool arg0;
+-  sq_getbool(v, 2, &arg0);
++  if(SQ_FAILED(sq_getbool(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a bool"));
++    return SQ_ERROR;
++  }
+   
+-  _this->set_vflip(arg0);
++  try {
++    _this->set_vflip(arg0);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'set_vflip'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int TestObject_attach_wrapper(HSQUIRRELVM v)
++static int TestObject_attach_wrapper(HSQUIRRELVM vm)
+ {
+   Scripting::TestObject* _this;
+-  sq_getinstanceup(v, 1, (SQUserPointer*) &_this, 0);
++  if(SQ_FAILED(sq_getinstanceup(vm, 1, reinterpret_cast<SQUserPointer*> (&_this), 0))) {
++    sq_throwerror(vm, _SC("'attach' called without instance"));
++    return SQ_ERROR;
++  }
+   const char* arg0;
+-  sq_getstring(v, 2, &arg0);
++  if(SQ_FAILED(sq_getstring(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a string"));
++    return SQ_ERROR;
++  }
+   const char* arg1;
+-  sq_getstring(v, 3, &arg1);
++  if(SQ_FAILED(sq_getstring(vm, 3, &arg1))) {
++    sq_throwerror(vm, _SC("Argument 2 not a string"));
++    return SQ_ERROR;
++  }
+   
+-  _this->attach(arg0, arg1);
++  try {
++    _this->attach(arg0, arg1);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'attach'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+ static int Player_release_hook(SQUserPointer ptr, int )
+@@ -148,24 +292,50 @@
+   return 0;
+ }
+ 
+-static int Player_start_listening_wrapper(HSQUIRRELVM v)
++static int Player_start_listening_wrapper(HSQUIRRELVM vm)
+ {
+   Scripting::Player* _this;
+-  sq_getinstanceup(v, 1, (SQUserPointer*) &_this, 0);
++  if(SQ_FAILED(sq_getinstanceup(vm, 1, reinterpret_cast<SQUserPointer*> (&_this), 0))) {
++    sq_throwerror(vm, _SC("'start_listening' called without instance"));
++    return SQ_ERROR;
++  }
+   
+-  _this->start_listening();
++  try {
++    _this->start_listening();
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'start_listening'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int Player_stop_listening_wrapper(HSQUIRRELVM v)
++static int Player_stop_listening_wrapper(HSQUIRRELVM vm)
+ {
+   Scripting::Player* _this;
+-  sq_getinstanceup(v, 1, (SQUserPointer*) &_this, 0);
++  if(SQ_FAILED(sq_getinstanceup(vm, 1, reinterpret_cast<SQUserPointer*> (&_this), 0))) {
++    sq_throwerror(vm, _SC("'stop_listening' called without instance"));
++    return SQ_ERROR;
++  }
+   
+-  _this->stop_listening();
++  try {
++    _this->stop_listening();
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'stop_listening'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+ static int ScriptableObject_release_hook(SQUserPointer ptr, int )
+@@ -175,524 +345,1148 @@
+   return 0;
+ }
+ 
+-static int ScriptableObject_move_to_wrapper(HSQUIRRELVM v)
++static int ScriptableObject_move_to_wrapper(HSQUIRRELVM vm)
+ {
+   Scripting::ScriptableObject* _this;
+-  sq_getinstanceup(v, 1, (SQUserPointer*) &_this, 0);
++  if(SQ_FAILED(sq_getinstanceup(vm, 1, reinterpret_cast<SQUserPointer*> (&_this), 0))) {
++    sq_throwerror(vm, _SC("'move_to' called without instance"));
++    return SQ_ERROR;
++  }
+   float arg0;
+-  sq_getfloat(v, 2, &arg0);
++  if(SQ_FAILED(sq_getfloat(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a float"));
++    return SQ_ERROR;
++  }
+   float arg1;
+-  sq_getfloat(v, 3, &arg1);
++  if(SQ_FAILED(sq_getfloat(vm, 3, &arg1))) {
++    sq_throwerror(vm, _SC("Argument 2 not a float"));
++    return SQ_ERROR;
++  }
+   float arg2;
+-  sq_getfloat(v, 4, &arg2);
++  if(SQ_FAILED(sq_getfloat(vm, 4, &arg2))) {
++    sq_throwerror(vm, _SC("Argument 3 not a float"));
++    return SQ_ERROR;
++  }
+   float arg3;
+-  sq_getfloat(v, 5, &arg3);
++  if(SQ_FAILED(sq_getfloat(vm, 5, &arg3))) {
++    sq_throwerror(vm, _SC("Argument 4 not a float"));
++    return SQ_ERROR;
++  }
+   
+-  _this->move_to(arg0, arg1, arg2, arg3);
++  try {
++    _this->move_to(arg0, arg1, arg2, arg3);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'move_to'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int ScriptableObject_start_flash_wrapper(HSQUIRRELVM v)
++static int ScriptableObject_start_flash_wrapper(HSQUIRRELVM vm)
+ {
+   Scripting::ScriptableObject* _this;
+-  sq_getinstanceup(v, 1, (SQUserPointer*) &_this, 0);
++  if(SQ_FAILED(sq_getinstanceup(vm, 1, reinterpret_cast<SQUserPointer*> (&_this), 0))) {
++    sq_throwerror(vm, _SC("'start_flash' called without instance"));
++    return SQ_ERROR;
++  }
+   float arg0;
+-  sq_getfloat(v, 2, &arg0);
++  if(SQ_FAILED(sq_getfloat(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a float"));
++    return SQ_ERROR;
++  }
+   
+-  _this->start_flash(arg0);
++  try {
++    _this->start_flash(arg0);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'start_flash'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int set_sector_wrapper(HSQUIRRELVM v)
++static int set_sector_wrapper(HSQUIRRELVM vm)
+ {
+   const char* arg0;
+-  sq_getstring(v, 2, &arg0);
++  if(SQ_FAILED(sq_getstring(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a string"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::set_sector(arg0);
++  try {
++    Scripting::set_sector(arg0);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'set_sector'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int play_music_wrapper(HSQUIRRELVM v)
++static int play_music_wrapper(HSQUIRRELVM vm)
+ {
+   const char* arg0;
+-  sq_getstring(v, 2, &arg0);
++  if(SQ_FAILED(sq_getstring(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a string"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::play_music(arg0);
++  try {
++    Scripting::play_music(arg0);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'play_music'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int stop_music_wrapper(HSQUIRRELVM v)
++static int stop_music_wrapper(HSQUIRRELVM vm)
+ {
+   float arg0;
+-  sq_getfloat(v, 2, &arg0);
++  if(SQ_FAILED(sq_getfloat(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a float"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::stop_music(arg0);
++  try {
++    Scripting::stop_music(arg0);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'stop_music'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int play_sound_wrapper(HSQUIRRELVM v)
++static int play_sound_wrapper(HSQUIRRELVM vm)
+ {
+   const char* arg0;
+-  sq_getstring(v, 2, &arg0);
++  if(SQ_FAILED(sq_getstring(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a string"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::play_sound(arg0);
++  try {
++    Scripting::play_sound(arg0);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'play_sound'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int caption_add_wrapper(HSQUIRRELVM v)
++static int caption_add_wrapper(HSQUIRRELVM vm)
+ {
+   int arg0;
+-  sq_getinteger(v, 2, &arg0);
++  if(SQ_FAILED(sq_getinteger(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not an integer"));
++    return SQ_ERROR;
++  }
+   const char* arg1;
+-  sq_getstring(v, 3, &arg1);
++  if(SQ_FAILED(sq_getstring(vm, 3, &arg1))) {
++    sq_throwerror(vm, _SC("Argument 2 not a string"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::caption_add(arg0, arg1);
++  try {
++    Scripting::caption_add(arg0, arg1);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'caption_add'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int caption_clear_wrapper(HSQUIRRELVM v)
++static int caption_clear_wrapper(HSQUIRRELVM vm)
+ {
+-  (void) v;
++  (void) vm;
+   
+-  Scripting::caption_clear();
++  try {
++    Scripting::caption_clear();
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'caption_clear'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int caption_end_wrapper(HSQUIRRELVM v)
++static int caption_end_wrapper(HSQUIRRELVM vm)
+ {
+-  (void) v;
++  (void) vm;
+   
+-  Scripting::caption_end();
++  try {
++    Scripting::caption_end();
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'caption_end'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int camera_set_active_wrapper(HSQUIRRELVM v)
++static int camera_set_active_wrapper(HSQUIRRELVM vm)
+ {
+   SQBool arg0;
+-  sq_getbool(v, 2, &arg0);
++  if(SQ_FAILED(sq_getbool(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a bool"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::camera_set_active(arg0);
++  try {
++    Scripting::camera_set_active(arg0);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'camera_set_active'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int camera_continue_path_wrapper(HSQUIRRELVM v)
++static int camera_continue_path_wrapper(HSQUIRRELVM vm)
+ {
+-  (void) v;
++  (void) vm;
+   
+-  Scripting::camera_continue_path();
++  try {
++    Scripting::camera_continue_path();
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'camera_continue_path'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int camera_begin_path_wrapper(HSQUIRRELVM v)
++static int camera_begin_path_wrapper(HSQUIRRELVM vm)
+ {
+-  (void) v;
++  (void) vm;
+   
+-  Scripting::camera_begin_path();
++  try {
++    Scripting::camera_begin_path();
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'camera_begin_path'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int camera_add_point_wrapper(HSQUIRRELVM v)
++static int camera_add_point_wrapper(HSQUIRRELVM vm)
+ {
+   float arg0;
+-  sq_getfloat(v, 2, &arg0);
++  if(SQ_FAILED(sq_getfloat(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a float"));
++    return SQ_ERROR;
++  }
+   float arg1;
+-  sq_getfloat(v, 3, &arg1);
++  if(SQ_FAILED(sq_getfloat(vm, 3, &arg1))) {
++    sq_throwerror(vm, _SC("Argument 2 not a float"));
++    return SQ_ERROR;
++  }
+   float arg2;
+-  sq_getfloat(v, 4, &arg2);
++  if(SQ_FAILED(sq_getfloat(vm, 4, &arg2))) {
++    sq_throwerror(vm, _SC("Argument 3 not a float"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::camera_add_point(arg0, arg1, arg2);
++  try {
++    Scripting::camera_add_point(arg0, arg1, arg2);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'camera_add_point'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int camera_end_path_wrapper(HSQUIRRELVM v)
++static int camera_end_path_wrapper(HSQUIRRELVM vm)
+ {
+-  (void) v;
++  (void) vm;
+   
+-  Scripting::camera_end_path();
++  try {
++    Scripting::camera_end_path();
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'camera_end_path'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int camera_set_pos_wrapper(HSQUIRRELVM v)
++static int camera_set_pos_wrapper(HSQUIRRELVM vm)
+ {
+   float arg0;
+-  sq_getfloat(v, 2, &arg0);
++  if(SQ_FAILED(sq_getfloat(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a float"));
++    return SQ_ERROR;
++  }
+   float arg1;
+-  sq_getfloat(v, 3, &arg1);
++  if(SQ_FAILED(sq_getfloat(vm, 3, &arg1))) {
++    sq_throwerror(vm, _SC("Argument 2 not a float"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::camera_set_pos(arg0, arg1);
++  try {
++    Scripting::camera_set_pos(arg0, arg1);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'camera_set_pos'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int camera_set_zoom_wrapper(HSQUIRRELVM v)
++static int camera_set_zoom_wrapper(HSQUIRRELVM vm)
+ {
+   float arg0;
+-  sq_getfloat(v, 2, &arg0);
++  if(SQ_FAILED(sq_getfloat(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a float"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::camera_set_zoom(arg0);
++  try {
++    Scripting::camera_set_zoom(arg0);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'camera_set_zoom'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int set_controller_help_active_wrapper(HSQUIRRELVM v)
++static int set_controller_help_active_wrapper(HSQUIRRELVM vm)
+ {
+   SQBool arg0;
+-  sq_getbool(v, 2, &arg0);
++  if(SQ_FAILED(sq_getbool(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a bool"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::set_controller_help_active(arg0);
++  try {
++    Scripting::set_controller_help_active(arg0);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'set_controller_help_active'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int dialog_show_wrapper(HSQUIRRELVM v)
++static int dialog_show_wrapper(HSQUIRRELVM vm)
+ {
+   int arg0;
+-  sq_getinteger(v, 2, &arg0);
++  if(SQ_FAILED(sq_getinteger(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not an integer"));
++    return SQ_ERROR;
++  }
+   const char* arg1;
+-  sq_getstring(v, 3, &arg1);
++  if(SQ_FAILED(sq_getstring(vm, 3, &arg1))) {
++    sq_throwerror(vm, _SC("Argument 2 not a string"));
++    return SQ_ERROR;
++  }
+   const char* arg2;
+-  sq_getstring(v, 4, &arg2);
++  if(SQ_FAILED(sq_getstring(vm, 4, &arg2))) {
++    sq_throwerror(vm, _SC("Argument 3 not a string"));
++    return SQ_ERROR;
++  }
+   const char* arg3;
+-  sq_getstring(v, 5, &arg3);
++  if(SQ_FAILED(sq_getstring(vm, 5, &arg3))) {
++    sq_throwerror(vm, _SC("Argument 4 not a string"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::dialog_show(arg0, arg1, arg2, arg3);
++  try {
++    Scripting::dialog_show(arg0, arg1, arg2, arg3);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'dialog_show'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int wait_for_dialog_wrapper(HSQUIRRELVM v)
++static int wait_for_dialog_wrapper(HSQUIRRELVM vm)
+ {
+-  HSQUIRRELVM arg0 = v;
++  HSQUIRRELVM arg0 = vm;
+   
+-  Scripting::wait_for_dialog(arg0);
++  try {
++    Scripting::wait_for_dialog(arg0);
+   
+-  return sq_suspendvm(v);
++    return sq_suspendvm(vm);
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'wait_for_dialog'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int wait_for_fade_wrapper(HSQUIRRELVM v)
++static int wait_for_fade_wrapper(HSQUIRRELVM vm)
+ {
+-  HSQUIRRELVM arg0 = v;
++  HSQUIRRELVM arg0 = vm;
+   
+-  Scripting::wait_for_fade(arg0);
++  try {
++    Scripting::wait_for_fade(arg0);
+   
+-  return sq_suspendvm(v);
++    return sq_suspendvm(vm);
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'wait_for_fade'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int wait_for_camera_wrapper(HSQUIRRELVM v)
++static int wait_for_camera_wrapper(HSQUIRRELVM vm)
+ {
+-  HSQUIRRELVM arg0 = v;
++  HSQUIRRELVM arg0 = vm;
+   
+-  Scripting::wait_for_camera(arg0);
++  try {
++    Scripting::wait_for_camera(arg0);
+   
+-  return sq_suspendvm(v);
++    return sq_suspendvm(vm);
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'wait_for_camera'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int conversation_add_wrapper(HSQUIRRELVM v)
++static int conversation_add_wrapper(HSQUIRRELVM vm)
+ {
+   const char* arg0;
+-  sq_getstring(v, 2, &arg0);
++  if(SQ_FAILED(sq_getstring(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a string"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::conversation_add(arg0);
++  try {
++    Scripting::conversation_add(arg0);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'conversation_add'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int conversation_show_wrapper(HSQUIRRELVM v)
++static int conversation_show_wrapper(HSQUIRRELVM vm)
+ {
+-  (void) v;
++  (void) vm;
+   
+-  Scripting::conversation_show();
++  try {
++    Scripting::conversation_show();
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'conversation_show'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int conversation_get_selection_wrapper(HSQUIRRELVM v)
++static int conversation_get_selection_wrapper(HSQUIRRELVM vm)
+ {
+   
+-  int return_value = Scripting::conversation_get_selection();
++  try {
++    int return_value = Scripting::conversation_get_selection();
+   
+-  sq_pushinteger(v, return_value);
+-  return 1;
++    sq_pushinteger(vm, return_value);
++    return 1;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'conversation_get_selection'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int wait_for_conversation_wrapper(HSQUIRRELVM v)
++static int wait_for_conversation_wrapper(HSQUIRRELVM vm)
+ {
+-  HSQUIRRELVM arg0 = v;
++  HSQUIRRELVM arg0 = vm;
+   
+-  Scripting::wait_for_conversation(arg0);
++  try {
++    Scripting::wait_for_conversation(arg0);
+   
+-  return sq_suspendvm(v);
++    return sq_suspendvm(vm);
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'wait_for_conversation'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int add_objective_wrapper(HSQUIRRELVM v)
++static int add_objective_wrapper(HSQUIRRELVM vm)
+ {
+   const char* arg0;
+-  sq_getstring(v, 2, &arg0);
++  if(SQ_FAILED(sq_getstring(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a string"));
++    return SQ_ERROR;
++  }
+   const char* arg1;
+-  sq_getstring(v, 3, &arg1);
++  if(SQ_FAILED(sq_getstring(vm, 3, &arg1))) {
++    sq_throwerror(vm, _SC("Argument 2 not a string"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::add_objective(arg0, arg1);
++  try {
++    Scripting::add_objective(arg0, arg1);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'add_objective'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int objective_complete_wrapper(HSQUIRRELVM v)
++static int objective_complete_wrapper(HSQUIRRELVM vm)
+ {
+   const char* arg0;
+-  sq_getstring(v, 2, &arg0);
++  if(SQ_FAILED(sq_getstring(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a string"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::objective_complete(arg0);
++  try {
++    Scripting::objective_complete(arg0);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'objective_complete'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int is_objective_given_wrapper(HSQUIRRELVM v)
++static int is_objective_given_wrapper(HSQUIRRELVM vm)
+ {
+   const char* arg0;
+-  sq_getstring(v, 2, &arg0);
++  if(SQ_FAILED(sq_getstring(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a string"));
++    return SQ_ERROR;
++  }
+   
+-  bool return_value = Scripting::is_objective_given(arg0);
++  try {
++    bool return_value = Scripting::is_objective_given(arg0);
+   
+-  sq_pushbool(v, return_value);
+-  return 1;
++    sq_pushbool(vm, return_value);
++    return 1;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'is_objective_given'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int is_objective_complete_wrapper(HSQUIRRELVM v)
++static int is_objective_complete_wrapper(HSQUIRRELVM vm)
+ {
+   const char* arg0;
+-  sq_getstring(v, 2, &arg0);
++  if(SQ_FAILED(sq_getstring(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a string"));
++    return SQ_ERROR;
++  }
+   
+-  bool return_value = Scripting::is_objective_complete(arg0);
++  try {
++    bool return_value = Scripting::is_objective_complete(arg0);
+   
+-  sq_pushbool(v, return_value);
+-  return 1;
++    sq_pushbool(vm, return_value);
++    return 1;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'is_objective_complete'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int run_before_wrapper(HSQUIRRELVM v)
++static int run_before_wrapper(HSQUIRRELVM vm)
+ {
+-  HSQUIRRELVM arg0 = v;
++  HSQUIRRELVM arg0 = vm;
+   
+-  bool return_value = Scripting::run_before(arg0);
++  try {
++    bool return_value = Scripting::run_before(arg0);
+   
+-  sq_pushbool(v, return_value);
+-  return 1;
++    sq_pushbool(vm, return_value);
++    return 1;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'run_before'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int save_state_wrapper(HSQUIRRELVM v)
++static int save_state_wrapper(HSQUIRRELVM vm)
+ {
+-  HSQUIRRELVM arg0 = v;
++  HSQUIRRELVM arg0 = vm;
+   const char* arg1;
+-  sq_getstring(v, 2, &arg1);
++  if(SQ_FAILED(sq_getstring(vm, 2, &arg1))) {
++    sq_throwerror(vm, _SC("Argument 1 not a string"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::save_state(arg0, arg1);
++  try {
++    Scripting::save_state(arg0, arg1);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'save_state'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int load_state_wrapper(HSQUIRRELVM v)
++static int load_state_wrapper(HSQUIRRELVM vm)
+ {
+-  HSQUIRRELVM arg0 = v;
++  HSQUIRRELVM arg0 = vm;
+   const char* arg1;
+-  sq_getstring(v, 2, &arg1);
++  if(SQ_FAILED(sq_getstring(vm, 2, &arg1))) {
++    sq_throwerror(vm, _SC("Argument 1 not a string"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::load_state(arg0, arg1);
++  try {
++    Scripting::load_state(arg0, arg1);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'load_state'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int list_objects_wrapper(HSQUIRRELVM v)
++static int list_objects_wrapper(HSQUIRRELVM vm)
+ {
+-  (void) v;
++  (void) vm;
+   
+-  Scripting::list_objects();
++  try {
++    Scripting::list_objects();
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'list_objects'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int set_debug_wrapper(HSQUIRRELVM v)
++static int set_debug_wrapper(HSQUIRRELVM vm)
+ {
+   SQBool arg0;
+-  sq_getbool(v, 2, &arg0);
++  if(SQ_FAILED(sq_getbool(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a bool"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::set_debug(arg0);
++  try {
++    Scripting::set_debug(arg0);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'set_debug'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int get_debug_wrapper(HSQUIRRELVM v)
++static int get_debug_wrapper(HSQUIRRELVM vm)
+ {
+   
+-  bool return_value = Scripting::get_debug();
++  try {
++    bool return_value = Scripting::get_debug();
+   
+-  sq_pushbool(v, return_value);
+-  return 1;
++    sq_pushbool(vm, return_value);
++    return 1;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'get_debug'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int get_game_speed_wrapper(HSQUIRRELVM v)
++static int get_game_speed_wrapper(HSQUIRRELVM vm)
+ {
+   
+-  float return_value = Scripting::get_game_speed();
++  try {
++    float return_value = Scripting::get_game_speed();
+   
+-  sq_pushfloat(v, return_value);
+-  return 1;
++    sq_pushfloat(vm, return_value);
++    return 1;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'get_game_speed'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int set_game_speed_wrapper(HSQUIRRELVM v)
++static int set_game_speed_wrapper(HSQUIRRELVM vm)
+ {
+   float arg0;
+-  sq_getfloat(v, 2, &arg0);
++  if(SQ_FAILED(sq_getfloat(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a float"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::set_game_speed(arg0);
++  try {
++    Scripting::set_game_speed(arg0);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'set_game_speed'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int wait_wrapper(HSQUIRRELVM v)
++static int wait_wrapper(HSQUIRRELVM vm)
+ {
+-  HSQUIRRELVM arg0 = v;
++  HSQUIRRELVM arg0 = vm;
+   float arg1;
+-  sq_getfloat(v, 2, &arg1);
++  if(SQ_FAILED(sq_getfloat(vm, 2, &arg1))) {
++    sq_throwerror(vm, _SC("Argument 1 not a float"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::wait(arg0, arg1);
++  try {
++    Scripting::wait(arg0, arg1);
+   
+-  return sq_suspendvm(v);
++    return sq_suspendvm(vm);
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'wait'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int display_wrapper(HSQUIRRELVM v)
++static int display_wrapper(HSQUIRRELVM vm)
+ {
+-  return Scripting::display(v);
++  return Scripting::display(vm);
+ }
+ 
+-static int println_wrapper(HSQUIRRELVM v)
++static int println_wrapper(HSQUIRRELVM vm)
+ {
+-  return Scripting::println(v);
++  return Scripting::println(vm);
+ }
+ 
+-static int set_console_font_wrapper(HSQUIRRELVM v)
++static int set_console_font_wrapper(HSQUIRRELVM vm)
+ {
+   const char* arg0;
+-  sq_getstring(v, 2, &arg0);
++  if(SQ_FAILED(sq_getstring(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a string"));
++    return SQ_ERROR;
++  }
+   int arg1;
+-  sq_getinteger(v, 3, &arg1);
++  if(SQ_FAILED(sq_getinteger(vm, 3, &arg1))) {
++    sq_throwerror(vm, _SC("Argument 2 not an integer"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::set_console_font(arg0, arg1);
++  try {
++    Scripting::set_console_font(arg0, arg1);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'set_console_font'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int set_gamma_wrapper(HSQUIRRELVM v)
++static int set_gamma_wrapper(HSQUIRRELVM vm)
+ {
+   float arg0;
+-  sq_getfloat(v, 2, &arg0);
++  if(SQ_FAILED(sq_getfloat(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a float"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::set_gamma(arg0);
++  try {
++    Scripting::set_gamma(arg0);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'set_gamma'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int set_gamma_rgb_wrapper(HSQUIRRELVM v)
++static int set_gamma_rgb_wrapper(HSQUIRRELVM vm)
+ {
+   float arg0;
+-  sq_getfloat(v, 2, &arg0);
++  if(SQ_FAILED(sq_getfloat(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a float"));
++    return SQ_ERROR;
++  }
+   float arg1;
+-  sq_getfloat(v, 3, &arg1);
++  if(SQ_FAILED(sq_getfloat(vm, 3, &arg1))) {
++    sq_throwerror(vm, _SC("Argument 2 not a float"));
++    return SQ_ERROR;
++  }
+   float arg2;
+-  sq_getfloat(v, 4, &arg2);
++  if(SQ_FAILED(sq_getfloat(vm, 4, &arg2))) {
++    sq_throwerror(vm, _SC("Argument 3 not a float"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::set_gamma_rgb(arg0, arg1, arg2);
++  try {
++    Scripting::set_gamma_rgb(arg0, arg1, arg2);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'set_gamma_rgb'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int show_config_wrapper(HSQUIRRELVM v)
++static int show_config_wrapper(HSQUIRRELVM vm)
+ {
+-  (void) v;
++  (void) vm;
+   
+-  Scripting::show_config();
++  try {
++    Scripting::show_config();
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'show_config'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int cutscene_begin_wrapper(HSQUIRRELVM v)
++static int cutscene_begin_wrapper(HSQUIRRELVM vm)
+ {
+-  (void) v;
++  (void) vm;
+   
+-  Scripting::cutscene_begin();
++  try {
++    Scripting::cutscene_begin();
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'cutscene_begin'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int cutscene_end_wrapper(HSQUIRRELVM v)
++static int cutscene_end_wrapper(HSQUIRRELVM vm)
+ {
+-  (void) v;
++  (void) vm;
+   
+-  Scripting::cutscene_end();
++  try {
++    Scripting::cutscene_end();
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'cutscene_end'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int internal_fadeout_rgb_wrapper(HSQUIRRELVM v)
++static int internal_fadeout_rgb_wrapper(HSQUIRRELVM vm)
+ {
+   float arg0;
+-  sq_getfloat(v, 2, &arg0);
++  if(SQ_FAILED(sq_getfloat(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a float"));
++    return SQ_ERROR;
++  }
+   float arg1;
+-  sq_getfloat(v, 3, &arg1);
++  if(SQ_FAILED(sq_getfloat(vm, 3, &arg1))) {
++    sq_throwerror(vm, _SC("Argument 2 not a float"));
++    return SQ_ERROR;
++  }
+   float arg2;
+-  sq_getfloat(v, 4, &arg2);
++  if(SQ_FAILED(sq_getfloat(vm, 4, &arg2))) {
++    sq_throwerror(vm, _SC("Argument 3 not a float"));
++    return SQ_ERROR;
++  }
+   float arg3;
+-  sq_getfloat(v, 5, &arg3);
++  if(SQ_FAILED(sq_getfloat(vm, 5, &arg3))) {
++    sq_throwerror(vm, _SC("Argument 4 not a float"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::internal_fadeout_rgb(arg0, arg1, arg2, arg3);
++  try {
++    Scripting::internal_fadeout_rgb(arg0, arg1, arg2, arg3);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'internal_fadeout_rgb'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int internal_fadein_wrapper(HSQUIRRELVM v)
++static int internal_fadein_wrapper(HSQUIRRELVM vm)
+ {
+   float arg0;
+-  sq_getfloat(v, 2, &arg0);
++  if(SQ_FAILED(sq_getfloat(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not a float"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::internal_fadein(arg0);
++  try {
++    Scripting::internal_fadein(arg0);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'internal_fadein'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int render_mask_get_wrapper(HSQUIRRELVM v)
++static int render_mask_get_wrapper(HSQUIRRELVM vm)
+ {
+   
+-  int return_value = Scripting::render_mask_get();
++  try {
++    int return_value = Scripting::render_mask_get();
+   
+-  sq_pushinteger(v, return_value);
+-  return 1;
++    sq_pushinteger(vm, return_value);
++    return 1;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'render_mask_get'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int render_mask_set_wrapper(HSQUIRRELVM v)
++static int render_mask_set_wrapper(HSQUIRRELVM vm)
+ {
+   int arg0;
+-  sq_getinteger(v, 2, &arg0);
++  if(SQ_FAILED(sq_getinteger(vm, 2, &arg0))) {
++    sq_throwerror(vm, _SC("Argument 1 not an integer"));
++    return SQ_ERROR;
++  }
+   
+-  Scripting::render_mask_set(arg0);
++  try {
++    Scripting::render_mask_set(arg0);
+   
+-  return 0;
++    return 0;
++  
++  } catch(std::exception& e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC("Unexpected exception while executing function 'render_mask_set'"));
++    return SQ_ERROR;
++  }
++  
+ }
+ 
+-static int spawn_object_wrapper(HSQUIRRELVM v)
++static int spawn_object_wrapper(HSQUIRRELVM vm)
+ {
+-  return Scripting::spawn_object(v);
++  return Scripting::spawn_object(vm);
+ }
+ 
+ } // end of namespace Wrapper
+@@ -805,445 +1599,334 @@
+ {
+   using namespace Wrapper;
+ 
+-  sq_pushroottable(v);
+   sq_pushstring(v, "VCENTER", -1);
+   sq_pushinteger(v, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register constant'VCENTER'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register constant 'VCENTER'");
+   }
+ 
+   sq_pushstring(v, "LEFT", -1);
+   sq_pushinteger(v, 1);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register constant'LEFT'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register constant 'LEFT'");
+   }
+ 
+   sq_pushstring(v, "RIGHT", -1);
+   sq_pushinteger(v, 2);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register constant'RIGHT'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register constant 'RIGHT'");
+   }
+ 
+   sq_pushstring(v, "HCENTER", -1);
+   sq_pushinteger(v, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register constant'HCENTER'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register constant 'HCENTER'");
+   }
+ 
+   sq_pushstring(v, "TOP", -1);
+   sq_pushinteger(v, 16);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register constant'TOP'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register constant 'TOP'");
+   }
+ 
+   sq_pushstring(v, "BOTTOM", -1);
+   sq_pushinteger(v, 32);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register constant'BOTTOM'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register constant 'BOTTOM'");
+   }
+ 
+   sq_pushstring(v, "set_sector", -1);
+   sq_newclosure(v, &set_sector_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'set_sector'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'set_sector'");
+   }
+ 
+   sq_pushstring(v, "play_music", -1);
+   sq_newclosure(v, &play_music_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'play_music'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'play_music'");
+   }
+ 
+   sq_pushstring(v, "stop_music", -1);
+   sq_newclosure(v, &stop_music_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'stop_music'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'stop_music'");
+   }
+ 
+   sq_pushstring(v, "play_sound", -1);
+   sq_newclosure(v, &play_sound_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'play_sound'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'play_sound'");
+   }
+ 
+   sq_pushstring(v, "caption_add", -1);
+   sq_newclosure(v, &caption_add_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'caption_add'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'caption_add'");
+   }
+ 
+   sq_pushstring(v, "caption_clear", -1);
+   sq_newclosure(v, &caption_clear_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'caption_clear'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'caption_clear'");
+   }
+ 
+   sq_pushstring(v, "caption_end", -1);
+   sq_newclosure(v, &caption_end_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'caption_end'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'caption_end'");
+   }
+ 
+   sq_pushstring(v, "camera_set_active", -1);
+   sq_newclosure(v, &camera_set_active_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'camera_set_active'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'camera_set_active'");
+   }
+ 
+   sq_pushstring(v, "camera_continue_path", -1);
+   sq_newclosure(v, &camera_continue_path_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'camera_continue_path'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'camera_continue_path'");
+   }
+ 
+   sq_pushstring(v, "camera_begin_path", -1);
+   sq_newclosure(v, &camera_begin_path_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'camera_begin_path'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'camera_begin_path'");
+   }
+ 
+   sq_pushstring(v, "camera_add_point", -1);
+   sq_newclosure(v, &camera_add_point_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'camera_add_point'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'camera_add_point'");
+   }
+ 
+   sq_pushstring(v, "camera_end_path", -1);
+   sq_newclosure(v, &camera_end_path_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'camera_end_path'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'camera_end_path'");
+   }
+ 
+   sq_pushstring(v, "camera_set_pos", -1);
+   sq_newclosure(v, &camera_set_pos_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'camera_set_pos'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'camera_set_pos'");
+   }
+ 
+   sq_pushstring(v, "camera_set_zoom", -1);
+   sq_newclosure(v, &camera_set_zoom_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'camera_set_zoom'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'camera_set_zoom'");
+   }
+ 
+   sq_pushstring(v, "set_controller_help_active", -1);
+   sq_newclosure(v, &set_controller_help_active_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'set_controller_help_active'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'set_controller_help_active'");
+   }
+ 
+   sq_pushstring(v, "dialog_show", -1);
+   sq_newclosure(v, &dialog_show_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'dialog_show'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'dialog_show'");
+   }
+ 
+   sq_pushstring(v, "wait_for_dialog", -1);
+   sq_newclosure(v, &wait_for_dialog_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'wait_for_dialog'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'wait_for_dialog'");
+   }
+ 
+   sq_pushstring(v, "wait_for_fade", -1);
+   sq_newclosure(v, &wait_for_fade_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'wait_for_fade'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'wait_for_fade'");
+   }
+ 
+   sq_pushstring(v, "wait_for_camera", -1);
+   sq_newclosure(v, &wait_for_camera_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'wait_for_camera'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'wait_for_camera'");
+   }
+ 
+   sq_pushstring(v, "conversation_add", -1);
+   sq_newclosure(v, &conversation_add_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'conversation_add'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'conversation_add'");
+   }
+ 
+   sq_pushstring(v, "conversation_show", -1);
+   sq_newclosure(v, &conversation_show_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'conversation_show'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'conversation_show'");
+   }
+ 
+   sq_pushstring(v, "conversation_get_selection", -1);
+   sq_newclosure(v, &conversation_get_selection_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'conversation_get_selection'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'conversation_get_selection'");
+   }
+ 
+   sq_pushstring(v, "wait_for_conversation", -1);
+   sq_newclosure(v, &wait_for_conversation_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'wait_for_conversation'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'wait_for_conversation'");
+   }
+ 
+   sq_pushstring(v, "add_objective", -1);
+   sq_newclosure(v, &add_objective_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'add_objective'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'add_objective'");
+   }
+ 
+   sq_pushstring(v, "objective_complete", -1);
+   sq_newclosure(v, &objective_complete_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'objective_complete'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'objective_complete'");
+   }
+ 
+   sq_pushstring(v, "is_objective_given", -1);
+   sq_newclosure(v, &is_objective_given_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'is_objective_given'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'is_objective_given'");
+   }
+ 
+   sq_pushstring(v, "is_objective_complete", -1);
+   sq_newclosure(v, &is_objective_complete_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'is_objective_complete'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'is_objective_complete'");
+   }
+ 
+   sq_pushstring(v, "run_before", -1);
+   sq_newclosure(v, &run_before_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'run_before'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'run_before'");
+   }
+ 
+   sq_pushstring(v, "save_state", -1);
+   sq_newclosure(v, &save_state_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'save_state'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'save_state'");
+   }
+ 
+   sq_pushstring(v, "load_state", -1);
+   sq_newclosure(v, &load_state_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'load_state'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'load_state'");
+   }
+ 
+   sq_pushstring(v, "list_objects", -1);
+   sq_newclosure(v, &list_objects_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'list_objects'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'list_objects'");
+   }
+ 
+   sq_pushstring(v, "set_debug", -1);
+   sq_newclosure(v, &set_debug_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'set_debug'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'set_debug'");
+   }
+ 
+   sq_pushstring(v, "get_debug", -1);
+   sq_newclosure(v, &get_debug_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'get_debug'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'get_debug'");
+   }
+ 
+   sq_pushstring(v, "get_game_speed", -1);
+   sq_newclosure(v, &get_game_speed_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'get_game_speed'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'get_game_speed'");
+   }
+ 
+   sq_pushstring(v, "set_game_speed", -1);
+   sq_newclosure(v, &set_game_speed_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'set_game_speed'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'set_game_speed'");
+   }
+ 
+   sq_pushstring(v, "wait", -1);
+   sq_newclosure(v, &wait_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'wait'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'wait'");
+   }
+ 
+   sq_pushstring(v, "display", -1);
+   sq_newclosure(v, &display_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'display'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'display'");
+   }
+ 
+   sq_pushstring(v, "println", -1);
+   sq_newclosure(v, &println_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'println'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'println'");
+   }
+ 
+   sq_pushstring(v, "set_console_font", -1);
+   sq_newclosure(v, &set_console_font_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'set_console_font'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'set_console_font'");
+   }
+ 
+   sq_pushstring(v, "set_gamma", -1);
+   sq_newclosure(v, &set_gamma_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'set_gamma'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'set_gamma'");
+   }
+ 
+   sq_pushstring(v, "set_gamma_rgb", -1);
+   sq_newclosure(v, &set_gamma_rgb_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'set_gamma_rgb'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'set_gamma_rgb'");
+   }
+ 
+   sq_pushstring(v, "show_config", -1);
+   sq_newclosure(v, &show_config_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'show_config'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'show_config'");
+   }
+ 
+   sq_pushstring(v, "cutscene_begin", -1);
+   sq_newclosure(v, &cutscene_begin_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'cutscene_begin'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'cutscene_begin'");
+   }
+ 
+   sq_pushstring(v, "cutscene_end", -1);
+   sq_newclosure(v, &cutscene_end_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'cutscene_end'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'cutscene_end'");
+   }
+ 
+   sq_pushstring(v, "internal_fadeout_rgb", -1);
+   sq_newclosure(v, &internal_fadeout_rgb_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'internal_fadeout_rgb'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'internal_fadeout_rgb'");
+   }
+ 
+   sq_pushstring(v, "internal_fadein", -1);
+   sq_newclosure(v, &internal_fadein_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'internal_fadein'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'internal_fadein'");
+   }
+ 
+   sq_pushstring(v, "render_mask_get", -1);
+   sq_newclosure(v, &render_mask_get_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'render_mask_get'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'render_mask_get'");
+   }
+ 
+   sq_pushstring(v, "render_mask_set", -1);
+   sq_newclosure(v, &render_mask_set_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'render_mask_set'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'render_mask_set'");
+   }
+ 
+   sq_pushstring(v, "spawn_object", -1);
+   sq_newclosure(v, &spawn_object_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'spawn_object'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'spawn_object'");
+   }
+ 
+   // Register class GameObject
+@@ -1256,39 +1939,29 @@
+   sq_pushstring(v, "get_name", -1);
+   sq_newclosure(v, &GameObject_get_name_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'get_name'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'get_name'");
+   }
+ 
+   sq_pushstring(v, "remove", -1);
+   sq_newclosure(v, &GameObject_remove_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'remove'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'remove'");
+   }
+ 
+   sq_pushstring(v, "set_active", -1);
+   sq_newclosure(v, &GameObject_set_active_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'set_active'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'set_active'");
+   }
+ 
+   sq_pushstring(v, "set_parent", -1);
+   sq_newclosure(v, &GameObject_set_parent_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'set_parent'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'set_parent'");
+   }
+ 
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register class'GameObject'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register class 'GameObject'");
+   }
+ 
+   // Register class TestObject
+@@ -1303,47 +1976,35 @@
+   sq_pushstring(v, "set_sprite", -1);
+   sq_newclosure(v, &TestObject_set_sprite_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'set_sprite'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'set_sprite'");
+   }
+ 
+   sq_pushstring(v, "set_action", -1);
+   sq_newclosure(v, &TestObject_set_action_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'set_action'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'set_action'");
+   }
+ 
+   sq_pushstring(v, "set_pos", -1);
+   sq_newclosure(v, &TestObject_set_pos_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'set_pos'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'set_pos'");
+   }
+ 
+   sq_pushstring(v, "set_vflip", -1);
+   sq_newclosure(v, &TestObject_set_vflip_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'set_vflip'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'set_vflip'");
+   }
+ 
+   sq_pushstring(v, "attach", -1);
+   sq_newclosure(v, &TestObject_attach_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'attach'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'attach'");
+   }
+ 
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register class'TestObject'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register class 'TestObject'");
+   }
+ 
+   // Register class Player
+@@ -1358,23 +2019,17 @@
+   sq_pushstring(v, "start_listening", -1);
+   sq_newclosure(v, &Player_start_listening_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'start_listening'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'start_listening'");
+   }
+ 
+   sq_pushstring(v, "stop_listening", -1);
+   sq_newclosure(v, &Player_stop_listening_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'stop_listening'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'stop_listening'");
+   }
+ 
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register class'Player'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register class 'Player'");
+   }
+ 
+   // Register class ScriptableObject
+@@ -1389,26 +2044,19 @@
+   sq_pushstring(v, "move_to", -1);
+   sq_newclosure(v, &ScriptableObject_move_to_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'move_to'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'move_to'");
+   }
+ 
+   sq_pushstring(v, "start_flash", -1);
+   sq_newclosure(v, &ScriptableObject_start_flash_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register function'start_flash'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register function 'start_flash'");
+   }
+ 
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg << "Couldn't register class'ScriptableObject'";
+-    throw SquirrelError(v, msg.str());
++    throw SquirrelError(v, "Couldn't register class 'ScriptableObject'");
+   }
+ 
+-  sq_pop(v, 1);
+ }
+ 
+ } // end of namespace Scripting
+
+Modified: trunk/src/sprite2dview.cpp
+===================================================================
+--- trunk/src/sprite2dview.cpp	2006-04-12 00:27:00 UTC (rev 1253)
++++ trunk/src/sprite2dview.cpp	2006-04-14 01:20:11 UTC (rev 1254)
+@@ -24,26 +24,29 @@
+ */
+ 
+ #include <iostream>
++#include <algorithm>
+ #include "math.hpp"
+ #include "input/controller.hpp"
+ #include "sprite2dview.hpp"
+ 
++extern std::vector<std::string> arg_files;
++
+ Sprite2DView::Sprite2DView()
+ {
+   index = 0;
+ 
+-  directory.push_back("images/test/mech1.png");
+-  directory.push_back("images/test/mech2.png");
+-  directory.push_back("images/test/mech3.png");
++  directory = arg_files;
+ 
++  std::random_shuffle(directory.begin(), directory.end());
++
+   sprite      = Sprite(directory.back());
+-  next_sprite = Sprite(directory.front());
+   offset = 0.0f;
+ 
+-  mode = MANUAL; 
+-  //mode = SLIDESHOW;
++  //mode = MANUAL; 
++  mode = SLIDESHOW;
+   zoom = 1.0f;
+   pos  = Vector(0,0);
++  display_time = 0.0f;
+ }
+ 
+ Sprite2DView::~Sprite2DView()
+@@ -66,7 +69,12 @@
+       else
+         {
+           sprite.draw(Vector(0, -offset));
+-        } 
++        }
++
++      if (new_sprite)
++        {
++          new_sprite.draw(Vector(0,0));
++        }
+       break;
+       
+     case MANUAL:
+@@ -79,8 +87,82 @@
+ void
+ Sprite2DView::update_slideshow(float delta, const Controller& controller)
+ {
+-  offset += delta * 50.0f;
++  if (!new_sprite)
++    {
++      width  = sprite.get_width();
++      height = sprite.get_height();
++      aspect = width/height;
+ 
++      if (aspect > 4.0/3.0)
++        { // expand vertical
++          float scale = 600.0f/height;
++          width  *= scale;
++          height *= scale;
++          sprite.set_scale(scale);
++
++          if (offset - (width - 800) > 0)
++            {
++              if (display_time > 3.0f)
++                next_image();
++            }
++          else
++            {
++              offset += delta * 50.0f +   controller.get_axis_state(X_AXIS) * 200.0f * delta;
++            }
++        }
++      else
++        { // expand horizontal
++          float scale = 800.0f/width;
++          width  *= scale;
++          height *= scale;
++          sprite.set_scale(scale);
++
++          if (offset - (height - 600) > 0)
++            {
++              if (display_time > 3.0f)
++                next_image();
++            }
++          else
++            {
++              offset += delta * 50.0f +   controller.get_axis_state(X_AXIS) * 200.0f * delta;
++            }
++        }
++    }
++
++  if (controller.button_was_pressed(PRIMARY_BUTTON))
++    {
++      next_image();
++    }
++  else if (controller.button_was_pressed(SECONDARY_BUTTON))
++    {
++      prev_image();
++    }
++}
++
++void
++Sprite2DView::next_image(int i)
++{
++  if (directory.size() > 1)
++    {
++      if (new_sprite)
++        {
++          sprite = new_sprite;
++          sprite.set_alpha(1.0f);
++          new_sprite = Sprite();
++          offset = 0;
++          display_time = 0;
++        }
++
++      index = (unsigned int)(index + i) % directory.size();
++      new_sprite = Sprite(directory[index]);
++      fadein = 0.0f;
++      prepare_sprite(new_sprite);
++    }
++}
++
++void
++Sprite2DView::prepare_sprite(Sprite& sprite)
++{
+   width  = sprite.get_width();
+   height = sprite.get_height();
+   aspect = width/height;
+@@ -91,17 +173,6 @@
+       width  *= scale;
+       height *= scale;
+       sprite.set_scale(scale);
+-
+-      if (offset - (width - 800) > 0)
+-        {
+-          offset = 0;
+-
+-          if (++index >= int(directory.size()))
+-            index = 0;
+-
+-          sprite = next_sprite;
+-          next_sprite = Sprite(directory[index]);
+-        }
+     }
+   else
+     { // expand horizontal
+@@ -109,18 +180,7 @@
+       width  *= scale;
+       height *= scale;
+       sprite.set_scale(scale);
+-
+-      if (offset - (height - 600) > 0)
+-        {
+-          offset = 0;
+-
+-          if (++index >= int(directory.size()))
+-            index = 0;
+-
+-          sprite = next_sprite;
+-          next_sprite = Sprite(directory[index]);
+-        }
+-    }
++    }  
+ }
+ 
+ void
+@@ -141,6 +201,8 @@
+ void
+ Sprite2DView::update(float delta, const Controller& controller)
+ {  
++  display_time += delta;
++
+   switch(mode) {
+   case SLIDESHOW:
+     update_slideshow(delta, controller);
+@@ -149,6 +211,24 @@
+     update_manual(delta, controller);
+     break;
+   }
++
++  if (new_sprite)
++    {
++      fadein += delta;
++
++      if (fadein > 1.0f)
++        {
++          sprite = new_sprite;
++          sprite.set_alpha(1.0f);
++          new_sprite = Sprite();
++          offset = 0;
++          display_time = 0;
++        }
++      else
++        {
++          new_sprite.set_alpha(fadein);
++        }
++    }
+ }
+ 
+ void
+
+Modified: trunk/src/sprite2dview.hpp
+===================================================================
+--- trunk/src/sprite2dview.hpp	2006-04-12 00:27:00 UTC (rev 1253)
++++ trunk/src/sprite2dview.hpp	2006-04-14 01:20:11 UTC (rev 1254)
+@@ -53,10 +53,15 @@
+ 
+   int    index;
+   Sprite sprite;
+-  Sprite next_sprite;
++  
++  Sprite new_sprite;
++  float fadein;
++
+   float  scale;
+   float  offset;
+ 
++  float display_time;
++
+ public:
+   Sprite2DView();
+   ~Sprite2DView();
+@@ -67,8 +72,12 @@
+   void update_slideshow(float delta, const Controller& controller);
+   void update_manual(float delta, const Controller& controller);
+ 
++  /** move \a i images forward in the directory */
++  void next_image(int i = 1);
++  void prev_image(int i = 1) { next_image(-i); }
++
+   void set_sprite(const std::string& filename);
+-
++  void prepare_sprite(Sprite& sprite);
+ private:
+   Sprite2DView (const Sprite2DView&);
+   Sprite2DView& operator= (const Sprite2DView&);
+
+Modified: trunk/src/windstille_main.cpp
+===================================================================
+--- trunk/src/windstille_main.cpp	2006-04-12 00:27:00 UTC (rev 1253)
++++ trunk/src/windstille_main.cpp	2006-04-14 01:20:11 UTC (rev 1254)
+@@ -118,6 +118,7 @@
+         std::string leveldir = dirname(config.get_string("levelfile"));
+         PHYSFS_addToSearchPath(leveldir.c_str(), true);
+         levelfile = basename(config.get_string("levelfile"));
++        std::cout << "XXX: " << leveldir << std::endl;
+       }
+ 
+     if (sprite3dview)
+
+
+
+From grumbel at berlios.de  Sat Apr 15 18:51:38 2006
+From: grumbel at berlios.de (grumbel at BerliOS)
+Date: Sat, 15 Apr 2006 18:51:38 +0200
+Subject: [Windstille-commit] r1255 - in trunk/src: . input
+Message-ID: <200604151651.k3FGpcEa018242@sheep.berlios.de>
+
+Author: grumbel
+Date: 2006-04-15 18:51:32 +0200 (Sat, 15 Apr 2006)
+New Revision: 1255
+
+Modified:
+   trunk/src/config.cpp
+   trunk/src/controller_def.hpp
+   trunk/src/input/controller.cpp
+   trunk/src/input/controller.hpp
+   trunk/src/input/controller_description.cpp
+   trunk/src/input/controller_description.hpp
+   trunk/src/input/input_event.hpp
+   trunk/src/input/input_manager_impl.cpp
+   trunk/src/input/input_manager_impl.hpp
+   trunk/src/input/input_manager_sdl.cpp
+   trunk/src/screen_manager.cpp
+   trunk/src/sprite2dview.cpp
+   trunk/src/sprite2dview.hpp
+   trunk/src/windstille_main.cpp
+Log:
+some more sprite2dview feature
+
+Modified: trunk/src/config.cpp
+===================================================================
+--- trunk/src/config.cpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/config.cpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -127,6 +127,8 @@
+ void
+ Config::parse_args(int argc, char** argv)
+ {
++  arg_files.clear();
++
+   CommandLine argp;
+ 
+   const int debug_flag        = 256;
+
+Modified: trunk/src/controller_def.hpp
+===================================================================
+--- trunk/src/controller_def.hpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/controller_def.hpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -33,6 +33,9 @@
+ 
+ enum InputEventName
+   { 
++    MOUSE_MOTION_X, 
++    MOUSE_MOTION_Y, 
++
+     X_AXIS, // used to run left/right
+     Y_AXIS,  // used to aim up/down
+ 
+
+Modified: trunk/src/input/controller.cpp
+===================================================================
+--- trunk/src/input/controller.cpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/input/controller.cpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -29,6 +29,7 @@
+ 
+ Controller::Controller()
+ {
++  // FIXME: need to mark states with type
+   states.resize(LAST_EVENT);
+ }
+ 
+@@ -140,6 +141,9 @@
+ Controller::clear()
+ {
+   events.clear();
++  // FIXME: EVIL HARDCODE
++  states[0].ball = 0;
++  states[1].ball = 0;
+ }
+ 
+ void
+@@ -148,4 +152,30 @@
+   events.push_back(event);
+ }
+ 
++float
++Controller::get_ball_state(int id) const
++{
++  assert(id < int(states.size()));
++  return states[id].ball;
++}
++
++void
++Controller::set_ball_state(int id, float pos)
++{
++  assert(id < static_cast<int>(states.size()));
++  states[id].ball = pos;
++}
++
++void
++Controller::add_ball_event(int name, float pos)
++{
++  InputEvent event;
++
++  event.type = BALL_EVENT;
++  event.ball.name = name;
++  event.ball.pos  = pos;
++
++  events.push_back(event);  
++}
++
+ /* EOF */
+
+Modified: trunk/src/input/controller.hpp
+===================================================================
+--- trunk/src/input/controller.hpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/input/controller.hpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -37,8 +37,10 @@
+ {
+ private:
+   union State {
++    enum { BUTTON_STATE, BALL_STATE, AXIS_STATE } type;
+     bool  button;
+     float axis;
++    float ball;
+   };
+ 
+   std::vector<State> states;
+@@ -49,12 +51,15 @@
+ 
+   float get_axis_state  (int name) const;
+   bool  get_button_state(int name) const;
++  float get_ball_state  (int name) const;
+ 
+   void  set_axis_state  (int name, float pos);
+   void  set_button_state(int name, bool down);
++  void  set_ball_state  (int name, float delta);
+ 
+   void add_axis_event  (int name, float pos);
+   void add_button_event(int name, bool down);
++  void add_ball_event  (int name, float pos);
+ 
+   const InputEventLst& get_events() const;
+   void set_events(const InputEventLst& lst);
+
+Modified: trunk/src/input/controller_description.cpp
+===================================================================
+--- trunk/src/input/controller_description.cpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/input/controller_description.cpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -49,6 +49,19 @@
+ }
+ 
+ void
++ControllerDescription::add_ball  (const std::string& name, int id)
++{
++  InputEventDefinition event;
++
++  event.type = BALL_EVENT;
++  event.name = name;
++  event.id   = id;
++
++  str_to_event[event.name] = event;
++  id_to_event[event.id]    = event;
++}
++
++void
+ ControllerDescription::add_axis  (const std::string& name, int id)
+ {
+   InputEventDefinition event;
+
+Modified: trunk/src/input/controller_description.hpp
+===================================================================
+--- trunk/src/input/controller_description.hpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/input/controller_description.hpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -50,6 +50,7 @@
+ 
+   void add_button(const std::string& name, int id);
+   void add_axis  (const std::string& name, int id); 
++  void add_ball  (const std::string& name, int id); 
+ 
+   const InputEventDefinition& get_definition(int id) const;
+   const InputEventDefinition& get_definition(const std::string& name) const;
+
+Modified: trunk/src/input/input_event.hpp
+===================================================================
+--- trunk/src/input/input_event.hpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/input/input_event.hpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -28,7 +28,7 @@
+ 
+ #include <vector>
+ 
+-enum InputEventType { BUTTON_EVENT, AXIS_EVENT, KEYBOARD_EVENT };
++enum InputEventType { BUTTON_EVENT, AXIS_EVENT, BALL_EVENT, KEYBOARD_EVENT };
+ 
+ /** Used for textual input */
+ struct KeyboardEvent
+@@ -48,6 +48,13 @@
+   bool is_up()   const { return !down; }
+ };
+ 
++struct BallEvent
++{
++  int   name;
++  float pos;
++  float get_pos() const { return pos; }
++};
++
+ struct AxisEvent
+ {
+   int name;
+@@ -55,7 +62,7 @@
+   /** Pos can be in range from [-1.0, 1.0], some axis will only use [0,1.0] */
+   float pos;
+ 
+-  float get_pos() { return pos; }
++  float get_pos() const { return pos; }
+ };
+ 
+ struct InputEvent 
+@@ -67,6 +74,7 @@
+     struct ButtonEvent   button;
+     struct AxisEvent     axis;
+     struct KeyboardEvent keyboard;
++    struct BallEvent     ball;
+   };
+ };
+ 
+
+Modified: trunk/src/input/input_manager_impl.cpp
+===================================================================
+--- trunk/src/input/input_manager_impl.cpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/input/input_manager_impl.cpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -38,6 +38,18 @@
+ }
+ 
+ void
++InputManagerImpl::add_ball_event  (int name, float pos)
++{
++  InputEvent event;
++  event.type = BALL_EVENT;
++  event.axis.name = name;
++  event.axis.pos  = pos;
++
++  controller.add_event(event);
++  controller.set_ball_state(name, pos);  
++}
++
++void
+ InputManagerImpl::add_button_event(int name, bool down)
+ {
+   InputEvent event;
+
+Modified: trunk/src/input/input_manager_impl.hpp
+===================================================================
+--- trunk/src/input/input_manager_impl.hpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/input/input_manager_impl.hpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -45,6 +45,7 @@
+   void clear();
+ 
+   void add_axis_event  (int name, float pos);
++  void add_ball_event  (int name, float pos);
+   void add_button_event(int name, bool down);
+   void add_keyboard_event(int name, KeyboardEvent::KeyType key_type, int code);
+ private:
+
+Modified: trunk/src/input/input_manager_sdl.cpp
+===================================================================
+--- trunk/src/input/input_manager_sdl.cpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/input/input_manager_sdl.cpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -311,7 +311,12 @@
+       break;
+ 
+     case SDL_MOUSEMOTION:
+-      // event.motion:      break;
++      // event.motion
++      // FIXME: Hardcodes 0,1 values are not a good idea, need to bind the stuff like the rest
++      if (0) std::cout << "mouse: " << event.motion.xrel << " " << event.motion.yrel << std::endl;
++      add_ball_event(0, event.motion.xrel);
++      add_ball_event(1, event.motion.yrel);
++      break;
+ 
+     case SDL_MOUSEBUTTONDOWN:
+       // event.button
+
+Modified: trunk/src/screen_manager.cpp
+===================================================================
+--- trunk/src/screen_manager.cpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/screen_manager.cpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -177,7 +177,17 @@
+           if (event.key.state)
+             {    
+               switch (event.key.keysym.sym)
+-                {               
++                {       
++                case SDLK_F6:
++                  SDL_ShowCursor(SDL_ENABLE);   // SDL_ENABLE to show the mouse cursor (default)
++                  SDL_WM_GrabInput(SDL_GRAB_OFF); // SDL_GRAB_OFF to not grab input (default)
++                  break;
++
++                case SDLK_F7:
++                  SDL_ShowCursor(SDL_DISABLE);   // SDL_ENABLE to show the mouse cursor (default)
++                  SDL_WM_GrabInput(SDL_GRAB_ON); // SDL_GRAB_OFF to not grab input (default)
++                  break;
++      
+                 case SDLK_F8:
+                   {
+                     using namespace GUI;
+
+Modified: trunk/src/sprite2dview.cpp
+===================================================================
+--- trunk/src/sprite2dview.cpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/sprite2dview.cpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -25,28 +25,41 @@
+ 
+ #include <iostream>
+ #include <algorithm>
++#include "display/display.hpp"
+ #include "math.hpp"
++#include "console.hpp"
+ #include "input/controller.hpp"
+ #include "sprite2dview.hpp"
+ 
+ extern std::vector<std::string> arg_files;
+ 
++#define DISPLAY_W 800
++#define DISPLAY_H 600
++
+ Sprite2DView::Sprite2DView()
+ {
+   index = 0;
+ 
+   directory = arg_files;
+ 
++  std::cout << "Length: " << directory.size() << std::endl;
++
+   std::random_shuffle(directory.begin(), directory.end());
+ 
++  std::cout << "Length: " << directory.size() << std::endl;
++
+   sprite      = Sprite(directory.back());
+   offset = 0.0f;
+ 
+-  //mode = MANUAL; 
+-  mode = SLIDESHOW;
++  if (directory.size() > 1)
++    mode = SLIDESHOW;
++  else
++    mode = MANUAL; 
++
+   zoom = 1.0f;
+   pos  = Vector(0,0);
+   display_time = 0.0f;
++  show_thumbnail = false;
+ }
+ 
+ Sprite2DView::~Sprite2DView()
+@@ -75,6 +88,37 @@
+         {
+           new_sprite.draw(Vector(0,0));
+         }
++
++      if (show_thumbnail)
++        {
++          Sprite small = sprite;
++          small.set_alpha(1.0f);
++          float width  = small.get_width();
++          float height = small.get_height();
++          float scale;
++          if (width > height)
++            {
++              scale = 125.0f / width;
++
++              width  *= scale;
++              height *= scale;
++              small.set_scale(scale);
++
++              small.draw(Vector(DISPLAY_W - width,
++                                DISPLAY_H - height));
++            }
++          else
++            {
++              scale = 125.0f / height;
++
++              width  *= scale;
++              height *= scale;
++              small.set_scale(scale);
++
++              small.draw(Vector(DISPLAY_W - width,
++                                DISPLAY_H - height));
++            }
++        }        
+       break;
+       
+     case MANUAL:
+@@ -95,12 +139,12 @@
+ 
+       if (aspect > 4.0/3.0)
+         { // expand vertical
+-          float scale = 600.0f/height;
++          float scale = DISPLAY_H/height;
+           width  *= scale;
+           height *= scale;
+           sprite.set_scale(scale);
+ 
+-          if (offset - (width - 800) > 0)
++          if (offset - (width - DISPLAY_W) > 0)
+             {
+               if (display_time > 3.0f)
+                 next_image();
+@@ -117,7 +161,7 @@
+           height *= scale;
+           sprite.set_scale(scale);
+ 
+-          if (offset - (height - 600) > 0)
++          if (offset - (height - DISPLAY_H) > 0)
+             {
+               if (display_time > 3.0f)
+                 next_image();
+@@ -157,26 +201,27 @@
+       new_sprite = Sprite(directory[index]);
+       fadein = 0.0f;
+       prepare_sprite(new_sprite);
++      console << index << ": " << directory[index] << std::endl;
+     }
+ }
+ 
+ void
+ Sprite2DView::prepare_sprite(Sprite& sprite)
+ {
+-  width  = sprite.get_width();
+-  height = sprite.get_height();
+-  aspect = width/height;
++  float width  = sprite.get_width();
++  float height = sprite.get_height();
++  float aspect = width/height;
+ 
+   if (aspect > 4.0/3.0)
+     { // expand vertical
+-      float scale = 600.0f/height;
++      float scale = DISPLAY_H/height;
+       width  *= scale;
+       height *= scale;
+       sprite.set_scale(scale);
+     }
+   else
+     { // expand horizontal
+-      float scale = 800.0f/width;
++      float scale = DISPLAY_W/width;
+       width  *= scale;
+       height *= scale;
+       sprite.set_scale(scale);
+@@ -186,8 +231,8 @@
+ void
+ Sprite2DView::update_manual(float delta, const Controller& controller)
+ {
+-  pos.x += controller.get_axis_state(X_AXIS) * 100.0f * delta;
+-  pos.y += controller.get_axis_state(Y_AXIS) * 100.0f * delta;
++  pos.x += controller.get_axis_state(X_AXIS) * 100.0f * delta + controller.get_ball_state(MOUSE_MOTION_X);
++  pos.y += controller.get_axis_state(Y_AXIS) * 100.0f * delta + controller.get_ball_state(MOUSE_MOTION_Y);
+   
+   if (controller.get_button_state(PRIMARY_BUTTON))
+     zoom *= 1.0f + 0.3f * delta;
+@@ -212,6 +257,15 @@
+     break;
+   }
+ 
++  if (controller.button_was_pressed(TERTIARY_BUTTON))
++    show_thumbnail = !show_thumbnail;
++
++  if (controller.button_was_pressed(AIM_BUTTON))
++    {
++      if (mode == SLIDESHOW) mode = MANUAL; 
++      else if (mode == MANUAL) mode = SLIDESHOW; 
++    }
++
+   if (new_sprite)
+     {
+       fadein += delta;
+
+Modified: trunk/src/sprite2dview.hpp
+===================================================================
+--- trunk/src/sprite2dview.hpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/sprite2dview.hpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -61,7 +61,7 @@
+   float  offset;
+ 
+   float display_time;
+-
++  bool show_thumbnail;
+ public:
+   Sprite2DView();
+   ~Sprite2DView();
+
+Modified: trunk/src/windstille_main.cpp
+===================================================================
+--- trunk/src/windstille_main.cpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/windstille_main.cpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -94,6 +94,9 @@
+ 
+       controller_description.add_axis("x2-axis", X2_AXIS);
+       controller_description.add_axis("y2-axis", Y2_AXIS);
++
++      controller_description.add_ball("mouse-motion-x", MOUSE_MOTION_X);
++      controller_description.add_ball("mouse-motion-y", MOUSE_MOTION_Y);
+     }
+ 
+       {
+
+
+
+From grumbel at berlios.de  Sun Apr 16 01:44:55 2006
+From: grumbel at berlios.de (grumbel at BerliOS)
+Date: Sun, 16 Apr 2006 01:44:55 +0200
+Subject: [Windstille-commit] r1256 - in trunk/data/models/vehicles: . shuttle
+Message-ID: <200604152344.k3FNitRR002118@sheep.berlios.de>
+
+Author: grumbel
+Date: 2006-04-16 01:39:08 +0200 (Sun, 16 Apr 2006)
+New Revision: 1256
+
+Added:
+   trunk/data/models/vehicles/shuttle/
+   trunk/data/models/vehicles/shuttle/shuttle.blend
+   trunk/data/models/vehicles/shuttle/shuttle.jpg
+   trunk/data/models/vehicles/shuttle/shuttle.xcf
+Log:
+- added shuttle model
+
+Added: trunk/data/models/vehicles/shuttle/shuttle.blend
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/models/vehicles/shuttle/shuttle.blend
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/models/vehicles/shuttle/shuttle.jpg
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/models/vehicles/shuttle/shuttle.jpg
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/models/vehicles/shuttle/shuttle.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/models/vehicles/shuttle/shuttle.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+
+
+From grumbel at berlios.de  Sun Apr 16 03:17:11 2006
+From: grumbel at berlios.de (grumbel at BerliOS)
+Date: Sun, 16 Apr 2006 03:17:11 +0200
+Subject: [Windstille-commit] r1257 - trunk/src
+Message-ID: <200604160117.k3G1HBFi021614@sheep.berlios.de>
+
+Author: grumbel
+Date: 2006-04-16 03:16:38 +0200 (Sun, 16 Apr 2006)
+New Revision: 1257
+
+Modified:
+   trunk/src/sprite2dview.cpp
+   trunk/src/sprite2dview.hpp
+Log:
+- some fixing of Sprite2DViewer
+
+Modified: trunk/src/sprite2dview.cpp
+===================================================================
+--- trunk/src/sprite2dview.cpp	2006-04-15 23:39:08 UTC (rev 1256)
++++ trunk/src/sprite2dview.cpp	2006-04-16 01:16:38 UTC (rev 1257)
+@@ -60,6 +60,7 @@
+   pos  = Vector(0,0);
+   display_time = 0.0f;
+   show_thumbnail = false;
++  ignore_delta = false;
+ }
+ 
+ Sprite2DView::~Sprite2DView()
+@@ -199,6 +200,7 @@
+ 
+       index = (unsigned int)(index + i) % directory.size();
+       new_sprite = Sprite(directory[index]);
++      ignore_delta = true;
+       fadein = 0.0f;
+       prepare_sprite(new_sprite);
+       console << index << ": " << directory[index] << std::endl;
+@@ -246,6 +248,12 @@
+ void
+ Sprite2DView::update(float delta, const Controller& controller)
+ {  
++  if (ignore_delta)
++    {
++      ignore_delta = false;
++      delta = 0.0f;
++    }
++  
+   display_time += delta;
+ 
+   switch(mode) {
+@@ -289,6 +297,7 @@
+ Sprite2DView::set_sprite(const std::string& filename)
+ {
+   sprite = Sprite(filename);
++  ignore_delta = true;
+ }
+ 
+ /* EOF */
+
+Modified: trunk/src/sprite2dview.hpp
+===================================================================
+--- trunk/src/sprite2dview.hpp	2006-04-15 23:39:08 UTC (rev 1256)
++++ trunk/src/sprite2dview.hpp	2006-04-16 01:16:38 UTC (rev 1257)
+@@ -62,6 +62,7 @@
+ 
+   float display_time;
+   bool show_thumbnail;
++  bool ignore_delta;
+ public:
+   Sprite2DView();
+   ~Sprite2DView();
+
+
+
+From grumbel at berlios.de  Mon Apr 24 13:53:40 2006
+From: grumbel at berlios.de (grumbel at BerliOS)
+Date: Mon, 24 Apr 2006 13:53:40 +0200
+Subject: [Windstille-commit] r1258 - trunk/data/images/tiles
+Message-ID: <200604241153.k3OBreXP005843@sheep.berlios.de>
+
+Author: grumbel
+Date: 2006-04-24 13:49:16 +0200 (Mon, 24 Apr 2006)
+New Revision: 1258
+
+Added:
+   trunk/data/images/tiles/mine3.xcf
+   trunk/data/images/tiles/shuttle.xcf
+Log:
+- some more sketches
+
+Added: trunk/data/images/tiles/mine3.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/tiles/mine3.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/images/tiles/shuttle.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/tiles/shuttle.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+
+
+From grumbel at berlios.de  Tue Apr 25 05:42:06 2006
+From: grumbel at berlios.de (grumbel at BerliOS)
+Date: Tue, 25 Apr 2006 05:42:06 +0200
+Subject: [Windstille-commit] r1259 - in trunk/data/images: . portraits tiles
+Message-ID: <200604250342.k3P3g6mK000806@sheep.berlios.de>
+
+Author: grumbel
+Date: 2006-04-25 05:20:58 +0200 (Tue, 25 Apr 2006)
+New Revision: 1259
+
+Added:
+   trunk/data/images/car.xcf
+   trunk/data/images/elevatorsketchcolor.xcf
+   trunk/data/images/generator.xcf
+   trunk/data/images/gun1.xcf
+   trunk/data/images/gun3.xcf
+   trunk/data/images/gun4.xcf
+   trunk/data/images/haus2.xcf
+   trunk/data/images/haus3.xcf
+   trunk/data/images/hause.xcf
+   trunk/data/images/metalwall.xcf
+   trunk/data/images/policecar.xcf
+   trunk/data/images/portraits/barrobot.png
+   trunk/data/images/room.xcf
+   trunk/data/images/room2.xcf
+   trunk/data/images/tiles/airport.xcf
+   trunk/data/images/tiles/airportbar.xcf
+   trunk/data/images/tiles/airportshop.xcf
+   trunk/data/images/train.xcf
+Modified:
+   trunk/data/images/noise3.png
+   trunk/data/images/tiles/shuttle.xcf
+Log:
+- some new images
+
+Added: trunk/data/images/car.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/car.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/images/elevatorsketchcolor.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/elevatorsketchcolor.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/images/generator.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/generator.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/images/gun1.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/gun1.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/images/gun3.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/gun3.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/images/gun4.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/gun4.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/images/haus2.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/haus2.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/images/haus3.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/haus3.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/images/hause.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/hause.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/images/metalwall.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/metalwall.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Modified: trunk/data/images/noise3.png
+===================================================================
+(Binary files differ)
+
+Added: trunk/data/images/policecar.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/policecar.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/images/portraits/barrobot.png
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/portraits/barrobot.png
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/images/room.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/room.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/images/room2.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/room2.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/images/tiles/airport.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/tiles/airport.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/images/tiles/airportbar.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/tiles/airportbar.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/images/tiles/airportshop.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/tiles/airportshop.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Modified: trunk/data/images/tiles/shuttle.xcf
+===================================================================
+(Binary files differ)
+
+Added: trunk/data/images/train.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/train.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+
+
+From grumbel at berlios.de  Tue Apr 25 06:04:54 2006
+From: grumbel at berlios.de (grumbel at BerliOS)
+Date: Tue, 25 Apr 2006 06:04:54 +0200
+Subject: [Windstille-commit] r1260 - in trunk/data/models: . characters characters/airportpersonal characters/bob characters/jane characters/merc3 characters/miner characters/scientist characters/soldier characters/yagor misc misc/city objects/barrobot vehicles/minetrain vehicles/shuttle vehicles/troopshuttle
+Message-ID: <200604250404.k3P44sC3007078@sheep.berlios.de>
+
+Author: grumbel
+Date: 2006-04-25 05:43:23 +0200 (Tue, 25 Apr 2006)
+New Revision: 1260
+
+Added:
+   trunk/data/models/characters/airportpersonal/
+   trunk/data/models/characters/airportpersonal/airportpersonal.xcf
+   trunk/data/models/characters/merc3/
+   trunk/data/models/characters/merc3/merc3.xcf
+   trunk/data/models/characters/miner/
+   trunk/data/models/characters/miner/miner.xcf
+   trunk/data/models/characters/miner/minerfront.xcf
+   trunk/data/models/characters/scientist/
+   trunk/data/models/characters/scientist/scientist.xcf
+   trunk/data/models/characters/soldier/
+   trunk/data/models/characters/soldier/harry_soldier.png
+   trunk/data/models/characters/soldier/soldier.xcf
+   trunk/data/models/misc/
+   trunk/data/models/misc/city/
+   trunk/data/models/misc/city/city.blend
+   trunk/data/models/misc/city/city.xcf
+   trunk/data/models/vehicles/minetrain/cargotrain.xcf
+   trunk/data/models/vehicles/shuttle/entry.xcf
+   trunk/data/models/vehicles/troopshuttle/troopshuttle-crash1-1.xcf
+   trunk/data/models/vehicles/troopshuttle/troopshuttle-crash1.xcf
+Modified:
+   trunk/data/models/characters/bob/bob.wsprite
+   trunk/data/models/characters/jane/jane.wsprite
+   trunk/data/models/characters/yagor/yagor.blend
+   trunk/data/models/characters/yagor/yagor.wsprite
+   trunk/data/models/objects/barrobot/barrobot.blend
+   trunk/data/models/vehicles/shuttle/shuttle.blend
+   trunk/data/models/vehicles/troopshuttle/troopshuttle.blend
+Log:
+- some more images
+
+Added: trunk/data/models/characters/airportpersonal/airportpersonal.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/models/characters/airportpersonal/airportpersonal.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Modified: trunk/data/models/characters/bob/bob.wsprite
+===================================================================
+(Binary files differ)
+
+Modified: trunk/data/models/characters/jane/jane.wsprite
+===================================================================
+(Binary files differ)
+
+Added: trunk/data/models/characters/merc3/merc3.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/models/characters/merc3/merc3.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/models/characters/miner/miner.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/models/characters/miner/miner.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/models/characters/miner/minerfront.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/models/characters/miner/minerfront.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/models/characters/scientist/scientist.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/models/characters/scientist/scientist.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/models/characters/soldier/harry_soldier.png
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/models/characters/soldier/harry_soldier.png
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/models/characters/soldier/soldier.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/models/characters/soldier/soldier.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Modified: trunk/data/models/characters/yagor/yagor.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/data/models/characters/yagor/yagor.wsprite
+===================================================================
+(Binary files differ)
+
+Added: trunk/data/models/misc/city/city.blend
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/models/misc/city/city.blend
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/models/misc/city/city.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/models/misc/city/city.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Modified: trunk/data/models/objects/barrobot/barrobot.blend
+===================================================================
+(Binary files differ)
+
+Added: trunk/data/models/vehicles/minetrain/cargotrain.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/models/vehicles/minetrain/cargotrain.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/models/vehicles/shuttle/entry.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/models/vehicles/shuttle/entry.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Modified: trunk/data/models/vehicles/shuttle/shuttle.blend
+===================================================================
+(Binary files differ)
+
+Added: trunk/data/models/vehicles/troopshuttle/troopshuttle-crash1-1.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/models/vehicles/troopshuttle/troopshuttle-crash1-1.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/models/vehicles/troopshuttle/troopshuttle-crash1.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/models/vehicles/troopshuttle/troopshuttle-crash1.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Modified: trunk/data/models/vehicles/troopshuttle/troopshuttle.blend
+===================================================================
+(Binary files differ)
+
+
+
+From grumbel at berlios.de  Tue Apr 25 06:09:11 2006
+From: grumbel at berlios.de (grumbel at BerliOS)
+Date: Tue, 25 Apr 2006 06:09:11 +0200
+Subject: [Windstille-commit] r1261 - in trunk/src: . display sprite2d
+Message-ID: <200604250409.k3P49BYB007835@sheep.berlios.de>
+
+Author: grumbel
+Date: 2006-04-25 06:08:56 +0200 (Tue, 25 Apr 2006)
+New Revision: 1261
+
+Modified:
+   trunk/src/SConscript
+   trunk/src/box.cpp
+   trunk/src/console.cpp
+   trunk/src/display/surface.cpp
+   trunk/src/display/surface.hpp
+   trunk/src/display/surface_manager.cpp
+   trunk/src/display/surface_manager.hpp
+   trunk/src/sharedptr.hpp
+   trunk/src/sprite2d/data.cpp
+   trunk/src/sprite2d/manager.cpp
+   trunk/src/sprite2d/manager.hpp
+   trunk/src/sprite2d/sprite.cpp
+   trunk/src/sprite2d/sprite.hpp
+   trunk/src/sprite2dview.cpp
+   trunk/src/sprite2dview.hpp
+Log:
+- some more features and bugfixes for Sprite2DVieew
+- added cleanup() calls for Sprite2DManager and SurfaceManager to get rid of all unused resources
+
+Modified: trunk/src/SConscript
+===================================================================
+--- trunk/src/SConscript	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/SConscript	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -174,7 +174,7 @@
+ 'tinygettext/gettext.cpp',
+ 'tinygettext/tinygettext.cpp'
+ ],
+-LIBS    = ['GL', 'GLU', 'squirrel', 'physfs', 'SDL_image', 'openal', 'glew'] + env['LIBS'],
++LIBS    = ['GL', 'GLU', 'squirrel', 'physfs', 'SDL_image', 'openal', 'glew', 'ogg', 'vorbis', 'vorbisfile'] + env['LIBS'],
+ LIBPATH = ['squirrel/', '../lib/'],
+ CPPPATH = env['CPPPATH'] + ['.', '..', 'squirrel/include/', '../lib/glew'])
+ 
+
+Modified: trunk/src/box.cpp
+===================================================================
+--- trunk/src/box.cpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/box.cpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -48,6 +48,7 @@
+   
+   if(spritename == "")
+     throw std::runtime_error("No sprite name specified in Box");
++  
+   sprite = Sprite(spritename);
+   
+   colobj = new CollisionObject(this, Rectf(0, 0, width, height));
+
+Modified: trunk/src/console.cpp
+===================================================================
+--- trunk/src/console.cpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/console.cpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -163,7 +163,7 @@
+ 
+   if (console.is_active())
+     Display::fill_rect(Rect(0,0, 800, 600),
+-                       Color(0, 0, 0, 0.25f));
++                       Color(0, 0, 0, 0.5f));
+ 
+   for(int i = buffer.size()-1 - scroll_offset; i >= 0 && i > int(buffer.size()) - num_lines - scroll_offset; --i)
+     {
+@@ -189,7 +189,7 @@
+             str += "_";
+         }
+ 
+-      Fonts::ttffont->draw(x_pos, y_pos, ">" + str, Color(1.0f, 1.0f, 1.0f));
++      Fonts::ttffont->draw(x_pos, y_pos, "> " + str, Color(1.0f, 1.0f, 1.0f));
+     }
+ }
+ 
+
+Modified: trunk/src/display/surface.cpp
+===================================================================
+--- trunk/src/display/surface.cpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/display/surface.cpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -116,7 +116,7 @@
+ 
+ Surface::operator bool() const
+ {
+-  return !impl.is_null();
++  return impl.get() != 0;
+ }
+ 
+ void
+
+Modified: trunk/src/display/surface.hpp
+===================================================================
+--- trunk/src/display/surface.hpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/display/surface.hpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -27,9 +27,9 @@
+ #define HEADER_SURFACE_HPP
+ 
+ #include <string>
++#include <boost/shared_ptr.hpp>
+ #include "math/rect.hpp"
+ #include "texture.hpp"
+-#include "sharedptr.hpp"
+ 
+ class SurfaceDrawingParameters;
+ class SurfaceImpl;
+@@ -70,8 +70,10 @@
+ 
+   /** true if the Texture is valid and usable, false if not */
+   operator bool() const;
++
++  long use_count() const { return impl.use_count(); }
+ private:
+-  SharedPtr<SurfaceImpl> impl;
++  boost::shared_ptr<SurfaceImpl> impl;
+ };
+ 
+ #endif
+
+Modified: trunk/src/display/surface_manager.cpp
+===================================================================
+--- trunk/src/display/surface_manager.cpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/display/surface_manager.cpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -27,7 +27,8 @@
+   {
+     for(Surfaces::iterator i = surfaces.begin(); i != surfaces.end(); ++i)
+     {
+-      std::cerr << "Warning: Surface '" << i->first << "' not released.\n";
++      //      if (i->second.use_count() > 1)
++        std::cerr << "Warning: Surface '" << i->first << "' not released.\n";
+     }
+   }
+ }
+@@ -162,3 +163,17 @@
+   return texture;
+ }
+ 
++void
++SurfaceManager::cleanup()
++{
++  for(Surfaces::iterator i = surfaces.begin(); i != surfaces.end(); ++i)
++    {
++      if (i->second.use_count() == 1)
++        {
++          surfaces.erase(i);
++        }
++    }
++}
++
++
++/* EOF */
+
+Modified: trunk/src/display/surface_manager.hpp
+===================================================================
+--- trunk/src/display/surface_manager.hpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/display/surface_manager.hpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -33,6 +33,9 @@
+ 
+   Texture create_texture(SDL_Surface* image, 
+                          float& maxu, float& maxv);
++
++  /** Removes all cached Sprites that are no longer in use */
++  void cleanup();
+   
+   typedef std::map<std::string, Surface> Surfaces;
+   Surfaces surfaces;
+
+Modified: trunk/src/sharedptr.hpp
+===================================================================
+--- trunk/src/sharedptr.hpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/sharedptr.hpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -103,12 +103,6 @@
+ 
+ 	U const* get() const { return (const U*) ((impl != 0) ? impl->ptr : 0); }
+ 
+-	//: Return the pointer.
+-	operator U*() { return get(); }
+-
+-	//: Returns the pointer.
+-	operator U const*() const { return get(); }
+-
+ 	//: Pointer equality check operator.
+ 	//- <p> This will return true if the SharedPtrs point to the same data. It doesn't
+ 	//- check the data itself for equality. </p>
+
+Modified: trunk/src/sprite2d/data.cpp
+===================================================================
+--- trunk/src/sprite2d/data.cpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/sprite2d/data.cpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -15,8 +15,7 @@
+ #include "display/surface.hpp"
+ #include "display/surface_manager.hpp"
+ 
+-namespace sprite2d
+-{
++namespace sprite2d {
+ 
+ static bool has_suffix(const std::string& str, const std::string& suffix)
+ {
+@@ -26,6 +25,14 @@
+     return false;
+ }
+ 
++static std::string tolowercase(const std::string& str)
++{
++  std::string out;
++  for(std::string::const_iterator i = str.begin();  i != str.end(); ++i)
++    out += tolower(*i);
++  return out;
++}
++
+ Data::Data(const std::string& filename)
+ {
+   if (PHYSFS_exists(filename.c_str()))
+@@ -44,7 +51,7 @@
+           std::string dir = dirname(filename);
+           parse(dir, sprite);
+         }
+-      else if (has_suffix(filename, ".png") || has_suffix(filename, ".jpg"))
++      else if (has_suffix(tolowercase(filename), ".png") || has_suffix(tolowercase(filename), ".jpg"))
+         {
+           if (PHYSFS_exists(filename.c_str()))
+             {
+@@ -179,4 +186,6 @@
+                              action->surfaces, x_size, y_size);
+ }
+  
+-}
++} // namespace sprite2d
++
++/* EOF */
+
+Modified: trunk/src/sprite2d/manager.cpp
+===================================================================
+--- trunk/src/sprite2d/manager.cpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/sprite2d/manager.cpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -3,6 +3,7 @@
+ #include "sprite2d/manager.hpp"
+ #include "sprite2d/data.hpp"
+ #include "sprite2d/sprite.hpp"
++#include <iostream>
+ 
+ sprite2d::Manager* sprite2d_manager = 0;
+ 
+@@ -15,11 +16,9 @@
+ 
+ Manager::~Manager()
+ {
+-  for(Datas::iterator i = datas.begin(); i != datas.end(); ++i)
+-    delete i->second;
+ }
+ 
+-const Data*
++DataPtr
+ Manager::create_data(const std::string& filename)
+ {
+   Datas::iterator i = datas.find(filename);
+@@ -29,12 +28,24 @@
+     }
+   else
+     {  
+-      Data* data = new Data(filename);
++      DataPtr data(new Data(filename));
+       datas.insert(std::make_pair(filename, data));
+       return data;
+     }
+ }
+ 
++void
++Manager::cleanup()
++{
++  for(Datas::iterator i = datas.begin(); i != datas.end(); ++i)
++    {
++      if (i->second.use_count() == 1)
++        {
++          datas.erase(i);
++        }
++    }
+ }
+ 
++} // namespace sprite2d
++
+ /* EOF */
+
+Modified: trunk/src/sprite2d/manager.hpp
+===================================================================
+--- trunk/src/sprite2d/manager.hpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/sprite2d/manager.hpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -3,10 +3,14 @@
+ 
+ #include <string>
+ #include <map>
++#include <boost/shared_ptr.hpp>
+ 
+ namespace sprite2d
+ {
++typedef 
++
+ class Data;
++typedef boost::shared_ptr<Data> DataPtr;
+ 
+ class Manager
+ {
+@@ -14,10 +18,12 @@
+   Manager();
+   ~Manager();
+ 
+-  const Data* create_data(const std::string& filename);
++  DataPtr create_data(const std::string& filename);
+   
++  /** Removes all cached Sprites that are no longer in use */
++  void cleanup();
+ private:
+-  typedef std::map<std::string, Data*> Datas;
++  typedef std::map<std::string, DataPtr> Datas;
+   Datas datas;
+ };
+ 
+
+Modified: trunk/src/sprite2d/sprite.cpp
+===================================================================
+--- trunk/src/sprite2d/sprite.cpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/sprite2d/sprite.cpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -13,7 +13,6 @@
+ #include "util.hpp"
+ 
+ Sprite::Sprite()
+-  : data(0)
+ {  
+ }
+ 
+@@ -34,7 +33,7 @@
+   blend_dfactor = GL_ONE_MINUS_SRC_ALPHA;
+ }
+ 
+-Sprite::Sprite(const sprite2d::Data* data)
++Sprite::Sprite(const sprite2d::DataPtr data)
+   : data(data)
+ {
+   current_action = data->actions[0];
+
+Modified: trunk/src/sprite2d/sprite.hpp
+===================================================================
+--- trunk/src/sprite2d/sprite.hpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/sprite2d/sprite.hpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -8,12 +8,12 @@
+ #include "display/surface.hpp"
+ #include "math/vector.hpp"
+ #include "math/matrix.hpp"
++#include "manager.hpp"
+ 
+ class DrawingContext;
+ class Color;
+ 
+ namespace sprite2d {
+-class Data;
+ struct Action;
+ } 
+ 
+@@ -26,7 +26,7 @@
+       search for a .png with the same name and use that as a simple
+       one-file sprite */
+   Sprite(const std::string& filename);
+-  Sprite(const sprite2d::Data* data);
++  Sprite(const sprite2d::DataPtr data);
+   ~Sprite();
+ 
+   void update(float delta);
+@@ -68,11 +68,11 @@
+ 
+   /** true if the Sprite is valid and usable, false if not */
+   operator bool() const;
++
+ private:
+   /** Pointer to the Sprites data which is shared among all sprites
+       with are loaded from the same file */
+-  const sprite2d::Data* data;
+-
++  sprite2d::DataPtr data;
+   const sprite2d::Action* current_action;
+ 
+   float frame;
+
+Modified: trunk/src/sprite2dview.cpp
+===================================================================
+--- trunk/src/sprite2dview.cpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/sprite2dview.cpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -25,10 +25,14 @@
+ 
+ #include <iostream>
+ #include <algorithm>
++#include <physfs.h>
++
+ #include "display/display.hpp"
++#include "sprite2d/manager.hpp"
+ #include "math.hpp"
+ #include "console.hpp"
+ #include "input/controller.hpp"
++#include "display/surface_manager.hpp"
+ #include "sprite2dview.hpp"
+ 
+ extern std::vector<std::string> arg_files;
+@@ -40,15 +44,22 @@
+ {
+   index = 0;
+ 
+-  directory = arg_files;
++  for(std::vector<std::string>::iterator i = arg_files.begin(); i != arg_files.end(); ++i)
++    {
++      if (PHYSFS_isDirectory(i->c_str()))
++        { 
++          adddir(i->c_str());
++        }
++      else
++        {
++          directory.push_back(*i);
++        }
++    }
++  
++  next_image(0);
++  sprite = new_sprite;
++  new_sprite = Sprite();
+ 
+-  std::cout << "Length: " << directory.size() << std::endl;
+-
+-  std::random_shuffle(directory.begin(), directory.end());
+-
+-  std::cout << "Length: " << directory.size() << std::endl;
+-
+-  sprite      = Sprite(directory.back());
+   offset = 0.0f;
+ 
+   if (directory.size() > 1)
+@@ -63,6 +74,25 @@
+   ignore_delta = false;
+ }
+ 
++void
++Sprite2DView::adddir(const std::string& dirname)
++{
++  char** dirlist = PHYSFS_enumerateFiles(dirname.c_str());
++  for (char **i = dirlist; *i != NULL; ++i)
++    {
++      //std::cout << dirname + "/" + *i << std::endl;
++      if (PHYSFS_isDirectory((dirname + "/" + *i).c_str()))
++        {
++          adddir(dirname + "/" + *i);
++        }
++      else
++        {
++          directory.push_back((dirname + "/" + *i).c_str());
++        }
++    }
++  PHYSFS_freeList(dirlist);
++}
++
+ Sprite2DView::~Sprite2DView()
+ {
+   
+@@ -199,12 +229,26 @@
+         }
+ 
+       index = (unsigned int)(index + i) % directory.size();
+-      new_sprite = Sprite(directory[index]);
++
++    retry:
++      try {
++        new_sprite = Sprite(directory[index]);
++      } catch(std::exception& e) {
++        std::cout << "Error: " << e.what() << std::endl;
++        std::cout << "Removing '" << directory[index] << "' from the list" << std::endl;
++        directory.erase(directory.begin() + index);
++        index = (unsigned int)(index) % directory.size();
++        goto retry;
++      }
++
+       ignore_delta = true;
+       fadein = 0.0f;
+       prepare_sprite(new_sprite);
+       console << index << ": " << directory[index] << std::endl;
+     }
++
++  sprite2d_manager->cleanup();
++  surface_manager->cleanup();
+ }
+ 
+ void
+@@ -265,6 +309,9 @@
+     break;
+   }
+ 
++  if (controller.button_was_pressed(INVENTORY_BUTTON))
++     std::random_shuffle(directory.begin(), directory.end());
++   
+   if (controller.button_was_pressed(TERTIARY_BUTTON))
+     show_thumbnail = !show_thumbnail;
+ 
+
+Modified: trunk/src/sprite2dview.hpp
+===================================================================
+--- trunk/src/sprite2dview.hpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/sprite2dview.hpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -63,9 +63,12 @@
+   float display_time;
+   bool show_thumbnail;
+   bool ignore_delta;
++
+ public:
+   Sprite2DView();
+   ~Sprite2DView();
++  
++  void adddir(const std::string& dir);
+ 
+   void draw();
+   void update(float delta, const Controller& controller);
+
+
+
+From grumbel at berlios.de  Tue Apr 25 20:43:50 2006
+From: grumbel at berlios.de (grumbel at BerliOS)
+Date: Tue, 25 Apr 2006 20:43:50 +0200
+Subject: [Windstille-commit] r1262 - in trunk/src: . input
+Message-ID: <200604251843.k3PIhoC1018965@sheep.berlios.de>
+
+Author: grumbel
+Date: 2006-04-25 20:43:15 +0200 (Tue, 25 Apr 2006)
+New Revision: 1262
+
+Modified:
+   trunk/src/input/input_configurator.cpp
+   trunk/src/input/input_manager_sdl.cpp
+   trunk/src/input/input_manager_sdl.hpp
+   trunk/src/screen_manager.cpp
+Log:
+- added support for mouse buttons
+
+Modified: trunk/src/input/input_configurator.cpp
+===================================================================
+--- trunk/src/input/input_configurator.cpp	2006-04-25 04:08:56 UTC (rev 1261)
++++ trunk/src/input/input_configurator.cpp	2006-04-25 18:43:15 UTC (rev 1262)
+@@ -152,7 +152,15 @@
+       break;
+ 
+     case SDL_MOUSEBUTTONDOWN:
+-      // event.button
++      if (items.back().mode == ConfigureItem::CONFIGURE_BUTTON)
++        {
++          InputManagerSDL::current()->bind_mouse_button(items.back().event_id,
++                                                        0, // SDL only supports one mouse
++                                                        event.button.button);
++          out << "(mouse-button (device " << 0 << ")\n"
++              << "              (button " << int(event.button.button) << "))" << std::endl;
++          next_item();
++        }
+       break;
+ 
+     case SDL_MOUSEBUTTONUP:
+
+Modified: trunk/src/input/input_manager_sdl.cpp
+===================================================================
+--- trunk/src/input/input_manager_sdl.cpp	2006-04-25 04:08:56 UTC (rev 1261)
++++ trunk/src/input/input_manager_sdl.cpp	2006-04-25 18:43:15 UTC (rev 1262)
+@@ -44,6 +44,8 @@
+   std::vector<KeyboardButtonBinding> keyboard_button_bindings;
+   std::vector<KeyboardAxisBinding>   keyboard_axis_bindings;
+ 
++  std::vector<MouseButtonBinding>   mouse_button_bindings;
++
+   std::vector<SDL_Joystick*> joysticks;
+ 
+   std::map<std::string, SDLKey> keyidmapping;
+@@ -229,6 +231,20 @@
+ }
+ 
+ void
++InputManagerSDL::on_mouse_button_event(const SDL_MouseButtonEvent& button)
++{
++  for (std::vector<MouseButtonBinding>::const_iterator i = impl->mouse_button_bindings.begin();
++       i != impl->mouse_button_bindings.end();
++       ++i)
++    {
++      if (button.button == i->button)
++        {
++          add_button_event(i->event, button.state);
++        }
++    }
++}
++
++void
+ InputManagerSDL::on_joy_button_event(const SDL_JoyButtonEvent& button)
+ {
+   for (std::vector<JoystickButtonBinding>::const_iterator i = impl->joystick_button_bindings.begin();
+@@ -319,11 +335,11 @@
+       break;
+ 
+     case SDL_MOUSEBUTTONDOWN:
+-      // event.button
++      on_mouse_button_event(event.button);
+       break;
+ 
+     case SDL_MOUSEBUTTONUP:
+-      // event.button
++      on_mouse_button_event(event.button);
+       break;
+ 
+     case SDL_JOYAXISMOTION:
+@@ -355,6 +371,18 @@
+ }
+ 
+ void
++InputManagerSDL::bind_mouse_button(int event, int device, int button)
++{
++  MouseButtonBinding binding;
++
++  binding.event  = event;
++  binding.device = device;
++  binding.button = button;
++
++  impl->mouse_button_bindings.push_back(binding); 
++}
++
++void
+ InputManagerSDL::bind_joystick_hat_axis(int event, int device, int axis)
+ {
+ }
+
+Modified: trunk/src/input/input_manager_sdl.hpp
+===================================================================
+--- trunk/src/input/input_manager_sdl.hpp	2006-04-25 04:08:56 UTC (rev 1261)
++++ trunk/src/input/input_manager_sdl.hpp	2006-04-25 18:43:15 UTC (rev 1262)
+@@ -54,6 +54,13 @@
+   int plus;
+ };
+ 
++struct MouseButtonBinding
++{
++  int event;
++  int device;
++  int button;
++};
++
+ struct KeyboardButtonBinding
+ {
+   int event;
+@@ -88,6 +95,7 @@
+ 
+   void bind_keyboard_button(int event, SDLKey key);
+   void bind_keyboard_axis(int event, SDLKey minus, SDLKey plus);
++  void bind_mouse_button(int event, int device, int button);
+   
+   void clear_bindings();
+ 
+@@ -98,6 +106,7 @@
+ 
+ private:
+   void on_key_event(const SDL_KeyboardEvent& key);
++  void on_mouse_button_event(const SDL_MouseButtonEvent& button);
+   void on_joy_button_event(const SDL_JoyButtonEvent& button);
+   void on_joy_axis_event(const SDL_JoyAxisEvent& button);
+   
+
+Modified: trunk/src/screen_manager.cpp
+===================================================================
+--- trunk/src/screen_manager.cpp	2006-04-25 04:08:56 UTC (rev 1261)
++++ trunk/src/screen_manager.cpp	2006-04-25 18:43:15 UTC (rev 1262)
+@@ -292,6 +292,7 @@
+           break;
+ 
+         case SDL_MOUSEBUTTONUP:
++        case SDL_MOUSEBUTTONDOWN:
+         case SDL_MOUSEMOTION:
+         case SDL_JOYAXISMOTION:
+         case SDL_JOYBALLMOTION:
+
+
+

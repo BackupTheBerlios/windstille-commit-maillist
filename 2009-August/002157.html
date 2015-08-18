@@ -1,0 +1,355 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3160 - in trunk/windstille/src: particles	scenegraph screen
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3160%20-%20in%20trunk/windstille/src%3A%20particles%0A%09scenegraph%20screen&In-Reply-To=%3C200908312017.n7VKHQcS024307%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002156.html">
+   <LINK REL="Next"  HREF="002158.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3160 - in trunk/windstille/src: particles	scenegraph screen</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3160%20-%20in%20trunk/windstille/src%3A%20particles%0A%09scenegraph%20screen&In-Reply-To=%3C200908312017.n7VKHQcS024307%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3160 - in trunk/windstille/src: particles	scenegraph screen">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Aug 31 22:17:26 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002156.html">[Windstille-commit] r3159 - trunk/windstille/src/math
+</A></li>
+        <LI>Next message: <A HREF="002158.html">[Windstille-commit] r3161 - trunk/windstille/src/screen
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2157">[ date ]</a>
+              <a href="thread.html#2157">[ thread ]</a>
+              <a href="subject.html#2157">[ subject ]</a>
+              <a href="author.html#2157">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-08-31 22:17:25 +0200 (Mon, 31 Aug 2009)
+New Revision: 3160
+
+Modified:
+   trunk/windstille/src/particles/particle_system.cpp
+   trunk/windstille/src/particles/particle_system.hpp
+   trunk/windstille/src/particles/spark_drawer.cpp
+   trunk/windstille/src/particles/surface_drawer.cpp
+   trunk/windstille/src/scenegraph/fill_screen_drawable.hpp
+   trunk/windstille/src/scenegraph/particle_system_drawable.cpp
+   trunk/windstille/src/screen/particle_viewer.cpp
+Log:
+ParticleSystem now fully usable in the SceneGraph
+
+Modified: trunk/windstille/src/particles/particle_system.cpp
+===================================================================
+--- trunk/windstille/src/particles/particle_system.cpp	2009-08-31 20:16:38 UTC (rev 3159)
++++ trunk/windstille/src/particles/particle_system.cpp	2009-08-31 20:17:25 UTC (rev 3160)
+@@ -418,7 +418,7 @@
+ }
+ 
+ float
+-ParticleSystem::get_progress(float t)
++ParticleSystem::get_progress(float t) const
+ {
+   return std::max(0.0f, std::min(1.0f, t/life_time));
+ }
+
+Modified: trunk/windstille/src/particles/particle_system.hpp
+===================================================================
+--- trunk/windstille/src/particles/particle_system.hpp	2009-08-31 20:16:38 UTC (rev 3159)
++++ trunk/windstille/src/particles/particle_system.hpp	2009-08-31 20:17:25 UTC (rev 3160)
+@@ -55,6 +55,7 @@
+ public:
+   typedef std::vector&lt;Particle&gt; Particles;
+   typedef Particles::iterator iterator;
++  typedef Particles::const_iterator const_iterator;
+ 
+ private:
+   Particles particles;
+@@ -173,20 +174,25 @@
+   iterator begin() { return particles.begin(); }
+   iterator end()   { return particles.end(); }
+ 
++  const_iterator begin() const { return particles.begin(); }
++  const_iterator end()   const { return particles.end(); }
++
+   float get_size_start() const { return size_start; }
+   float get_size_stop()  const { return size_stop; }
+ 
+   const Color&amp; get_color_start() const { return color_start; }
+   const Color&amp; get_color_stop()  const { return color_stop;  }
+ 
+-  float get_x_pos() { return x_pos; }
+-  float get_y_pos() { return y_pos; } 
+-  float get_z_pos() { return z_pos; } 
++  float get_x_pos() const { return x_pos; }
++  float get_y_pos() const { return y_pos; } 
++  float get_z_pos() const { return z_pos; } 
+ 
+   /** Returns the how much a particle has progressed, this is
+       particle.life_time with fade_in/fade_out applied  */
+-  float get_progress(float t);
++  float get_progress(float t) const;
+ 
++  unsigned int get_layer() const { return layer; }
++
+ private:
+   ParticleSystem (const ParticleSystem&amp;);
+   ParticleSystem&amp; operator= (const ParticleSystem&amp;);
+
+Modified: trunk/windstille/src/particles/spark_drawer.cpp
+===================================================================
+--- trunk/windstille/src/particles/spark_drawer.cpp	2009-08-31 20:16:38 UTC (rev 3159)
++++ trunk/windstille/src/particles/spark_drawer.cpp	2009-08-31 20:17:25 UTC (rev 3160)
+@@ -34,7 +34,7 @@
+ SparkDrawer::draw(DrawingContext&amp; dc, ParticleSystem&amp; psys) 
+ {
+   VertexArrayDrawable* buffer = new VertexArrayDrawable(Vector2f(0, 0), psys.get_z_pos(),
+-                                                                    dc.get_modelview());
++                                                        dc.get_modelview());
+   if (width == 1.0f)
+     {
+       buffer-&gt;set_mode(GL_LINES);
+@@ -82,8 +82,54 @@
+ }
+ 
+ void
+-SparkDrawer::draw(const ParticleSystem&amp; /*psys*/) const
++SparkDrawer::draw(const ParticleSystem&amp; psys) const
+ {
++  VertexArrayDrawable* buffer = new VertexArrayDrawable(Vector2f(0, 0), psys.get_z_pos(),
++                                                        Matrix::identity());
++  if (width == 1.0f)
++    {
++      buffer-&gt;set_mode(GL_LINES);
++      buffer-&gt;set_blend_func(GL_SRC_ALPHA, GL_ONE);
++      for(ParticleSystem::const_iterator i = psys.begin(); i != psys.end(); ++i)
++        {
++          buffer-&gt;color(Color(color.r, color.g, color.b, color.a - (color.a * psys.get_progress(i-&gt;t))));
++          buffer-&gt;vertex(i-&gt;x + i-&gt;v_x/10.0f, i-&gt;y + i-&gt;v_y/10.0f); 
++
++          buffer-&gt;color(Color(0, 0, 0, 0));
++          buffer-&gt;vertex(i-&gt;x, i-&gt;y);
++        }
++    }
++  else
++    {
++      buffer-&gt;set_mode(GL_QUADS);
++      buffer-&gt;set_blend_func(GL_SRC_ALPHA, GL_ONE);
++      for(ParticleSystem::const_iterator i = psys.begin(); i != psys.end(); ++i)
++        {
++          const float len = sqrtf(i-&gt;v_x * i-&gt;v_x  +  i-&gt;v_y * i-&gt;v_y);
++
++          const float o_x = i-&gt;v_y/len * width;
++          const float o_y = i-&gt;v_x/len * width;
++
++          const float x1 = i-&gt;x;
++          const float y1 = i-&gt;y;
++          const float x2 = i-&gt;x + i-&gt;v_x/10.0f;
++          const float y2 = i-&gt;y + i-&gt;v_y/10.0f;
++
++          buffer-&gt;color(Color(0, 0, 0, 0));
++          buffer-&gt;vertex(x1 + o_x, y1 - o_y);
++
++          buffer-&gt;color(Color(0, 0, 0, 0));
++          buffer-&gt;vertex(x1 - o_x, y1 + o_y);
++
++          buffer-&gt;color(Color(color.r, color.g, color.b, color.a - (color.a * psys.get_progress(i-&gt;t))));
++          buffer-&gt;vertex(x2 - o_x, y2 + o_y); 
++
++          buffer-&gt;color(Color(color.r, color.g, color.b, color.a - (color.a * psys.get_progress(i-&gt;t))));
++          buffer-&gt;vertex(x2 + o_x, y2 - o_y); 
++        }
++    }
++
++  buffer-&gt;draw(Texture());
+ }
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/particles/surface_drawer.cpp
+===================================================================
+--- trunk/windstille/src/particles/surface_drawer.cpp	2009-08-31 20:16:38 UTC (rev 3159)
++++ trunk/windstille/src/particles/surface_drawer.cpp	2009-08-31 20:17:25 UTC (rev 3160)
+@@ -160,8 +160,62 @@
+ }
+ 
+ void
+-SurfaceDrawer::draw(const ParticleSystem&amp; /*psys*/) const
++SurfaceDrawer::draw(const ParticleSystem&amp; psys) const
+ {
++  VertexArrayDrawable* buffer 
++    = new VertexArrayDrawable(Vector2f(psys.get_x_pos(), psys.get_y_pos()), psys.get_z_pos(),
++                              Matrix::identity());
++
++  buffer-&gt;set_mode(GL_QUADS);
++  buffer-&gt;set_texture(surface.get_texture());
++  buffer-&gt;set_blend_func(blendfunc_src, blendfunc_dest);
++
++  for(ParticleSystem::const_iterator i = psys.begin(); i != psys.end(); ++i)
++    {
++      if (i-&gt;t != -1.0f)
++        {
++          float p = 1.0f - psys.get_progress(i-&gt;t);
++          Color color(psys.get_color_start().r * p + psys.get_color_stop().r * (1.0f - p),
++                      psys.get_color_start().g * p + psys.get_color_stop().g * (1.0f - p),
++                      psys.get_color_start().b * p + psys.get_color_stop().b * (1.0f - p),
++                      psys.get_color_start().a * p + psys.get_color_stop().a * (1.0f - p));
++
++          // scale
++          float scale  = psys.get_size_start() + 
++            psys.get_progress(i-&gt;t) * (psys.get_size_stop() - psys.get_size_start());
++          
++          float width  = surface.get_width()  * scale;
++          float height = surface.get_height() * scale;
++              
++          // rotate
++          float x_rot = width/2;
++          float y_rot = height/2; 
++
++          if (i-&gt;angle != 0)
++            {
++              float s = sinf(math::pi * i-&gt;angle/180.0f);
++              float c = cosf(math::pi * i-&gt;angle/180.0f);
++              x_rot = (width/2) * c - (height/2) * s;
++              y_rot = (width/2) * s + (height/2) * c;
++            }
++
++          buffer-&gt;add_texcoords(surface.get_uv());
++
++          buffer-&gt;color(color);
++          buffer-&gt;vertex(i-&gt;x - x_rot, i-&gt;y - y_rot);
++
++          buffer-&gt;color(color);
++          buffer-&gt;vertex(i-&gt;x + y_rot, i-&gt;y - x_rot);
++
++          buffer-&gt;color(color);
++          buffer-&gt;vertex(i-&gt;x + x_rot, i-&gt;y + y_rot);
++
++          buffer-&gt;color(color);
++          buffer-&gt;vertex(i-&gt;x - y_rot, i-&gt;y + x_rot);
++        }
++    }
++
++  buffer-&gt;draw(Texture());
+ }
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/scenegraph/fill_screen_drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/fill_screen_drawable.hpp	2009-08-31 20:16:38 UTC (rev 3159)
++++ trunk/windstille/src/scenegraph/fill_screen_drawable.hpp	2009-08-31 20:17:25 UTC (rev 3160)
+@@ -19,8 +19,6 @@
+ #ifndef HEADER_WINDSTILLE_SCENEGRAPH_FILL_SCREEN_DRAWABLE_HPP
+ #define HEADER_WINDSTILLE_SCENEGRAPH_FILL_SCREEN_DRAWABLE_HPP
+ 
+-
+-
+ class FillScreenDrawable : public Drawable
+ {
+ private:
+
+Modified: trunk/windstille/src/scenegraph/particle_system_drawable.cpp
+===================================================================
+--- trunk/windstille/src/scenegraph/particle_system_drawable.cpp	2009-08-31 20:16:38 UTC (rev 3159)
++++ trunk/windstille/src/scenegraph/particle_system_drawable.cpp	2009-08-31 20:17:25 UTC (rev 3160)
+@@ -24,6 +24,7 @@
+   : Drawable(Vector2f()),
+     m_particle_system(particle_system)
+ {
++  set_render_mask(particle_system.get_layer());
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/screen/particle_viewer.cpp
+===================================================================
+--- trunk/windstille/src/screen/particle_viewer.cpp	2009-08-31 20:16:38 UTC (rev 3159)
++++ trunk/windstille/src/screen/particle_viewer.cpp	2009-08-31 20:17:25 UTC (rev 3160)
+@@ -69,7 +69,6 @@
+ 
+   std::cout &lt;&lt; systems.size() &lt;&lt; &quot; particle systems ready to go&quot; &lt;&lt; std::endl;
+ 
+-
+   for(Systems::iterator i = systems.begin(); i != systems.end(); ++i)
+   {
+     sg.add_drawable(boost::shared_ptr&lt;Drawable&gt;(new ParticleSystemDrawable(**i)));
+@@ -84,15 +83,15 @@
+   for(float y = -background.get_width(); 
+       y &lt; static_cast&lt;float&gt;(Display::get_height()) + background.get_height(); 
+       y += background.get_height())
++  {
++    for(float x = -background.get_width(); 
++        x &lt; static_cast&lt;float&gt;(Display::get_width()) + background.get_width(); 
++        x += background.get_width())
+     {
+-      for(float x = -background.get_width(); 
+-          x &lt; static_cast&lt;float&gt;(Display::get_width()) + background.get_width(); 
+-          x += background.get_width())
+-        {
+-          sc.color().draw(background, Vector2f(x + fmodf(pos.x, background.get_width()),
+-                                               y + fmodf(pos.y, background.get_height())), -900);
+-        }
++      sc.color().draw(background, Vector2f(x + fmodf(pos.x, background.get_width()),
++                                           y + fmodf(pos.y, background.get_height())), -900);
+     }
++  }
+ 
+   sc.translate(static_cast&lt;float&gt;(Display::get_width())  / 2.0f + pos.x, 
+                static_cast&lt;float&gt;(Display::get_height()) / 2.0f + pos.y);
+@@ -100,11 +99,15 @@
+   //sc.light().fill_screen(Color(1.0f, 1.0f, 1.0f));
+   sc.color().fill_screen(Color(0.0f, 0.0f, 0.0f));
+ 
+-  for(Systems::iterator i = systems.begin(); i != systems.end(); ++i)
+-    (*i)-&gt;draw(sc);
++  if (0)
++  { // FIXME: Old SceneContext code, can be removed
++    for(Systems::iterator i = systems.begin(); i != systems.end(); ++i)
++      (*i)-&gt;draw(sc);
++  }
+ 
+-  compositor.render(sc, &amp;sg, GraphicContextState(Display::get_width(),
+-                                               Display::get_height()));
++  GraphicContextState state(Display::get_width(), Display::get_height());
++  state.set_pos(-pos);
++  compositor.render(sc, &amp;sg, state);
+ }
+ 
+ void
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002156.html">[Windstille-commit] r3159 - trunk/windstille/src/math
+</A></li>
+	<LI>Next message: <A HREF="002158.html">[Windstille-commit] r3161 - trunk/windstille/src/screen
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2157">[ date ]</a>
+              <a href="thread.html#2157">[ thread ]</a>
+              <a href="subject.html#2157">[ subject ]</a>
+              <a href="author.html#2157">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,843 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2472 - in trunk/windstille/src: . sound
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-February/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2472%20-%20in%20trunk/windstille/src%3A%20.%20sound&In-Reply-To=%3C200902121055.n1CAtTb5014396%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001468.html">
+   <LINK REL="Next"  HREF="001470.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2472 - in trunk/windstille/src: . sound</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2472%20-%20in%20trunk/windstille/src%3A%20.%20sound&In-Reply-To=%3C200902121055.n1CAtTb5014396%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2472 - in trunk/windstille/src: . sound">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Feb 12 11:55:29 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001468.html">[Windstille-commit] r2471 - in trunk/windstille/src: . app engine	gui math objects screen tile
+</A></li>
+        <LI>Next message: <A HREF="001470.html">[Windstille-commit] r2473 - in trunk/windstille/src: . collision
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1469">[ date ]</a>
+              <a href="thread.html#1469">[ thread ]</a>
+              <a href="subject.html#1469">[ subject ]</a>
+              <a href="author.html#1469">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-02-12 11:55:28 +0100 (Thu, 12 Feb 2009)
+New Revision: 2472
+
+Added:
+   trunk/windstille/src/sound/ogg_sound_file.cpp
+   trunk/windstille/src/sound/ogg_sound_file.hpp
+   trunk/windstille/src/sound/wav_sound_file.cpp
+   trunk/windstille/src/sound/wav_sound_file.hpp
+Modified:
+   trunk/windstille/src/SConscript
+   trunk/windstille/src/sound/sound_file.cpp
+   trunk/windstille/src/sound/sound_file.hpp
+   trunk/windstille/src/sound/sound_manager.cpp
+Log:
+Splitted Ogg and Wav into seperate classes, moved load_sound_file into SoundFile
+
+Modified: trunk/windstille/src/SConscript
+===================================================================
+--- trunk/windstille/src/SConscript	2009-02-12 09:08:50 UTC (rev 2471)
++++ trunk/windstille/src/SConscript	2009-02-12 10:55:28 UTC (rev 2472)
+@@ -169,6 +169,8 @@
+ 'scripting/util.cpp',
+ 'scripting/wrapper.cpp',
+ 'sound/sound_file.cpp',
++'sound/wav_sound_file.cpp',
++'sound/ogg_sound_file.cpp',
+ 'sound/sound_manager.cpp',
+ 'sound/sound_source.cpp',
+ 'sound/stream_sound_source.cpp',
+
+Added: trunk/windstille/src/sound/ogg_sound_file.cpp
+===================================================================
+--- trunk/windstille/src/sound/ogg_sound_file.cpp	2009-02-12 09:08:50 UTC (rev 2471)
++++ trunk/windstille/src/sound/ogg_sound_file.cpp	2009-02-12 10:55:28 UTC (rev 2472)
+@@ -0,0 +1,125 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2005 Matthias Braun &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">matze at braunis.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &quot;ogg_sound_file.hpp&quot;
++
++OggSoundFile::OggSoundFile(PHYSFS_file* file)
++{
++  this-&gt;file = file;
++
++  ov_callbacks callbacks = { cb_read, cb_seek, cb_close, cb_tell };
++  ov_open_callbacks(file, &amp;vorbis_file, 0, 0, callbacks);
++
++  vorbis_info* vi = ov_info(&amp;vorbis_file, -1);
++  channels = vi-&gt;channels;
++  rate = vi-&gt;rate;
++  bits_per_sample = 16;
++  size = static_cast&lt;size_t&gt; (ov_pcm_total(&amp;vorbis_file, -1) * 2);
++}
++
++OggSoundFile::~OggSoundFile()
++{
++  ov_clear(&amp;vorbis_file);
++}
++
++size_t
++OggSoundFile::read(void* _buffer, size_t buffer_size)
++{
++  char* buffer = reinterpret_cast&lt;char*&gt; (_buffer);
++  int section = 0;
++  size_t totalBytesRead= 0;
++
++  while(buffer_size&gt;0){
++    long bytesRead 
++      = ov_read(&amp;vorbis_file, buffer, static_cast&lt;int&gt; (buffer_size), 0, 2, 1,
++          &amp;section);
++    if(bytesRead==0){
++      break;
++    }
++    buffer_size -= bytesRead;
++    buffer += bytesRead;
++    totalBytesRead += bytesRead;
++  }
++  
++  return totalBytesRead;
++}
++
++void
++OggSoundFile::reset()
++{
++  ov_raw_seek(&amp;vorbis_file, 0);
++}
++
++size_t
++OggSoundFile::cb_read(void* ptr, size_t size, size_t nmemb, void* source)
++{
++  PHYSFS_file* file = reinterpret_cast&lt;PHYSFS_file*&gt; (source);
++  
++  PHYSFS_sint64 res 
++    = PHYSFS_read(file, ptr, static_cast&lt;PHYSFS_uint32&gt; (size),
++        static_cast&lt;PHYSFS_uint32&gt; (nmemb));
++  if(res &lt;= 0)
++    return 0;
++
++  return static_cast&lt;size_t&gt; (res);
++}
++
++int
++OggSoundFile::cb_seek(void* source, ogg_int64_t offset, int whence)
++{
++  PHYSFS_file* file = reinterpret_cast&lt;PHYSFS_file*&gt; (source);
++
++  switch(whence) {
++    case SEEK_SET:
++      if(PHYSFS_seek(file, static_cast&lt;PHYSFS_uint64&gt; (offset)) == 0)
++        return -1;
++      break;
++    case SEEK_CUR:
++      if(PHYSFS_seek(file, PHYSFS_tell(file) + offset) == 0)
++        return -1;
++      break;
++    case SEEK_END:
++      if(PHYSFS_seek(file, PHYSFS_fileLength(file) + offset) == 0)
++        return -1;
++      break;
++    default:
++#ifdef DEBUG
++      assert(false);
++#else
++      return -1;
++#endif
++  }
++  return 0;
++}
++  
++int
++OggSoundFile::cb_close(void* source)
++{
++  PHYSFS_file* file = reinterpret_cast&lt;PHYSFS_file*&gt; (source);
++  PHYSFS_close(file);
++  return 0;
++}
++
++long
++OggSoundFile::cb_tell(void* source)
++{
++  PHYSFS_file* file = reinterpret_cast&lt;PHYSFS_file*&gt; (source);
++  return static_cast&lt;long&gt; (PHYSFS_tell(file));
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/sound/ogg_sound_file.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/sound/ogg_sound_file.hpp
+===================================================================
+--- trunk/windstille/src/sound/ogg_sound_file.hpp	2009-02-12 09:08:50 UTC (rev 2471)
++++ trunk/windstille/src/sound/ogg_sound_file.hpp	2009-02-12 10:55:28 UTC (rev 2472)
+@@ -0,0 +1,49 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2005 Matthias Braun &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">matze at braunis.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_SOUND_OGG_SOUND_FILE_HPP
++#define HEADER_WINDSTILLE_SOUND_OGG_SOUND_FILE_HPP
++
++#include &lt;vorbis/codec.h&gt;
++#include &lt;vorbis/vorbisfile.h&gt;
++#include &lt;physfs.h&gt;
++
++#include &quot;sound_file.hpp&quot;
++
++class OggSoundFile : public SoundFile
++{
++public:
++  OggSoundFile(PHYSFS_file* file);
++  ~OggSoundFile();
++
++  size_t read(void* buffer, size_t buffer_size);
++  void reset();
++
++private:
++  static size_t cb_read(void* ptr, size_t size, size_t nmemb, void* source);
++  static int cb_seek(void* source, ogg_int64_t offset, int whence);
++  static int cb_close(void* source);
++  static long cb_tell(void* source);
++  
++  PHYSFS_file* file;
++  OggVorbis_File vorbis_file;
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/sound/ogg_sound_file.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/windstille/src/sound/sound_file.cpp
+===================================================================
+--- trunk/windstille/src/sound/sound_file.cpp	2009-02-12 09:08:50 UTC (rev 2471)
++++ trunk/windstille/src/sound/sound_file.cpp	2009-02-12 10:55:28 UTC (rev 2472)
+@@ -29,279 +29,15 @@
+ #include &lt;sstream&gt;
+ #include &lt;assert.h&gt;
+ #include &lt;physfs.h&gt;
+-#include &lt;vorbis/codec.h&gt;
+-#include &lt;vorbis/vorbisfile.h&gt;
+ 
+-class WavSoundFile : public SoundFile
+-{
+-public:
+-  WavSoundFile(PHYSFS_file* file);
+-  ~WavSoundFile();
++#include &quot;ogg_sound_file.hpp&quot;
++#include &quot;wav_sound_file.hpp&quot;
+ 
+-  size_t read(void* buffer, size_t buffer_size);
+-  void reset();
++#include &lt;fstream&gt;
+ 
+-private:
+-  PHYSFS_file* file;
+-  
+-  PHYSFS_sint64 datastart;
+-};
+-
+-static inline uint32_t read32LE(PHYSFS_file* file)
++SoundFile*
++SoundFile::load(const std::string&amp; filename)
+ {
+-  uint32_t result;
+-  if(PHYSFS_readULE32(file, &amp;result) == 0)
+-    throw std::runtime_error(&quot;file too short&quot;);
+-
+-  return result;
+-}
+-
+-static inline uint16_t read16LE(PHYSFS_file* file)
+-{
+-  uint16_t result;
+-  if(PHYSFS_readULE16(file, &amp;result) == 0)
+-    throw std::runtime_error(&quot;file too short&quot;);
+-
+-  return result;
+-}
+-
+-WavSoundFile::WavSoundFile(PHYSFS_file* file)
+-{
+-  this-&gt;file = file;
+-
+-  char magic[4];
+-  if(PHYSFS_read(file, magic, sizeof(magic), 1) != 1)
+-    throw std::runtime_error(&quot;Couldn't read file magic (not a wave file)&quot;);
+-  if(strncmp(magic, &quot;RIFF&quot;, 4) != 0) {
+-    printf(&quot;MAGIC: %4s.\n&quot;, magic);
+-    throw std::runtime_error(&quot;file is not a RIFF wav file&quot;);
+-  }
+-
+-  uint32_t wavelen = read32LE(file);
+-  (void) wavelen;
+-  
+-  if(PHYSFS_read(file, magic, sizeof(magic), 1) != 1)
+-    throw std::runtime_error(&quot;Couldn't read chunk header (not a wav file?)&quot;);
+-  if(strncmp(magic, &quot;WAVE&quot;, 4) != 0)
+-    throw std::runtime_error(&quot;file is not a valid RIFF/WAVE file&quot;);
+-
+-  char chunkmagic[4];
+-  uint32_t chunklen;
+-
+-  // search audio data format chunk
+-  do {
+-    if(PHYSFS_read(file, chunkmagic, sizeof(chunkmagic), 1) != 1)
+-      throw std::runtime_error(&quot;EOF while searching format chunk&quot;);    
+-    chunklen = read32LE(file);
+-    
+-    if(strncmp(chunkmagic, &quot;fmt &quot;, 4) == 0)
+-      break;
+-
+-    if(strncmp(chunkmagic, &quot;fact&quot;, 4) == 0
+-        || strncmp(chunkmagic, &quot;LIST&quot;, 4) == 0) {
+-      // skip chunk
+-      if(PHYSFS_seek(file, PHYSFS_tell(file) + chunklen) == 0)
+-        throw std::runtime_error(&quot;EOF while searching fmt chunk&quot;);
+-    } else {
+-      throw std::runtime_error(&quot;complex WAVE files not supported&quot;);
+-    }
+-  } while(true); 
+-
+-  if(chunklen &lt; 16)
+-    throw std::runtime_error(&quot;Format chunk too short&quot;);
+- 
+-  // parse format
+-  uint16_t encoding = read16LE(file);
+-  if(encoding != 1)
+-    throw std::runtime_error(&quot;only PCM encoding supported&quot;);
+-  channels = read16LE(file);
+-  rate = read32LE(file);
+-  uint32_t byterate = read32LE(file);
+-  (void) byterate;
+-  uint16_t blockalign = read16LE(file);
+-  (void) blockalign;
+-  bits_per_sample = read16LE(file);
+-
+-  if(chunklen &gt; 16) {
+-    if(PHYSFS_seek(file, PHYSFS_tell(file) + (chunklen-16)) == 0)
+-      throw std::runtime_error(&quot;EOF while reading reast of format chunk&quot;);
+-  }
+-
+-  // set file offset to DATA chunk data
+-  do {
+-    if(PHYSFS_read(file, chunkmagic, sizeof(chunkmagic), 1) != 1)
+-      throw std::runtime_error(&quot;EOF while searching data chunk&quot;);    
+-    chunklen = read32LE(file);
+-
+-    if(strncmp(chunkmagic, &quot;data&quot;, 4) == 0)
+-      break;
+-
+-    // skip chunk
+-    if(PHYSFS_seek(file, PHYSFS_tell(file) + chunklen) == 0)
+-      throw std::runtime_error(&quot;EOF while searching fmt chunk&quot;);
+-  } while(true);
+-
+-  datastart = PHYSFS_tell(file);
+-  size = static_cast&lt;size_t&gt; (chunklen);
+-}
+-
+-WavSoundFile::~WavSoundFile()
+-{
+-  PHYSFS_close(file);
+-}
+-
+-void
+-WavSoundFile::reset()
+-{
+-  if(PHYSFS_seek(file, datastart) == 0)
+-    throw std::runtime_error(&quot;Couldn't seek to data start&quot;);
+-}
+-
+-size_t
+-WavSoundFile::read(void* buffer, size_t buffer_size)
+-{
+-  PHYSFS_sint64 end = datastart + size;
+-  PHYSFS_sint64 cur = PHYSFS_tell(file);
+-  if(cur &gt;= end)
+-    return 0;
+-  
+-  size_t readsize = std::min(static_cast&lt;size_t&gt; (end - cur), buffer_size);
+-  if(PHYSFS_read(file, buffer, readsize, 1) != 1)
+-    throw std::runtime_error(&quot;read error while reading samples&quot;);
+-
+-  return readsize;
+-}
+-
+-//---------------------------------------------------------------------------
+-
+-class OggSoundFile : public SoundFile
+-{
+-public:
+-  OggSoundFile(PHYSFS_file* file);
+-  ~OggSoundFile();
+-
+-  size_t read(void* buffer, size_t buffer_size);
+-  void reset();
+-
+-private:
+-  static size_t cb_read(void* ptr, size_t size, size_t nmemb, void* source);
+-  static int cb_seek(void* source, ogg_int64_t offset, int whence);
+-  static int cb_close(void* source);
+-  static long cb_tell(void* source);
+-  
+-  PHYSFS_file* file;
+-  OggVorbis_File vorbis_file;
+-};
+-
+-OggSoundFile::OggSoundFile(PHYSFS_file* file)
+-{
+-  this-&gt;file = file;
+-
+-  ov_callbacks callbacks = { cb_read, cb_seek, cb_close, cb_tell };
+-  ov_open_callbacks(file, &amp;vorbis_file, 0, 0, callbacks);
+-
+-  vorbis_info* vi = ov_info(&amp;vorbis_file, -1);
+-  channels = vi-&gt;channels;
+-  rate = vi-&gt;rate;
+-  bits_per_sample = 16;
+-  size = static_cast&lt;size_t&gt; (ov_pcm_total(&amp;vorbis_file, -1) * 2);
+-}
+-
+-OggSoundFile::~OggSoundFile()
+-{
+-  ov_clear(&amp;vorbis_file);
+-}
+-
+-size_t
+-OggSoundFile::read(void* _buffer, size_t buffer_size)
+-{
+-  char* buffer = reinterpret_cast&lt;char*&gt; (_buffer);
+-  int section = 0;
+-  size_t totalBytesRead= 0;
+-
+-  while(buffer_size&gt;0){
+-    long bytesRead 
+-      = ov_read(&amp;vorbis_file, buffer, static_cast&lt;int&gt; (buffer_size), 0, 2, 1,
+-          &amp;section);
+-    if(bytesRead==0){
+-      break;
+-    }
+-    buffer_size -= bytesRead;
+-    buffer += bytesRead;
+-    totalBytesRead += bytesRead;
+-  }
+-  
+-  return totalBytesRead;
+-}
+-
+-void
+-OggSoundFile::reset()
+-{
+-  ov_raw_seek(&amp;vorbis_file, 0);
+-}
+-
+-size_t
+-OggSoundFile::cb_read(void* ptr, size_t size, size_t nmemb, void* source)
+-{
+-  PHYSFS_file* file = reinterpret_cast&lt;PHYSFS_file*&gt; (source);
+-  
+-  PHYSFS_sint64 res 
+-    = PHYSFS_read(file, ptr, static_cast&lt;PHYSFS_uint32&gt; (size),
+-        static_cast&lt;PHYSFS_uint32&gt; (nmemb));
+-  if(res &lt;= 0)
+-    return 0;
+-
+-  return static_cast&lt;size_t&gt; (res);
+-}
+-
+-int
+-OggSoundFile::cb_seek(void* source, ogg_int64_t offset, int whence)
+-{
+-  PHYSFS_file* file = reinterpret_cast&lt;PHYSFS_file*&gt; (source);
+-
+-  switch(whence) {
+-    case SEEK_SET:
+-      if(PHYSFS_seek(file, static_cast&lt;PHYSFS_uint64&gt; (offset)) == 0)
+-        return -1;
+-      break;
+-    case SEEK_CUR:
+-      if(PHYSFS_seek(file, PHYSFS_tell(file) + offset) == 0)
+-        return -1;
+-      break;
+-    case SEEK_END:
+-      if(PHYSFS_seek(file, PHYSFS_fileLength(file) + offset) == 0)
+-        return -1;
+-      break;
+-    default:
+-#ifdef DEBUG
+-      assert(false);
+-#else
+-      return -1;
+-#endif
+-  }
+-  return 0;
+-}
+-  
+-int
+-OggSoundFile::cb_close(void* source)
+-{
+-  PHYSFS_file* file = reinterpret_cast&lt;PHYSFS_file*&gt; (source);
+-  PHYSFS_close(file);
+-  return 0;
+-}
+-
+-long
+-OggSoundFile::cb_tell(void* source)
+-{
+-  PHYSFS_file* file = reinterpret_cast&lt;PHYSFS_file*&gt; (source);
+-  return static_cast&lt;long&gt; (PHYSFS_tell(file));
+-}
+-
+-//---------------------------------------------------------------------------
+-
+-#include &lt;fstream&gt;
+-SoundFile* load_sound_file(const std::string&amp; filename)
+-{
+   PHYSFS_file* file = PHYSFS_openRead(filename.c_str());
+   if(!file) {
+     std::stringstream msg;
+
+Modified: trunk/windstille/src/sound/sound_file.hpp
+===================================================================
+--- trunk/windstille/src/sound/sound_file.hpp	2009-02-12 09:08:50 UTC (rev 2471)
++++ trunk/windstille/src/sound/sound_file.hpp	2009-02-12 10:55:28 UTC (rev 2472)
+@@ -36,10 +36,10 @@
+   int bits_per_sample;
+   /// size in bytes
+   size_t size;
++
++  static SoundFile* load(const std::string&amp; filename);
+ };
+ 
+-SoundFile* load_sound_file(const std::string&amp; filename);
+-
+ #endif
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/sound/sound_manager.cpp
+===================================================================
+--- trunk/windstille/src/sound/sound_manager.cpp	2009-02-12 09:08:50 UTC (rev 2471)
++++ trunk/windstille/src/sound/sound_manager.cpp	2009-02-12 10:55:28 UTC (rev 2472)
+@@ -67,7 +67,7 @@
+ SoundManager::load_file_into_buffer(const std::string&amp; filename)
+ {
+   // open sound file
+-  std::auto_ptr&lt;SoundFile&gt; file (load_sound_file(filename));
++  std::auto_ptr&lt;SoundFile&gt; file(SoundFile::load(filename));
+   
+   ALenum format = get_sample_format(file.get());
+   ALuint buffer;
+@@ -178,7 +178,7 @@
+ 
+   try {
+     StreamSoundSource* newmusic 
+-      = new StreamSoundSource(load_sound_file(filename));
++      = new StreamSoundSource(SoundFile::load(filename));
+ 
+     alSourcef(newmusic-&gt;source, AL_ROLLOFF_FACTOR, 0);
+  
+
+Added: trunk/windstille/src/sound/wav_sound_file.cpp
+===================================================================
+--- trunk/windstille/src/sound/wav_sound_file.cpp	2009-02-12 09:08:50 UTC (rev 2471)
++++ trunk/windstille/src/sound/wav_sound_file.cpp	2009-02-12 10:55:28 UTC (rev 2472)
+@@ -0,0 +1,148 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2005 Matthias Braun &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">matze at braunis.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &lt;string.h&gt;
++#include &lt;stdexcept&gt;
++#include &quot;wav_sound_file.hpp&quot;
++
++static inline uint32_t read32LE(PHYSFS_file* file)
++{
++  uint32_t result;
++  if(PHYSFS_readULE32(file, &amp;result) == 0)
++    throw std::runtime_error(&quot;file too short&quot;);
++
++  return result;
++}
++
++static inline uint16_t read16LE(PHYSFS_file* file)
++{
++  uint16_t result;
++  if(PHYSFS_readULE16(file, &amp;result) == 0)
++    throw std::runtime_error(&quot;file too short&quot;);
++
++  return result;
++}
++
++WavSoundFile::WavSoundFile(PHYSFS_file* file)
++{
++  this-&gt;file = file;
++
++  char magic[4];
++  if(PHYSFS_read(file, magic, sizeof(magic), 1) != 1)
++    throw std::runtime_error(&quot;Couldn't read file magic (not a wave file)&quot;);
++  if(strncmp(magic, &quot;RIFF&quot;, 4) != 0) {
++    printf(&quot;MAGIC: %4s.\n&quot;, magic);
++    throw std::runtime_error(&quot;file is not a RIFF wav file&quot;);
++  }
++
++  uint32_t wavelen = read32LE(file);
++  (void) wavelen;
++  
++  if(PHYSFS_read(file, magic, sizeof(magic), 1) != 1)
++    throw std::runtime_error(&quot;Couldn't read chunk header (not a wav file?)&quot;);
++  if(strncmp(magic, &quot;WAVE&quot;, 4) != 0)
++    throw std::runtime_error(&quot;file is not a valid RIFF/WAVE file&quot;);
++
++  char chunkmagic[4];
++  uint32_t chunklen;
++
++  // search audio data format chunk
++  do {
++    if(PHYSFS_read(file, chunkmagic, sizeof(chunkmagic), 1) != 1)
++      throw std::runtime_error(&quot;EOF while searching format chunk&quot;);    
++    chunklen = read32LE(file);
++    
++    if(strncmp(chunkmagic, &quot;fmt &quot;, 4) == 0)
++      break;
++
++    if(strncmp(chunkmagic, &quot;fact&quot;, 4) == 0
++        || strncmp(chunkmagic, &quot;LIST&quot;, 4) == 0) {
++      // skip chunk
++      if(PHYSFS_seek(file, PHYSFS_tell(file) + chunklen) == 0)
++        throw std::runtime_error(&quot;EOF while searching fmt chunk&quot;);
++    } else {
++      throw std::runtime_error(&quot;complex WAVE files not supported&quot;);
++    }
++  } while(true); 
++
++  if(chunklen &lt; 16)
++    throw std::runtime_error(&quot;Format chunk too short&quot;);
++ 
++  // parse format
++  uint16_t encoding = read16LE(file);
++  if(encoding != 1)
++    throw std::runtime_error(&quot;only PCM encoding supported&quot;);
++  channels = read16LE(file);
++  rate = read32LE(file);
++  uint32_t byterate = read32LE(file);
++  (void) byterate;
++  uint16_t blockalign = read16LE(file);
++  (void) blockalign;
++  bits_per_sample = read16LE(file);
++
++  if(chunklen &gt; 16) {
++    if(PHYSFS_seek(file, PHYSFS_tell(file) + (chunklen-16)) == 0)
++      throw std::runtime_error(&quot;EOF while reading reast of format chunk&quot;);
++  }
++
++  // set file offset to DATA chunk data
++  do {
++    if(PHYSFS_read(file, chunkmagic, sizeof(chunkmagic), 1) != 1)
++      throw std::runtime_error(&quot;EOF while searching data chunk&quot;);    
++    chunklen = read32LE(file);
++
++    if(strncmp(chunkmagic, &quot;data&quot;, 4) == 0)
++      break;
++
++    // skip chunk
++    if(PHYSFS_seek(file, PHYSFS_tell(file) + chunklen) == 0)
++      throw std::runtime_error(&quot;EOF while searching fmt chunk&quot;);
++  } while(true);
++
++  datastart = PHYSFS_tell(file);
++  size = static_cast&lt;size_t&gt; (chunklen);
++}
++
++WavSoundFile::~WavSoundFile()
++{
++  PHYSFS_close(file);
++}
++
++void
++WavSoundFile::reset()
++{
++  if(PHYSFS_seek(file, datastart) == 0)
++    throw std::runtime_error(&quot;Couldn't seek to data start&quot;);
++}
++
++size_t
++WavSoundFile::read(void* buffer, size_t buffer_size)
++{
++  PHYSFS_sint64 end = datastart + size;
++  PHYSFS_sint64 cur = PHYSFS_tell(file);
++  if(cur &gt;= end)
++    return 0;
++  
++  size_t readsize = std::min(static_cast&lt;size_t&gt; (end - cur), buffer_size);
++  if(PHYSFS_read(file, buffer, readsize, 1) != 1)
++    throw std::runtime_error(&quot;read error while reading samples&quot;);
++
++  return readsize;
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/sound/wav_sound_file.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/sound/wav_sound_file.hpp
+===================================================================
+--- trunk/windstille/src/sound/wav_sound_file.hpp	2009-02-12 09:08:50 UTC (rev 2471)
++++ trunk/windstille/src/sound/wav_sound_file.hpp	2009-02-12 10:55:28 UTC (rev 2472)
+@@ -0,0 +1,42 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2005 Matthias Braun &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">matze at braunis.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_SOUND_WAV_SOUND_FILE_HPP
++#define HEADER_WINDSTILLE_SOUND_WAV_SOUND_FILE_HPP
++
++#include &lt;physfs.h&gt;
++#include &quot;sound_file.hpp&quot;
++
++class WavSoundFile : public SoundFile
++{
++public:
++  WavSoundFile(PHYSFS_file* file);
++  ~WavSoundFile();
++
++  size_t read(void* buffer, size_t buffer_size);
++  void reset();
++
++private:
++  PHYSFS_file* file;
++  
++  PHYSFS_sint64 datastart;
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/sound/wav_sound_file.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001468.html">[Windstille-commit] r2471 - in trunk/windstille/src: . app engine	gui math objects screen tile
+</A></li>
+	<LI>Next message: <A HREF="001470.html">[Windstille-commit] r2473 - in trunk/windstille/src: . collision
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1469">[ date ]</a>
+              <a href="thread.html#1469">[ thread ]</a>
+              <a href="subject.html#1469">[ subject ]</a>
+              <a href="author.html#1469">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

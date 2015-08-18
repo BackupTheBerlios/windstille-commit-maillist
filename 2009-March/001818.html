@@ -1,0 +1,253 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2821 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2821%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200903301622.n2UGM3rm010839%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001817.html">
+   <LINK REL="Next"  HREF="001819.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2821 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2821%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200903301622.n2UGM3rm010839%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2821 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Mar 30 18:22:03 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001817.html">[Windstille-commit] r2820 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="001819.html">[Windstille-commit] r2822 - in trunk/windstille/data: images/decal	sectors/trainstation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1818">[ date ]</a>
+              <a href="thread.html#1818">[ thread ]</a>
+              <a href="subject.html#1818">[ subject ]</a>
+              <a href="author.html#1818">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-30 18:22:03 +0200 (Mon, 30 Mar 2009)
+New Revision: 2821
+
+Modified:
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/editor_window.hpp
+   trunk/windstille/src/editor/layer_manager.cpp
+   trunk/windstille/src/editor/layer_manager.hpp
+Log:
+Share the UIManager between LayerManager and EditorWindow
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-03-30 03:33:07 UTC (rev 2820)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-03-30 16:22:03 UTC (rev 2821)
+@@ -43,9 +43,11 @@
+ EditorWindow* EditorWindow::current_ = 0;
+ 
+ EditorWindow::EditorWindow(const Glib::RefPtr&lt;const Gdk::GL::Config&gt;&amp; glconfig_)
+-  : layer_manager(*this),
++  : ui_manager(Gtk::UIManager::create()),
++    action_group(Gtk::ActionGroup::create()),
++    glconfig(glconfig_),
++    layer_manager(*this),
+     minimap_widget(glconfig_),
+-    glconfig(glconfig_),
+     select_tool(new SelectTool()),
+     zoom_tool(new ZoomTool()),
+     current_tool(select_tool.get())
+@@ -90,6 +92,18 @@
+     &quot;      &lt;separator/&gt;&quot;
+     //&quot;      &lt;menuitem action='Snap'/&gt;&quot;
+     &quot;    &lt;/menu&gt;&quot;
++    &quot;    &lt;menu action='MenuLayer'&gt;&quot;
++    &quot;      &lt;menuitem action='NewLayer'/&gt;&quot;
++    &quot;      &lt;menuitem action='DeleteLayer'/&gt;&quot;
++    &quot;      &lt;separator/&gt;&quot;
++    &quot;      &lt;menuitem action='ShowAllLayer'/&gt;&quot;
++    &quot;      &lt;menuitem action='HideAllLayer'/&gt;&quot;
++    &quot;      &lt;separator/&gt;&quot;
++    &quot;      &lt;menuitem action='LockAllLayer'/&gt;&quot;
++    &quot;      &lt;menuitem action='UnlockAllLayer'/&gt;&quot;
++    &quot;      &lt;separator/&gt;&quot;
++    &quot;      &lt;menuitem action='AutoLockLayer'/&gt;&quot;
++    &quot;    &lt;/menu&gt;&quot;
+     &quot;    &lt;menu action='MenuView'&gt;&quot;
+     &quot;      &lt;menuitem action='ZoomIn'/&gt;&quot;
+     &quot;      &lt;menuitem action='ZoomOut'/&gt;&quot;
+@@ -162,9 +176,6 @@
+     &quot;  &lt;/toolbar&gt;&quot;
+     &quot;&lt;/ui&gt;&quot;;
+ 
+-  ui_manager   = Gtk::UIManager::create();
+-  action_group = Gtk::ActionGroup::create();
+-
+   action_group-&gt;add(Gtk::Action::create(&quot;MenuFile&quot;,    &quot;_File&quot;));
+   action_group-&gt;add(Gtk::Action::create(&quot;New&quot;,         Gtk::Stock::NEW),
+                     sigc::mem_fun(*this, &amp;EditorWindow::on_new));
+@@ -841,7 +852,7 @@
+ 
+   //std::cout &lt;&lt; &quot;On Recent File:&quot; &lt;&lt; item-&gt;get_uri() &lt;&lt; std::endl;
+   if (item-&gt;exists())
+-      load_file(Glib::filename_from_uri(item-&gt;get_uri()));
++    load_file(Glib::filename_from_uri(item-&gt;get_uri()));
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/editor/editor_window.hpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.hpp	2009-03-30 03:33:07 UTC (rev 2820)
++++ trunk/windstille/src/editor/editor_window.hpp	2009-03-30 16:22:03 UTC (rev 2821)
+@@ -54,17 +54,17 @@
+   Gtk::HPaned hpaned;
+   Gtk::VPaned vpaned;
+   Gtk::Statusbar status;
+-  
++
++  Glib::RefPtr&lt;Gtk::UIManager&gt;   ui_manager;
++  Glib::RefPtr&lt;Gtk::ActionGroup&gt; action_group;
++  Glib::RefPtr&lt;Gdk::GL::Context&gt; share_list;
++  Glib::RefPtr&lt;const Gdk::GL::Config&gt; glconfig; 
++
+   Gtk::Notebook  notebook;
+   ObjectSelector object_selector;
+-  LayerManager     layer_manager;
++  LayerManager   layer_manager;
+   MinimapWidget  minimap_widget;
+ 
+-  Glib::RefPtr&lt;Gtk::UIManager&gt;   ui_manager;
+-  Glib::RefPtr&lt;Gtk::ActionGroup&gt; action_group;
+-  Glib::RefPtr&lt;Gdk::GL::Context&gt; share_list;
+-  Glib::RefPtr&lt;const Gdk::GL::Config&gt;  glconfig;
+-  
+   Glib::RefPtr&lt;Gtk::RadioAction&gt; select_tool_action;
+   Glib::RefPtr&lt;Gtk::RadioAction&gt; node_tool_action;
+   Glib::RefPtr&lt;Gtk::RadioAction&gt; zoom_tool_action;
+@@ -150,6 +150,9 @@
+ 
+   void print(const std::string&amp; text);
+   bool remove_message(guint id);
++
++  Glib::RefPtr&lt;Gtk::UIManager&gt;   get_ui_manager() const { return ui_manager; }
++  Glib::RefPtr&lt;Gtk::ActionGroup&gt; get_action_group() const { return action_group; }
+   
+ private:
+   EditorWindow(const EditorWindow&amp;);
+
+Modified: trunk/windstille/src/editor/layer_manager.cpp
+===================================================================
+--- trunk/windstille/src/editor/layer_manager.cpp	2009-03-30 03:33:07 UTC (rev 2820)
++++ trunk/windstille/src/editor/layer_manager.cpp	2009-03-30 16:22:03 UTC (rev 2821)
+@@ -37,25 +37,25 @@
+   treeview.set_enable_tree_lines();
+   treeview.set_reorderable();
+ 
+-  // FIXME: Don't create new ones, reuse the EditorWindow ones
+-  ui_manager   = Gtk::UIManager::create();
+-  action_group = Gtk::ActionGroup::create();
+-  
++  Glib::RefPtr&lt;Gtk::UIManager&gt;   ui_manager   = editor.get_ui_manager();
++  Glib::RefPtr&lt;Gtk::ActionGroup&gt; action_group = Gtk::ActionGroup::create();
++
++  action_group-&gt;add(Gtk::Action::create(&quot;MenuLayer&quot;,   &quot;_Layer&quot;));
+   action_group-&gt;add(Gtk::Action::create(&quot;NewLayer&quot;, Gtk::Stock::NEW),
+                     sigc::mem_fun(editor, &amp;EditorWindow::on_new_layer));
+   action_group-&gt;add(Gtk::Action::create(&quot;DeleteLayer&quot;, Gtk::Stock::DELETE),
+                     sigc::mem_fun(editor, &amp;EditorWindow::on_delete_layer));
+ 
+-  action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;ShowAll&quot;, &quot;show_all&quot;, &quot;Show All&quot;, &quot;Show All Layer&quot;),
++  action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;ShowAllLayer&quot;, &quot;show_all&quot;, &quot;Show All&quot;, &quot;Show All Layer&quot;),
+                     sigc::bind(sigc::mem_fun(editor, &amp;EditorWindow::on_show_all), true));
+-  action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;HideAll&quot;, &quot;hide_all&quot;, &quot;Hide All&quot;, &quot;Hide All Layer&quot;),
++  action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;HideAllLayer&quot;, &quot;hide_all&quot;, &quot;Hide All&quot;, &quot;Hide All Layer&quot;),
+                     sigc::bind(sigc::mem_fun(editor, &amp;EditorWindow::on_show_all), false));
+-  action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;LockAll&quot;, &quot;lock_all&quot;, &quot;Lock All&quot;, &quot;Lock All Layer&quot;),
++  action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;LockAllLayer&quot;, &quot;lock_all&quot;, &quot;Lock All&quot;, &quot;Lock All Layer&quot;),
+                     sigc::bind(sigc::mem_fun(editor, &amp;EditorWindow::on_lock_all), true));
+-  action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;UnlockAll&quot;, &quot;unlock_all&quot;, &quot;Unlock All&quot;, &quot;Unlock All Layer&quot;),
++  action_group-&gt;add(Gtk::Action::create_with_icon_name(&quot;UnlockAllLayer&quot;, &quot;unlock_all&quot;, &quot;Unlock All&quot;, &quot;Unlock All Layer&quot;),
+                     sigc::bind(sigc::mem_fun(editor, &amp;EditorWindow::on_lock_all), false));
+ 
+-  auto_lock = Gtk::ToggleAction::create_with_icon_name(&quot;AutoLock&quot;, &quot;auto_lock&quot;, &quot;Auto Lock All&quot;, &quot;All layers except the current ones are treated as locked&quot;);
++  auto_lock = Gtk::ToggleAction::create_with_icon_name(&quot;AutoLockLayer&quot;, &quot;auto_lock&quot;, &quot;Auto Lock All&quot;, &quot;All layers except the current ones are treated as locked&quot;);
+   action_group-&gt;add(auto_lock,
+                     sigc::bind(sigc::mem_fun(*this, &amp;LayerManager::on_auto_lock), auto_lock));
+                     //sigc::bind(sigc::mem_fun(editor, &amp;EditorWindow::on_auto_lock), auto_lock));
+@@ -63,21 +63,21 @@
+   ui_manager-&gt;insert_action_group(action_group);
+ 
+   ui_manager-&gt;add_ui_from_string(&quot;&lt;ui&gt;&quot;
+-                                 &quot;  &lt;toolbar  name='ToolBar'&gt;&quot;
++                                 &quot;  &lt;toolbar  name='LayerManagerToolBar'&gt;&quot;
+                                  &quot;    &lt;toolitem action='NewLayer'/&gt;&quot;
+                                  &quot;    &lt;toolitem action='DeleteLayer'/&gt;&quot;
+                                  &quot;    &lt;separator/&gt;&quot;
+-                                 &quot;    &lt;toolitem action='ShowAll'/&gt;&quot;
+-                                 &quot;    &lt;toolitem action='HideAll'/&gt;&quot;
++                                 &quot;    &lt;toolitem action='ShowAllLayer'/&gt;&quot;
++                                 &quot;    &lt;toolitem action='HideAllLayer'/&gt;&quot;
+                                  &quot;    &lt;separator/&gt;&quot;
+-                                 &quot;    &lt;toolitem action='LockAll'/&gt;&quot;
+-                                 &quot;    &lt;toolitem action='UnlockAll'/&gt;&quot;
++                                 &quot;    &lt;toolitem action='LockAllLayer'/&gt;&quot;
++                                 &quot;    &lt;toolitem action='UnlockAllLayer'/&gt;&quot;
+                                  &quot;    &lt;separator/&gt;&quot;
+-                                 &quot;    &lt;toolitem action='AutoLock'/&gt;&quot;
++                                 &quot;    &lt;toolitem action='AutoLockLayer'/&gt;&quot;
+                                  &quot;  &lt;/toolbar&gt;&quot;
+                                  &quot;&lt;/ui&gt;&quot;);
+   
+-  Gtk::Toolbar&amp; toolbar = dynamic_cast&lt;Gtk::Toolbar&amp;&gt;(*ui_manager-&gt;get_widget(&quot;/ToolBar&quot;));
++  Gtk::Toolbar&amp; toolbar = dynamic_cast&lt;Gtk::Toolbar&amp;&gt;(*ui_manager-&gt;get_widget(&quot;/LayerManagerToolBar&quot;));
+ 
+   treeview.signal_cursor_changed().connect(sigc::mem_fun(*this, &amp;LayerManager::on_cursor_changed));
+   //treeview.signal_columns_changed().connect(sigc::mem_fun(*this, &amp;LayerManager::on_columns_changed));
+
+Modified: trunk/windstille/src/editor/layer_manager.hpp
+===================================================================
+--- trunk/windstille/src/editor/layer_manager.hpp	2009-03-30 03:33:07 UTC (rev 2820)
++++ trunk/windstille/src/editor/layer_manager.hpp	2009-03-30 16:22:03 UTC (rev 2821)
+@@ -38,8 +38,6 @@
+   Gtk::ScrolledWindow scrolled;
+   Gtk::TreeView treeview;
+ 
+-  Glib::RefPtr&lt;Gtk::UIManager&gt;    ui_manager;
+-  Glib::RefPtr&lt;Gtk::ActionGroup&gt;  action_group;
+   Glib::RefPtr&lt;Gtk::ToggleAction&gt; auto_lock;
+ 
+ public:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001817.html">[Windstille-commit] r2820 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="001819.html">[Windstille-commit] r2822 - in trunk/windstille/data: images/decal	sectors/trainstation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1818">[ date ]</a>
+              <a href="thread.html#1818">[ thread ]</a>
+              <a href="subject.html#1818">[ subject ]</a>
+              <a href="author.html#1818">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

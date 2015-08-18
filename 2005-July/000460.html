@@ -1,0 +1,275 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r807 - in trunk: data/levels src/particles
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r807%20-%20in%20trunk%3A%20data/levels%20src/particles&In-Reply-To=%3C200507271420.j6REKRt6007837%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000459.html">
+   <LINK REL="Next"  HREF="000461.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r807 - in trunk: data/levels src/particles</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r807%20-%20in%20trunk%3A%20data/levels%20src/particles&In-Reply-To=%3C200507271420.j6REKRt6007837%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r807 - in trunk: data/levels src/particles">grumbel at berlios.de
+       </A><BR>
+    <I>Wed Jul 27 16:20:27 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000459.html">[Windstille-commit] r806 - in trunk/src: display math
+</A></li>
+        <LI>Next message: <A HREF="000461.html">[Windstille-commit] r808 - trunk/src/collision
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#460">[ date ]</a>
+              <a href="thread.html#460">[ thread ]</a>
+              <a href="subject.html#460">[ subject ]</a>
+              <a href="author.html#460">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-07-27 16:20:26 +0200 (Wed, 27 Jul 2005)
+New Revision: 807
+
+Modified:
+   trunk/data/levels/newformat2.wst
+   trunk/src/particles/particle_system.cpp
+   trunk/src/particles/particle_system.hpp
+   trunk/src/particles/spark_drawer.cpp
+   trunk/src/particles/surface_drawer.cpp
+Log:
+- added z_pos handling to particle system
+- some more particle system lisp parsing
+- added shower
+
+Modified: trunk/data/levels/newformat2.wst
+===================================================================
+--- trunk/data/levels/newformat2.wst	2005-07-27 13:34:46 UTC (rev 806)
++++ trunk/data/levels/newformat2.wst	2005-07-27 14:20:26 UTC (rev 807)
+@@ -17,17 +17,37 @@
+       (sprite &quot;images/arrow.sprite&quot;)
+       (enabled #f)
+     )
++
++    ;; Water
+     (particle-system
+-     (lifetime    0.8)
++     (lifetime   .6)
+      (count      250)
+      (pos       0 0)
+-     (spawn-point 532 826)
+-     (speed    70 300)
+-     (cone   -115 -65)
+-     (gravity 0 10)
++     (z-pos  100)
++     (spawn-point 532 640)
++     (speed    150 200)
++     (cone   70 110)
++     (gravity 0 5)
+      (size   1.0 3.0)
++     (drawer (spark-drawer (color 0.7 0.8 1.0)))
++     (distribution (line-distribution (x1 -5) (y1 0) (x2 5) (y2 0)))
+      )
+ 
++    (particle-system
++     (lifetime   .2)
++     (count      50)
++     (pos       0 0)
++     (z-pos  100)
++     (spawn-point 532 836)
++     (speed    50 100)
++     (cone   -110 -70)
++     (gravity 0 5)
++     (size   1.0 3.0)
++     (drawer (spark-drawer (color 0.7 0.8 1.0)))
++     (distribution (line-distribution (x1 -40) (y1 0) (x2 40) (y2 0)))
++     )
++
++
+     (box
+       (name &quot;Box0&quot;)
+       (pos 350 700)
+
+Modified: trunk/src/particles/particle_system.cpp
+===================================================================
+--- trunk/src/particles/particle_system.cpp	2005-07-27 13:34:46 UTC (rev 806)
++++ trunk/src/particles/particle_system.cpp	2005-07-27 14:20:26 UTC (rev 807)
+@@ -36,6 +36,7 @@
+   drawer     = 0;
+   x_pos      = 320.0f;
+   y_pos      = 240.0f;
++  z_pos      = 0;
+   life_time  = 1.0f;
+ 
+   gravity_x = 0.0f;
+@@ -65,6 +66,8 @@
+   if (props.get(&quot;count&quot;, p_count))
+     set_count(p_count);
+ 
++  props.get(&quot;count&quot;, z_pos);
++
+   Vector p_gravity;
+   if (props.get(&quot;gravity&quot;, p_gravity))
+     set_gravity(p_gravity.x, p_gravity.y);
+@@ -105,22 +108,48 @@
+   if (props.get(&quot;speed&quot;, p_speed))
+     set_speed(p_speed.x, p_speed.y);
+ 
+-  const lisp::Lisp* drawer_lisp = 0;
+-  if (props.get(&quot;drawer&quot;, drawer_lisp))
++  {
++    const lisp::Lisp* drawer_lisp = 0;
++    if (props.get(&quot;drawer&quot;, drawer_lisp))
++      {
++        lisp::Properties drawer_props(drawer_lisp);
++        lisp::PropertyIterator&lt;const lisp::Lisp*&gt; iter = drawer_props.get_iter();
++        while(iter.next()) {
++          if (iter.item() == &quot;surface-drawer&quot;) {
++          
++          } else if (iter.item() == &quot;spark-drawer&quot;) {
++            set_drawer(new SparkDrawer(*iter));
++          } else {
++            std::cout &lt;&lt; &quot;Unknown item: &quot; &lt;&lt; iter.item() &lt;&lt; std::endl;
++          }
++        }
++      }
++  }
++
++  const lisp::Lisp* distribution_lisp = 0;
++  if (props.get(&quot;distribution&quot;, distribution_lisp))
+     {
+-      lisp::Properties drawer_props(drawer_lisp);
+-      lisp::PropertyIterator&lt;const lisp::Lisp*&gt; iter = drawer_props.get_iter();
+-      while(iter.next()) {
+-        if (iter.item() == &quot;surface-drawer&quot;) {
++      lisp::Properties distribution_props(distribution_lisp);
++      lisp::PropertyIterator&lt;const lisp::Lisp*&gt; iter = distribution_props.get_iter();
++      if (iter.next()) {
++        lisp::Properties prop(*iter);
++
++        if (iter.item() == &quot;point-distribution&quot;) {
++          set_point_distribution();
++        } else if (iter.item() == &quot;line-distribution&quot;) {
++          float x1, y1, x2, y2;
++          prop.get(&quot;x1&quot;, x1);
++          prop.get(&quot;y1&quot;, y1);
++          prop.get(&quot;x2&quot;, x2);
++          prop.get(&quot;y2&quot;, y2);
+           
+-        } else if (iter.item() == &quot;spark-drawer&quot;) {
+-          set_drawer(new SparkDrawer(*iter));
++          set_line_distribution(x1, y1, x2, y2);
+         } else {
+-          std::cout &lt;&lt; &quot;Unknown item: &quot; &lt;&lt; iter.item() &lt;&lt; std::endl;
++          std::cout &lt;&lt; &quot;Unknown distribution: &quot; &lt;&lt; iter.item() &lt;&lt; std::endl;
+         }
+       }
+     }
+-  
++
+   //props.get(&quot;point-distribution&quot;,   ); // void
+   //props.get(&quot;line-distribution&quot;,   ); // 2xvector2
+   //props.get(&quot;circle&quot;, ); // float
+@@ -134,6 +163,7 @@
+   drawer     = 0;
+   x_pos      = 320.0f;
+   y_pos      = 240.0f;
++  z_pos      = 0;
+   life_time  = 1.0f;
+ 
+   gravity_x = 0.0f;
+
+Modified: trunk/src/particles/particle_system.hpp
+===================================================================
+--- trunk/src/particles/particle_system.hpp	2005-07-27 13:34:46 UTC (rev 806)
++++ trunk/src/particles/particle_system.hpp	2005-07-27 14:20:26 UTC (rev 807)
+@@ -67,6 +67,7 @@
+ 
+   float x_pos;
+   float y_pos;
++  float z_pos;
+ 
+   float spawn_x_pos;
+   float spawn_y_pos;
+@@ -167,6 +168,7 @@
+ 
+   float get_x_pos() { return x_pos; }
+   float get_y_pos() { return y_pos; } 
++  float get_z_pos() { return z_pos; } 
+ 
+   /** Returns the how much a particle has progressed, this is
+       particle.life_time with fade_in/fade_out applied  */
+
+Modified: trunk/src/particles/spark_drawer.cpp
+===================================================================
+--- trunk/src/particles/spark_drawer.cpp	2005-07-27 13:34:46 UTC (rev 806)
++++ trunk/src/particles/spark_drawer.cpp	2005-07-27 14:20:26 UTC (rev 807)
+@@ -40,7 +40,7 @@
+ void
+ SparkDrawer::draw(SceneContext&amp; sc, ParticleSystem&amp; psys) 
+ {
+-  VertexArrayDrawingRequest* buffer = new VertexArrayDrawingRequest(Vector(0, 0), 100.0f,
++  VertexArrayDrawingRequest* buffer = new VertexArrayDrawingRequest(Vector(0, 0), psys.get_z_pos(),
+                                                                     sc.color().get_modelview());
+   if (width == 1.0f)
+     {
+@@ -49,10 +49,10 @@
+       for(ParticleSystem::Particles::iterator i = psys.begin(); i != psys.end(); ++i)
+         {
+           buffer-&gt;color(Color(color.r, color.g, color.b, color.a - (color.a * psys.get_progress(i-&gt;t))));
+-          buffer-&gt;vertex(i-&gt;x, i-&gt;y);
++          buffer-&gt;vertex(i-&gt;x + i-&gt;v_x/10.0f, i-&gt;y + i-&gt;v_y/10.0f); 
+ 
+           buffer-&gt;color(Color(0, 0, 0, 0));
+-          buffer-&gt;vertex(i-&gt;x - i-&gt;v_x/10.0f, i-&gt;y - i-&gt;v_y/10.0f); 
++          buffer-&gt;vertex(i-&gt;x, i-&gt;y);
+         }
+     }
+   else
+
+Modified: trunk/src/particles/surface_drawer.cpp
+===================================================================
+--- trunk/src/particles/surface_drawer.cpp	2005-07-27 13:34:46 UTC (rev 806)
++++ trunk/src/particles/surface_drawer.cpp	2005-07-27 14:20:26 UTC (rev 807)
+@@ -47,7 +47,7 @@
+ SurfaceDrawer::draw(SceneContext&amp; sc, ParticleSystem&amp; psys) 
+ {          
+   VertexArrayDrawingRequest* buffer 
+-    = new VertexArrayDrawingRequest(Vector(psys.get_x_pos(), psys.get_y_pos()), 0, // FIXME: add zpos
++    = new VertexArrayDrawingRequest(Vector(psys.get_x_pos(), psys.get_y_pos()), psys.get_z_pos(),
+                                     sc.color().get_modelview());
+ 
+   buffer-&gt;set_mode(GL_QUADS);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000459.html">[Windstille-commit] r806 - in trunk/src: display math
+</A></li>
+	<LI>Next message: <A HREF="000461.html">[Windstille-commit] r808 - trunk/src/collision
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#460">[ date ]</a>
+              <a href="thread.html#460">[ thread ]</a>
+              <a href="subject.html#460">[ subject ]</a>
+              <a href="author.html#460">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

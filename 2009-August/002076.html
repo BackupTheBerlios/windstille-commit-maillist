@@ -1,0 +1,433 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3079 - in trunk/windstille/src: display editor	engine screen
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3079%20-%20in%20trunk/windstille/src%3A%20display%20editor%0A%09engine%20screen&In-Reply-To=%3C200908261624.n7QGO6wc015346%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002075.html">
+   <LINK REL="Next"  HREF="002077.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3079 - in trunk/windstille/src: display editor	engine screen</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3079%20-%20in%20trunk/windstille/src%3A%20display%20editor%0A%09engine%20screen&In-Reply-To=%3C200908261624.n7QGO6wc015346%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3079 - in trunk/windstille/src: display editor	engine screen">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Aug 26 18:24:06 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002075.html">[Windstille-commit] r3078 - in trunk/windstille/src: display editor	screen
+</A></li>
+        <LI>Next message: <A HREF="002077.html">[Windstille-commit] r3080 - trunk/windstille/src/objects
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2076">[ date ]</a>
+              <a href="thread.html#2076">[ thread ]</a>
+              <a href="subject.html#2076">[ subject ]</a>
+              <a href="author.html#2076">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-08-26 18:24:05 +0200 (Wed, 26 Aug 2009)
+New Revision: 3079
+
+Modified:
+   trunk/windstille/src/display/compositor.cpp
+   trunk/windstille/src/display/compositor.hpp
+   trunk/windstille/src/display/drawing_context.cpp
+   trunk/windstille/src/display/graphic_context_state.cpp
+   trunk/windstille/src/display/graphic_context_state.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/engine/sector.cpp
+   trunk/windstille/src/screen/game_session.cpp
+   trunk/windstille/src/screen/particle_viewer.cpp
+   trunk/windstille/src/screen/sprite3dview.cpp
+Log:
+Draw the SceneGraph via the Compositor
+
+Modified: trunk/windstille/src/display/compositor.cpp
+===================================================================
+--- trunk/windstille/src/display/compositor.cpp	2009-08-26 14:58:40 UTC (rev 3078)
++++ trunk/windstille/src/display/compositor.cpp	2009-08-26 16:24:05 UTC (rev 3079)
+@@ -22,11 +22,13 @@
+ 
+ #include &quot;display/display.hpp&quot;
+ #include &quot;display/drawing_request.hpp&quot;
++#include &quot;display/graphic_context_state.hpp&quot;
+ #include &quot;display/framebuffer.hpp&quot;
+ #include &quot;display/opengl_state.hpp&quot;
+ #include &quot;display/scene_context.hpp&quot;
+ #include &quot;display/surface.hpp&quot;
+ #include &quot;math/rect.hpp&quot;
++#include &quot;scenegraph/scene_graph.hpp&quot;
+ 
+ // The lightmap has a resolution of screen.w/LIGHTMAP, screen.h/LIGHTMAP
+ #define LIGHTMAP_DIV 4
+@@ -54,7 +56,8 @@
+   CompositorImpl()
+     : framebuffers(0),
+       //framebuffers(new Framebuffers()),
+-      lightmap(Display::get_width()/LIGHTMAP_DIV, Display::get_height()/LIGHTMAP_DIV)
++      lightmap(Display::get_width()  / LIGHTMAP_DIV,
++               Display::get_height() / LIGHTMAP_DIV)
+   {}
+ };
+ 
+@@ -68,7 +71,7 @@
+ }
+ 
+ void
+-Compositor::render_lightmap(SceneContext&amp; /*sc*/)
++Compositor::render_lightmap(SceneContext&amp; /*sc*/, SceneGraph* /*sg*/)
+ {
+   Rectf uv(0, 0,
+            static_cast&lt;float&gt;(impl-&gt;framebuffers-&gt;lightmap.get_width()), 
+@@ -101,7 +104,7 @@
+ }
+ 
+ void
+-Compositor::render_with_framebuffers(SceneContext&amp; sc)
++Compositor::render_with_framebuffers(SceneContext&amp; sc, SceneGraph* sg)
+ {
+   glClear(GL_DEPTH_BUFFER_BIT);
+       
+@@ -133,7 +136,7 @@
+   if (sc.get_render_mask() &amp; SceneContext::LIGHTMAP)
+   { // Renders the lightmap to the screen
+     Display::push_framebuffer(impl-&gt;framebuffers-&gt;screen);
+-    render_lightmap(sc);
++    render_lightmap(sc, sg);
+     Display::pop_framebuffer();
+   }
+ 
+@@ -188,7 +191,7 @@
+ }
+ 
+ void
+-Compositor::render_without_framebuffers(SceneContext&amp; sc)
++Compositor::render_without_framebuffers(SceneContext&amp; sc, SceneGraph* sg, const GraphicContextState&amp; gc_state)
+ {
+   // Resize Lightmap, only needed in the editor, FIXME: move this into a 'set_size()' call
+   if (impl-&gt;lightmap.get_width()  != Display::get_width()/LIGHTMAP_DIV ||
+@@ -228,6 +231,14 @@
+     // Render the colormap to the framebuffers-&gt;screen
+     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+     sc.color().render(*this);
++
++    if (sg)
++    {
++      glPushMatrix();
++      glMultMatrixf(gc_state.get_matrix().matrix);
++      sg-&gt;draw(Texture());
++      glPopMatrix();
++    }
+   }
+ 
+   if (sc.get_render_mask() &amp; SceneContext::LIGHTMAP)
+@@ -276,15 +287,15 @@
+ }
+ 
+ void
+-Compositor::render(SceneContext&amp; sc)
++Compositor::render(SceneContext&amp; sc, SceneGraph* sg, const GraphicContextState&amp; state)
+ {
+   if (impl-&gt;framebuffers)
+   {
+-    render_with_framebuffers(sc);
++    render_with_framebuffers(sc, sg);
+   }
+   else
+   {
+-    render_without_framebuffers(sc);
++    render_without_framebuffers(sc, sg, state);
+   }
+ }
+ 
+
+Modified: trunk/windstille/src/display/compositor.hpp
+===================================================================
+--- trunk/windstille/src/display/compositor.hpp	2009-08-26 14:58:40 UTC (rev 3078)
++++ trunk/windstille/src/display/compositor.hpp	2009-08-26 16:24:05 UTC (rev 3079)
+@@ -21,9 +21,11 @@
+ 
+ #include &lt;boost/scoped_ptr.hpp&gt;
+ 
+-class SceneContext;
+ class CompositorImpl;
+ class DrawingRequest;
++class GraphicContextState;
++class SceneContext;
++class SceneGraph;
+ 
+ class Compositor
+ {
+@@ -31,19 +33,22 @@
+   Compositor();
+   ~Compositor();
+ 
+-  void render_with_framebuffers(SceneContext&amp; sc);
+-  void render_without_framebuffers(SceneContext&amp; sc);
++  void render(SceneContext&amp; sc, SceneGraph* sg, const GraphicContextState&amp; state);
++  void eval(DrawingRequest* request);
+ 
+-  void render_lightmap(SceneContext&amp; sc);
+-  void render(SceneContext&amp; sc);
++private:
++  void render_with_framebuffers(SceneContext&amp; sc, SceneGraph* sg);
++  void render_without_framebuffers(SceneContext&amp; sc, SceneGraph* sg, 
++                                   const GraphicContextState&amp; state);
+ 
+-  void eval(DrawingRequest* request);
++  void render_lightmap(SceneContext&amp; sc, SceneGraph* sg);
+ 
+ private:
+-  boost::scoped_ptr&lt;CompositorImpl&gt; impl;
+-
+   Compositor(const Compositor&amp;);
+   Compositor&amp; operator=(const Compositor&amp;);
++
++private:
++  boost::scoped_ptr&lt;CompositorImpl&gt; impl;
+ };
+ 
+ #endif
+
+Modified: trunk/windstille/src/display/drawing_context.cpp
+===================================================================
+--- trunk/windstille/src/display/drawing_context.cpp	2009-08-26 14:58:40 UTC (rev 3078)
++++ trunk/windstille/src/display/drawing_context.cpp	2009-08-26 16:24:05 UTC (rev 3079)
+@@ -281,7 +281,7 @@
+ }
+ 
+ void
+-DrawingContext::draw(const Sprite&amp; sprite,  const Vector2f&amp; pos, float z_pos)
++DrawingContext::draw(const Sprite&amp; sprite, const Vector2f&amp; pos, float z_pos)
+ {
+   draw(sprite.get_current_surface(),
+        SurfaceDrawingParameters()
+
+Modified: trunk/windstille/src/display/graphic_context_state.cpp
+===================================================================
+--- trunk/windstille/src/display/graphic_context_state.cpp	2009-08-26 14:58:40 UTC (rev 3078)
++++ trunk/windstille/src/display/graphic_context_state.cpp	2009-08-26 16:24:05 UTC (rev 3079)
+@@ -62,8 +62,28 @@
+   impl-&gt;height = h;
+ }
+ 
++Matrix
++GraphicContextState::get_matrix() const
++{
++  Matrix matrix = Matrix::identity();
++
++  matrix = matrix.translate(static_cast&lt;float&gt;(impl-&gt;width)  / 2.0f, 
++                   static_cast&lt;float&gt;(impl-&gt;height) / 2.0f,
++                   0.0f);
++  matrix = matrix.rotate(impl-&gt;rotation, 0.0f, 0.0f, 1.0f);
++  matrix = matrix.translate(static_cast&lt;float&gt;(-impl-&gt;width)  / 2.0f,
++               static_cast&lt;float&gt;(-impl-&gt;height) / 2.0f, 
++               0.0f);
++
++  matrix = matrix.scale(get_zoom(), get_zoom(), 1.0f);
++  
++  matrix = matrix.translate(impl-&gt;offset.x, impl-&gt;offset.y, 0.0f); 
++
++  return matrix;
++}
++
+ void
+-GraphicContextState::push(SceneContext&amp; sc)
++GraphicContextState::push(SceneContext&amp; sc) const
+ {
+   sc.push_modelview();
+ 
+@@ -78,7 +98,7 @@
+ }
+ 
+ void
+-GraphicContextState::pop(SceneContext&amp; sc)
++GraphicContextState::pop(SceneContext&amp; sc) const
+ {
+   sc.pop_modelview();
+ }
+@@ -128,7 +148,7 @@
+ }
+ 
+ float
+-GraphicContextState::get_zoom()
++GraphicContextState::get_zoom() const
+ {
+   return impl-&gt;zoom;
+ }
+
+Modified: trunk/windstille/src/display/graphic_context_state.hpp
+===================================================================
+--- trunk/windstille/src/display/graphic_context_state.hpp	2009-08-26 14:58:40 UTC (rev 3078)
++++ trunk/windstille/src/display/graphic_context_state.hpp	2009-08-26 16:24:05 UTC (rev 3079)
+@@ -18,9 +18,11 @@
+ #ifndef HEADER_WINDSTILLE_DISPLAY_GRAPHIC_CONTEXT_STATE_HPP
+ #define HEADER_WINDSTILLE_DISPLAY_GRAPHIC_CONTEXT_STATE_HPP
+ 
++#include &lt;boost/shared_ptr.hpp&gt;
++
+ #include &quot;math/rect.hpp&quot;
+ #include &quot;math/vector2f.hpp&quot;
+-#include &lt;boost/shared_ptr.hpp&gt;
++#include &quot;math/matrix.hpp&quot;
+ 
+ class SceneContext;
+ 
+@@ -37,9 +39,11 @@
+ 
+   void set_size(int w, int h);
+ 
+-  void push(SceneContext&amp; sc);
+-  void pop(SceneContext&amp; sc);
++  Matrix get_matrix() const;
+ 
++  void push(SceneContext&amp; sc) const;
++  void pop(SceneContext&amp; sc) const;
++
+   /** Return a rectangle in world coordinates that represents the area
+       visible on the screen */
+   Rectf get_clip_rect();
+@@ -64,7 +68,7 @@
+       position even after zoomed in/out */
+   void  set_zoom(const Vector2f&amp; pos, float z);
+   void  set_zoom(float z);
+-  float get_zoom(); 
++  float get_zoom() const; 
+ 
+   void zoom_to (const Rectf&amp; rect);
+ 
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-08-26 14:58:40 UTC (rev 3078)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-08-26 16:24:05 UTC (rev 3079)
+@@ -303,7 +303,8 @@
+           EditorWindow::current()-&gt;get_current_tool()-&gt;draw(*sc);
+         }
+ 
+-      compositor-&gt;render(*sc);
++      compositor-&gt;render(*sc, 0, GraphicContextState(Display::get_width(),
++                                                     Display::get_height()));
+ 
+       state.pop(*sc);
+ 
+
+Modified: trunk/windstille/src/engine/sector.cpp
+===================================================================
+--- trunk/windstille/src/engine/sector.cpp	2009-08-26 14:58:40 UTC (rev 3078)
++++ trunk/windstille/src/engine/sector.cpp	2009-08-26 16:24:05 UTC (rev 3079)
+@@ -197,7 +197,7 @@
+         (*i)-&gt;draw(sc);
+     }
+ 
+-  sc.color().draw(new SceneGraphDrawingRequest(*scene_graph, sc.color().get_modelview()));
++  //sc.color().draw(new SceneGraphDrawingRequest(*scene_graph, sc.color().get_modelview()));
+ }
+ 
+ void Sector::commit_adds()
+
+Modified: trunk/windstille/src/screen/game_session.cpp
+===================================================================
+--- trunk/windstille/src/screen/game_session.cpp	2009-08-26 14:58:40 UTC (rev 3078)
++++ trunk/windstille/src/screen/game_session.cpp	2009-08-26 16:24:05 UTC (rev 3079)
+@@ -142,9 +142,9 @@
+ GameSessionImpl::draw()
+ {
+   view.draw(sc, *sector);
+-
++  
+   // Render the scene to the screen
+-  compositor.render(sc);
++  compositor.render(sc, &amp;sector-&gt;get_scene_graph(), view.get_gc_state());
+ 
+   if (cutscene_mode || cutscene_value &gt; 0.0f)
+     {
+
+Modified: trunk/windstille/src/screen/particle_viewer.cpp
+===================================================================
+--- trunk/windstille/src/screen/particle_viewer.cpp	2009-08-26 14:58:40 UTC (rev 3078)
++++ trunk/windstille/src/screen/particle_viewer.cpp	2009-08-26 16:24:05 UTC (rev 3079)
+@@ -23,6 +23,7 @@
+ 
+ #include &quot;app/menu_manager.hpp&quot;
+ #include &quot;display/display.hpp&quot;
++#include &quot;display/graphic_context_state.hpp&quot;
+ #include &quot;input/controller.hpp&quot;
+ #include &quot;util/sexpr_file_reader.hpp&quot;
+ 
+@@ -94,7 +95,8 @@
+   for(Systems::iterator i = systems.begin(); i != systems.end(); ++i)
+     (*i)-&gt;draw(sc);
+ 
+-  compositor.render(sc);
++  compositor.render(sc, 0, GraphicContextState(Display::get_width(),
++                                               Display::get_height()));
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/screen/sprite3dview.cpp
+===================================================================
+--- trunk/windstille/src/screen/sprite3dview.cpp	2009-08-26 14:58:40 UTC (rev 3078)
++++ trunk/windstille/src/screen/sprite3dview.cpp	2009-08-26 16:24:05 UTC (rev 3079)
+@@ -16,11 +16,13 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
++#include &quot;screen/sprite3dview.hpp&quot;
++
+ #include &quot;app/menu_manager.hpp&quot;
+ #include &quot;display/display.hpp&quot;
+ #include &quot;font/fonts.hpp&quot;
+ #include &quot;input/controller.hpp&quot;
+-#include &quot;sprite3dview.hpp&quot;
++#include &quot;display/graphic_context_state.hpp&quot;
+ 
+ Sprite3DView::Sprite3DView()
+   : compositor(),
+@@ -79,7 +81,8 @@
+ 
+   sc.light().fill_screen(Color(1.0, 1.0, 1.0));
+   //sc.color().draw(&quot;Hello World&quot;, 100, 100);
+-  compositor.render(sc);
++  compositor.render(sc, 0, GraphicContextState(Display::get_width(),
++                                               Display::get_height()));
+   
+   float x = 10.0f;
+   float y =  static_cast&lt;float&gt;(Fonts::current()-&gt;vera12-&gt;get_height()) + 5.0f;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002075.html">[Windstille-commit] r3078 - in trunk/windstille/src: display editor	screen
+</A></li>
+	<LI>Next message: <A HREF="002077.html">[Windstille-commit] r3080 - trunk/windstille/src/objects
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2076">[ date ]</a>
+              <a href="thread.html#2076">[ thread ]</a>
+              <a href="subject.html#2076">[ subject ]</a>
+              <a href="author.html#2076">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

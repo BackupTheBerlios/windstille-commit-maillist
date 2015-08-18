@@ -1,0 +1,234 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2279 - trunk/griv/new
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2279%20-%20trunk/griv/new&In-Reply-To=%3C200808070010.m770AHDG023376%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001298.html">
+   <LINK REL="Next"  HREF="001300.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2279 - trunk/griv/new</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2279%20-%20trunk/griv/new&In-Reply-To=%3C200808070010.m770AHDG023376%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2279 - trunk/griv/new">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Aug  7 02:10:17 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001298.html">[Windstille-commit] r2278 - trunk/griv/new
+</A></li>
+        <LI>Next message: <A HREF="001300.html">[Windstille-commit] r2280 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1299">[ date ]</a>
+              <a href="thread.html#1299">[ thread ]</a>
+              <a href="subject.html#1299">[ subject ]</a>
+              <a href="author.html#1299">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-07 02:10:16 +0200 (Thu, 07 Aug 2008)
+New Revision: 2279
+
+Added:
+   trunk/griv/new/md5.cpp
+   trunk/griv/new/md5.hpp
+Modified:
+   trunk/griv/new/SConstruct
+   trunk/griv/new/file_database.cpp
+   trunk/griv/new/file_database.hpp
+   trunk/griv/new/filesystem.cpp
+   trunk/griv/new/filesystem.hpp
+   trunk/griv/new/griv.cpp
+   trunk/griv/new/tile_database.cpp
+Log:
+Added md5 stuff, more work on file_database
+
+Modified: trunk/griv/new/SConstruct
+===================================================================
+--- trunk/griv/new/SConstruct	2008-08-06 21:46:34 UTC (rev 2278)
++++ trunk/griv/new/SConstruct	2008-08-07 00:10:16 UTC (rev 2279)
+@@ -11,6 +11,7 @@
+         'math/vector2f.cpp',
+         'software_surface.cpp',
+         'url.cpp',
++        'md5.cpp',
+         'sqlite.cpp',
+         'filesystem.cpp',
+         'file_database.cpp',
+
+Modified: trunk/griv/new/file_database.cpp
+===================================================================
+--- trunk/griv/new/file_database.cpp	2008-08-06 21:46:34 UTC (rev 2278)
++++ trunk/griv/new/file_database.cpp	2008-08-07 00:10:16 UTC (rev 2279)
+@@ -26,6 +26,9 @@
+ #include &lt;iostream&gt;
+ #include &lt;sstream&gt;
+ #include &lt;stdexcept&gt;
++
++#include &quot;md5.hpp&quot;
++#include &quot;filesystem.hpp&quot;
+ #include &quot;file_database.hpp&quot;
+ 
+ std::ostream&amp; operator&lt;&lt;(std::ostream&amp; os, const FileEntry&amp; entry)
+@@ -60,14 +63,14 @@
+ }
+  
+ int
+-FileDatabase::store_file_entry(const std::string&amp; filename, const std::string&amp; md5, size_t filesize, int width, int height, int mtime)
++FileDatabase::store_file_entry(const FileEntry&amp; entry)
+ {
+-  store_stmt.bind_text(1, filename);
+-  store_stmt.bind_text(2, md5);
+-  store_stmt.bind_int (3, filesize); // filesize
+-  store_stmt.bind_int (4, width);    // width
+-  store_stmt.bind_int (5, height);   // height
+-  store_stmt.bind_int (6, 0);        // mtime
++  store_stmt.bind_text(1, entry.filename);
++  store_stmt.bind_text(2, entry.md5);
++  store_stmt.bind_int (3, entry.filesize); // filesize
++  store_stmt.bind_int (4, entry.width);    // width
++  store_stmt.bind_int (5, entry.height);   // height
++  store_stmt.bind_int (6, entry.mtime);        // mtime
+ 
+   store_stmt.execute();
+ 
+@@ -99,7 +102,16 @@
+     }
+   else
+     {
+-      return false;
++      entry.filename = filename;
++      entry.md5      = MD5::md5_file(filename);
++      entry.filesize = Filesystem::get_size(filename);
++      entry.mtime    = Filesystem::get_mtime(filename);
++      entry.width    = 0;
++      entry.height   = 0;
++
++      store_file_entry(entry);
++      
++      return true;
+     }
+ }
+ 
+
+Modified: trunk/griv/new/file_database.hpp
+===================================================================
+--- trunk/griv/new/file_database.hpp	2008-08-06 21:46:34 UTC (rev 2278)
++++ trunk/griv/new/file_database.hpp	2008-08-07 00:10:16 UTC (rev 2279)
+@@ -51,7 +51,7 @@
+   SQLiteStatement get_by_filename_stmt;
+   SQLiteStatement get_by_file_id_stmt;
+ 
+-  int store_file_entry(const std::string&amp; filename, const std::string&amp; md5, size_t filesize, int width, int height, int mtime);
++  int store_file_entry(const FileEntry&amp; entry);
+  
+ public:
+   FileDatabase(SQLiteConnection* db);
+
+Modified: trunk/griv/new/filesystem.cpp
+===================================================================
+--- trunk/griv/new/filesystem.cpp	2008-08-06 21:46:34 UTC (rev 2278)
++++ trunk/griv/new/filesystem.cpp	2008-08-07 00:10:16 UTC (rev 2279)
+@@ -206,6 +206,12 @@
+ }
+ 
+ unsigned int
++Filesystem::get_size(const std::string&amp; filename)
++{
++  return 0;
++}
++
++unsigned int
+ Filesystem::get_mtime(const std::string&amp; filename)
+ {
+   struct stat stat_buf;
+
+Modified: trunk/griv/new/filesystem.hpp
+===================================================================
+--- trunk/griv/new/filesystem.hpp	2008-08-06 21:46:34 UTC (rev 2278)
++++ trunk/griv/new/filesystem.hpp	2008-08-07 00:10:16 UTC (rev 2279)
+@@ -55,6 +55,7 @@
+   static bool has_extension(const std::string&amp; pathname, const std::string&amp; ext);
+   static void copy_mtime(const std::string&amp; from_filename, const std::string&amp; to_filename);
+   static unsigned int get_mtime(const std::string&amp; filename);
++  static unsigned int get_size(const std::string&amp; filename);
+   
+   /** Generate a recursive list of all JPEGs in pathname */
+   static void generate_jpeg_file_list(const std::string&amp; pathname, std::vector&lt;std::string&gt;&amp; file_list);
+
+Modified: trunk/griv/new/griv.cpp
+===================================================================
+--- trunk/griv/new/griv.cpp	2008-08-06 21:46:34 UTC (rev 2278)
++++ trunk/griv/new/griv.cpp	2008-08-07 00:10:16 UTC (rev 2279)
+@@ -23,6 +23,7 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;algorithm&gt;
+ #include &lt;sstream&gt;
+ #include &lt;stdexcept&gt;
+ #include &lt;iostream&gt;
+@@ -75,6 +76,8 @@
+   FileDatabase file_db(&amp;db);
+   TileDatabase tile_db(&amp;db);
+ 
++  std::transform(rest.begin(), rest.end(), rest.begin(), &amp;Filesystem::realpath);
++
+   for(std::vector&lt;std::string&gt;::size_type i = 0; i &lt; rest.size(); ++i)
+     {
+       if (0) // Tile Generation
+
+Copied: trunk/griv/new/md5.cpp (from rev 2272, trunk/griv/md5.cpp)
+
+Copied: trunk/griv/new/md5.hpp (from rev 2272, trunk/griv/md5.hpp)
+
+Modified: trunk/griv/new/tile_database.cpp
+===================================================================
+--- trunk/griv/new/tile_database.cpp	2008-08-06 21:46:34 UTC (rev 2278)
++++ trunk/griv/new/tile_database.cpp	2008-08-07 00:10:16 UTC (rev 2279)
+@@ -38,8 +38,8 @@
+            &quot;data    BLOB     &quot; // the image data, JPEG
+            &quot;);&quot;);
+ 
+-  store_stmt.prepare(&quot;INSERT into tiles (fileid, zoom, x, y, width, height, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7);&quot;);
+-  get_stmt.prepare(&quot;SELECT (data) FROM tiles WHERE fileid = ?1 AND zoom = ?2 AND x = ?3 AND y = ?4;&quot;);
++  store_stmt.prepare(&quot;INSERT into tiles (fileid, scale, x, y, data) VALUES (?1, ?2, ?3, ?4, ?5);&quot;);
++  get_stmt.prepare(&quot;SELECT (data) FROM tiles WHERE fileid = ?1 AND scale = ?2 AND x = ?3 AND y = ?4;&quot;);
+ }
+ 
+ SoftwareSurface
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001298.html">[Windstille-commit] r2278 - trunk/griv/new
+</A></li>
+	<LI>Next message: <A HREF="001300.html">[Windstille-commit] r2280 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1299">[ date ]</a>
+              <a href="thread.html#1299">[ thread ]</a>
+              <a href="subject.html#1299">[ subject ]</a>
+              <a href="author.html#1299">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,458 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1235 - trunk/tools
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1235%20-%20trunk/tools&In-Reply-To=%3C200601182307.k0IN76BH023233%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000887.html">
+   <LINK REL="Next"  HREF="000889.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1235 - trunk/tools</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1235%20-%20trunk/tools&In-Reply-To=%3C200601182307.k0IN76BH023233%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1235 - trunk/tools">grumbel at berlios.de
+       </A><BR>
+    <I>Thu Jan 19 00:07:06 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000887.html">[Windstille-commit] r1234 - trunk/tools
+</A></li>
+        <LI>Next message: <A HREF="000889.html">[Windstille-commit] r1236 - trunk/tools
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#888">[ date ]</a>
+              <a href="thread.html#888">[ thread ]</a>
+              <a href="subject.html#888">[ subject ]</a>
+              <a href="author.html#888">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-01-19 00:07:06 +0100 (Thu, 19 Jan 2006)
+New Revision: 1235
+
+Modified:
+   trunk/tools/windstille_export.py
+Log:
+- in the progress of allowing multiple textures per mesh
+
+Modified: trunk/tools/windstille_export.py
+===================================================================
+--- trunk/tools/windstille_export.py	2006-01-18 12:11:22 UTC (rev 1234)
++++ trunk/tools/windstille_export.py	2006-01-18 23:07:06 UTC (rev 1235)
+@@ -160,8 +160,92 @@
+ 
+   return actionconfig
+ 
++##########################################################
++def get_text(textname):
++  &quot;&quot;&quot;Little shortcut function to return the content of
++  Blender.Text.get(textname) as a single string and do a little error
++  handling in addition&quot;&quot;&quot; 
++  try:
++    textobj = Blender.Text.Get(textname)
++  except:                                                         
++    print &quot;WARNING: Text '%s' not found&quot; % textname
++    return &quot;&quot;
++
++  lines = textobj.asLines()
++  text = &quot;&quot;
++  for line in lines:
++    text += line + &quot;\n&quot;
++  return text
++
++class MeshData:
++  def __init__(self, texture_filename, faces = []):
++    # Filename of the used texture
++    self.texture_filename = texture_filename
++
++    # [[MeshVertexData, MeshVertexData, MeshVertexData], ...]
++    self.faces            = faces
++
++    # Table to translate (object, index) to new_index
++    # Format: [[object, index, new_index], ...]
++    self.transtable       = []
++
++  def transtable_has_vertex(self, new_object, new_index):
++    for (object, index, new_index) in self.transtable:
++      if object == new_object and index == new_object:
++        return True
++      else:
++        return False
++
++  def finalize(self):
++    &quot;&quot;&quot;Reorders vertex indexes&quot;&quot;&quot;
++
++    for face in self.faces:
++      for vert in face:
++        if not self.transtable_has_vertex(vert.object, vert.index):
++          self.transtable += [[vert.object, vert.index, len(self.transtable)]]
++
++    # print &quot;FINALIZE&quot;
++    # print self.transtable
++    # print &quot;FINALIZE END&quot;
++
++  def vertices(self):
++    return self.transtable
++
++  def translate(self, arg_object, arg_index):
++    &quot;&quot;&quot;Translate a vertex given as object, index pair to its
++    corresponding index, as used in the wsprite file&quot;&quot;&quot;
++   
++    for (object, index, new_index) in self.transtable:
++      if arg_object == object and arg_index == index:
++        return new_index
++    raise &quot;MeshData: Couldn't translate vertex: %s, %s&quot; % (arg_object, arg_index)
++
++class MeshVertexData:
++  def __init__(self, object, index, uv, normal):
++    self.object = object
++    self.index  = index
++    self.uv     = uv
++    # FIXME: Shouldn't the normal be a per per vertex data?
++    self.normal = normal
++
++class AttachmentPointData:
++  &quot;&quot;&quot;Data for an attachment point, its location and its rotation&quot;&quot;&quot;
++  def __init__(self, loc, quat):
++    self.loc  = loc
++    self.quat = quat
++
++class FrameData:
++  &quot;&quot;&quot; Data used for a single frame in an action &quot;&quot;&quot;
++  def __init__(self, vertex_locs, attachment_points):
++    # Format: [[[x,y,z], ...], [[x,y,z],  ...], ...] (one list for each Mesh)
++    self.vertex_locs        = vertex_locs
++    
++    # [AttachmentPointData, ...]
++    self.attachment_points = attachment_points
++
++
+ class ActionConfig:
+-  &quot;&quot;&quot;ActionConfig handles the properties of an
++  &quot;&quot;&quot;ActionConfig handles the properties of a single
+   action, ie. when it starts, when it stops, its speed, how many
+   spamles should be taken, etc.&quot;&quot;&quot;
+ 
+@@ -177,35 +261,40 @@
+     return &quot;Frames: %3i - %3i, speed: %3.2f, Samplerate: %3d&quot; % (self.first_frame, self.last_frame,
+                                                            self.speed, self.samplerate)
+ 
+-##########################################################
+-def get_text(textname):
+-  &quot;&quot;&quot;Little shortcut function to return the content of
+-  Blender.Text.get(textname) as a single string and do a little error
+-  handling in addition&quot;&quot;&quot; 
+-  try:
+-    textobj = Blender.Text.Get(textname)
+-  except:                                                         
+-    print &quot;WARNING: Text '%s' not found&quot; % textname
+-    return &quot;&quot;
++class ActionData:
++  def __init__(self, name, config):
++    # name as string
++    self.name       = name
+ 
+-  lines = textobj.asLines()
+-  text = &quot;&quot;
+-  for line in lines:
+-    text += line + &quot;\n&quot;
+-  return text
++    # ActionConfig
++    self.config     = config
+ 
++    # FrameData (filled out later in the WindstilleExporter)
++    self.frame_data = None
++
+ ##########################################################
+ class WindstilleExporter:
+   &quot;&quot;&quot; WindstilleExporter bundles all kind of functions... &quot;&quot;&quot;
+ 
+   ########################################################
+   def __init__(self):
+-    self.meshes    = []
+-    self.attachement_objects = []
++    # List of objects that should get exported (everything on seperate layer is ignored)
++    self.mesh_objects    = []
++
++    # List of mesh_data
++    self.mesh_data   = []
++    
++    self.attachment_objects = []
++
++    # Name of the actions as string
+     self.actions = []
++    
+     self.objvertmaps = {}
+     self.armatureobj = None
+ 
++    # { actionname : ActionConfig, ... }
++    self.actionconfigs = {}
++
+   ########################################################
+   def export(self, filename):
+     &quot;&quot;&quot; parse actionconfig &quot;&quot;&quot;
+@@ -218,28 +307,25 @@
+ 
+     file = open(filename, &quot;wb&quot;)
+     self.write_file(file)
++    self.collect_scene_data()
+     file.close()
+ 
+   ### begin: save_frame()
+   def save_frame(self, out):
+-    &quot;&quot;&quot; &quot;&quot;&quot;
+-    for obj in self.meshes:
++    &quot;&quot;&quot;Write out vertex position and position of attachment points in a frame&quot;&quot;&quot;
++    for obj in self.mesh_objects:
+       data = Blender.NMesh.GetRawFromObject(obj.getName())
+       m = obj.getMatrix()
+-      # action/frame/mesh/vertices
++      # location: action/frame/mesh/vertices
+       for nv in self.objvertmaps[obj.getName()]:
+         v = data.verts[nv]
+-        t = [0, 0, 0]
+-        t[0] = m[0][0]*v[0] + m[1][0]*v[1] + m[2][0]*v[2] + m[3][0]
+-        t[1] = m[0][1]*v[0] + m[1][1]*v[1] + m[2][1]*v[2] + m[3][1]        
+-        t[2] = m[0][2]*v[0] + m[1][2]*v[1] + m[2][2]*v[2] + m[3][2]
+-        t[0] *= ZOOM
+-        t[1] *= ZOOM
+-        t[2] *= ZOOM
+-        out.write(struct.pack(&quot;=fff&quot;, t[1], -t[2], -t[0]))
++        out.write(struct.pack(&quot;=fff&quot;,
++                              +(m[0][1]*v[0] + m[1][1]*v[1] + m[2][1]*v[2] + m[3][1]) * ZOOM,
++                              -(m[0][2]*v[0] + m[1][2]*v[1] + m[2][2]*v[2] + m[3][2]) * ZOOM,
++                              -(m[0][0]*v[0] + m[1][0]*v[1] + m[2][0]*v[2] + m[3][0]) * ZOOM))
+ 
+-    # attachement points
+-    for obj in self.attachement_objects:
++    # attachment points
++    for obj in self.attachment_objects:
+       m = obj.matrixWorld
+       loc = (m[3][0] * ZOOM, m[3][1] * ZOOM, m[3][2] * ZOOM)
+       out.write(struct.pack(&quot;=fff&quot;, loc[1], -loc[2], -loc[0]))
+@@ -251,14 +337,14 @@
+   def write_file(self, out):
+     &quot;&quot;&quot; write file header &quot;&quot;&quot;
+     out.write(struct.pack(&quot;=4sHHHH&quot;, &quot;W3DS&quot;, FORMAT_VERSION, \
+-          len(self.meshes), len(self.attachement_objects), len(self.actions)))
++          len(self.mesh_objects), len(self.attachment_objects), len(self.actions)))
+ 
+     # Mesh Headers + Data
+-    for obj in self.meshes:
++    for obj in self.mesh_objects:
+       self.export_mesh_header(out, obj)
+ 
+-    # Attachement Point Headers
+-    for obj in self.attachement_objects:
++    # Attachment Point Headers
++    for obj in self.attachment_objects:
+       out.write(struct.pack(&quot;=64s&quot;, obj.getName()[2:]))
+ 
+     # Action Headers + actions
+@@ -344,19 +430,22 @@
+         print &quot;WARNING: Mesh '%s' has more than 1 material&quot; % obj.getName()
+         texturewarning = True
+ 
+-      # Write out triangle
++      # Write out triangle: ((index, u, v), (index, u, v), (index, u, v))
+       for v in [0, 1, 2]:
+         bodydata += struct.pack(&quot;=H&quot;, \
+               mapvertex(face.v[v].index, face.uv[v][0], face.uv[v][1]))
+       facecount += 1
+ 
+-      # Write out another triangle in case we have a quad
++      # Write out another triangle in case we have a quad: index, u, v
+       if len(face.v) == 4:
+         facecount += 1
+         for v in [0, 2, 3]:
+           bodydata += struct.pack(&quot;=H&quot;, \
+                 mapvertex(face.v[v].index, face.uv[v][0], face.uv[v][1]))
+ 
++    # FIXME: saving normals doesn't make sense per-mesh, should be per
++    # frame, unless I am overlooking something
++    
+     # normals
+     for face in data.faces:
+       bodydata += struct.pack(&quot;=fff&quot;, face.normal[1], -face.normal[2], -face.normal[0])
+@@ -394,7 +483,7 @@
+       if not texture:
+         print &quot;Skipping Mesh %s: no texture&quot; % obj.getName()
+         continue
+-      self.meshes.append(obj)
++      self.mesh_objects.append(obj)
+ 
+     # search for armature object
+     armatures = Blender.Armature.Get()
+@@ -409,10 +498,10 @@
+         armature = obj.getData()
+         break
+ 
+-    # compose list of objects for attachement points
++    # compose list of objects for attachment points
+     for obj in Blender.Object.Get():
+       if obj.getType() == 'Empty' and obj.getName().startswith(&quot;A:&quot;):
+-        self.attachement_objects.append(obj)
++        self.attachment_objects.append(obj)
+ 
+     # compose list of actions to export
+     if not self.armatureobj:
+@@ -422,6 +511,116 @@
+         self.actions.append(action[1])
+   ## end: exporter_lowlevel()
+ 
++  def collect_scene_data(self):
++    self.collect_object_data()
++
++    for action in self.actions:
++      action.setActive(self.armatureobj)
++    
++      # find/autodetect config
++      if self.actionconfigs.has_key(action.getName()):
++        actioncfg = self.actionconfigs[action.getName()]
++      else:
++        print &quot;Error: No config for action '%s' defined.&quot; % action.getName()
++        actioncfg = ActionConfig(1, 1, DEFAULT_SPEED, DEFAULT_SAMPLERATE, [])
++
++    for frame in range(actioncfg.first_frame, actioncfg.last_frame+1, actioncfg.samplerate):
++      Blender.Set(&quot;curframe&quot;, int(frame))
++      print self.collect_frame_data()
++
++  def collect_object_data(self):
++    for obj in self.mesh_objects:
++      self.mesh_data += self.collect_mesh_data(obj)
++
++    # insert code to merge meshes here
++
++    # Create the transtable
++    for mesh in self.mesh_data:
++      mesh.finalize()
++
++    print &quot;############# Begin: MeshDATA ##############&quot;
++    for val in self.collect_mesh_data(obj):
++      print val
++    print &quot;############# End: MeshDATA ##############&quot;
++
++  def collect_mesh_data(self, obj):
++    &quot;&quot;&quot;
++    Returns mesh_data as dict with format:
++    key: texture_filename
++    val: MeshData
++    &quot;&quot;&quot;
++    mesh_data = {}
++
++    for face in obj.getData().faces:
++      if face.image:
++        texture_filename = face.image.filename
++      else:
++        texture_filename = &quot;404.png&quot;
++        
++      if not mesh_data.has_key(texture_filename):
++        mesh_data[texture_filename] = MeshData(texture_filename)
++
++      faces = []
++      for v in [0, 1, 2]:
++        faces += [MeshVertexData(obj, face.v[v].index,
++                                [face.uv[v][0], 1.0-face.uv[v][1]],
++                                [face.normal[1], -face.normal[2], -face.normal[0]])]
++      mesh_data[texture_filename].faces += [faces]
++
++      # Write out another triangle in case we have a quad: index, u, v
++      if len(face.v) == 4:
++        for v in [0, 2, 3]:
++          faces += [MeshVertexData(obj, face.v[v].index,
++                                  [face.uv[v][0], 1.0-face.uv[v][1]],
++                                  [face.normal[1], -face.normal[2], -face.normal[0]])]
++        mesh_data[texture_filename].faces += [faces]
++      
++    return mesh_data.values()
++
++  def collect_frame_data(self):
++    &quot;&quot;&quot;
++    Collect all data for the given object in a single frame, frame
++    has to be selected outside of this function.
++    Format:
++      [[[vertex_pos_x, vertex_pos_y, vertex_pos_z], ...],
++       [[attachment_pos_x, attachment_pos_y, attachment_pos_z,
++         attachment_quat1, attachment_quat2, attachment_quat3, attachment_quat4], ...]]
++    &quot;&quot;&quot;
++   
++    meshs = []
++    attachment_points = []
++
++    obj = None
++
++    # no triangles here (those are global), just vertexes (those are local)
++    for mesh_data in self.mesh_data:
++      vertex_positions = []
++      for vertex in mesh_data.vertices():
++        if obj != vertex[0]:
++          obj  = vertex[0]
++          data = Blender.NMesh.GetRawFromObject(obj.getName())
++          
++        index = vertex[1]
++        
++        m = obj.getMatrix()
++
++        # location: action/frame/mesh/vertices
++        v = data.verts[index]
++        vertex_positions += [[+(m[0][1]*v[0] + m[1][1]*v[1] + m[2][1]*v[2] + m[3][1]) * ZOOM,
++                              -(m[0][2]*v[0] + m[1][2]*v[1] + m[2][2]*v[2] + m[3][2]) * ZOOM,
++                              -(m[0][0]*v[0] + m[1][0]*v[1] + m[2][0]*v[2] + m[3][0]) * ZOOM]]
++      meshs += [vertex_positions]
++
++    # attachment points
++    for obj in self.attachment_objects:
++      m    = obj.matrixWorld
++      loc  = (m[3][0] * ZOOM, m[3][1] * ZOOM, m[3][2] * ZOOM)
++      quat = matrix2quaternion(m)      
++      attachment_points += [AttachmentPoint([loc[1], -loc[2], -loc[0]],
++                                            [quat[0], quat[2], quat[3], quat[1]])]
++
++    return FrameData(meshs, attachment_points)
++
+ ### end: WindstilleExporter
+ 
+ ########################################################
+@@ -429,7 +628,7 @@
+   print &quot;=== Exporting: %s ===&quot; % (filename)
+   exporter = WindstilleExporter()
+   exporter.export(filename)
+-  print &quot;=== Done ===&quot;
++  print &quot;=== Windstille Exporter done, wrote %s ===&quot; % (filename)
+ 
+ defaultname = Blender.Get(&quot;filename&quot;)
+ if defaultname.endswith(&quot;.blend&quot;):
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000887.html">[Windstille-commit] r1234 - trunk/tools
+</A></li>
+	<LI>Next message: <A HREF="000889.html">[Windstille-commit] r1236 - trunk/tools
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#888">[ date ]</a>
+              <a href="thread.html#888">[ thread ]</a>
+              <a href="subject.html#888">[ subject ]</a>
+              <a href="author.html#888">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

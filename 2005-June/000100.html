@@ -1,0 +1,1533 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r443 - in trunk: . src src/input src/physfs
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r443%20-%20in%20trunk%3A%20.%20src%20src/input%20src/physfs&In-Reply-To=%3C200506262142.j5QLgJiB000469%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000099.html">
+   <LINK REL="Next"  HREF="000101.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r443 - in trunk: . src src/input src/physfs</H1>
+    <B>Matthias Braun at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r443%20-%20in%20trunk%3A%20.%20src%20src/input%20src/physfs&In-Reply-To=%3C200506262142.j5QLgJiB000469%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r443 - in trunk: . src src/input src/physfs">matzebraun at sheep.berlios.de
+       </A><BR>
+    <I>Sun Jun 26 23:42:19 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000099.html">[Windstille-commit] r442 - in trunk/data/blender: . spider
+</A></li>
+        <LI>Next message: <A HREF="000101.html">[Windstille-commit] r444 - in trunk: data/controller src src/input
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#100">[ date ]</a>
+              <a href="thread.html#100">[ thread ]</a>
+              <a href="subject.html#100">[ subject ]</a>
+              <a href="author.html#100">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: matzebraun
+Date: 2005-06-26 23:42:17 +0200 (Sun, 26 Jun 2005)
+New Revision: 443
+
+Added:
+   trunk/src/physfs/
+   trunk/src/physfs/physfs_stream.cpp
+   trunk/src/physfs/physfs_stream.hpp
+Removed:
+   trunk/src/config.h
+   trunk/src/windstille.i
+Modified:
+   trunk/Jamrules
+   trunk/configure.ac
+   trunk/src/
+   trunk/src/Jamfile
+   trunk/src/camera.cxx
+   trunk/src/default_shoot.cxx
+   trunk/src/game_session.cxx
+   trunk/src/input/input_manager_player.cxx
+   trunk/src/laser_shoot.cxx
+   trunk/src/sector.cxx
+   trunk/src/sector.hxx
+   trunk/src/sprite3d.cxx
+   trunk/src/tile_factory.cxx
+   trunk/src/tile_factory.hxx
+   trunk/src/tile_map.cxx
+   trunk/src/tile_map.hxx
+   trunk/src/windstille_main.cxx
+   trunk/src/windstille_main.hxx
+   trunk/src/windstille_menu.cxx
+Log:
+- Copy physfs, tinygettest and lisp code from supertux
+- Use new lisp code and don't use lispreader anymore
+
+
+
+Modified: trunk/Jamrules
+===================================================================
+--- trunk/Jamrules	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/Jamrules	2005-06-26 21:42:17 UTC (rev 443)
+@@ -22,6 +22,8 @@
+   LIBS += -lstlport_gcc_debug ;
+ }
+ 
++CPPFLAGS += -include config.h ;
++
+ switch $(VARIANT) {
+     case optimize :
+         CFLAGS += -Wall -O3 -g ;
+@@ -46,7 +48,7 @@
+ 
+ # Include Dirs
+ IncludeDir $(top_builddir) ; # for config.h
+-IncludeDir lib src ;
++IncludeDir $(top_srcdir)/src ;
+ 
+ if $(XGETTEXT) != &quot;&quot;
+ {
+
+Modified: trunk/configure.ac
+===================================================================
+--- trunk/configure.ac	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/configure.ac	2005-06-26 21:42:17 UTC (rev 443)
+@@ -45,6 +45,13 @@
+ AC_PROG_INSTALL
+ AC_CHECK_PROGS([XGETTEXT], xgettext)
+ 
++# bison + flex
++AC_PROG_LEX
++LEX_LIBS=$LEXLIB
++AC_SUBST([LEX_LIBS])
++AC_CHECK_PROGS([BISON], bison)
++AC_SUBST([BISON])
++
+ # check if our c++ compiler is gcc3.2 or newer
+ AC_MSG_CHECKING([whether g++ is new enough])
+ AC_LANG_SAVE
+@@ -85,9 +92,15 @@
+ 
+ PKG_CHECK_MODULES([CLANLIB], [clanApp-0.7 clanVorbis-0.7 clanCore-0.7 clanDisplay-0.7 clanGL-0.7 clanSignals-0.7 clanGUI-0.7 clanSound-0.7])
+ 
+-#AM_PATH_SDL([1.2.5], , AC_MSG_ERROR([Please install libsdl &gt;= 1.2.5]))
++NP_FINDLIB([PHYSFS], [physfs], [physfs &gt;= 1.0.0],
++        NP_LANG_PROGRAM([#include &lt;physfs.h&gt;
++#if PHYSFS_VER_MAJOR &lt; 1
++# error PHYSFS is too old
++#endif]),
++        [], [-lphysfs],
++        [],
++        [AC_MSG_ERROR([Please install physfs &gt;= 1.0])])
+ 
+-
+ AC_INIT_JAM
+ AC_CONFIG_FILES([Jamconfig])
+ 
+
+
+Property changes on: trunk/src
+___________________________________________________________________
+Name: svn:externals
+   - 
+
+   + squirrel <A HREF="svn://svn.berlios.de/supertux/trunk/supertux/src/squirrel">svn://svn.berlios.de/supertux/trunk/supertux/src/squirrel</A>
+
+
+Modified: trunk/src/Jamfile
+===================================================================
+--- trunk/src/Jamfile	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/src/Jamfile	2005-06-26 21:42:17 UTC (rev 443)
+@@ -1,5 +1,7 @@
+ SubDir TOP src ;
+ 
++SubInclude TOP src squirrel ;
++
+ Application windstille 
+     :   display/drawing_context.hxx
+         display/drawing_context.cxx
+@@ -37,6 +39,23 @@
+         input/multi_button.cxx
+         input/multi_button.hxx
+ 
++        lisp/lexer.cpp
++        lisp/lexer.h
++        lisp/lisp.cpp
++        lisp/lisp.h
++        lisp/list_iterator.cpp
++        lisp/list_iterator.h
++        lisp/parser.cpp
++        lisp/parser.h
++        lisp/writer.cpp
++        lisp/writer.h
++
++        physfs/physfs_stream.cpp
++        physfs/physfs_stream.h
++
++        tinygettext/tinygettext.cpp
++        tinygettext/tinygettext.h          
++
+         animation_obj.cxx
+         animation_obj.hxx
+         assert.hxx
+@@ -121,4 +140,4 @@
+         windstille_menu.cxx
+         windstille_menu.hxx
+ ;
+-ExternalLibs windstille : CLANLIB ;
++ExternalLibs windstille : CLANLIB PHYSFS ;
+
+Modified: trunk/src/camera.cxx
+===================================================================
+--- trunk/src/camera.cxx	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/src/camera.cxx	2005-06-26 21:42:17 UTC (rev 443)
+@@ -30,7 +30,7 @@
+ }
+ 
+ void
+-Camera::update(float delta)
++Camera::update(float )
+ {
+   int hscroll_threshold = 100;
+   int vscroll_threshold = 150;
+
+Deleted: trunk/src/config.h
+===================================================================
+--- trunk/src/config.h	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/src/config.h	2005-06-26 21:42:17 UTC (rev 443)
+@@ -1,5 +0,0 @@
+-/* config.h.  Generated by configure.  */
+-/* config.h.in.  Generated from configure.ac by autoheader.  */
+-
+-/* Version number of package */
+-#define VERSION &quot;0.2.0&quot;
+
+Modified: trunk/src/default_shoot.cxx
+===================================================================
+--- trunk/src/default_shoot.cxx	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/src/default_shoot.cxx	2005-06-26 21:42:17 UTC (rev 443)
+@@ -32,7 +32,7 @@
+ }
+ 
+ void
+-DefaultShoot::draw (SceneContext&amp; gc)
++DefaultShoot::draw (SceneContext&amp; )
+ {
+   if (direction)
+     sprite.set_scale (1.0, 1.0);
+
+Modified: trunk/src/game_session.cxx
+===================================================================
+--- trunk/src/game_session.cxx	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/src/game_session.cxx	2005-06-26 21:42:17 UTC (rev 443)
+@@ -295,7 +295,7 @@
+       //world-&gt;add(psystem);
+     }
+   
+-  //world-&gt;add(new Sprite3D(datadir + &quot;3dsprites/3dsprites&quot;));
++  world-&gt;add(new Sprite3D(&quot;3dsprites/3dsprites&quot;));
+ }
+ 
+ void
+
+Modified: trunk/src/input/input_manager_player.cxx
+===================================================================
+--- trunk/src/input/input_manager_player.cxx	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/src/input/input_manager_player.cxx	2005-06-26 21:42:17 UTC (rev 443)
+@@ -23,6 +23,7 @@
+ 
+ InputManagerPlayer::InputManagerPlayer(const std::string&amp; filename)
+ {
++  (void) filename;
+ #if 0
+   // FIXME
+   std::cout &lt;&lt; &quot;InputManagerPlayer::InputManagerPlayer(&quot; &lt;&lt; filename &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
+@@ -75,6 +76,7 @@
+ void
+ InputManagerPlayer::update(float delta)
+ {
++  (void) delta;
+   if (entries.front().entry_num == entry_counter)
+     {
+       events = entries.front().events;
+
+Modified: trunk/src/laser_shoot.cxx
+===================================================================
+--- trunk/src/laser_shoot.cxx	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/src/laser_shoot.cxx	2005-06-26 21:42:17 UTC (rev 443)
+@@ -35,7 +35,7 @@
+ }
+ 
+ void
+-LaserShoot::draw (SceneContext&amp; gc)
++LaserShoot::draw (SceneContext&amp; )
+ {
+   if (direction == WEST)
+     sprite.set_scale (-1.0, 1.0);
+
+Added: trunk/src/physfs/physfs_stream.cpp
+===================================================================
+--- trunk/src/physfs/physfs_stream.cpp	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/src/physfs/physfs_stream.cpp	2005-06-26 21:42:17 UTC (rev 443)
+@@ -0,0 +1,171 @@
++/*
++Copyright (C) 2005 Matthias Braun &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">matze at braunis.de</A>&gt;
++
++This program is free software; you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation; either version 2 of the License, or
++(at your option) any later version.
++
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with this program; if not, write to the Free Software
++Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
++*/
++#include &lt;config.h&gt;
++
++#include &quot;physfs_stream.hpp&quot;
++
++#include &lt;assert.h&gt;
++#include &lt;physfs.h&gt;
++#include &lt;stdexcept&gt;
++#include &lt;sstream&gt;
++
++IFileStreambuf::IFileStreambuf(const std::string&amp; filename)
++{
++    file = PHYSFS_openRead(filename.c_str());
++    if(file == 0) {
++        std::stringstream msg;
++        msg &lt;&lt; &quot;Couldn't open file '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot;
++            &lt;&lt; PHYSFS_getLastError();
++        throw std::runtime_error(msg.str());
++    }
++}
++
++IFileStreambuf::~IFileStreambuf()
++{
++    PHYSFS_close(file);
++}
++
++int
++IFileStreambuf::underflow()
++{
++    if(PHYSFS_eof(file)) {
++        return traits_type::eof();
++    }
++   
++    PHYSFS_sint64 bytesread = (size_t) PHYSFS_read(file, buf, 1, sizeof(buf));
++    if(bytesread &lt;= 0) {
++        return traits_type::eof();
++    }
++    setg(buf, buf, buf + bytesread);
++
++    return buf[0];
++}
++
++IFileStreambuf::pos_type
++IFileStreambuf::seekpos(pos_type pos, std::ios_base::openmode)
++{
++  if(PHYSFS_seek(file, static_cast&lt;PHYSFS_uint64&gt; (pos)) == 0) {
++    return pos_type(off_type(-1));
++  }
++
++  // the seek invalidated the buffer
++  setg(buf, buf, buf);
++  return pos;
++}
++
++IFileStreambuf::pos_type
++IFileStreambuf::seekoff(off_type off, std::ios_base::seekdir dir,
++                        std::ios_base::openmode mode)
++{
++  off_type pos = off;
++  PHYSFS_sint64 ptell = PHYSFS_tell(file);
++  
++  switch(dir) {
++    case std::ios_base::beg:
++      break;
++    case std::ios_base::cur:
++      if(off == 0)
++        return static_cast&lt;pos_type&gt; (ptell) - static_cast&lt;pos_type&gt; (egptr() - gptr());
++      pos += static_cast&lt;off_type&gt; (ptell) - static_cast&lt;off_type&gt; (egptr() - gptr());
++      break;
++    case std::ios_base::end:
++      pos += static_cast&lt;off_type&gt; (PHYSFS_fileLength(file));
++      break;
++    default:
++#ifdef DEBUG
++      assert(false);
++#else
++      return pos_type(off_type(-1));
++#endif
++  }
++
++  return seekpos(static_cast&lt;pos_type&gt; (pos), mode);
++}
++
++//---------------------------------------------------------------------------
++
++OFileStreambuf::OFileStreambuf(const std::string&amp; filename)
++{
++    file = PHYSFS_openWrite(filename.c_str());
++    if(file == 0) {
++        std::stringstream msg;
++        msg &lt;&lt; &quot;Couldn't open file '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot;
++            &lt;&lt; PHYSFS_getLastError();
++        throw std::runtime_error(msg.str());
++    }
++    
++    setp(buf, buf+sizeof(buf));
++}
++
++OFileStreambuf::~OFileStreambuf()
++{
++    sync();
++    PHYSFS_close(file);
++}
++
++int
++OFileStreambuf::overflow(int c)
++{
++    if(pbase() == pptr())
++        return 0;
++
++    size_t size = pptr() - pbase();
++    PHYSFS_sint64 res = PHYSFS_write(file, pbase(), 1, size);
++    if(res &lt;= 0)
++        return traits_type::eof();
++    
++    if(c != traits_type::eof()) {
++        PHYSFS_sint64 res = PHYSFS_write(file, &amp;c, 1, 1);
++        if(res &lt;= 0)
++            return traits_type::eof();
++    }
++
++    setp(buf, buf + res);
++    return 0;
++}
++
++int
++OFileStreambuf::sync()
++{
++    return overflow(traits_type::eof());
++}
++
++//---------------------------------------------------------------------------
++
++IFileStream::IFileStream(const std::string&amp; filename)
++    : std::istream(new IFileStreambuf(filename))
++{
++}
++
++IFileStream::~IFileStream()
++{
++    delete rdbuf();
++}
++
++//---------------------------------------------------------------------------
++
++OFileStream::OFileStream(const std::string&amp; filename)
++    : std::ostream(new OFileStreambuf(filename))
++{
++}
++
++OFileStream::~OFileStream()
++{
++    delete rdbuf();
++}
++
+
+Added: trunk/src/physfs/physfs_stream.hpp
+===================================================================
+--- trunk/src/physfs/physfs_stream.hpp	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/src/physfs/physfs_stream.hpp	2005-06-26 21:42:17 UTC (rev 443)
+@@ -0,0 +1,76 @@
++/*
++Copyright (C) 2004 by Matthias Braun &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">matze at braunis.de</A>&gt;
++ 
++This program is free software; you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation; either version 2 of the License, or
++(at your option) any later version.
++ 
++This program is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++ 
++You should have received a copy of the GNU General Public License
++along with this program; if not, write to the Free Software
++Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
++*/
++#ifndef __PHYSFSSTREAM_HPP__
++#define __PHYSFSSTREAM_HPP__
++
++#include &lt;physfs.h&gt;
++#include &lt;string&gt;
++#include &lt;streambuf&gt;
++#include &lt;iostream&gt;
++
++/** This class implements a C++ streambuf object for physfs files.
++ * So that you can use normal istream operations on them
++ */
++class IFileStreambuf : public std::streambuf
++{
++public:
++    IFileStreambuf(const std::string&amp; filename);
++    ~IFileStreambuf();
++    
++protected:
++    virtual int underflow();
++    virtual pos_type seekoff(off_type pos, std::ios_base::seekdir,
++        std::ios_base::openmode);
++    virtual pos_type seekpos(pos_type pos, std::ios_base::openmode);
++
++private:
++    PHYSFS_file* file;
++    char buf[1024];
++};
++
++class OFileStreambuf : public std::streambuf
++{
++public:
++    OFileStreambuf(const std::string&amp; filename);
++    ~OFileStreambuf();
++
++protected:
++    virtual int overflow(int c);
++    virtual int sync();
++
++private:
++    PHYSFS_file* file;
++    char buf[1024];
++};
++
++class IFileStream : public std::istream
++{
++public:
++    IFileStream(const std::string&amp; filename);
++    ~IFileStream();
++};
++
++class OFileStream : public std::ostream
++{
++public:
++    OFileStream(const std::string&amp; filename);
++    ~OFileStream();
++};
++
++#endif
++
+
+Modified: trunk/src/sector.cxx
+===================================================================
+--- trunk/src/sector.cxx	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/src/sector.cxx	2005-06-26 21:42:17 UTC (rev 443)
+@@ -18,7 +18,10 @@
+ //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ 
+ #include &lt;iostream&gt;
+-#include &quot;lispreader.hxx&quot;
++#include &lt;sstream&gt;
++#include &lt;stdexcept&gt;
++#include &quot;lisp/list_iterator.hpp&quot;
++#include &quot;lisp/parser.hpp&quot;
+ #include &quot;globals.hxx&quot;
+ #include &quot;display/scene_context.hxx&quot;
+ #include &quot;tile_map.hxx&quot;
+@@ -45,66 +48,55 @@
+ void
+ Sector::parse_file(const std::string&amp; filename)
+ {
+-  lisp_object_t* tree = lisp_read_from_file(filename.c_str());
++  std::auto_ptr&lt;lisp::Lisp&gt; root(lisp::Parser::parse(filename));
+ 
+-  if (tree &amp;&amp; strcmp(lisp_symbol(lisp_car(tree)), &quot;windstille-sector&quot;) != 0)
+-    {
+-      std::cout &lt;&lt; filename &lt;&lt; &quot;: not a Windstille Sector file, type='&quot; &lt;&lt; lisp_symbol(lisp_car(tree)) &lt;&lt; &quot;'!&quot; &lt;&lt; std::endl;
+-    }
+-  else
+-    {
+-      LispReader reader(lisp_cdr(tree));
++  const lisp::Lisp* sector = root-&gt;get_lisp(&quot;windstille-sector&quot;);
++  if(!sector) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;'&quot; &lt;&lt; filename &lt;&lt; &quot;' is not a windstille-sector file&quot;;
++    throw std::runtime_error(msg.str());
++  }
+ 
+-      reader.read_string(&quot;name&quot;,  &amp;name);
+-      
+-      std::vector&lt;std::string&gt; scripts;
+-      reader.read_string_vector(&quot;scripts&quot;, &amp;scripts);
+-
+-      std::vector&lt;int&gt; ambient_colors;
+-      reader.read_int_vector(&quot;ambient-color&quot;, &amp;ambient_colors);
+-      if (ambient_colors.size() == 3)
+-        {
+-          ambient_light = CL_Color(ambient_colors[0],
+-                                   ambient_colors[1],
+-                                   ambient_colors[2]);
+-        }
+-
+-      lisp_object_t* objects_ptr = 0;
+-      if (reader.read_lisp(&quot;objects&quot;, &amp;objects_ptr))
+-        {
+-          while(!lisp_nil_p(objects_ptr))
+-            {
+-              lisp_object_t* data = lisp_car(objects_ptr);
+-              if (lisp_cons_p(data) &amp;&amp; lisp_symbol_p(lisp_car(data)))
+-                {
+-                  std::string ident = lisp_symbol(lisp_car(data));
+-
+-                  if (ident == &quot;tilemap&quot;)
+-                    {
+-                      TileMap* tilemap = new TileMap(LispReader(lisp_cdr(data)));
+-
+-                      objects.push_back(tilemap);
+-                      if (tilemap-&gt;get_name() == &quot;interactive&quot;)
+-                        interactive_tilemap = tilemap;
+-                    }
+-                  else if (ident == &quot;background&quot;)
+-                    {
+-                    }
+-                  else
+-                    {
+-                      std::cout &lt;&lt; &quot;Sector: Unknown ident: &quot; &lt;&lt; ident &lt;&lt; std::endl;
+-                    }
+-                }
+-
+-              objects_ptr = lisp_cdr(objects_ptr);
+-            }
+-        }
+-
+-      //parse_foreground_tilemap(reader.get(&quot;interactive-tilemap&quot;));
+-      //parse_background_tilemap(reader.get(&quot;background-tilemap&quot;));
++  std::vector&lt;std::string&gt; scripts;
++  std::vector&lt;int&gt; ambient_colors;
++  
++  lisp::ListIterator iter(sector);
++  while(iter.next()) {
++    if(iter.item() == &quot;name&quot;) {
++      name = iter.value().get_string();
++    } else if(iter.item() == &quot;scripts&quot;) {
++      iter.value().get_vector(scripts);
++    } else if(iter.item() == &quot;ambient-color&quot;) {
++      iter.lisp()-&gt;get_vector(ambient_colors);
++      if(ambient_colors.size() != 3)
++        throw std::runtime_error(
++            &quot;ambient-color contains has to contain exactly 3 values&quot;);
++      ambient_light 
++        = CL_Color(ambient_colors[0], ambient_colors[1], ambient_colors[2]);
++    } else if(iter.item() == &quot;objects&quot;) {
++      lisp::ListIterator oiter(iter.lisp());
++      while(oiter.next()) {
++        parse_object(oiter.item(), oiter.lisp());
++      }
++    } else {
++      std::cerr &lt;&lt; &quot;Skipping unknown tag '&quot; &lt;&lt; iter.item() &lt;&lt; &quot;' in sector\n&quot;;
+     }
++  }
++}
+ 
+-  lisp_free(tree);
++void
++Sector::parse_object(const std::string&amp; name, const lisp::Lisp* lisp)
++{
++  if(name == &quot;tilemap&quot;) {
++    TileMap* tilemap = new TileMap(lisp);
++    objects.push_back(tilemap);
++    if (tilemap-&gt;get_name() == &quot;interactive&quot;)
++      interactive_tilemap = tilemap;
++  } else if(name == &quot;background&quot;) {
++    // TODO
++  } else {
++    std::cout &lt;&lt; &quot;Skipping unknown Object: &quot; &lt;&lt; name &lt;&lt; &quot;\n&quot;;
++  }
+ }
+ 
+ void
+@@ -138,6 +130,7 @@
+ void
+ Sector::remove(GameObject* obj)
+ {
++  (void) obj;
+   // not implemented
+ }
+ 
+
+Modified: trunk/src/sector.hxx
+===================================================================
+--- trunk/src/sector.hxx	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/src/sector.hxx	2005-06-26 21:42:17 UTC (rev 443)
+@@ -23,6 +23,7 @@
+ #include &lt;string&gt;
+ #include &lt;vector&gt;
+ #include &lt;ClanLib/Display/color.h&gt;
++#include &quot;lisp/lisp.hpp&quot;
+ 
+ class GameObject;
+ class TileMap;
+@@ -65,7 +66,10 @@
+ 
+   std::vector&lt;GameObject*&gt;* get_objects() { return &objects; }
+   TileMap* get_tilemap() { return interactive_tilemap; }
++  
+ private:
++  void parse_object(const std::string&amp; name, const lisp::Lisp* lisp);
++  
+   Sector (const Sector&amp;);
+   Sector&amp; operator= (const Sector&amp;);
+ };
+
+Modified: trunk/src/sprite3d.cxx
+===================================================================
+--- trunk/src/sprite3d.cxx	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/src/sprite3d.cxx	2005-06-26 21:42:17 UTC (rev 443)
+@@ -20,7 +20,9 @@
+ #include &lt;vector&gt;
+ #include &lt;ClanLib/gl.h&gt;
+ #include &lt;ClanLib/display.h&gt;
+-#include &quot;lispreader.hxx&quot;
++#include &quot;lisp/lisp.hpp&quot;
++#include &quot;lisp/parser.hpp&quot;
++#include &quot;lisp/list_iterator.hpp&quot;
+ #include &quot;display/drawing_request.hxx&quot;
+ #include &quot;display/scene_context.hxx&quot;
+ #include &quot;sprite3d.hxx&quot;
+@@ -42,11 +44,67 @@
+ 
+ struct Face
+ {
+-  Vert v1;
+-  Vert v2;
+-  Vert v3;
++  // Vertices
++  Vert v[3];
+ };
+ 
++static void read_vector(const lisp::Lisp* lisp, CL_Vector&amp; vec)
++{
++  if(lisp-&gt;get_type() != lisp::Lisp::TYPE_CONS || lisp-&gt;get_car() == 0)
++    throw std::runtime_error(&quot;Invalid data when reading CL_Vector&quot;);
++  vec.x = lisp-&gt;get_car()-&gt;get_float();
++  if(lisp-&gt;get_cdr() == 0)
++    throw std::runtime_error(&quot;Must specified 3 floats for CL_vector&quot;);
++  lisp = lisp-&gt;get_cdr();
++  if(lisp-&gt;get_type() != lisp::Lisp::TYPE_CONS || lisp-&gt;get_car() == 0)
++    throw std::runtime_error(&quot;Invalid data when reading CL_Vector&quot;);
++  vec.y = lisp-&gt;get_car()-&gt;get_float();
++  if(lisp-&gt;get_cdr() == 0)
++    throw std::runtime_error(&quot;Must specified 3 floats for CL_vector&quot;);
++  lisp = lisp-&gt;get_cdr();
++  if(lisp-&gt;get_type() != lisp::Lisp::TYPE_CONS || lisp-&gt;get_car() == 0)
++    throw std::runtime_error(&quot;Invalid data when reading CL_Vector&quot;);
++  vec.z = lisp-&gt;get_car()-&gt;get_float();
++}
++
++static void read_vert(const lisp::Lisp* lisp, Vert&amp; vert)
++{
++  if(lisp-&gt;get_type() != lisp::Lisp::TYPE_CONS || lisp-&gt;get_car() == 0)
++    throw std::runtime_error(&quot;Invalid data when reading CL_Vector&quot;);
++  vert.index = lisp-&gt;get_car()-&gt;get_int();
++  if(lisp-&gt;get_cdr() == 0)
++    throw std::runtime_error(&quot;Must specified 3 floats for CL_vector&quot;);
++  lisp = lisp-&gt;get_cdr();
++  if(lisp-&gt;get_type() != lisp::Lisp::TYPE_CONS || lisp-&gt;get_car() == 0)
++    throw std::runtime_error(&quot;Invalid data when reading CL_Vector&quot;);
++  vert.u = lisp-&gt;get_car()-&gt;get_float();
++  if(lisp-&gt;get_cdr() == 0)
++    throw std::runtime_error(&quot;Must specified 3 floats for CL_vector&quot;);
++  lisp = lisp-&gt;get_cdr();
++  if(lisp-&gt;get_type() != lisp::Lisp::TYPE_CONS || lisp-&gt;get_car() == 0)
++    throw std::runtime_error(&quot;Invalid data when reading CL_Vector&quot;);
++  vert.v = lisp-&gt;get_car()-&gt;get_float();
++}
++
++static void read_face(const lisp::Lisp* lisp, Face&amp; face)
++{
++  lisp::ListIterator iter(lisp);
++  int i = 0;
++  while(iter.next()) {
++    if(iter.item() == &quot;vert&quot;) {
++      if(i &gt;= 3)
++        throw std::runtime_error(&quot;Too many vertices for face (should be 3)&quot;);
++      read_vert(iter.lisp(), face.v[i]);
++      i++;
++    } else {
++      std::cerr &lt;&lt; &quot;Skipping unknown tag '&quot; &lt;&lt; iter.item() &lt;&lt; &quot;' in face.\n&quot;;
++    }
++  }
++  if(i &lt; 2) {
++    throw std::runtime_error(&quot;Too few vertices in face (should be 3)&quot;);
++  }
++}
++
+ class Sprite3DImpl
+ {
+ public:
+@@ -66,103 +124,60 @@
+ 
+   void parse_file(const std::string&amp; filename)
+   {
+-    lisp_object_t* tree = lisp_read_from_file(filename.c_str());
++    std::auto_ptr&lt;lisp::Lisp&gt; root (lisp::Parser::parse(filename));
+ 
+-    if (tree &amp;&amp; strcmp(lisp_symbol(lisp_car(tree)), &quot;windstille-3dsprite&quot;) != 0)
+-      {
+-        std::cout &lt;&lt; filename &lt;&lt; &quot;: not a Windstille 3DSprite file, type='&quot; &lt;&lt; lisp_symbol(lisp_car(tree)) &lt;&lt; &quot;'!&quot; &lt;&lt; std::endl;
+-      }
+-    else
+-      {
+-        LispReader reader(lisp_cdr(tree));
++    const lisp::Lisp* spritelisp = root-&gt;get_lisp(&quot;windstille-3dsprite&quot;);
++    if(!spritelisp) {
++      std::ostringstream msg;
++      msg &lt;&lt; &quot;'&quot; &lt;&lt; filename &lt;&lt; &quot;' is not a windstille-3dsprite file&quot;;
++      throw std::runtime_error(msg.str());
++    }
+ 
+-        std::string texture;
+-        if (reader.read_string(&quot;texture&quot;,  &amp;texture))
+-          {
+-            surface = CL_OpenGLSurface(datadir + texture);
+-          }
+-        
+-        lisp_object_t* vertices_ptr = 0;
+-        if (reader.read_lisp(&quot;vertices&quot;, &amp;vertices_ptr))
+-          {
+-            while(!lisp_nil_p(vertices_ptr))
+-              {
+-                lisp_object_t* data = lisp_car(vertices_ptr);
+-                if (lisp_cons_p(data) &amp;&amp; lisp_symbol_p(lisp_car(data)))
+-                  {
+-                    std::string ident = lisp_symbol(lisp_car(data));
+-                    
+-                    if (ident == &quot;vertex&quot;)
+-                      {
+-                        Vertex vertex;
++    lisp::ListIterator iter(spritelisp);
++    while(iter.next()) {
++      if(iter.item() == &quot;texture&quot;) {
++        surface = CL_OpenGLSurface(datadir + iter.value().get_string());
++      } else if(iter.item() == &quot;vertices&quot;) {
++        lisp::ListIterator vertices_iter(iter.lisp());
++        while(vertices_iter.next()) {
++          if(vertices_iter.item() == &quot;vertex&quot;) {
++            const lisp::Lisp* vlisp = vertices_iter.lisp();
++            Vertex vertex;
++            const lisp::Lisp* poslisp = vlisp-&gt;get_lisp(&quot;pos&quot;);
++            if(poslisp == 0)
++              throw std::runtime_error(&quot;Vertex without pos found&quot;);
++            read_vector(poslisp, vertex.pos);
++            const lisp::Lisp* normallisp = vlisp-&gt;get_lisp(&quot;normal&quot;);
++            if(normallisp == 0)
++              throw std::runtime_error(&quot;Vertex without normal found&quot;);
++            read_vector(normallisp, vertex.normal);
+                         
+-                        LispReader r(lisp_cdr(data));
+-
+-                        r.read_vector(&quot;pos&quot;,    &amp;vertex.pos);
+-                        r.read_vector(&quot;normal&quot;, &amp;vertex.normal);
+-                        
+-                        vertices.push_back(vertex);
+-                      }
+-                    else
+-                      {
+-                        
+-                      }
+-                  }
+-
+-                vertices_ptr = lisp_cdr(vertices_ptr);
+-              }
++            vertices.push_back(vertex);
++          } else {
++            std::cerr &lt;&lt; &quot;Skipping unknown tag '&quot; 
++              &lt;&lt; vertices_iter.item() &lt;&lt; &quot;' in vertices\n&quot;;
+           }
++        }
++      } else if(iter.item() == &quot;faces&quot;) {
++        lisp::ListIterator faces_iter(iter.lisp());
++        while(faces_iter.next()) {
++          if(faces_iter.item() == &quot;face&quot;) {
++            Face face;
++            read_face(faces_iter.lisp(), face);
++            faces.push_back(face);                        
++          } else {
++            std::cerr &lt;&lt; &quot;Skipping unknown tag '&quot;
++              &lt;&lt; faces_iter.item() &lt;&lt; &quot;' in faces\n&quot;;
++          }
++        }
++      } else {
++        std::cerr &lt;&lt; &quot;Skipping unknown tag '&quot;
++          &lt;&lt; iter.item() &lt;&lt; &quot;' in sprite3d\n&quot;;
++      }
++    }
+ 
+-        lisp_object_t* faces_ptr = 0;
+-        if (reader.read_lisp(&quot;faces&quot;, &amp;faces_ptr))
+-          {
+-            while(!lisp_nil_p(faces_ptr))
+-              {
+-                lisp_object_t* data = lisp_car(faces_ptr);
+-                if (lisp_cons_p(data) &amp;&amp; lisp_symbol_p(lisp_car(data)))
+-                  {
+-                    std::string ident = lisp_symbol(lisp_car(data));
+-                    
+-                    if (ident == &quot;face&quot;)
+-                      {
+-                        Face face;
+-                        
+-                        lisp_object_t* v1 = lisp_cdr(lisp_list_nth(lisp_cdr(data), 0));
+-                        lisp_object_t* v2 = lisp_cdr(lisp_list_nth(lisp_cdr(data), 1));
+-                        lisp_object_t* v3 = lisp_cdr(lisp_list_nth(lisp_cdr(data), 2));
+-
+-
+-                        face.v1.index = lisp_integer(lisp_list_nth(v1, 0));
+-                        face.v1.u     =    lisp_real(lisp_list_nth(v1, 1));
+-                        face.v1.v     =    lisp_real(lisp_list_nth(v1, 2));
+-
+-                        face.v2.index = lisp_integer(lisp_list_nth(v2, 0));
+-                        face.v2.u     =    lisp_real(lisp_list_nth(v2, 1));
+-                        face.v2.v     =    lisp_real(lisp_list_nth(v2, 2));
+-
+-                        face.v3.index = lisp_integer(lisp_list_nth(v3, 0));
+-                        face.v3.u     =    lisp_real(lisp_list_nth(v3, 1));
+-                        face.v3.v     =    lisp_real(lisp_list_nth(v3, 2));
+-
+-
+-                        //std::cout &lt;&lt; &quot;Face: &quot; &lt;&lt; face.v1.index &lt;&lt; &quot; &quot; &lt;&lt; face.v1.u &lt;&lt; &quot; &quot; &lt;&lt; face.v1.v &lt;&lt; &quot;\n&quot;
+-                        //          &lt;&lt; &quot;      &quot; &lt;&lt; face.v2.index &lt;&lt; &quot; &quot; &lt;&lt; face.v2.u &lt;&lt; &quot; &quot; &lt;&lt; face.v2.v &lt;&lt; &quot;\n&quot;
+-                        //          &lt;&lt; &quot;      &quot; &lt;&lt; face.v3.index &lt;&lt; &quot; &quot; &lt;&lt; face.v3.u &lt;&lt; &quot; &quot; &lt;&lt; face.v3.v &lt;&lt; &quot;\n&quot;;
+-                          
+-                        faces.push_back(face);
+-                      }
+-                    else
+-                      {
+-                        
+-                      }
+-                  }
+-
+-                faces_ptr = lisp_cdr(faces_ptr);
+-              }
+-          }        
+-      }      
+-
+-  }  
++    printf(&quot;Sprite Loaded %d %d.\n&quot;, faces.size(), vertices.size());
++  }
+ };
+ 
+ Sprite3D::Sprite3D(const std::string&amp; filename)
+@@ -220,23 +235,14 @@
+     glBegin(GL_TRIANGLES);
+     for(Sprite3DImpl::Faces::iterator i = impl-&gt;faces.begin(); i != impl-&gt;faces.end(); ++i)
+       {
+-        glTexCoord2f(i-&gt;v1.u, i-&gt;v1.v); 
+-        glNormal3f(impl-&gt;vertices[i-&gt;v1.index].normal.x, impl-&gt;vertices[i-&gt;v1.index].normal.y, impl-&gt;vertices[i-&gt;v1.index].normal.z);
+-        glVertex3f(impl-&gt;vertices[i-&gt;v1.index].pos.x,
+-                   impl-&gt;vertices[i-&gt;v1.index].pos.y,
+-                   impl-&gt;vertices[i-&gt;v1.index].pos.z);
+-
+-        glTexCoord2f(i-&gt;v2.u, i-&gt;v2.v); 
+-        glNormal3f(impl-&gt;vertices[i-&gt;v2.index].normal.x, impl-&gt;vertices[i-&gt;v2.index].normal.y, impl-&gt;vertices[i-&gt;v2.index].normal.z);
+-        glVertex3f(impl-&gt;vertices[i-&gt;v2.index].pos.x,
+-                   impl-&gt;vertices[i-&gt;v2.index].pos.y,
+-                   impl-&gt;vertices[i-&gt;v2.index].pos.z);
+-
+-        glTexCoord2f(i-&gt;v3.u, i-&gt;v3.v);
+-        glNormal3f(impl-&gt;vertices[i-&gt;v3.index].normal.x, impl-&gt;vertices[i-&gt;v3.index].normal.y, impl-&gt;vertices[i-&gt;v3.index].normal.z); 
+-        glVertex3f(impl-&gt;vertices[i-&gt;v3.index].pos.x,
+-                   impl-&gt;vertices[i-&gt;v3.index].pos.y,
+-                   impl-&gt;vertices[i-&gt;v3.index].pos.z);
++        const Face&amp; face = *i;
++        for(int v = 0; v &lt; 3; ++v) {
++          const Vert&amp; vert = face.v[v];
++          glTexCoord2f(vert.u, vert.v); 
++          const Vertex&amp; vertex = impl-&gt;vertices[vert.index];
++          glNormal3f(vertex.normal.x, vertex.normal.y, vertex.normal.z);
++          glVertex3f(vertex.pos.x, vertex.pos.y, vertex.pos.z);
++        }
+       }
+     glEnd();
+ 
+
+Modified: trunk/src/tile_factory.cxx
+===================================================================
+--- trunk/src/tile_factory.cxx	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/src/tile_factory.cxx	2005-06-26 21:42:17 UTC (rev 443)
+@@ -16,17 +16,21 @@
+ //  You should have received a copy of the GNU General Public License
+ //  along with this program; if not, write to the Free Software
+ //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+-
+ #include &lt;string&gt;
+ #include &lt;ClanLib/Core/System/system.h&gt;
+ #include &lt;ClanLib/Display/pixel_buffer.h&gt;
+ #include &lt;ClanLib/Display/pixel_format.h&gt;
+ #include &lt;ClanLib/Display/Providers/provider_factory.h&gt;
+ #include &lt;assert.h&gt;
++#include &lt;sstream&gt;
+ #include &lt;iostream&gt;
++#include &lt;memory&gt;
+ #include &quot;globals.hxx&quot;
+ #include &quot;tile.hxx&quot;
+ #include &quot;tile_factory.hxx&quot;
++#include &quot;lisp/lisp.hpp&quot;
++#include &quot;lisp/parser.hpp&quot;
++#include &quot;lisp/list_iterator.hpp&quot;
+ 
+ extern CL_ResourceManager* resources;
+ 
+@@ -36,44 +40,23 @@
+ 
+ TileFactory::TileFactory (const std::string&amp; filename)
+ {
+-  lisp_object_t* tree = lisp_read_from_file(filename.c_str());
+-  
+-  if (!(lisp_symbol_p(lisp_car(tree)) &amp;&amp; 
+-        strcmp(&quot;windstille-tiles&quot;, lisp_symbol(lisp_car(tree))) == 0))
+-    {
+-      std::cout &lt;&lt; &quot;Not a Windstille Tile File!&quot; &lt;&lt; std::endl;
+-    }
+-  else
+-    {
+-      tree = lisp_cdr(tree);
++  std::auto_ptr&lt;lisp::Lisp&gt; root (lisp::Parser::parse(filename));
+ 
+-      while (!lisp_nil_p(tree))
+-        {
+-          lisp_object_t* current = lisp_car(tree);
+-          
+-          if (lisp_cons_p(current))
+-            {
+-              lisp_object_t* name    = lisp_car(current);
+-              lisp_object_t* data    = lisp_cdr(current);
+-      
+-              if (strcmp(lisp_symbol(name), &quot;tiles&quot;) == 0)
+-                {
+-                  parse_tiles(data);
+-                }
+-              else
+-                {
+-                  std::cout &lt;&lt; &quot;TileFactory: Unknown tag: &quot; &lt;&lt; lisp_symbol(name) &lt;&lt; std::endl;
+-                }
+-            }
+-          else
+-            {
+-              std::cout &lt;&lt; &quot;TileFactory: Not a pair!&quot;  &lt;&lt; std::endl;
+-            }
+-          tree = lisp_cdr(tree);
+-        }
+-    }
++  const lisp::Lisp* tiles_lisp = root-&gt;get_lisp(&quot;windstille-tiles&quot;);
++  if(!tiles_lisp) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;'&quot; &lt;&lt; filename &lt;&lt; &quot;' is not a windstille tiles file&quot;;
++    throw std::runtime_error(msg.str());
++  }
+ 
+-  lisp_free(tree);
++  lisp::ListIterator iter(tiles_lisp);
++  while(iter.next()) {
++    if(iter.item() == &quot;tiles&quot;) {
++      parse_tiles(iter.lisp());
++    } else {
++      std::cout &lt;&lt; &quot;Unknown tag in tiles file: &quot; &lt;&lt; iter.item() &lt;&lt; &quot;\n&quot;;
++    }
++  }
+ }
+ 
+ TileFactory::~TileFactory()
+@@ -86,49 +69,47 @@
+ }
+ 
+ void
+-TileFactory::parse_tiles(lisp_object_t* data)
++TileFactory::parse_tiles(const lisp::Lisp* data)
+ {
+   assert(data);
+-  LispReader reader(data);
+ 
+-  int id = 1;
+-
+-  if (!reader.read_int(&quot;id&quot;, &amp;id))
+-    {
+-      std::cout &lt;&lt; &quot;Error: Id tag missing&quot; &lt;&lt; std::endl;
+-      return;
+-    }
+-
+   std::string filename;
+-  if (!reader.read_string(&quot;color-image&quot;, &amp;filename))
+-    {
+-      std::cout &lt;&lt; &quot;Error: image tag missing&quot; &lt;&lt; std::endl;
+-      return;
+-    }
+-
+   std::string highlight_filename;
+-  reader.read_string(&quot;highlight-image&quot;, &amp;highlight_filename);
+-
+   std::vector&lt;int&gt; colmap;
+-  reader.read_int_vector(&quot;colmap&quot;, &amp;colmap);
+- 
++  int id = -1;
++  
++  lisp::ListIterator iter(data);
++  while(iter.next()) {
++    if(iter.item() == &quot;id&quot;) {
++      id = iter.value().get_int();
++    } else if(iter.item() == &quot;color-image&quot;) {
++      filename = iter.value().get_string();
++    } else if(iter.item() == &quot;highlight-image&quot;) {
++      highlight_filename = iter.value().get_string();
++    } else if(iter.item() == &quot;colmap&quot;) {
++      iter.lisp()-&gt;get_vector(colmap);
++    } else {
++      std::cerr &lt;&lt; &quot;Unknown tag '&quot; &lt;&lt; iter.item() &lt;&lt; &quot;' found in tiles\n&quot;;
++    }
++  }
++
++  if(id &lt; 0)
++    throw std::runtime_error(&quot;Invalid or missing tile id&quot;);
++  if(filename == &quot;&quot;)
++    throw std::runtime_error(&quot;Missing color-image&quot;);
++  
+   CL_PixelBuffer image = CL_ProviderFactory::load(datadir + filename);
+   CL_PixelBuffer hl_image;
+-
+-  if (!highlight_filename.empty())
++  
++  if(highlight_filename != &quot;&quot;)
+     hl_image = CL_ProviderFactory::load(datadir + highlight_filename);
+ 
+   int num_tiles = (image.get_width()/TILE_SIZE) * (image.get_height()/TILE_SIZE);
+-
+   if (int(colmap.size()) != num_tiles)
+-    {
+-      std::cout &lt;&lt; &quot;Error: TileFactor: not enough colmap information for tiles&quot; &lt;&lt; std::endl;
+-    }
+-
++    throw std::runtime_error(&quot;Not enough colmap information for tiles&quot;);
++  
+   if ((id + num_tiles) &gt;= int(tiles.size()))
+-    {
+-      tiles.resize(id + num_tiles + 1);
+-    }
++    tiles.resize(id + num_tiles + 1);
+ 
+   // FIMXE: Tiles should share one OpenGL texture
+   for (int y = 0; y &lt; image.get_height(); y += TILE_SIZE)
+@@ -191,7 +172,7 @@
+ TileFactory::init()
+ {
+   assert(current_ == 0);
+-  current_ = new TileFactory(datadir + tile_def_file);
++  current_ = new TileFactory(tile_def_file);
+ }
+ 
+ /** Destroy the default TileFactor*/
+
+Modified: trunk/src/tile_factory.hxx
+===================================================================
+--- trunk/src/tile_factory.hxx	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/src/tile_factory.hxx	2005-06-26 21:42:17 UTC (rev 443)
+@@ -22,7 +22,7 @@
+ 
+ #include &lt;map&gt;
+ #include &lt;string&gt;
+-#include &quot;lispreader.hxx&quot;
++#include &quot;lisp/lisp.hpp&quot;
+ 
+ class Tile;
+ 
+@@ -66,7 +66,7 @@
+   static TileFactory* current() { return current_; }
+ 
+ private:
+-  void parse_tiles(lisp_object_t* data);
++  void parse_tiles(const lisp::Lisp* data);
+ };
+ 
+ #endif
+
+Modified: trunk/src/tile_map.cxx
+===================================================================
+--- trunk/src/tile_map.cxx	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/src/tile_map.cxx	2005-06-26 21:42:17 UTC (rev 443)
+@@ -19,6 +19,7 @@
+ 
+ #include &lt;ClanLib/gl.h&gt;
+ #include &lt;sstream&gt;
++#include &quot;lisp/list_iterator.hpp&quot;
+ #include &quot;tile_map.hxx&quot;
+ #include &quot;tile.hxx&quot;
+ #include &quot;tile_factory.hxx&quot;
+@@ -28,23 +29,33 @@
+ 
+ extern CL_ResourceManager* resources;
+ 
+-TileMap::TileMap(LispReader reader)
++TileMap::TileMap(const lisp::Lisp* lisp)
+ {
+-  int width;
+-  int height;
++  int width = -1;
++  int height = -1;
+   z_pos = 0;
+-
+-  reader.read_string(&quot;name&quot;, &amp;name);
+-  reader.read_float(&quot;z-pos&quot;, &amp;z_pos);
+-
+-  if (reader.read_int(&quot;width&quot;,   &amp;width) &amp;&amp; 
+-      reader.read_int(&quot;height&quot;,  &amp;height))
+-    {
++  
++  lisp::ListIterator iter(lisp);
++  while(iter.next()) {
++    if(iter.item() == &quot;name&quot;) {
++      name = iter.value().get_string();
++    } else if(iter.item() == &quot;z-pos&quot;) {
++      z_pos = iter.value().get_float();
++    } else if(iter.item() == &quot;width&quot;) {
++      width = iter.value().get_int();
++    } else if(iter.item() == &quot;height&quot;) {
++      height = iter.value().get_int();
++    } else if(iter.item() == &quot;data&quot;) {
++      if(width &lt;= 0 || height &lt;= 0) {
++        throw std::runtime_error(
++            &quot;Invalid width or height defined or &quot;
++            &quot;data defined before width and height&quot;);
++      }
++      Field&lt;int&gt; tmpfield(width, height);
++      iter.lisp()-&gt;get_vector(tmpfield.get_vector());
++    
+       field = Field&lt;Tile*&gt;(width, height);
+ 
+-      Field&lt;int&gt; tmpfield(width, height);
+-      reader.read_int_vector(&quot;data&quot;, &amp;tmpfield.get_vector());
+-
+       for (int y = 0; y &lt; field.get_height (); ++y) 
+         {
+           for (int x = 0; x &lt; field.get_width (); ++x)
+@@ -52,11 +63,13 @@
+               field(x, y) = TileFactory::current()-&gt;create(tmpfield(x, y));
+             }
+         }
++    } else {
++      std::cout &lt;&lt; &quot;Skipping unknown Tag '&quot; &lt;&lt; iter.item() &lt;&lt; &quot;' in tilemap\n&quot;;
+     }
+-  else
+-    {
+-      std::cout &lt;&lt; &quot;Couldn't parse tilemap&quot; &lt;&lt; std::endl;
+-    }
++  }
++
++  if(field.size() == 0)
++    throw std::runtime_error(&quot;No tiles defined in tilemap&quot;);  
+ }
+ 
+ TileMap::TileMap (Field&lt;int&gt;* data)
+@@ -83,7 +96,7 @@
+ }
+ 
+ void 
+-TileMap::update (float delta)
++TileMap::update (float )
+ {
+   /*for (FieldIter i = field.begin (); i != field.end (); ++i)
+     {
+
+Modified: trunk/src/tile_map.hxx
+===================================================================
+--- trunk/src/tile_map.hxx	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/src/tile_map.hxx	2005-06-26 21:42:17 UTC (rev 443)
+@@ -26,7 +26,7 @@
+ 
+ #include &quot;globals.hxx&quot;
+ #include &quot;field.hxx&quot;
+-#include &quot;lispreader.hxx&quot;
++#include &quot;lisp/lisp.hpp&quot;
+ #include &quot;game_object.hxx&quot;
+ #include &quot;display/scene_context.hxx&quot;
+ 
+@@ -42,9 +42,9 @@
+   float z_pos; 
+ 
+ public:
+-  TileMap(LispReader reader);
++  TileMap(const lisp::Lisp* lisp);
+   TileMap(const std::string&amp; name, int w, int h);
+-  TileMap (Field&lt;int&gt;* data);
++  TileMap(Field&lt;int&gt;* data);
+   virtual ~TileMap();
+ 
+   void update (float delta);
+
+Deleted: trunk/src/windstille.i
+===================================================================
+--- trunk/src/windstille.i	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/src/windstille.i	2005-06-26 21:42:17 UTC (rev 443)
+@@ -1,16 +0,0 @@
+-%module windstille
+-
+-%include &quot;std_string.i&quot;
+-%include &quot;std_vector.i&quot;
+-// %template(Std_vector_int) std::vector&lt;int&gt;;
+-// %template(Std_vector_ObjMapObject) std::vector&lt;ObjMapObject&gt;;
+-
+-%{
+-#include &quot;scripting/game.hxx&quot;
+-%}
+-
+-%include &quot;scripting/game.hxx&quot;
+-%include &quot;entity.hxx&quot;
+-
+-
+-// EOF //
+
+Modified: trunk/src/windstille_main.cxx
+===================================================================
+--- trunk/src/windstille_main.cxx	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/src/windstille_main.cxx	2005-06-26 21:42:17 UTC (rev 443)
+@@ -22,6 +22,7 @@
+ #include &lt;ClanLib/core.h&gt;
+ #include &lt;ClanLib/vorbis.h&gt;
+ #include &lt;ClanLib/display.h&gt;
++#include &lt;physfs.h&gt;
+ 
+ #include &quot;windstille_error.hxx&quot;
+ #include &quot;globals.hxx&quot;
+@@ -167,6 +168,13 @@
+   console.redirect_stdio(&quot;windstille.log&quot;);
+ #endif
+ 
++  try {
++    init_physfs(argv[0]);
++  } catch(std::exception&amp; e) {
++    std::cout &lt;&lt; &quot;std::exception: &quot; &lt;&lt; e.what() &lt;&lt; std::endl;
++    return 1;
++  }
++
+   // Init the path
+   bindir  = CL_System::get_exe_path();
+ 
+@@ -190,8 +198,10 @@
+ #else
+   homedir = &quot;config/&quot;;
+ #endif
+-  
++
++#ifndef DEBUG // we wanna have a stacktrace in debug mode
+   try {
++#endif
+     parse_command_line(argc, argv);
+     init_modules();
+ 
+@@ -227,6 +237,7 @@
+ 
+     deinit_modules();
+ 
++#ifndef DEBUG
+   } catch (CL_Error&amp; error) {
+     std::cout &lt;&lt; &quot;CL_Error: &quot; &lt;&lt; error.message &lt;&lt; std::endl;
+   } catch (WindstilleError&amp; err) {
+@@ -236,6 +247,7 @@
+   } catch (...) {
+     std::cout &lt;&lt; &quot;Error catched something unknown?!&quot; &lt;&lt; std::endl;
+   }
++#endif
+ 
+   return 0;
+ }
+@@ -299,4 +311,110 @@
+   CL_SetupCore::init(); 
+ }
+ 
++void
++WindstilleMain::init_physfs(const char* argv0)
++{
++  if(!PHYSFS_init(argv0)) {
++    std::stringstream msg;
++    msg &lt;&lt; &quot;Couldn't initialize physfs: &quot; &lt;&lt; PHYSFS_getLastError();
++    throw std::runtime_error(msg.str());
++  }
++
++  // Initialize physfs (this is a slightly modified version of
++  // PHYSFS_setSaneConfig
++  const char* application = PACKAGE_NAME;
++  const char* userdir = PHYSFS_getUserDir();
++  const char* dirsep = PHYSFS_getDirSeparator();
++  char* writedir = new char[strlen(userdir) + strlen(application) + 2];
++
++  // Set configuration directory
++  sprintf(writedir, &quot;%s.%s&quot;, userdir, application);
++  if(!PHYSFS_setWriteDir(writedir)) {
++    // try to create the directory
++    char* mkdir = new char[strlen(application) + 2];
++    sprintf(mkdir, &quot;.%s&quot;, application);
++    if(!PHYSFS_setWriteDir(userdir) || !PHYSFS_mkdir(mkdir)) {
++      std::ostringstream msg;
++      msg &lt;&lt; &quot;Failed creating configuration directory '&quot;
++          &lt;&lt; writedir &lt;&lt; &quot;': &quot; &lt;&lt; PHYSFS_getLastError();
++      delete[] writedir;
++      delete[] mkdir;
++      throw std::runtime_error(msg.str());
++    }
++    delete[] mkdir;
++
++    if(!PHYSFS_setWriteDir(writedir)) {
++      std::ostringstream msg;
++      msg &lt;&lt; &quot;Failed to use configuration directory '&quot;
++          &lt;&lt;  writedir &lt;&lt; &quot;': &quot; &lt;&lt; PHYSFS_getLastError();
++      delete[] writedir;
++      throw std::runtime_error(msg.str());
++    }
++  }
++  PHYSFS_addToSearchPath(writedir, 0);
++  delete[] writedir;
++
++  // Search for archives and add them to the search path
++  const char* archiveExt = &quot;zip&quot;;
++  char** rc = PHYSFS_enumerateFiles(&quot;/&quot;);
++  size_t extlen = strlen(archiveExt);
++
++  for(char** i = rc; *i != 0; ++i) {
++    size_t l = strlen(*i);
++    if((l &gt; extlen) &amp;&amp; ((*i)[l - extlen - 1] == '.')) {
++      const char* ext = (*i) + (l - extlen);
++      if(strcasecmp(ext, archiveExt) == 0) {
++        const char* d = PHYSFS_getRealDir(*i);
++        char* str = new char[strlen(d) + strlen(dirsep) + l + 1];
++        sprintf(str, &quot;%s%s%s&quot;, d, dirsep, *i);
++        PHYSFS_addToSearchPath(str, 1);
++        delete[] str;
++      }
++    }
++  }
++
++  PHYSFS_freeList(rc);
++
++  // when started from source dir...
++  std::string dir = PHYSFS_getBaseDir();
++  dir += &quot;/data&quot;;
++  std::string testfname = dir;
++  testfname += &quot;/tiles.scm&quot;;
++  bool sourcedir = false;
++  FILE* f = fopen(testfname.c_str(), &quot;r&quot;);
++  if(f) {
++    fclose(f);
++    if(!PHYSFS_addToSearchPath(dir.c_str(), 1)) {
++      std::cout &lt;&lt; &quot;Warning: Couldn't add '&quot; &lt;&lt; dir
++                &lt;&lt; &quot;' to physfs searchpath: &quot; &lt;&lt; PHYSFS_getLastError() &lt;&lt; &quot;\n&quot;;
++    } else {
++      sourcedir = true;
++    }
++  }
++
++  if(!sourcedir) {
++#if defined(APPDATADIR) || defined(ENABLE_BINRELOC)
++    std::string datadir;
++#ifdef ENABLE_BINRELOC
++    char* brdatadir = br_strcat(DATADIR, &quot;/&quot; PACKAGE_NAME);
++    datadir = brdatadir;
++    free(brdatadir);
++#else
++    datadir = APPDATADIR;
++#endif
++    if(!PHYSFS_addToSearchPath(datadir.c_str(), 1)) {
++      std::cout &lt;&lt; &quot;Couldn't add '&quot; &lt;&lt; datadir
++        &lt;&lt; &quot;' to physfs searchpath: &quot; &lt;&lt; PHYSFS_getLastError() &lt;&lt; &quot;\n&quot;;
++    }
++#endif
++  }
++
++  // allow symbolic links
++  PHYSFS_permitSymbolicLinks(1);
++
++  //show search Path
++  for(char** i = PHYSFS_getSearchPath(); *i != NULL; i++)
++    printf(&quot;[%s] is in the search path.\n&quot;, *i);
++}
++
+ /* EOF */
+
+Modified: trunk/src/windstille_main.hxx
+===================================================================
+--- trunk/src/windstille_main.hxx	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/src/windstille_main.hxx	2005-06-26 21:42:17 UTC (rev 443)
+@@ -49,6 +49,7 @@
+   virtual int main(int argc, char** argv);
+ 
+ private:
++  void init_physfs(const char* argv0);
+   void parse_command_line(int argc, char** argv);
+   void init_modules();
+   void deinit_modules();
+
+Modified: trunk/src/windstille_menu.cxx
+===================================================================
+--- trunk/src/windstille_menu.cxx	2005-06-26 21:28:11 UTC (rev 442)
++++ trunk/src/windstille_menu.cxx	2005-06-26 21:42:17 UTC (rev 443)
+@@ -31,7 +31,6 @@
+ #include &quot;music_manager.hxx&quot;
+ #include &quot;windstille_bonus.hxx&quot;
+ #include &quot;input/input_manager.hxx&quot;
+-#include &quot;config.h&quot;
+ 
+ WindstilleMenu::WindstilleMenu()
+   : background(&quot;menu_background&quot;, resources),
+@@ -90,7 +89,7 @@
+                   MusicManager::current()-&gt;stop();
+                   InputManager::clear();
+                   fadeout();
+-                  GameSession game(datadir + &quot;levels/newformat2.wst&quot;);
++                  GameSession game(&quot;levels/newformat2.wst&quot;);
+                   game.display ();
+                   on_startup();
+                   break;
+@@ -202,7 +201,7 @@
+ 
+   Fonts::copyright.set_alignment(origin_bottom_left);
+   Fonts::copyright.draw(15, CL_Display::get_height() - 10,
+-                        &quot;Windstille &quot; VERSION &quot;\n&quot;
++                        &quot;Windstille &quot; PACKAGE_VERSION &quot;\n&quot;
+                         &quot;Copyright (c) 2003 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;\n&quot;
+                         &quot;This game comes with ABSOLUTELY NO WARRANTY. This is free software, and you are welcome\n&quot;
+                         &quot;to redistribute it under certain conditions; see the file COPYING for details.\n&quot;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000099.html">[Windstille-commit] r442 - in trunk/data/blender: . spider
+</A></li>
+	<LI>Next message: <A HREF="000101.html">[Windstille-commit] r444 - in trunk: data/controller src src/input
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#100">[ date ]</a>
+              <a href="thread.html#100">[ thread ]</a>
+              <a href="subject.html#100">[ subject ]</a>
+              <a href="author.html#100">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

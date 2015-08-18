@@ -1,0 +1,561 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1255 - in trunk/src: . input
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-April/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1255%20-%20in%20trunk/src%3A%20.%20input&In-Reply-To=%3C200604151651.k3FGpcEa018242%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000906.html">
+   <LINK REL="Next"  HREF="000908.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1255 - in trunk/src: . input</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1255%20-%20in%20trunk/src%3A%20.%20input&In-Reply-To=%3C200604151651.k3FGpcEa018242%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1255 - in trunk/src: . input">grumbel at berlios.de
+       </A><BR>
+    <I>Sat Apr 15 18:51:38 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000906.html">[Windstille-commit] r1254 - in trunk/src: . scripting
+</A></li>
+        <LI>Next message: <A HREF="000908.html">[Windstille-commit] r1256 - in trunk/data/models/vehicles: . shuttle
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#907">[ date ]</a>
+              <a href="thread.html#907">[ thread ]</a>
+              <a href="subject.html#907">[ subject ]</a>
+              <a href="author.html#907">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-04-15 18:51:32 +0200 (Sat, 15 Apr 2006)
+New Revision: 1255
+
+Modified:
+   trunk/src/config.cpp
+   trunk/src/controller_def.hpp
+   trunk/src/input/controller.cpp
+   trunk/src/input/controller.hpp
+   trunk/src/input/controller_description.cpp
+   trunk/src/input/controller_description.hpp
+   trunk/src/input/input_event.hpp
+   trunk/src/input/input_manager_impl.cpp
+   trunk/src/input/input_manager_impl.hpp
+   trunk/src/input/input_manager_sdl.cpp
+   trunk/src/screen_manager.cpp
+   trunk/src/sprite2dview.cpp
+   trunk/src/sprite2dview.hpp
+   trunk/src/windstille_main.cpp
+Log:
+some more sprite2dview feature
+
+Modified: trunk/src/config.cpp
+===================================================================
+--- trunk/src/config.cpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/config.cpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -127,6 +127,8 @@
+ void
+ Config::parse_args(int argc, char** argv)
+ {
++  arg_files.clear();
++
+   CommandLine argp;
+ 
+   const int debug_flag        = 256;
+
+Modified: trunk/src/controller_def.hpp
+===================================================================
+--- trunk/src/controller_def.hpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/controller_def.hpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -33,6 +33,9 @@
+ 
+ enum InputEventName
+   { 
++    MOUSE_MOTION_X, 
++    MOUSE_MOTION_Y, 
++
+     X_AXIS, // used to run left/right
+     Y_AXIS,  // used to aim up/down
+ 
+
+Modified: trunk/src/input/controller.cpp
+===================================================================
+--- trunk/src/input/controller.cpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/input/controller.cpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -29,6 +29,7 @@
+ 
+ Controller::Controller()
+ {
++  // FIXME: need to mark states with type
+   states.resize(LAST_EVENT);
+ }
+ 
+@@ -140,6 +141,9 @@
+ Controller::clear()
+ {
+   events.clear();
++  // FIXME: EVIL HARDCODE
++  states[0].ball = 0;
++  states[1].ball = 0;
+ }
+ 
+ void
+@@ -148,4 +152,30 @@
+   events.push_back(event);
+ }
+ 
++float
++Controller::get_ball_state(int id) const
++{
++  assert(id &lt; int(states.size()));
++  return states[id].ball;
++}
++
++void
++Controller::set_ball_state(int id, float pos)
++{
++  assert(id &lt; static_cast&lt;int&gt;(states.size()));
++  states[id].ball = pos;
++}
++
++void
++Controller::add_ball_event(int name, float pos)
++{
++  InputEvent event;
++
++  event.type = BALL_EVENT;
++  event.ball.name = name;
++  event.ball.pos  = pos;
++
++  events.push_back(event);  
++}
++
+ /* EOF */
+
+Modified: trunk/src/input/controller.hpp
+===================================================================
+--- trunk/src/input/controller.hpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/input/controller.hpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -37,8 +37,10 @@
+ {
+ private:
+   union State {
++    enum { BUTTON_STATE, BALL_STATE, AXIS_STATE } type;
+     bool  button;
+     float axis;
++    float ball;
+   };
+ 
+   std::vector&lt;State&gt; states;
+@@ -49,12 +51,15 @@
+ 
+   float get_axis_state  (int name) const;
+   bool  get_button_state(int name) const;
++  float get_ball_state  (int name) const;
+ 
+   void  set_axis_state  (int name, float pos);
+   void  set_button_state(int name, bool down);
++  void  set_ball_state  (int name, float delta);
+ 
+   void add_axis_event  (int name, float pos);
+   void add_button_event(int name, bool down);
++  void add_ball_event  (int name, float pos);
+ 
+   const InputEventLst&amp; get_events() const;
+   void set_events(const InputEventLst&amp; lst);
+
+Modified: trunk/src/input/controller_description.cpp
+===================================================================
+--- trunk/src/input/controller_description.cpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/input/controller_description.cpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -49,6 +49,19 @@
+ }
+ 
+ void
++ControllerDescription::add_ball  (const std::string&amp; name, int id)
++{
++  InputEventDefinition event;
++
++  event.type = BALL_EVENT;
++  event.name = name;
++  event.id   = id;
++
++  str_to_event[event.name] = event;
++  id_to_event[event.id]    = event;
++}
++
++void
+ ControllerDescription::add_axis  (const std::string&amp; name, int id)
+ {
+   InputEventDefinition event;
+
+Modified: trunk/src/input/controller_description.hpp
+===================================================================
+--- trunk/src/input/controller_description.hpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/input/controller_description.hpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -50,6 +50,7 @@
+ 
+   void add_button(const std::string&amp; name, int id);
+   void add_axis  (const std::string&amp; name, int id); 
++  void add_ball  (const std::string&amp; name, int id); 
+ 
+   const InputEventDefinition&amp; get_definition(int id) const;
+   const InputEventDefinition&amp; get_definition(const std::string&amp; name) const;
+
+Modified: trunk/src/input/input_event.hpp
+===================================================================
+--- trunk/src/input/input_event.hpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/input/input_event.hpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -28,7 +28,7 @@
+ 
+ #include &lt;vector&gt;
+ 
+-enum InputEventType { BUTTON_EVENT, AXIS_EVENT, KEYBOARD_EVENT };
++enum InputEventType { BUTTON_EVENT, AXIS_EVENT, BALL_EVENT, KEYBOARD_EVENT };
+ 
+ /** Used for textual input */
+ struct KeyboardEvent
+@@ -48,6 +48,13 @@
+   bool is_up()   const { return !down; }
+ };
+ 
++struct BallEvent
++{
++  int   name;
++  float pos;
++  float get_pos() const { return pos; }
++};
++
+ struct AxisEvent
+ {
+   int name;
+@@ -55,7 +62,7 @@
+   /** Pos can be in range from [-1.0, 1.0], some axis will only use [0,1.0] */
+   float pos;
+ 
+-  float get_pos() { return pos; }
++  float get_pos() const { return pos; }
+ };
+ 
+ struct InputEvent 
+@@ -67,6 +74,7 @@
+     struct ButtonEvent   button;
+     struct AxisEvent     axis;
+     struct KeyboardEvent keyboard;
++    struct BallEvent     ball;
+   };
+ };
+ 
+
+Modified: trunk/src/input/input_manager_impl.cpp
+===================================================================
+--- trunk/src/input/input_manager_impl.cpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/input/input_manager_impl.cpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -38,6 +38,18 @@
+ }
+ 
+ void
++InputManagerImpl::add_ball_event  (int name, float pos)
++{
++  InputEvent event;
++  event.type = BALL_EVENT;
++  event.axis.name = name;
++  event.axis.pos  = pos;
++
++  controller.add_event(event);
++  controller.set_ball_state(name, pos);  
++}
++
++void
+ InputManagerImpl::add_button_event(int name, bool down)
+ {
+   InputEvent event;
+
+Modified: trunk/src/input/input_manager_impl.hpp
+===================================================================
+--- trunk/src/input/input_manager_impl.hpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/input/input_manager_impl.hpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -45,6 +45,7 @@
+   void clear();
+ 
+   void add_axis_event  (int name, float pos);
++  void add_ball_event  (int name, float pos);
+   void add_button_event(int name, bool down);
+   void add_keyboard_event(int name, KeyboardEvent::KeyType key_type, int code);
+ private:
+
+Modified: trunk/src/input/input_manager_sdl.cpp
+===================================================================
+--- trunk/src/input/input_manager_sdl.cpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/input/input_manager_sdl.cpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -311,7 +311,12 @@
+       break;
+ 
+     case SDL_MOUSEMOTION:
+-      // event.motion:      break;
++      // event.motion
++      // FIXME: Hardcodes 0,1 values are not a good idea, need to bind the stuff like the rest
++      if (0) std::cout &lt;&lt; &quot;mouse: &quot; &lt;&lt; event.motion.xrel &lt;&lt; &quot; &quot; &lt;&lt; event.motion.yrel &lt;&lt; std::endl;
++      add_ball_event(0, event.motion.xrel);
++      add_ball_event(1, event.motion.yrel);
++      break;
+ 
+     case SDL_MOUSEBUTTONDOWN:
+       // event.button
+
+Modified: trunk/src/screen_manager.cpp
+===================================================================
+--- trunk/src/screen_manager.cpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/screen_manager.cpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -177,7 +177,17 @@
+           if (event.key.state)
+             {    
+               switch (event.key.keysym.sym)
+-                {               
++                {       
++                case SDLK_F6:
++                  SDL_ShowCursor(SDL_ENABLE);   // SDL_ENABLE to show the mouse cursor (default)
++                  SDL_WM_GrabInput(SDL_GRAB_OFF); // SDL_GRAB_OFF to not grab input (default)
++                  break;
++
++                case SDLK_F7:
++                  SDL_ShowCursor(SDL_DISABLE);   // SDL_ENABLE to show the mouse cursor (default)
++                  SDL_WM_GrabInput(SDL_GRAB_ON); // SDL_GRAB_OFF to not grab input (default)
++                  break;
++      
+                 case SDLK_F8:
+                   {
+                     using namespace GUI;
+
+Modified: trunk/src/sprite2dview.cpp
+===================================================================
+--- trunk/src/sprite2dview.cpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/sprite2dview.cpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -25,28 +25,41 @@
+ 
+ #include &lt;iostream&gt;
+ #include &lt;algorithm&gt;
++#include &quot;display/display.hpp&quot;
+ #include &quot;math.hpp&quot;
++#include &quot;console.hpp&quot;
+ #include &quot;input/controller.hpp&quot;
+ #include &quot;sprite2dview.hpp&quot;
+ 
+ extern std::vector&lt;std::string&gt; arg_files;
+ 
++#define DISPLAY_W 800
++#define DISPLAY_H 600
++
+ Sprite2DView::Sprite2DView()
+ {
+   index = 0;
+ 
+   directory = arg_files;
+ 
++  std::cout &lt;&lt; &quot;Length: &quot; &lt;&lt; directory.size() &lt;&lt; std::endl;
++
+   std::random_shuffle(directory.begin(), directory.end());
+ 
++  std::cout &lt;&lt; &quot;Length: &quot; &lt;&lt; directory.size() &lt;&lt; std::endl;
++
+   sprite      = Sprite(directory.back());
+   offset = 0.0f;
+ 
+-  //mode = MANUAL; 
+-  mode = SLIDESHOW;
++  if (directory.size() &gt; 1)
++    mode = SLIDESHOW;
++  else
++    mode = MANUAL; 
++
+   zoom = 1.0f;
+   pos  = Vector(0,0);
+   display_time = 0.0f;
++  show_thumbnail = false;
+ }
+ 
+ Sprite2DView::~Sprite2DView()
+@@ -75,6 +88,37 @@
+         {
+           new_sprite.draw(Vector(0,0));
+         }
++
++      if (show_thumbnail)
++        {
++          Sprite small = sprite;
++          small.set_alpha(1.0f);
++          float width  = small.get_width();
++          float height = small.get_height();
++          float scale;
++          if (width &gt; height)
++            {
++              scale = 125.0f / width;
++
++              width  *= scale;
++              height *= scale;
++              small.set_scale(scale);
++
++              small.draw(Vector(DISPLAY_W - width,
++                                DISPLAY_H - height));
++            }
++          else
++            {
++              scale = 125.0f / height;
++
++              width  *= scale;
++              height *= scale;
++              small.set_scale(scale);
++
++              small.draw(Vector(DISPLAY_W - width,
++                                DISPLAY_H - height));
++            }
++        }        
+       break;
+       
+     case MANUAL:
+@@ -95,12 +139,12 @@
+ 
+       if (aspect &gt; 4.0/3.0)
+         { // expand vertical
+-          float scale = 600.0f/height;
++          float scale = DISPLAY_H/height;
+           width  *= scale;
+           height *= scale;
+           sprite.set_scale(scale);
+ 
+-          if (offset - (width - 800) &gt; 0)
++          if (offset - (width - DISPLAY_W) &gt; 0)
+             {
+               if (display_time &gt; 3.0f)
+                 next_image();
+@@ -117,7 +161,7 @@
+           height *= scale;
+           sprite.set_scale(scale);
+ 
+-          if (offset - (height - 600) &gt; 0)
++          if (offset - (height - DISPLAY_H) &gt; 0)
+             {
+               if (display_time &gt; 3.0f)
+                 next_image();
+@@ -157,26 +201,27 @@
+       new_sprite = Sprite(directory[index]);
+       fadein = 0.0f;
+       prepare_sprite(new_sprite);
++      console &lt;&lt; index &lt;&lt; &quot;: &quot; &lt;&lt; directory[index] &lt;&lt; std::endl;
+     }
+ }
+ 
+ void
+ Sprite2DView::prepare_sprite(Sprite&amp; sprite)
+ {
+-  width  = sprite.get_width();
+-  height = sprite.get_height();
+-  aspect = width/height;
++  float width  = sprite.get_width();
++  float height = sprite.get_height();
++  float aspect = width/height;
+ 
+   if (aspect &gt; 4.0/3.0)
+     { // expand vertical
+-      float scale = 600.0f/height;
++      float scale = DISPLAY_H/height;
+       width  *= scale;
+       height *= scale;
+       sprite.set_scale(scale);
+     }
+   else
+     { // expand horizontal
+-      float scale = 800.0f/width;
++      float scale = DISPLAY_W/width;
+       width  *= scale;
+       height *= scale;
+       sprite.set_scale(scale);
+@@ -186,8 +231,8 @@
+ void
+ Sprite2DView::update_manual(float delta, const Controller&amp; controller)
+ {
+-  pos.x += controller.get_axis_state(X_AXIS) * 100.0f * delta;
+-  pos.y += controller.get_axis_state(Y_AXIS) * 100.0f * delta;
++  pos.x += controller.get_axis_state(X_AXIS) * 100.0f * delta + controller.get_ball_state(MOUSE_MOTION_X);
++  pos.y += controller.get_axis_state(Y_AXIS) * 100.0f * delta + controller.get_ball_state(MOUSE_MOTION_Y);
+   
+   if (controller.get_button_state(PRIMARY_BUTTON))
+     zoom *= 1.0f + 0.3f * delta;
+@@ -212,6 +257,15 @@
+     break;
+   }
+ 
++  if (controller.button_was_pressed(TERTIARY_BUTTON))
++    show_thumbnail = !show_thumbnail;
++
++  if (controller.button_was_pressed(AIM_BUTTON))
++    {
++      if (mode == SLIDESHOW) mode = MANUAL; 
++      else if (mode == MANUAL) mode = SLIDESHOW; 
++    }
++
+   if (new_sprite)
+     {
+       fadein += delta;
+
+Modified: trunk/src/sprite2dview.hpp
+===================================================================
+--- trunk/src/sprite2dview.hpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/sprite2dview.hpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -61,7 +61,7 @@
+   float  offset;
+ 
+   float display_time;
+-
++  bool show_thumbnail;
+ public:
+   Sprite2DView();
+   ~Sprite2DView();
+
+Modified: trunk/src/windstille_main.cpp
+===================================================================
+--- trunk/src/windstille_main.cpp	2006-04-14 01:20:11 UTC (rev 1254)
++++ trunk/src/windstille_main.cpp	2006-04-15 16:51:32 UTC (rev 1255)
+@@ -94,6 +94,9 @@
+ 
+       controller_description.add_axis(&quot;x2-axis&quot;, X2_AXIS);
+       controller_description.add_axis(&quot;y2-axis&quot;, Y2_AXIS);
++
++      controller_description.add_ball(&quot;mouse-motion-x&quot;, MOUSE_MOTION_X);
++      controller_description.add_ball(&quot;mouse-motion-y&quot;, MOUSE_MOTION_Y);
+     }
+ 
+       {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000906.html">[Windstille-commit] r1254 - in trunk/src: . scripting
+</A></li>
+	<LI>Next message: <A HREF="000908.html">[Windstille-commit] r1256 - in trunk/data/models/vehicles: . shuttle
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#907">[ date ]</a>
+              <a href="thread.html#907">[ thread ]</a>
+              <a href="subject.html#907">[ subject ]</a>
+              <a href="author.html#907">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

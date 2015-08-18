@@ -1,0 +1,1316 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3338 - in trunk/windstille/extra: . slideshow
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2010-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3338%20-%20in%20trunk/windstille/extra%3A%20.%20slideshow&In-Reply-To=%3C20100829004435.C5623480F60%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002336.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3338 - in trunk/windstille/extra: . slideshow</H1>
+    <B>grumbel at mail.berlios.de</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3338%20-%20in%20trunk/windstille/extra%3A%20.%20slideshow&In-Reply-To=%3C20100829004435.C5623480F60%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3338 - in trunk/windstille/extra: . slideshow">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Aug 29 02:44:35 CEST 2010</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002336.html">[Windstille-commit] r3339 - trunk/windstille/extra/slideshow
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2335">[ date ]</a>
+              <a href="thread.html#2335">[ thread ]</a>
+              <a href="subject.html#2335">[ subject ]</a>
+              <a href="author.html#2335">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2010-08-29 02:44:35 +0200 (Sun, 29 Aug 2010)
+New Revision: 3338
+
+Added:
+   trunk/windstille/extra/slideshow/
+   trunk/windstille/extra/slideshow/script.slideshow
+   trunk/windstille/extra/slideshow/slide_builder.cpp
+   trunk/windstille/extra/slideshow/slide_builder.hpp
+   trunk/windstille/extra/slideshow/slide_object.cpp
+   trunk/windstille/extra/slideshow/slide_object.hpp
+   trunk/windstille/extra/slideshow/slide_path.cpp
+   trunk/windstille/extra/slideshow/slide_path.hpp
+   trunk/windstille/extra/slideshow/slide_show.cpp
+   trunk/windstille/extra/slideshow/slide_show.hpp
+   trunk/windstille/extra/slideshow/slideshow.cpp
+Log:
+Some work on a little slideshow app
+
+Added: trunk/windstille/extra/slideshow/script.slideshow
+===================================================================
+--- trunk/windstille/extra/slideshow/script.slideshow	                        (rev 0)
++++ trunk/windstille/extra/slideshow/script.slideshow	2010-08-29 00:44:35 UTC (rev 3338)
+@@ -0,0 +1,34 @@
++# This is a comment
++
++fade 1.0
++
++image landscape.jpg
++  zoom 0.1
++  pos center center
++
++  duration 20
++
++  zoom 5.0
++  pos 320 240
++
++  duration 2
++
++  zoom 0.75
++  pos 320 240
++end
++
++fade 2.0
++
++image two.jpg
++  zoom 1.0
++  pos 320 200
++
++  duration 5
++
++  zoom 1.2
++  pos 320 240
++end
++
++fade 1.0
++
++# EOF #
+
+Added: trunk/windstille/extra/slideshow/slide_builder.cpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slide_builder.cpp	                        (rev 0)
++++ trunk/windstille/extra/slideshow/slide_builder.cpp	2010-08-29 00:44:35 UTC (rev 3338)
+@@ -0,0 +1,364 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2010 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &quot;slideshow/slide_builder.hpp&quot;
++
++#include &lt;boost/tokenizer.hpp&gt;
++#include &lt;boost/lexical_cast.hpp&gt;
++#include &lt;string.h&gt;
++#include &lt;errno.h&gt;
++#include &lt;fstream&gt;
++#include &lt;iostream&gt;
++#include &lt;stdexcept&gt;
++#include &lt;sstream&gt;
++
++#include &quot;slideshow/slide_show.hpp&quot;
++
++SlideBuilder::SlideBuilder(SlideShow&amp; slideshow, const Sizef&amp; screen_size) :
++  m_slideshow(slideshow),
++  m_screen_size(screen_size),
++  m_context(),
++  m_line(),
++  m_fade(0.0f),
++  m_state(kGlobal),
++  m_time(0.0f),
++  m_image(),
++  m_last_image(),
++  m_node_has_pos(false),
++  m_node_has_zoom(false),
++  m_path_node()
++{
++}
++
++void
++SlideBuilder::load_from_file(const std::string&amp; filename)
++{
++  std::ifstream in(filename.c_str());
++  if (!in)
++  {
++    throw std::runtime_error(strerror(errno));
++  }
++  else
++  {
++    m_context = filename;
++    m_line = 0;
++    load_from_stream(in);
++  }
++}
++
++std::string
++strip_comment(const std::string&amp; line)
++{
++  std::string::size_type p = line.find('#');
++  return line.substr(0, p);
++}
++
++void
++SlideBuilder::error(const std::string&amp; str)
++{
++  std::ostringstream out;
++  out &lt;&lt; m_context &lt;&lt; ':' &lt;&lt; m_line &lt;&lt; &quot;: error: &quot; &lt;&lt; str;
++  throw std::runtime_error(out.str());
++}
++
++void
++SlideBuilder::load_from_stream(std::istream&amp; stream)
++{
++  try 
++  {
++    std::string line;
++    while(std::getline(stream, line))
++    {
++      m_line += 1;
++      line = strip_comment(line);
++
++      boost::char_separator&lt;char&gt; sep(&quot; \t&quot;);
++      boost::tokenizer&lt;boost::char_separator&lt;char&gt; &gt; tokens(line, sep);
++      std::vector&lt;std::string&gt; args(tokens.begin(), tokens.end());
++
++      if (args.empty())
++      {
++        // empty line, skip it
++      }
++      else
++      {
++        if (false)
++        { // debug output
++          for(std::vector&lt;std::string&gt;::iterator i = args.begin(); i != args.end(); ++i)
++          {
++            std::cout &lt;&lt; &quot;(&quot; &lt;&lt; *i &lt;&lt; &quot;) &quot;;
++          }
++          std::cout &lt;&lt; std::endl;
++        }
++
++        if (args[0] == &quot;image&quot;)
++        {
++          handle_image(args);
++        }
++        else if (args[0] == &quot;zoom&quot;)
++        {
++          handle_zoom(args);
++        }
++        else if (args[0] == &quot;pos&quot;)
++        {
++          handle_pos(args);
++        }
++        else if (args[0] == &quot;duration&quot;)
++        {
++          handle_duration(args);
++        }
++        else if (args[0] == &quot;fade&quot;)
++        {
++          handle_fade(args);
++        }
++        else if (args[0] == &quot;end&quot;)
++        {
++          handle_end(args);
++        }
++        else
++        {
++          error(&quot;unknown tag '&quot; + args[0] + &quot;'&quot;);
++        }
++      }
++    }
++
++    if (m_state != kGlobal)
++    {
++      error(&quot;not in global scope at end of file&quot;);
++    }
++  }
++  catch(std::exception&amp; err)
++  {
++    error(err.what());
++  }
++}
++
++void
++SlideBuilder::handle_image(const std::vector&lt;std::string&gt;&amp; args)
++{
++  if (m_state != kGlobal)
++  {
++    error(&quot;image must be in global scope&quot;);
++  }
++  else if (args.size() != 2)
++  {
++    error(&quot;image requires one argument&quot;);
++  }
++  else
++  {
++    m_state = kImage;
++    std::cout &lt;&lt; &quot;;; time = &quot; &lt;&lt; m_time &lt;&lt; std::endl;
++    std::cout &lt;&lt; &quot;(image \&quot;&quot; &lt;&lt; args[1] &lt;&lt; &quot;\&quot;)&quot; &lt;&lt; std::endl;
++    m_image = SlideObjectPtr(new SlideObject(Pathname(args[1], Pathname::kSysPath)));
++
++    if (m_slideshow.size() != 0)
++      m_image-&gt;set_begin(m_time - m_fade);
++
++    m_image-&gt;set_fade_in(m_fade);
++    m_fade = 0.0f;
++  }
++}
++
++void
++SlideBuilder::handle_pos(const std::vector&lt;std::string&gt;&amp; args)
++{
++  if (m_state != kImage)
++  {
++    error(&quot;pos must be in image scope&quot;);
++  }
++  else if (args.size() != 3)
++  {
++    error(&quot;pos requires two arguments&quot;);
++  }
++  else if (m_node_has_pos)
++  {
++    error(&quot;pos already given&quot;);
++  }
++  else
++  {
++    m_node_has_pos = true;
++
++    if (args[1] == &quot;left&quot;)
++    {
++      m_path_node.pos.x = m_screen_size.width/2.0f;
++    }
++    else if (args[1] == &quot;right&quot;)
++    {
++      m_path_node.pos.x = m_image-&gt;get_width() - m_screen_size.width/2.0f;
++    }
++    else if (args[1] == &quot;center&quot;)
++    {
++      m_path_node.pos.x = m_screen_size.width/2.0f;
++    }
++    else
++    {
++      m_path_node.pos.x = boost::lexical_cast&lt;float&gt;(args[1]);
++    }
++
++    if (args[2] == &quot;top&quot;)
++    {
++      m_path_node.pos.y = 0.0f;
++    }
++    else if (args[2] == &quot;bottom&quot;)
++    {
++      m_path_node.pos.y = m_image-&gt;get_height() - m_screen_size.height/2.0f;
++    }
++    else if (args[2] == &quot;center&quot;)
++    {
++      m_path_node.pos.y = m_screen_size.height/2.0f;
++    }
++    else
++    {
++      m_path_node.pos.y = boost::lexical_cast&lt;float&gt;(args[2]);
++    }
++
++    std::cout &lt;&lt; &quot;  (pos &quot; &lt;&lt; m_path_node.pos.x &lt;&lt; &quot; &quot; &lt;&lt; m_path_node.pos.y &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
++  }
++}
++
++void
++SlideBuilder::handle_zoom(const std::vector&lt;std::string&gt;&amp; args)
++{
++  if (m_state != kImage)
++  {
++    error(&quot;zoom must be in image scope&quot;);
++  }
++  else if (args.size() != 2)
++  {
++    error(&quot;zoom requires one argument&quot;);
++  }
++  else if (m_node_has_zoom)
++  {
++    error(&quot;zoom already given&quot;);
++  }
++  else
++  {
++    if (args[1] == &quot;fit&quot;)
++    {
++      m_path_node.zoom = std::min(m_screen_size.width / m_image-&gt;get_width(),
++                                  m_screen_size.height / m_image-&gt;get_height());
++    }
++    else if (args[1] == &quot;width&quot;)
++    {
++      m_path_node.zoom = m_screen_size.width / m_image-&gt;get_width();
++    }
++    else if (args[1] == &quot;height&quot;)
++    {
++      m_path_node.zoom = m_screen_size.height / m_image-&gt;get_height();
++    }
++    else
++    {
++      m_path_node.zoom = boost::lexical_cast&lt;float&gt;(args[1]);
++      std::cout &lt;&lt; &quot;  (zoom &quot; &lt;&lt; m_path_node.zoom &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
++    }
++
++    m_node_has_zoom = true;
++  }
++}
++ 
++void
++SlideBuilder::handle_duration(const std::vector&lt;std::string&gt;&amp; args)
++{
++  if (m_state != kImage)
++  {
++    error(&quot;duration must be in image scope&quot;);
++  }
++  else if (args.size() != 2)
++  {
++    error(&quot;duration requires one argument&quot;);
++  }
++  else
++  {
++    float duration = boost::lexical_cast&lt;float&gt;(args[1]);
++
++    assert(m_image);
++    add_node();
++    m_image-&gt;get_path().add_edge(duration);
++    std::cout &lt;&lt; &quot;  (duration &quot; &lt;&lt; duration &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
++  }
++}
++
++void
++SlideBuilder::add_node()
++{
++  if (!m_node_has_pos)
++  {
++    error(&quot;getting default pos not implemented&quot;);
++  }
++
++  if (!m_node_has_zoom)
++  {
++    error(&quot;getting default zoom not implemented&quot;);
++  }
++
++  m_image-&gt;get_path().add_node(m_path_node.pos, m_path_node.zoom);
++
++  m_node_has_zoom = false;
++  m_node_has_pos  = false;
++}
++
++void
++SlideBuilder::handle_fade(const std::vector&lt;std::string&gt;&amp; args)
++{
++  if (m_state != kGlobal)
++  {
++    error(&quot;fade must be in global scope&quot;);
++  }
++  else if (args.size() != 2)
++  {
++    error(&quot;fade requires one argument&quot;);
++  }
++  else
++  {
++    m_fade = boost::lexical_cast&lt;float&gt;(args[1]);
++    std::cout &lt;&lt; &quot;(fade &quot; &lt;&lt; m_fade &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
++
++    if (m_last_image)
++    {
++      m_last_image-&gt;set_fade_out(m_fade);
++    }
++  }
++}
++
++void
++SlideBuilder::handle_end(const std::vector&lt;std::string&gt;&amp; args)
++{
++  if (m_state != kImage)
++  {
++    error(&quot;end must be in image scope&quot;);
++  }
++  else if (args.size() != 1)
++  {
++    error(&quot;end requires no argument&quot;);
++  }
++  else
++  {
++    m_state = kGlobal;
++    
++    assert(m_image);
++    add_node();
++    m_image-&gt;get_path().finish();
++
++    m_time += m_image-&gt;length();
++    m_slideshow.add(m_image);
++    m_last_image = m_image;
++    std::cout &lt;&lt; &quot;(end)&quot; &lt;&lt; std::endl;
++  }
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/extra/slideshow/slide_builder.cpp
+___________________________________________________________________
+Added: svn:eol-style
+   + native
+
+Added: trunk/windstille/extra/slideshow/slide_builder.hpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slide_builder.hpp	                        (rev 0)
++++ trunk/windstille/extra/slideshow/slide_builder.hpp	2010-08-29 00:44:35 UTC (rev 3338)
+@@ -0,0 +1,81 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2010 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_EXTRA_SLIDESHOW_SLIDE_BUILDER_HPP
++#define HEADER_WINDSTILLE_EXTRA_SLIDESHOW_SLIDE_BUILDER_HPP
++
++#include &lt;string&gt;
++#include &lt;vector&gt;
++
++#include &quot;math/size.hpp&quot;
++#include &quot;slideshow/slide_object.hpp&quot;
++#include &quot;slideshow/slide_path.hpp&quot;
++
++class SlideShow;
++
++class SlideBuilder
++{
++private:
++  SlideShow&amp; m_slideshow;
++  Sizef m_screen_size;
++
++  std::string m_context;
++  int m_line;
++
++  enum State {
++    kGlobal,
++    kImage
++  };
++
++  float m_fade;
++
++  State m_state;
++  float m_time;
++  SlideObjectPtr m_image;
++  SlideObjectPtr m_last_image;
++
++  bool m_node_has_pos;
++  bool m_node_has_zoom;
++  SlidePathNode m_path_node;
++
++public:
++  SlideBuilder(SlideShow&amp; slideshow, const Sizef&amp; screen_size);
++
++  void load_from_file(const std::string&amp; filename);
++  void load_from_stream(std::istream&amp; stream);
++
++private:
++  void error(const std::string&amp; str);
++
++  void handle_image(const std::vector&lt;std::string&gt;&amp; args);
++  void handle_pos(const std::vector&lt;std::string&gt;&amp; args);
++  void handle_zoom(const std::vector&lt;std::string&gt;&amp; args);
++  void handle_duration(const std::vector&lt;std::string&gt;&amp; args);
++  void handle_fade(const std::vector&lt;std::string&gt;&amp; args);
++  void handle_end(const std::vector&lt;std::string&gt;&amp; args);
++
++  void add_node();
++
++private:
++  SlideBuilder(const SlideBuilder&amp;);
++  SlideBuilder&amp; operator=(const SlideBuilder&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/extra/slideshow/slide_builder.hpp
+___________________________________________________________________
+Added: svn:eol-style
+   + native
+
+Added: trunk/windstille/extra/slideshow/slide_object.cpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slide_object.cpp	                        (rev 0)
++++ trunk/windstille/extra/slideshow/slide_object.cpp	2010-08-29 00:44:35 UTC (rev 3338)
+@@ -0,0 +1,107 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2010 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &quot;slide_object.hpp&quot;
++
++#include &lt;math.h&gt;
++
++#include &quot;display/surface_drawing_parameters.hpp&quot;
++
++SlideObject::SlideObject(const Pathname&amp; filename) :
++  m_surface(filename),
++  m_begin(0.0f),
++  m_path(),
++  m_fade_in_time(0.0f),
++  m_fade_out_time(0.0f)
++{  
++}
++
++void
++SlideObject::set_fade_in(float f)
++{
++  m_fade_in_time = f;
++}
++
++void
++SlideObject::set_fade_out(float f)
++{
++  m_fade_out_time = f;
++}
++
++void
++SlideObject::draw(float relative_time)
++{
++  SlidePathNode node = m_path.get(relative_time);
++
++  // FIXME: hardcoded fade hack
++  Color color(1.0f, 1.0f, 1.0f, 1.0f);
++  if (relative_time &lt; m_fade_in_time)
++  {
++    color.a = relative_time / m_fade_in_time;
++  }
++  else if (relative_time + m_fade_out_time &gt; length())
++  {
++    color.a = (length() - relative_time) / m_fade_out_time;
++  }
++
++  Vector2f pos(node.pos);
++
++  // zoom needs to grow exponentially to be linear
++  float scale = node.zoom;
++
++  pos.x -= m_surface.get_width() /2.0f * scale;
++  pos.y -= m_surface.get_height()/2.0f * scale;
++
++  m_surface.draw(SurfaceDrawingParameters()
++                 .set_color(color)
++                 .set_blend_func(GL_SRC_ALPHA, GL_ONE)
++                 .set_pos(pos)
++                 .set_scale(scale));
++}
++
++float
++SlideObject::length() const
++{
++  return m_path.length();
++}
++
++float
++SlideObject::begin() const
++{
++  return m_begin;
++}
++
++void
++SlideObject::set_begin(float beg)
++{
++  m_begin = beg;
++}
++
++float
++SlideObject::get_width() const
++{
++  return m_surface.get_width();
++}
++
++float
++SlideObject::get_height() const
++{
++  return m_surface.get_height();
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/extra/slideshow/slide_object.cpp
+___________________________________________________________________
+Added: svn:eol-style
+   + native
+
+Added: trunk/windstille/extra/slideshow/slide_object.hpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slide_object.hpp	                        (rev 0)
++++ trunk/windstille/extra/slideshow/slide_object.hpp	2010-08-29 00:44:35 UTC (rev 3338)
+@@ -0,0 +1,63 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2010 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_EXTRA_SLIDESHOW_SLIDE_OBJECT_HPP
++#define HEADER_WINDSTILLE_EXTRA_SLIDESHOW_SLIDE_OBJECT_HPP
++
++#include &lt;boost/shared_ptr.hpp&gt;
++
++#include &quot;display/surface.hpp&quot;
++
++#include &quot;slideshow/slide_path.hpp&quot;
++
++class SlideObject
++{
++private:
++  Surface m_surface;
++  float m_begin;
++  SlidePath m_path;
++
++  float m_fade_in_time;
++  float m_fade_out_time;
++
++public:
++  SlideObject(const Pathname&amp; filename);
++  
++  void draw(float relative_time);
++
++  float length() const;
++  float begin() const;
++  void set_begin(float beg);
++  void set_fade_in(float f);
++  void set_fade_out(float f);
++
++  SlidePath&amp; get_path() { return m_path; }
++
++  float get_width() const;
++  float get_height() const;
++
++private:
++  SlideObject(const SlideObject&amp;);
++  SlideObject&amp; operator=(const SlideObject&amp;);
++};
++
++typedef boost::shared_ptr&lt;SlideObject&gt; SlideObjectPtr;
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/extra/slideshow/slide_object.hpp
+___________________________________________________________________
+Added: svn:eol-style
+   + native
+
+Added: trunk/windstille/extra/slideshow/slide_path.cpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slide_path.cpp	                        (rev 0)
++++ trunk/windstille/extra/slideshow/slide_path.cpp	2010-08-29 00:44:35 UTC (rev 3338)
+@@ -0,0 +1,123 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2010 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &quot;slide_path.hpp&quot;
++
++#include &lt;iostream&gt;
++#include &lt;assert.h&gt;
++#include &lt;math.h&gt;
++#include &lt;stdexcept&gt;
++
++SlidePath::SlidePath() :
++  m_nodes(),
++  m_edges()
++{
++}
++
++void
++SlidePath::add_node(const Vector2f&amp; pos, float zoom)
++{
++  SlidePathNode node;
++  node.pos  = pos;
++  node.zoom = zoom;
++  m_nodes.push_back(node);
++}
++
++void
++SlidePath::add_edge(float duration)
++{
++  SlidePathEdge edge;
++  edge.duration = duration;
++  m_edges.push_back(edge);
++}
++
++SlidePathNode
++SlidePath::get(float relative_time)
++{
++  assert(m_nodes.size() == m_edges.size()+1);
++
++  if (m_nodes.empty())
++  {
++    return SlidePathNode();
++  }
++  else
++  {
++    int idx = -1;
++    float passed = 0.0f;
++    for(size_t i = 0; i &lt; m_edges.size(); ++i)
++    {
++      passed += m_edges[i].duration;
++      if (passed &gt; relative_time)
++      {
++        idx = i;
++        break;
++      }
++    }
++
++    if (idx == -1)
++    {
++      std::cout &lt;&lt; &quot;XXX BUMMER: not implemented&quot; &lt;&lt; std::endl;
++      SlidePathNode node;
++      return node;
++    }
++    else
++    {
++      SlidePathNode lhs = m_nodes[idx];
++      SlidePathNode rhs = m_nodes[idx+1];
++      
++      float t = relative_time - (passed - m_edges[idx].duration);
++
++      float factor = t / m_edges[idx].duration;
++
++      SlidePathNode node;
++      node.pos  = lhs.pos  * (1.0f - factor) + rhs.pos  * factor;
++      node.zoom = lhs.zoom * (1.0f - factor) + rhs.zoom * factor;
++      return node;
++    }
++  }
++}
++
++void
++SlidePath::finish()
++{
++  if (m_nodes.empty())
++  {
++    throw std::runtime_error(&quot;nodes empty&quot;);
++  }
++  else if (m_edges.empty())
++  {
++    throw std::runtime_error(&quot;edges empty&quot;);
++  }
++  else if (m_nodes.size() == m_edges.size())
++  {
++    m_nodes.push_back(m_nodes.back());
++  }
++}
++
++float
++SlidePath::length() const
++{
++  float total = 0.0f;
++  for(Edges::const_iterator i = m_edges.begin(); i != m_edges.end(); ++i)
++  {
++    total += i-&gt;duration;
++  }
++  return total;
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/extra/slideshow/slide_path.cpp
+___________________________________________________________________
+Added: svn:eol-style
+   + native
+
+Added: trunk/windstille/extra/slideshow/slide_path.hpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slide_path.hpp	                        (rev 0)
++++ trunk/windstille/extra/slideshow/slide_path.hpp	2010-08-29 00:44:35 UTC (rev 3338)
+@@ -0,0 +1,71 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2010 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_EXTRA_SLIDESHOW_SLIDE_PATH_HPP
++#define HEADER_WINDSTILLE_EXTRA_SLIDESHOW_SLIDE_PATH_HPP
++
++#include &lt;vector&gt;
++
++#include &quot;math/vector2f.hpp&quot;
++
++class SlidePathNode
++{
++public:
++  Vector2f  pos;
++  float     zoom;
++
++  SlidePathNode() :
++    pos(0.0f, 0.0f),
++    zoom(1.0f)
++  {}
++};
++
++class SlidePathEdge
++{
++public:
++  float duration;
++};
++
++class SlidePath
++{
++private:
++  typedef std::vector&lt;SlidePathNode&gt; Nodes;
++  typedef std::vector&lt;SlidePathEdge&gt; Edges; 
++
++  Nodes m_nodes;
++  Edges m_edges;
++  
++public:
++  SlidePath();
++
++  SlidePathNode get(float relative_time);
++
++  void add_node(const Vector2f&amp; pos, float zoom);
++  void add_edge(float duration);
++  void finish();
++
++  float length() const;
++
++private:
++  SlidePath(const SlidePath&amp;);
++  SlidePath&amp; operator=(const SlidePath&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/extra/slideshow/slide_path.hpp
+___________________________________________________________________
+Added: svn:eol-style
+   + native
+
+Added: trunk/windstille/extra/slideshow/slide_show.cpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slide_show.cpp	                        (rev 0)
++++ trunk/windstille/extra/slideshow/slide_show.cpp	2010-08-29 00:44:35 UTC (rev 3338)
+@@ -0,0 +1,73 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2010 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &quot;slideshow/slide_show.hpp&quot;
++
++SlideShow::SlideShow() :
++  m_objects(),
++  m_time(0.0f),
++  m_length(0.0f)
++{
++}
++
++void
++SlideShow::update(float delta)
++{
++  m_time += delta;
++}
++
++void
++SlideShow::draw()
++{
++  for(std::vector&lt;SlideObjectPtr&gt;::iterator i = m_objects.begin(); i != m_objects.end(); ++i)
++  {
++    SlideObjectPtr&amp; obj = *i;
++
++    //std::cout &lt;&lt; obj.get() &lt;&lt; &quot;: &quot; &lt;&lt; obj-&gt;begin() &lt;&lt; &quot; &quot; &lt;&lt; obj-&gt;length() &lt;&lt; std::endl;
++
++    if (obj-&gt;begin() &lt;= m_time &amp;&amp; m_time &lt; (obj-&gt;begin() + obj-&gt;length()))
++    {
++      //std::cout &lt;&lt; &quot;draw&quot; &lt;&lt; std::endl;
++      // active object
++      float relative_time = m_time - obj-&gt;begin();
++      //std::cout &lt;&lt; m_time &lt;&lt; &quot; &quot; &lt;&lt; relative_time &lt;&lt; std::endl;
++      obj-&gt;draw(relative_time);
++    }
++  }
++}
++
++void
++SlideShow::add(SlideObjectPtr object)
++{
++  m_length = std::max(m_length, object-&gt;begin() + object-&gt;length());
++  m_objects.push_back(object);
++}
++
++bool
++SlideShow::done() const
++{
++  return (m_time &gt;= m_length);
++}
++
++int
++SlideShow::size() const
++{
++  return m_objects.size();
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/extra/slideshow/slide_show.cpp
+___________________________________________________________________
+Added: svn:eol-style
+   + native
+
+Added: trunk/windstille/extra/slideshow/slide_show.hpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slide_show.hpp	                        (rev 0)
++++ trunk/windstille/extra/slideshow/slide_show.hpp	2010-08-29 00:44:35 UTC (rev 3338)
+@@ -0,0 +1,51 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2010 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_EXTRA_SLIDESHOW_SLIDE_SHOW_HPP
++#define HEADER_WINDSTILLE_EXTRA_SLIDESHOW_SLIDE_SHOW_HPP
++
++#include &lt;vector&gt;
++
++#include &quot;slideshow/slide_object.hpp&quot;
++
++class SlideShow
++{
++private:
++  std::vector&lt;SlideObjectPtr&gt; m_objects;
++  float m_time;
++  float m_length;
++  
++public:
++  SlideShow();
++
++  void update(float delta);
++  void draw();
++  void add(SlideObjectPtr object);
++
++  bool done() const;
++
++  int size() const;
++
++private:
++  SlideShow(const SlideShow&amp;);
++  SlideShow&amp; operator=(const SlideShow&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/extra/slideshow/slide_show.hpp
+___________________________________________________________________
+Added: svn:eol-style
+   + native
+
+Added: trunk/windstille/extra/slideshow/slideshow.cpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slideshow.cpp	                        (rev 0)
++++ trunk/windstille/extra/slideshow/slideshow.cpp	2010-08-29 00:44:35 UTC (rev 3338)
+@@ -0,0 +1,157 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2010 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &lt;SDL.h&gt;
++
++#include &lt;sstream&gt;
++#include &lt;stdexcept&gt;
++
++#include &quot;display/opengl_window.hpp&quot;
++#include &quot;display/surface_manager.hpp&quot;
++#include &quot;display/surface_drawing_parameters.hpp&quot;
++#include &quot;display/surface.hpp&quot;
++#include &quot;display/texture_manager.hpp&quot;
++#include &quot;util/system.hpp&quot;
++
++#include &quot;slideshow/slide_show.hpp&quot;
++#include &quot;slideshow/slide_builder.hpp&quot;
++
++void
++init_sdl()
++{
++  Uint32 flags = SDL_INIT_VIDEO | SDL_INIT_JOYSTICK;
++
++  if (SDL_Init(flags) &lt; 0)
++  {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't initialize SDL: &quot; &lt;&lt; SDL_GetError();
++    throw std::runtime_error(msg.str());
++  }
++  else
++  {
++    atexit(SDL_Quit);
++    SDL_EnableUNICODE(1);
++  }
++}
++
++int main(int argc, char** argv)
++{
++  if (argc &lt; 1)
++  {
++    std::cerr &lt;&lt; &quot;Usage: &quot; &lt;&lt; argv[0] &lt;&lt; &quot; FILE...&quot; &lt;&lt; std::endl;
++    return 0;
++  }
++  else
++  {
++    try 
++    {
++      init_sdl();
++      
++      Size aspect(640, 480);
++      //std::cout &lt;&lt; &quot;OpenGLWindow&quot; &lt;&lt; std::endl;
++      OpenGLWindow window(Size(640, 480), // window size
++                          aspect, // aspect ratio
++                          false, // fullscreen
++                          4); // anti-alias
++
++      TextureManager    texture_manager;
++      SurfaceManager    surface_manager;
++
++      SlideShow slide_show;
++      
++      { // read from file
++        SlideBuilder slide_builder(slide_show, aspect);
++        for(int i = 1; i &lt; argc; ++i)
++        {
++          //std::cout &lt;&lt; &quot;Reading &quot; &lt;&lt; argv[i] &lt;&lt; std::endl;
++          slide_builder.load_from_file(argv[i]);
++        }
++      }
++
++      // Surface surface1(Pathname(argv[1], Pathname::kSysPath));
++      // Surface surface2(Pathname(argv[2], Pathname::kSysPath));
++  
++      bool loop = true;
++      //float progress = 0.0f;
++
++      Uint32 last_ticks = SDL_GetTicks();
++      while(loop &amp;&amp; !slide_show.done())
++      {
++        SDL_Event event;
++        while(SDL_PollEvent(&amp;event))
++        {
++          switch(event.type)
++          {
++            case SDL_QUIT:
++              loop = false;
++              break;
++
++            case SDL_KEYDOWN:
++            case SDL_KEYUP:
++              if (event.key.state)
++              {    
++                switch (event.key.keysym.sym)
++                {
++                  case SDLK_F6:
++                    break;
++
++                  default:
++                    break;
++                }
++              }
++                     
++              return 0;
++          }
++        }
++
++        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
++        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
++
++        Uint32 ticks = SDL_GetTicks();
++        slide_show.update(static_cast&lt;float&gt;(ticks - last_ticks) / 1000.0f);
++        last_ticks = ticks;
++        slide_show.draw();
++
++        // surface1.draw(SurfaceDrawingParameters()
++        //               .set_blend_func(GL_SRC_ALPHA, GL_ONE)
++        //               .set_color(Color(1.0f, 1.0f, 1.0f, 1.0f - progress))
++        //               .set_scale(1.0f)
++        //               .set_pos(Vector2f(0.0f, 0.0f)));
++    
++        // surface2.draw(SurfaceDrawingParameters()
++        //               .set_blend_func(GL_SRC_ALPHA, GL_ONE)
++        //               .set_color(Color(1.0f, 1.0f, 1.0f, progress))
++        //               .set_scale(1.0f + progress)
++        //               .set_pos(Vector2f(0.0f - (100.0f * progress),
++        //                                 0.0f)));
++
++        SDL_GL_SwapBuffers();
++
++        SDL_Delay(10);
++      }
++    }
++    catch(std::exception&amp; err)
++    {
++      std::cout &lt;&lt; err.what() &lt;&lt; std::endl;
++      return 1;
++    }
++    return 0;
++  }
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/extra/slideshow/slideshow.cpp
+___________________________________________________________________
+Added: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002336.html">[Windstille-commit] r3339 - trunk/windstille/extra/slideshow
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2335">[ date ]</a>
+              <a href="thread.html#2335">[ thread ]</a>
+              <a href="subject.html#2335">[ subject ]</a>
+              <a href="author.html#2335">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

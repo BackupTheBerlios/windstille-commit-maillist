@@ -1,0 +1,275 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2900 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2900%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200904081729.n38HTvNX006359%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001896.html">
+   <LINK REL="Next"  HREF="001898.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2900 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2900%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200904081729.n38HTvNX006359%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2900 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Apr  8 19:29:58 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001896.html">[Windstille-commit] r2899 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="001898.html">[Windstille-commit] r2901 - in trunk/windstille/src: . editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1897">[ date ]</a>
+              <a href="thread.html#1897">[ thread ]</a>
+              <a href="subject.html#1897">[ subject ]</a>
+              <a href="author.html#1897">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-04-08 19:29:56 +0200 (Wed, 08 Apr 2009)
+New Revision: 2900
+
+Modified:
+   trunk/windstille/src/editor/navgraph_insert_tool.cpp
+   trunk/windstille/src/editor/navgraph_insert_tool.hpp
+   trunk/windstille/src/editor/navgraph_select_tool.cpp
+   trunk/windstille/src/editor/tool.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/editor/windstille_widget.hpp
+Log:
+Removed active_tool thing from WindstilleWidget so that tools can draw things properly
+
+Modified: trunk/windstille/src/editor/navgraph_insert_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_insert_tool.cpp	2009-04-08 17:14:40 UTC (rev 2899)
++++ trunk/windstille/src/editor/navgraph_insert_tool.cpp	2009-04-08 17:29:56 UTC (rev 2900)
+@@ -45,6 +45,7 @@
+             { // connect last node with existing node
+               navgraph.add_edge(last_node, node);
+               last_node = NodeHandle();
++              connection_node = NodeHandle();
+             }
+           else
+             { // connect last node with newly created node
+@@ -83,18 +84,20 @@
+ void
+ NavgraphInsertTool::mouse_move(GdkEventMotion* event, WindstilleWidget&amp; wst)
+ {
++  NavigationGraph&amp; navgraph = *wst.get_sector_model()-&gt;get_nav_graph();
++
+   mouse_pos = wst.get_state().screen_to_world(Vector2f(event-&gt;x, event-&gt;y));
+ 
+   switch(mode)
+     {
+       case EDGE_MODE:
++        connection_node = navgraph.find_closest_node(mouse_pos, 16.0f); // FIXME: Radius should scale with zoom
++        wst.queue_draw();
+         break;
+ 
+       case NO_MODE:
+         break;
+     }
+-
+-  wst.queue_draw();
+ }
+ 
+ void
+@@ -106,22 +109,32 @@
+   switch(mode)
+     {
+       case EDGE_MODE:
++        connection_node = NodeHandle();
++        wst.queue_draw();
+         break;
+ 
+       case NO_MODE:
+         break;
+     }
+-
+-  wst.queue_draw();
+ }
+   
+ void
+ NavgraphInsertTool::draw(SceneContext&amp; sc)
+ {
+   std::cout &lt;&lt; &quot;Draw: &quot; &lt;&lt; last_node &lt;&lt; std::endl;
++
+   if (last_node)
+     {
+-      sc.control().draw_line(last_node-&gt;get_pos(), mouse_pos, Color(1,1,1));
++      if (connection_node)
++        {
++          sc.control().draw_line(last_node-&gt;get_pos(), connection_node-&gt;get_pos(), Color(1,1,1));
++          sc.control().draw_rect(Rectf(connection_node-&gt;get_pos() - Vector2f(16,16), Sizef(32,32)), Color(1.0f, 1.0f, 1.0f));
++        }
++      else
++        {
++          sc.control().draw_line(last_node-&gt;get_pos(), mouse_pos, Color(1,1,1));
++        }
++
+       sc.control().draw_rect(Rectf(last_node-&gt;get_pos() - Vector2f(16,16), Sizef(32,32)), Color(1.0f, 1.0f, 1.0f));
+     }
+ }
+
+Modified: trunk/windstille/src/editor/navgraph_insert_tool.hpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_insert_tool.hpp	2009-04-08 17:14:40 UTC (rev 2899)
++++ trunk/windstille/src/editor/navgraph_insert_tool.hpp	2009-04-08 17:29:56 UTC (rev 2900)
+@@ -36,6 +36,7 @@
+   } mode;
+ 
+   NodeHandle last_node;
++  NodeHandle connection_node;
+ 
+ public:
+   NavgraphInsertTool();
+
+Modified: trunk/windstille/src/editor/navgraph_select_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_select_tool.cpp	2009-04-08 17:14:40 UTC (rev 2899)
++++ trunk/windstille/src/editor/navgraph_select_tool.cpp	2009-04-08 17:29:56 UTC (rev 2900)
+@@ -74,12 +74,14 @@
+         {
+           NodeHandle node = *selection.begin();
+           node-&gt;set_pos(pos);
++          wst.queue_draw();
+         }
+         break;
+ 
+       case SELECT_MODE:
+         rect.right  = pos.x;
+         rect.bottom = pos.y;
++        wst.queue_draw();
+         break;
+ 
+       case NO_MODE:
+@@ -96,6 +98,7 @@
+   switch(mode)
+     {
+       case DRAG_MODE:
++        wst.queue_draw();
+         break;
+ 
+       case SELECT_MODE:
+
+Modified: trunk/windstille/src/editor/tool.hpp
+===================================================================
+--- trunk/windstille/src/editor/tool.hpp	2009-04-08 17:14:40 UTC (rev 2899)
++++ trunk/windstille/src/editor/tool.hpp	2009-04-08 17:29:56 UTC (rev 2900)
+@@ -33,6 +33,7 @@
+   virtual void mouse_down (GdkEventButton* event, WindstilleWidget&amp; wst) = 0;
+   virtual void mouse_move(GdkEventMotion* event, WindstilleWidget&amp; wst) = 0;
+   virtual void mouse_up(GdkEventButton* event, WindstilleWidget&amp; wst) = 0;
++
+   virtual void draw(SceneContext&amp; sc) {}
+ 
+ private:
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-04-08 17:14:40 UTC (rev 2899)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-04-08 17:29:56 UTC (rev 2900)
+@@ -41,7 +41,6 @@
+                                    const Glib::RefPtr&lt;const Gdk::GL::Context&gt;&amp; share_list)
+   : editor(editor_),
+     sector_model(new SectorModel()),
+-    active_tool(0),
+     scroll_tool(new ScrollTool()),
+     map_type(DecalObjectModel::COLORMAP),
+     draw_background_pattern(true),
+@@ -493,14 +492,12 @@
+   //ewer-&gt;on_mouse_button_down(Vector2i(event-&gt;x, event-&gt;y), event-&gt;button);
+   if (event-&gt;button == 1)
+     { // Tool
+-      active_tool = EditorWindow::current()-&gt;get_current_tool();
+-      active_tool-&gt;mouse_down(event, *this);
++      EditorWindow::current()-&gt;get_current_tool()-&gt;mouse_down(event, *this);
+       return true;
+     }
+   else if (event-&gt;button == 2)
+     { // Scroll
+-      active_tool = scroll_tool.get();
+-      active_tool-&gt;mouse_down(event, *this);
++      scroll_tool-&gt;mouse_down(event, *this);
+       return true;
+     }
+   else if (event-&gt;button == 3)
+@@ -520,11 +517,8 @@
+ {
+   //std::cout &lt;&lt; &quot;Motion: &quot; &lt;&lt; event-&gt;x &lt;&lt; &quot;, &quot; &lt;&lt; event-&gt;y &lt;&lt; std::endl;
+   
+-  if (active_tool)
+-    {
+-      active_tool-&gt;mouse_move(event, *this);
+-      queue_draw();
+-    }
++  EditorWindow::current()-&gt;get_current_tool()-&gt;mouse_move(event, *this);
++  scroll_tool-&gt;mouse_move(event, *this);
+   
+   return true;
+ }
+@@ -532,8 +526,6 @@
+ bool
+ WindstilleWidget::mouse_up(GdkEventButton* event)
+ {
+-  active_tool = 0;
+-
+   //std::cout &lt;&lt; &quot;Button Release: &quot; &lt;&lt; event-&gt;x &lt;&lt; &quot;, &quot; &lt;&lt; event-&gt;y &lt;&lt; &quot; - &quot; &lt;&lt; event-&gt;button &lt;&lt; std::endl;
+   //viewer-&gt;on_mouse_button_up(Vector2i(event-&gt;x, event-&gt;y), event-&gt;button);
+   if (event-&gt;button == 1)
+@@ -546,6 +538,7 @@
+       scroll_tool-&gt;mouse_up(event, *this);
+       queue_draw();
+     }
++
+   return false;
+ }
+ 
+
+Modified: trunk/windstille/src/editor/windstille_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.hpp	2009-04-08 17:14:40 UTC (rev 2899)
++++ trunk/windstille/src/editor/windstille_widget.hpp	2009-04-08 17:29:56 UTC (rev 2900)
+@@ -60,7 +60,6 @@
+ 
+   GraphicContextState   state;
+   std::auto_ptr&lt;SceneContext&gt; sc;
+-  Tool* active_tool;
+   std::auto_ptr&lt;ScrollTool&gt; scroll_tool;
+   SelectionHandle selection;
+   DecalObjectModel::MapType map_type;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001896.html">[Windstille-commit] r2899 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="001898.html">[Windstille-commit] r2901 - in trunk/windstille/src: . editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1897">[ date ]</a>
+              <a href="thread.html#1897">[ thread ]</a>
+              <a href="subject.html#1897">[ subject ]</a>
+              <a href="author.html#1897">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

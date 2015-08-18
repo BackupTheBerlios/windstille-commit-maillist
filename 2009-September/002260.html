@@ -1,0 +1,1067 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3263 - in trunk/windstille/src: editor	properties
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3263%20-%20in%20trunk/windstille/src%3A%20editor%0A%09properties&In-Reply-To=%3C200909252337.n8PNbelU019459%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002259.html">
+   <LINK REL="Next"  HREF="002261.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3263 - in trunk/windstille/src: editor	properties</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3263%20-%20in%20trunk/windstille/src%3A%20editor%0A%09properties&In-Reply-To=%3C200909252337.n8PNbelU019459%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3263 - in trunk/windstille/src: editor	properties">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Sep 26 01:37:40 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002259.html">[Windstille-commit] r3262 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="002261.html">[Windstille-commit] r3264 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2260">[ date ]</a>
+              <a href="thread.html#2260">[ thread ]</a>
+              <a href="subject.html#2260">[ subject ]</a>
+              <a href="author.html#2260">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-26 01:37:38 +0200 (Sat, 26 Sep 2009)
+New Revision: 3263
+
+Added:
+   trunk/windstille/src/editor/animation_widget.cpp
+   trunk/windstille/src/editor/animation_widget.hpp
+   trunk/windstille/src/editor/timeline_anim_object.hpp
+   trunk/windstille/src/editor/timeline_keyframe_object.hpp
+   trunk/windstille/src/editor/timeline_sound_object.hpp
+Modified:
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/timeline.hpp
+   trunk/windstille/src/editor/timeline_layer.cpp
+   trunk/windstille/src/editor/timeline_layer.hpp
+   trunk/windstille/src/editor/timeline_object.hpp
+   trunk/windstille/src/editor/timeline_widget.cpp
+   trunk/windstille/src/editor/timeline_widget.hpp
+   trunk/windstille/src/properties/property.hpp
+Log:
+Some more work on timeline widget
+
+Added: trunk/windstille/src/editor/animation_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/animation_widget.cpp	2009-09-25 19:39:15 UTC (rev 3262)
++++ trunk/windstille/src/editor/animation_widget.cpp	2009-09-25 23:37:38 UTC (rev 3263)
+@@ -0,0 +1,110 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &quot;editor/animation_widget.hpp&quot;
++
++#include &lt;boost/shared_ptr.hpp&gt;
++
++#include &quot;editor/timeline_widget.hpp&quot;
++#include &quot;editor/timeline.hpp&quot;
++#include &quot;editor/timeline_object.hpp&quot;
++#include &quot;editor/timeline_anim_object.hpp&quot;
++#include &quot;editor/timeline_sound_object.hpp&quot;
++#include &quot;editor/timeline_keyframe_object.hpp&quot;
++
++class TimelineLayerColumns : public Gtk::TreeModel::ColumnRecord
++{
++public:
++  Gtk::TreeModelColumn&lt;Glib::ustring&gt; m_name;
++
++public:
++  TimelineLayerColumns() :
++    m_name()
++  {
++    add(m_name);
++  }
++};
++
++AnimationWidget::AnimationWidget() :
++  hadjustment(50, 0, 100),
++  vadjustment(50, 0, 100),
++  hruler(),
++  treeview(),
++  table(),
++  vscroll(vadjustment),
++  hscroll(hadjustment)
++{
++  TimelineLayerColumns columns;
++  treeview.set_headers_visible(false);
++  //treeview.set_fixed_height_mode(true);
++  treeview.set_grid_lines(Gtk::TREE_VIEW_GRID_LINES_BOTH);
++  treeview.remove_all_columns();
++  treeview.append_column_editable(&quot;Name&quot;, columns.m_name);
++
++  Glib::RefPtr&lt;Gtk::ListStore&gt; liststore = Gtk::ListStore::create(columns);
++
++  for(int i = 0; i &lt; 5; ++i)
++  {
++    Gtk::ListStore::iterator it = liststore-&gt;append();
++    std::ostringstream str;
++    str &lt;&lt; &quot;Hello World: &quot; &lt;&lt; i;
++    (*it)[columns.m_name] = str.str();
++  }
++
++  treeview.set_model(liststore);
++  treeview.set_size_request(200, -1);
++  treeview.set_reorderable();
++   
++  boost::shared_ptr&lt;Timeline&gt; timeline(new Timeline());
++
++  TimelineLayerHandle layer1 = timeline-&gt;add_layer(&quot;Layer1&quot;);
++  TimelineLayerHandle layer2 = timeline-&gt;add_layer(&quot;Layer2&quot;);
++  TimelineLayerHandle layer3 = timeline-&gt;add_layer(&quot;Layer3&quot;);
++  TimelineLayerHandle layer4 = timeline-&gt;add_layer(&quot;Layer4&quot;);
++
++  layer1-&gt;add_object(TimelineObjectHandle(new TimelineAnimObject(20.0f, 30.0f, &quot;anim1.anim&quot;)));
++  layer1-&gt;add_object(TimelineObjectHandle(new TimelineAnimObject(60.0f, 30.0f, &quot;anim2.anim&quot;)));
++
++  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(8.0f)));
++  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(10.0f)));
++  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(11.0f)));
++  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(15.0f)));
++  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(20.0f)));
++  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(35.0f)));
++  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(40.0f)));
++
++  layer3-&gt;add_object(TimelineObjectHandle(new TimelineSoundObject(10.0f, 10.0f, &quot;sound1.wav&quot;)));
++  layer3-&gt;add_object(TimelineObjectHandle(new TimelineSoundObject(30.0f, 40.0f, &quot;sound.wav&quot;)));
++
++  TimelineWidget timeline_widget;
++  timeline_widget.set_timeline(timeline);
++
++  hruler.set_range(0, 100, 50, 100);
++
++  table.attach(hruler, 1, 2, 0, 1, Gtk::FILL, Gtk::FILL);
++
++  table.attach(treeview, 0, 1, 1, 2, Gtk::FILL, Gtk::FILL);
++  table.attach(timeline_widget, 1, 2, 1, 2, Gtk::FILL|Gtk::EXPAND, Gtk::FILL|Gtk::EXPAND);
++  table.attach(hscroll, 1, 2, 2, 3, Gtk::FILL, Gtk::FILL);
++  table.attach(vscroll, 2, 3, 1, 2, Gtk::FILL, Gtk::FILL);
++  timeline_widget.show();
++
++  add(table);
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/animation_widget.cpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/editor/animation_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/animation_widget.hpp	2009-09-25 19:39:15 UTC (rev 3262)
++++ trunk/windstille/src/editor/animation_widget.hpp	2009-09-25 23:37:38 UTC (rev 3263)
+@@ -0,0 +1,55 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_ANIMATION_WIDGET_HPP
++#define HEADER_WINDSTILLE_ANIMATION_WIDGET_HPP
++
++#include &lt;gtkmm/adjustment.h&gt;
++#include &lt;gtkmm/box.h&gt;
++#include &lt;gtkmm/box.h&gt;
++#include &lt;gtkmm/liststore.h&gt;
++#include &lt;gtkmm/main.h&gt;
++#include &lt;gtkmm/ruler.h&gt;
++#include &lt;gtkmm/scrollbar.h&gt;
++#include &lt;gtkmm/table.h&gt;
++#include &lt;gtkmm/treeview.h&gt;
++#include &lt;gtkmm/window.h&gt;
++
++class AnimationWidget : public Gtk::VBox
++{
++private:
++  Gtk::Adjustment hadjustment;
++  Gtk::Adjustment vadjustment;
++
++  Gtk::HRuler     hruler;
++  Gtk::TreeView   treeview;
++  Gtk::Table      table;
++  Gtk::VScrollbar vscroll;
++  Gtk::HScrollbar hscroll;
++
++public:
++  AnimationWidget();
++
++private:
++  AnimationWidget(const AnimationWidget&amp;);
++  AnimationWidget&amp; operator=(const AnimationWidget&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/animation_widget.hpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-09-25 19:39:15 UTC (rev 3262)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-09-25 23:37:38 UTC (rev 3263)
+@@ -16,6 +16,8 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
++#include &quot;editor/editor_window.hpp&quot;
++
+ #include &lt;fstream&gt;
+ #include &lt;iostream&gt;
+ #include &lt;gdkmm/pixbuf.h&gt;
+@@ -42,7 +44,12 @@
+ #include &quot;editor/layer_widget.hpp&quot;
+ #include &quot;editor/document.hpp&quot;
+ 
+-#include &quot;editor/editor_window.hpp&quot;
++#include &quot;editor/timeline.hpp&quot;
++#include &quot;editor/timeline_widget.hpp&quot;
++#include &quot;editor/timeline_object.hpp&quot;
++#include &quot;editor/timeline_anim_object.hpp&quot;
++#include &quot;editor/timeline_sound_object.hpp&quot;
++#include &quot;editor/timeline_keyframe_object.hpp&quot;
+ 
+ EditorWindow::EditorWindow(const Glib::RefPtr&lt;const Gdk::GL::Config&gt;&amp; glconfig_)
+   : vbox(),
+@@ -450,7 +457,38 @@
+ {
+   // FIXME: We abuse the minimap as our root GLContext
+   WindstilleWidget* wst = Gtk::manage(new WindstilleWidget(*this, glconfig, minimap_widget.get_gl_context()));
++  if (0)
++  {
++    Gtk::VBox* n_vbox = Gtk::manage(new Gtk::VBox);
++    n_vbox-&gt;add(*wst);
++    {
++      boost::shared_ptr&lt;Timeline&gt; timeline(new Timeline);
+ 
++      TimelineLayerHandle layer1 = timeline-&gt;add_layer(&quot;Layer1&quot;);
++      TimelineLayerHandle layer2 = timeline-&gt;add_layer(&quot;Layer2&quot;);
++      TimelineLayerHandle layer3 = timeline-&gt;add_layer(&quot;Layer3&quot;);
++      TimelineLayerHandle layer4 = timeline-&gt;add_layer(&quot;Layer4&quot;);
++
++      layer1-&gt;add_object(TimelineObjectHandle(new TimelineAnimObject(20.0f, 30.0f, &quot;anim1.anim&quot;)));
++      layer1-&gt;add_object(TimelineObjectHandle(new TimelineAnimObject(60.0f, 30.0f, &quot;anim2.anim&quot;)));
++
++      layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(8.0f)));
++      layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(10.0f)));
++      layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(11.0f)));
++      layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(15.0f)));
++      layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(20.0f)));
++      layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(35.0f)));
++      layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(40.0f)));
++
++      layer3-&gt;add_object(TimelineObjectHandle(new TimelineSoundObject(10.0f, 10.0f, &quot;sound1.wav&quot;)));
++      layer3-&gt;add_object(TimelineObjectHandle(new TimelineSoundObject(30.0f, 40.0f, &quot;sound.wav&quot;)));
++
++      TimelineWidget* timeline_widget = Gtk::manage(new TimelineWidget());
++      timeline_widget-&gt;set_timeline(timeline);
++      n_vbox-&gt;add(*timeline_widget);
++    }
++  }
++
+   Glib::ustring title = Glib::ustring::compose(&quot;Unsaved Sector %1&quot;, notebook.get_n_pages()+1);
+   int new_page = notebook.append_page(*wst, title);
+   wst-&gt;show();
+@@ -798,7 +836,7 @@
+   }
+   else
+   {
+-    return static_cast&lt;WindstilleWidget*&gt;(notebook.get_nth_page(page));
++    return dynamic_cast&lt;WindstilleWidget*&gt;(notebook.get_nth_page(page));
+   }
+ }
+ 
+
+Modified: trunk/windstille/src/editor/timeline.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline.hpp	2009-09-25 19:39:15 UTC (rev 3262)
++++ trunk/windstille/src/editor/timeline.hpp	2009-09-25 23:37:38 UTC (rev 3263)
+@@ -26,12 +26,25 @@
+ 
+ class Timeline
+ {
++public:
++  typedef std::vector&lt;TimelineLayerHandle&gt; Layers;
++  typedef Layers::iterator iterator;
++  typedef Layers::const_iterator const_iterator;
++
+ private:
+-  std::vector&lt;TimelineLayerHandle&gt; m_layers;
++  Layers m_layers;
+ 
+ public:
+   Timeline();
+ 
++  iterator begin() { return m_layers.begin(); }
++  iterator end()   { return m_layers.end();   }
++
++  const_iterator begin() const { return m_layers.begin(); }
++  const_iterator end()   const { return m_layers.end();   }
++
++  int size() const { return static_cast&lt;int&gt;(m_layers.size()); }
++
+   TimelineObjectHandle get_object(const Vector2f&amp; pos) const;
+   TimelineLayerHandle  get_layer(const Vector2f&amp; pos) const;
+ 
+
+Added: trunk/windstille/src/editor/timeline_anim_object.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_anim_object.hpp	2009-09-25 19:39:15 UTC (rev 3262)
++++ trunk/windstille/src/editor/timeline_anim_object.hpp	2009-09-25 23:37:38 UTC (rev 3263)
+@@ -0,0 +1,51 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_TIMELINE_ANIM_OBJECT_HPP
++#define HEADER_WINDSTILLE_TIMELINE_ANIM_OBJECT_HPP
++
++#include &lt;string&gt;
++
++#include &quot;editor/timeline_object.hpp&quot;
++
++class TimelineAnimObject : public TimelineObject
++{
++private:
++  float m_pos;
++  float m_width;
++  std::string m_name;
++
++public:
++  TimelineAnimObject(float pos, float width, const std::string&amp; name) :
++    m_pos(pos),
++    m_width(width),
++    m_name(name)
++  {}
++
++  float get_pos()   const { return m_pos; }
++  float get_width() const { return m_width; }
++  std::string get_name() const { return m_name; }
++
++private:
++  TimelineAnimObject(const TimelineAnimObject&amp;);
++  TimelineAnimObject&amp; operator=(const TimelineAnimObject&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/timeline_anim_object.hpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/editor/timeline_keyframe_object.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_keyframe_object.hpp	2009-09-25 19:39:15 UTC (rev 3262)
++++ trunk/windstille/src/editor/timeline_keyframe_object.hpp	2009-09-25 23:37:38 UTC (rev 3263)
+@@ -0,0 +1,44 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_TIMELINE_KEYFRAME_OBJECT_HPP
++#define HEADER_WINDSTILLE_TIMELINE_KEYFRAME_OBJECT_HPP
++
++#include &quot;editor/timeline_object.hpp&quot;
++
++class TimelineKeyframeObject : public TimelineObject
++{
++private:
++  float m_pos; 
++
++public:
++  TimelineKeyframeObject(float pos) :
++    m_pos(pos)
++  {}
++
++  float get_pos()   const { return m_pos; }
++  float get_width() const { return 1.0f; }
++
++private:
++  TimelineKeyframeObject(const TimelineKeyframeObject&amp;);
++  TimelineKeyframeObject&amp; operator=(const TimelineKeyframeObject&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/timeline_keyframe_object.hpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/windstille/src/editor/timeline_layer.cpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_layer.cpp	2009-09-25 19:39:15 UTC (rev 3262)
++++ trunk/windstille/src/editor/timeline_layer.cpp	2009-09-25 23:37:38 UTC (rev 3263)
+@@ -27,6 +27,7 @@
+ void
+ TimelineLayer::add_object(TimelineObjectHandle object)
+ {
++  m_objects.push_back(object);
+ }
+ 
+ TimelineObjectHandle
+
+Modified: trunk/windstille/src/editor/timeline_layer.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_layer.hpp	2009-09-25 19:39:15 UTC (rev 3262)
++++ trunk/windstille/src/editor/timeline_layer.hpp	2009-09-25 23:37:38 UTC (rev 3263)
+@@ -27,19 +27,28 @@
+ 
+ class TimelineLayer
+ {
++public:
++  typedef std::vector&lt;TimelineObjectHandle&gt; Objects;
++  typedef std::vector&lt;TimelineObjectHandle&gt;::iterator iterator;
++  typedef std::vector&lt;TimelineObjectHandle&gt;::const_iterator const_iterator;
++
+ private:
+   std::string m_name;
+-  std::vector&lt;TimelineObjectHandle&gt; m_objects;
++  Objects m_objects;
+ 
+ public:
+   TimelineLayer(const std::string&amp; name);
+ 
++  iterator begin() { return m_objects.begin(); }
++  iterator end()   { return m_objects.end();   }
++
++  const_iterator begin() const { return m_objects.begin(); }
++  const_iterator end()   const { return m_objects.end();   }
++
+   void add_object(TimelineObjectHandle object);
+ 
+   TimelineObjectHandle get_object(float pos) const;
+ 
+-  void draw();
+-
+ private:
+   TimelineLayer(const TimelineLayer&amp;);
+   TimelineLayer&amp; operator=(const TimelineLayer&amp;);
+
+Modified: trunk/windstille/src/editor/timeline_object.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_object.hpp	2009-09-25 19:39:15 UTC (rev 3262)
++++ trunk/windstille/src/editor/timeline_object.hpp	2009-09-25 23:37:38 UTC (rev 3263)
+@@ -25,10 +25,11 @@
+ {
+ private:
+ public:
+-  TimelineObject();
++  TimelineObject() {}
++  virtual ~TimelineObject() {}
+ 
+-  float get_pos() const;
+-  float get_width() const;
++  virtual float get_pos() const =0;
++  virtual float get_width() const =0;
+ 
+ private:
+   TimelineObject(const TimelineObject&amp;);
+
+Added: trunk/windstille/src/editor/timeline_sound_object.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_sound_object.hpp	2009-09-25 19:39:15 UTC (rev 3262)
++++ trunk/windstille/src/editor/timeline_sound_object.hpp	2009-09-25 23:37:38 UTC (rev 3263)
+@@ -0,0 +1,49 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_TIMELINE_SOUND_OBJECT_HPP
++#define HEADER_WINDSTILLE_TIMELINE_SOUND_OBJECT_HPP
++
++#include &quot;editor/timeline_object.hpp&quot;
++
++class TimelineSoundObject : public TimelineObject
++{
++private:
++  float m_pos;
++  float m_width;
++  std::string m_name;
++
++public:
++  TimelineSoundObject(float pos, float width, const std::string&amp; name) :
++    m_pos(pos),
++    m_width(width),
++    m_name(name)
++  {}
++
++  float get_pos()   const { return m_pos; }
++  float get_width() const { return m_width; }
++  std::string get_name() const { return m_name; }
++
++private:
++  TimelineSoundObject(const TimelineSoundObject&amp;);
++  TimelineSoundObject&amp; operator=(const TimelineSoundObject&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/editor/timeline_sound_object.hpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/windstille/src/editor/timeline_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_widget.cpp	2009-09-25 19:39:15 UTC (rev 3262)
++++ trunk/windstille/src/editor/timeline_widget.cpp	2009-09-25 23:37:38 UTC (rev 3263)
+@@ -19,11 +19,19 @@
+ #include &quot;editor/timeline_widget.hpp&quot;
+ 
+ #include &lt;iostream&gt;
++#include &lt;sstream&gt;
+ 
++#include &quot;math/rect.hpp&quot;
+ #include &quot;editor/timeline.hpp&quot;
++#include &quot;editor/timeline_object.hpp&quot;
++#include &quot;editor/timeline_anim_object.hpp&quot;
++#include &quot;editor/timeline_sound_object.hpp&quot;
++#include &quot;editor/timeline_keyframe_object.hpp&quot;
+ 
+ TimelineWidget::TimelineWidget() :
+   m_timeline(),
++  m_selection(),
++  is_mouse_down(false),
+   down_pos(),
+   move_pos()
+ {
+@@ -43,23 +51,35 @@
+ bool
+ TimelineWidget::mouse_down(GdkEventButton* ev)
+ {
+-  down_pos.x = static_cast&lt;float&gt;(ev-&gt;x);
+-  down_pos.y = static_cast&lt;float&gt;(ev-&gt;y);
++  if (ev-&gt;button == 1)
++  {
++    is_mouse_down = true;
++    down_pos.x = static_cast&lt;float&gt;(ev-&gt;x);
++    down_pos.y = static_cast&lt;float&gt;(ev-&gt;y);
++  }
+   return false;
+ }
+ 
+ bool
+ TimelineWidget::mouse_up(GdkEventButton* ev)
+ {
++  if (ev-&gt;button == 1)
++  {
++    is_mouse_down = false;
++    queue_draw();
++  }
+   return false;
+ }
+ 
+ bool
+ TimelineWidget::mouse_move(GdkEventMotion* ev)
+ {
+-  move_pos.x = static_cast&lt;float&gt;(ev-&gt;x);
+-  move_pos.y = static_cast&lt;float&gt;(ev-&gt;y);
+-  queue_draw();
++  if (is_mouse_down)
++  {
++    move_pos.x = static_cast&lt;float&gt;(ev-&gt;x);
++    move_pos.y = static_cast&lt;float&gt;(ev-&gt;y);
++    queue_draw();
++  }
+   return false;
+ }
+ 
+@@ -72,7 +92,7 @@
+ 
+     Cairo::RefPtr&lt;Cairo::Context&gt; cr = window-&gt;create_cairo_context();
+ 
+-    std::cout &lt;&lt; &quot;on_expose_event: &quot; &lt;&lt; allocation.get_width() &lt;&lt; &quot;x&quot; &lt;&lt; allocation.get_height() &lt;&lt; std::endl;
++    //std::cout &lt;&lt; &quot;on_expose_event: &quot; &lt;&lt; allocation.get_width() &lt;&lt; &quot;x&quot; &lt;&lt; allocation.get_height() &lt;&lt; std::endl;
+ 
+     if (1) // pixel perfect drawing
+       cr-&gt;translate(0.5, 0.5);
+@@ -83,122 +103,201 @@
+                   ev-&gt;area.width, ev-&gt;area.height);
+     cr-&gt;clip();
+ 
+-    cr-&gt;set_source_rgb(1,1,1);
+-    cr-&gt;rectangle(0, 0, allocation.get_width(), 32*4);
+-    cr-&gt;fill();
++    draw_timeline(cr);
+ 
+     cr-&gt;set_line_width(0.5);
+     cr-&gt;set_source_rgb(0,0,0);
+-    // draw grid
+-    for(int y = 0; y &lt; allocation.get_height(); y += 32)
+-    {
+-      cr-&gt;move_to(0, y);
+-      cr-&gt;line_to(allocation.get_width(), y);
+ 
+-      if (0)
+-        for(int x = 0; x &lt; allocation.get_width(); x += 8)
+-        {
+-          cr-&gt;move_to(x, y - 3);
+-          cr-&gt;line_to(x, y + 3);
+-        }
+-    }
+-    cr-&gt;stroke();
++    cr-&gt;set_line_width(1.0);
+ 
+-    cr-&gt;set_source_rgba(0,0,0, 0.25);
+-    for(int x = 0; x &lt; allocation.get_width(); x += 8)
+-    {
+-      if (x % 80)
+-      {
+-        cr-&gt;move_to(x, 0);
+-        cr-&gt;line_to(x, allocation.get_height());
+-      }
+-    }
++    draw_select_rectangle(cr);
++  }
++
++  return true;
++}
++
++void
++TimelineWidget::draw_select_rectangle(Cairo::RefPtr&lt;Cairo::Context&gt; cr)
++{
++  // Select rectangle
++  if (is_mouse_down)
++  {
++    //Rectf rect(down_pos, move_pos - down_pos);
++    //rect.normalize();
++
++    cr-&gt;set_source_rgba(0,0,1,0.25);
++    cr-&gt;rectangle(down_pos.x, down_pos.y,
++                  move_pos.x - down_pos.x,
++                  move_pos.y - down_pos.y);
++    cr-&gt;fill();
++
++    cr-&gt;set_source_rgb(0,0,1);
++    cr-&gt;rectangle(down_pos.x, down_pos.y,
++                  move_pos.x - down_pos.x,
++                  move_pos.y - down_pos.y);
+     cr-&gt;stroke();
++  }
++}
+ 
+-    cr-&gt;set_source_rgba(0,0,0, 0.75);
+-    for(int x = 0; x &lt; allocation.get_width(); x += 8)
++void
++TimelineWidget::draw_grid(Cairo::RefPtr&lt;Cairo::Context&gt; cr)
++{
++  Gtk::Allocation allocation = get_allocation();
++
++  cr-&gt;save();
++  
++  int height = m_timeline-&gt;size() * 32;
++
++  // draw vertical lines
++  cr-&gt;set_source_rgb(0.875, 0.875, 0.875);
++  for(int x = 0; x &lt; allocation.get_width(); x += 8)
++  {
++    if (x % 80 == 0)
+     {
+-      if (!(x % 80))
+-      {
+-        cr-&gt;move_to(x, 0);
+-        cr-&gt;line_to(x, allocation.get_height());
+-      }
++      cr-&gt;rectangle(x, 0, 8, height);
+     }
+-    cr-&gt;stroke();
++  }
++  cr-&gt;fill();
+ 
+-    cr-&gt;set_line_width(1.0);
++  cr-&gt;set_line_width(1.0);
+ 
+-    // draw keyframe
+-    for(int x = 32; x &lt; 128; x += 16)
++  // draw horizontal lines
++  cr-&gt;set_source_rgb(0.5, 0.5, 0.5);
++  for(int y = 0; y &lt;= height; y += 32)
++  {
++    cr-&gt;move_to(0, y);
++    cr-&gt;line_to(allocation.get_width(), y);
++  }
++  cr-&gt;stroke();
++
++  // draw vertical lines
++  cr-&gt;set_source_rgb(0.75, 0.75, 0.75);
++  for(int x = 0; x &lt; allocation.get_width(); x += 8)
++  {
++      cr-&gt;move_to(x, 0);
++      cr-&gt;line_to(x, height);
++  }
++  cr-&gt;stroke();
++
++  cr-&gt;restore();
++}
++
++void
++TimelineWidget::draw_timeline(Cairo::RefPtr&lt;Cairo::Context&gt; cr)
++{
++  Gtk::Allocation allocation = get_allocation();
++
++  cr-&gt;save();
++
++  cr-&gt;set_source_rgb(1,1,1);
++  cr-&gt;rectangle(0, 0, allocation.get_width(), 32 * m_timeline-&gt;size());
++  cr-&gt;fill();
++  
++  draw_grid(cr);
++
++  cr-&gt;save();
++  for(Timeline::iterator i = m_timeline-&gt;begin(); i != m_timeline-&gt;end(); ++i)
++  {
++    draw_timeline_layer(cr, *i);
++    cr-&gt;translate(0, 32);
++  }
++  cr-&gt;restore();
++
++  cr-&gt;restore();
++}
++
++void
++TimelineWidget::draw_timeline_layer(Cairo::RefPtr&lt;Cairo::Context&gt; cr,
++                                    TimelineLayerHandle layer)
++{
++  cr-&gt;save();
++
++  cr-&gt;set_line_width(1.0);
++
++  for(TimelineLayer::iterator i = layer-&gt;begin(); i != layer-&gt;end(); ++i)
++  {
++    if (boost::shared_ptr&lt;TimelineKeyframeObject&gt; keyframe =
++        boost::dynamic_pointer_cast&lt;TimelineKeyframeObject&gt;(*i))
+     {
+-      cr-&gt;set_source_rgb(0.0, 0.5, 0.75);
+-      cr-&gt;rectangle(x, 32+4, 8, 24);
++      cr-&gt;set_source_rgb(0.5, 0.75, 0.0);
++      cr-&gt;rectangle(keyframe-&gt;get_pos()*8, 4, 8, 24);
+       cr-&gt;fill();
+ 
+       cr-&gt;set_source_rgb(0, 0, 0);
+-      cr-&gt;rectangle(x, 32+4, 8, 24);
+-      cr-&gt;stroke();
++      cr-&gt;rectangle(keyframe-&gt;get_pos()*8, 4, 8, 24);
++      cr-&gt;stroke();     
+     }
+-
+-    // print some text
++    else if (boost::shared_ptr&lt;TimelineAnimObject&gt; anim =
++             boost::dynamic_pointer_cast&lt;TimelineAnimObject&gt;(*i))
+     {
+-      std::string text = &quot;snd:Hello World!&quot;;
+       Cairo::TextExtents extents;
+ 
+       cr-&gt;select_font_face (&quot;Sans&quot;, Cairo::FONT_SLANT_NORMAL, Cairo::FONT_WEIGHT_NORMAL);
+       cr-&gt;set_font_size(12);
+ 
+-      cr-&gt;get_text_extents(text, extents);
++      cr-&gt;get_text_extents(anim-&gt;get_name(), extents);
+ 
+-      std::cout &lt;&lt; extents.x_bearing &lt;&lt; &quot; &quot;
+-                &lt;&lt; extents.y_bearing &lt;&lt; &quot; &quot;
+-                &lt;&lt; extents.width &lt;&lt; &quot; &quot;
+-                &lt;&lt; extents.height &lt;&lt; &quot; &quot;
+-                &lt;&lt; extents.x_advance &lt;&lt; &quot; &quot;
+-                &lt;&lt; extents.y_advance &lt;&lt; &quot; &quot;
+-                &lt;&lt; std::endl;
++      if (0)
++        std::cout &lt;&lt; extents.x_bearing &lt;&lt; &quot; &quot;
++                  &lt;&lt; extents.y_bearing &lt;&lt; &quot; &quot;
++                  &lt;&lt; extents.width &lt;&lt; &quot; &quot;
++                  &lt;&lt; extents.height &lt;&lt; &quot; &quot;
++                  &lt;&lt; extents.x_advance &lt;&lt; &quot; &quot;
++                  &lt;&lt; extents.y_advance &lt;&lt; &quot; &quot;
++                  &lt;&lt; std::endl;
+ 
+-      double x_border = 16.0f;
+-      double y_border = 4.0f;
+       cr-&gt;set_source_rgb(0.0, 0.5, 0.75);
+-      cr-&gt;rectangle(20  + extents.x_bearing - x_border, 
+-                    118 + extents.y_bearing - y_border,
+-                    extents.width  + 2*x_border,
+-                    extents.height + 2*y_border);
++      cr-&gt;rectangle(anim-&gt;get_pos()*8,  4,
++                    anim-&gt;get_width()*8, 24);
+       cr-&gt;fill();
+ 
+       cr-&gt;set_source_rgb(0, 0, 0);
+-      cr-&gt;rectangle(20  + extents.x_bearing - x_border, 
+-                    118 + extents.y_bearing - y_border,
+-                    extents.width  + 2*x_border,
+-                    extents.height + 2*y_border);
++      cr-&gt;rectangle(anim-&gt;get_pos()*8, 4,
++                    anim-&gt;get_width()*8, 24);
+       cr-&gt;stroke();
+ 
+       cr-&gt;set_source_rgb(1,1,1);
+-      cr-&gt;move_to(20,118);
+-      cr-&gt;show_text(text);
++      cr-&gt;move_to((anim-&gt;get_pos() + anim-&gt;get_width()/2)*8 - extents.width/2, 
++                  20);
++      cr-&gt;show_text(anim-&gt;get_name());
+     }
++    else if (boost::shared_ptr&lt;TimelineSoundObject&gt; sound =
++             boost::dynamic_pointer_cast&lt;TimelineSoundObject&gt;(*i))
++    {
++      Cairo::TextExtents extents;
+ 
+-  std::cout &lt;&lt; &quot;down: &quot; &lt;&lt; down_pos &lt;&lt; std::endl;
+-  std::cout &lt;&lt; &quot;move: &quot; &lt;&lt; move_pos &lt;&lt; std::endl;
++      cr-&gt;select_font_face (&quot;Sans&quot;, Cairo::FONT_SLANT_NORMAL, Cairo::FONT_WEIGHT_NORMAL);
++      cr-&gt;set_font_size(12);
+ 
+-    // Select rectangle
+-    {
+-      cr-&gt;set_source_rgba(0,0,1,0.25);
+-      cr-&gt;rectangle(down_pos.x, down_pos.y,
+-                    move_pos.x - down_pos.x,
+-                    move_pos.y - down_pos.y);
++      cr-&gt;get_text_extents(sound-&gt;get_name(), extents);
++
++      if (0)
++        std::cout &lt;&lt; extents.x_bearing &lt;&lt; &quot; &quot;
++                  &lt;&lt; extents.y_bearing &lt;&lt; &quot; &quot;
++                  &lt;&lt; extents.width &lt;&lt; &quot; &quot;
++                  &lt;&lt; extents.height &lt;&lt; &quot; &quot;
++                  &lt;&lt; extents.x_advance &lt;&lt; &quot; &quot;
++                  &lt;&lt; extents.y_advance &lt;&lt; &quot; &quot;
++                  &lt;&lt; std::endl;
++
++      cr-&gt;set_source_rgb(0.75, 0.0, 0.5);
++      cr-&gt;rectangle(sound-&gt;get_pos()*8,  4,
++                    sound-&gt;get_width()*8, 24);
+       cr-&gt;fill();
+ 
+-      cr-&gt;set_source_rgb(0,0,1);
+-      cr-&gt;rectangle(down_pos.x, down_pos.y,
+-                    move_pos.x - down_pos.x,
+-                    move_pos.y - down_pos.y);
++      cr-&gt;set_source_rgb(0, 0, 0);
++      cr-&gt;rectangle(sound-&gt;get_pos()*8, 4,
++                    sound-&gt;get_width()*8, 24);
+       cr-&gt;stroke();
++
++      cr-&gt;set_source_rgb(1,1,1);
++      cr-&gt;move_to((sound-&gt;get_pos() + sound-&gt;get_width()/2)*8 - extents.width/2, 
++                  20);
++      cr-&gt;show_text(sound-&gt;get_name());
+     }
+   }
+-
+-  return true;
++  
++  cr-&gt;restore();
+ }
+ 
+ void
+@@ -275,9 +374,25 @@
+    
+   boost::shared_ptr&lt;Timeline&gt; timeline(new Timeline());
+ 
+-  timeline-&gt;add_layer(&quot;Layer1&quot;);
+-  timeline-&gt;add_layer(&quot;Layer2&quot;);
++  TimelineLayerHandle layer1 = timeline-&gt;add_layer(&quot;Layer1&quot;);
++  TimelineLayerHandle layer2 = timeline-&gt;add_layer(&quot;Layer2&quot;);
++  TimelineLayerHandle layer3 = timeline-&gt;add_layer(&quot;Layer3&quot;);
++  TimelineLayerHandle layer4 = timeline-&gt;add_layer(&quot;Layer4&quot;);
+ 
++  layer1-&gt;add_object(TimelineObjectHandle(new TimelineAnimObject(20.0f, 30.0f, &quot;anim1.anim&quot;)));
++  layer1-&gt;add_object(TimelineObjectHandle(new TimelineAnimObject(60.0f, 30.0f, &quot;anim2.anim&quot;)));
++
++  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(8.0f)));
++  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(10.0f)));
++  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(11.0f)));
++  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(15.0f)));
++  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(20.0f)));
++  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(35.0f)));
++  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(40.0f)));
++
++  layer3-&gt;add_object(TimelineObjectHandle(new TimelineSoundObject(10.0f, 10.0f, &quot;sound1.wav&quot;)));
++  layer3-&gt;add_object(TimelineObjectHandle(new TimelineSoundObject(30.0f, 40.0f, &quot;sound.wav&quot;)));
++
+   TimelineWidget timeline_widget;
+   timeline_widget.set_timeline(timeline);
+ 
+
+Modified: trunk/windstille/src/editor/timeline_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_widget.hpp	2009-09-25 19:39:15 UTC (rev 3262)
++++ trunk/windstille/src/editor/timeline_widget.hpp	2009-09-25 23:37:38 UTC (rev 3263)
+@@ -21,7 +21,9 @@
+ 
+ #include &lt;gtkmm/drawingarea.h&gt;
+ #include &lt;boost/shared_ptr.hpp&gt;
++#include &lt;set&gt;
+ 
++#include &quot;editor/timeline_layer.hpp&quot;
+ #include &quot;math/vector2f.hpp&quot;
+ 
+ class Timeline;
+@@ -30,7 +32,9 @@
+ {
+ private:
+   boost::shared_ptr&lt;Timeline&gt; m_timeline;
++  std::set&lt;TimelineObjectHandle&gt; m_selection;
+ 
++  bool     is_mouse_down;
+   Vector2f down_pos;
+   Vector2f move_pos;
+ 
+@@ -49,6 +53,13 @@
+   virtual bool on_expose_event(GdkEventExpose* event);
+ 
+ private:
++  void draw_select_rectangle(Cairo::RefPtr&lt;Cairo::Context&gt; cr);
++  void draw_grid(Cairo::RefPtr&lt;Cairo::Context&gt; cr);
++  void draw_timeline(Cairo::RefPtr&lt;Cairo::Context&gt; cr);
++  void draw_timeline_layer(Cairo::RefPtr&lt;Cairo::Context&gt; cr,
++                           TimelineLayerHandle layer);
++
++private:
+   TimelineWidget(const TimelineWidget&amp;);
+   TimelineWidget&amp; operator=(const TimelineWidget&amp;);
+ };
+
+Modified: trunk/windstille/src/properties/property.hpp
+===================================================================
+--- trunk/windstille/src/properties/property.hpp	2009-09-25 19:39:15 UTC (rev 3262)
++++ trunk/windstille/src/properties/property.hpp	2009-09-25 23:37:38 UTC (rev 3263)
+@@ -31,8 +31,8 @@
+   {}
+   virtual ~Property() {}
+ 
+-  virtual bool&amp;   get_bool(void* obj) const = 0;
+-  virtual int&amp;   get_int(void* obj) const = 0;
++  virtual bool&amp;  get_bool(void* obj)  const = 0;
++  virtual int&amp;   get_int(void* obj)   const = 0;
+   virtual float&amp; get_float(void* obj) const = 0;
+ 
+ private:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002259.html">[Windstille-commit] r3262 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="002261.html">[Windstille-commit] r3264 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2260">[ date ]</a>
+              <a href="thread.html#2260">[ thread ]</a>
+              <a href="subject.html#2260">[ subject ]</a>
+              <a href="author.html#2260">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

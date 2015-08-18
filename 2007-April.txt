@@ -1,0 +1,2158 @@
+From grumbel at mail.berlios.de  Sun Apr  1 00:12:25 2007
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Sun, 1 Apr 2007 00:12:25 +0200
+Subject: [Windstille-commit] r1360 - trunk/scripts
+Message-ID: <200703312212.l2VMCPW9006175@sheep.berlios.de>
+
+Author: grumbel
+Date: 2007-04-01 00:12:25 +0200 (Sun, 01 Apr 2007)
+New Revision: 1360
+
+Added:
+   trunk/scripts/blender_thumbnail.py
+Log:
+- script to setup a scene for thumbnail rendering
+
+Added: trunk/scripts/blender_thumbnail.py
+===================================================================
+--- trunk/scripts/blender_thumbnail.py	2007-03-31 11:43:22 UTC (rev 1359)
++++ trunk/scripts/blender_thumbnail.py	2007-03-31 22:12:25 UTC (rev 1360)
+@@ -0,0 +1,96 @@
++import Blender
++from Blender.Mathutils import Vector
++from Blender import Camera
++from Blender.Scene import Render
++import time
++
++print "\033c--- Start --- %s" % time.time()
++
++scn = Blender.Scene.GetCurrent()
++
++class BBox:
++    def __init__(self, bbox = None):
++        self.x1 = self.x2 = None
++        self.y1 = self.y2 = None
++        self.z1 = self.z2 = None    
++        
++        if bbox:                
++            for v in bbox: 
++                self.x1 = min(self.x1, v.x) or v.x
++                self.x2 = max(self.x2, v.x) or v.x
++
++                self.y1 = min(self.y1, v.y) or v.y
++                self.y2 = max(self.y2, v.y) or v.y
++
++                self.z1 = min(self.z1, v.z) or v.z
++                self.z2 = max(self.z2, v.z) or v.z
++        else:
++            self.x1 = None
++            self.x2 = None
++            self.y1 = None
++            self.y2 = None
++            self.z1 = None
++            self.z2 = None
++
++    def normalize(self):
++        self.x1 = min(self.x1, self.x2)
++        self.x2 = max(self.x2, self.x1)
++
++        self.y1 = min(self.y1, self.y2)
++        self.y2 = max(self.y2, self.y1)
++
++        self.z1 = min(self.z1, self.z2)
++        self.z2 = max(self.z2, self.z1)
++
++    def join(self, bbox):
++        self.x1 = min(self.x1, bbox.x1) or bbox.x1
++        self.x2 = max(self.x2, bbox.x2) or bbox.x2
++
++        self.y1 = min(self.y1, bbox.y1) or bbox.y1
++        self.y2 = max(self.y2, bbox.y2) or bbox.y2
++
++        self.z1 = min(self.z1, bbox.z1) or bbox.z1
++        self.z2 = max(self.z2, bbox.z2) or bbox.z2
++
++    def __str__(self):
++        return "[bbox: x:%.2f, %.2f, y:%.2f, %.2f, z:%.2f, %.2f]" % (self.x1, self.x2,
++                               self.y1, self.y2,
++                               self.z1, self.z2)
++
++# Calculate the bounding box of a scene
++def bounding_rect():
++    total = BBox()
++
++    for obj in scn.objects:       
++        if obj.boundingBox:
++            print obj.getType()
++            print obj.boundingBox
++            print total.join(BBox(obj.boundingBox))
++
++    cam = Camera.New('ortho')
++    
++    cam.scale = max(total.x2 - total.x1, total.y2 - total.y1) + 1.0
++    
++    cam_obj = scn.objects.new(cam)
++    
++    scn.setCurrentCamera(cam_obj)
++    
++    cam_obj.setLocation((total.x2 + total.x1)/2,
++                        (total.y2 + total.y1)/2,
++                        total.z2 + 5)
++
++    render = scn.getRenderingContext()
++    
++    render.aspectX = 100
++    render.aspectY = 100
++    
++    render.sizeX = 512
++    render.sizeY = 512
++    
++    print "total: %s" % total
++
++bounding_rect()
++
++# EOF #
++
++
+
+
+
+From grumbel at mail.berlios.de  Sun Apr  1 00:48:55 2007
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Sun, 1 Apr 2007 00:48:55 +0200
+Subject: [Windstille-commit] r1361 - trunk/scripts
+Message-ID: <200703312248.l2VMmtQB008383@sheep.berlios.de>
+
+Author: grumbel
+Date: 2007-04-01 00:48:54 +0200 (Sun, 01 Apr 2007)
+New Revision: 1361
+
+Modified:
+   trunk/scripts/blender_thumbnail.py
+Log:
+- some improvments to the thumb renderer
+
+Modified: trunk/scripts/blender_thumbnail.py
+===================================================================
+--- trunk/scripts/blender_thumbnail.py	2007-03-31 22:12:25 UTC (rev 1360)
++++ trunk/scripts/blender_thumbnail.py	2007-03-31 22:48:54 UTC (rev 1361)
+@@ -1,8 +1,10 @@
+ import Blender
+-from Blender.Mathutils import Vector
++from Blender.Mathutils import Vector, Euler
+ from Blender import Camera
+ from Blender.Scene import Render
++from Blender import Lamp
+ import time
++import math
+ 
+ print "\033c--- Start --- %s" % time.time()
+ 
+@@ -42,6 +44,11 @@
+         self.z1 = min(self.z1, self.z2)
+         self.z2 = max(self.z2, self.z1)
+ 
++    def valid(self):
++        return self.x1 and self.x2 and \
++               self.y1 and self.y2 and \
++               self.z1 and self.z2
++    
+     def join(self, bbox):
+         self.x1 = min(self.x1, bbox.x1) or bbox.x1
+         self.x2 = max(self.x2, bbox.x2) or bbox.x2
+@@ -61,34 +68,61 @@
+ def bounding_rect():
+     total = BBox()
+ 
+-    for obj in scn.objects:       
+-        if obj.boundingBox:
++    for obj in scn.objects:
++        if (1 in obj.layers) and obj.boundingBox:
+             print obj.getType()
+             print obj.boundingBox
+             print total.join(BBox(obj.boundingBox))
+ 
+-    cam = Camera.New('ortho')
+-    
+-    cam.scale = max(total.x2 - total.x1, total.y2 - total.y1) + 1.0
+-    
+-    cam_obj = scn.objects.new(cam)
+-    
+-    scn.setCurrentCamera(cam_obj)
+-    
+-    cam_obj.setLocation((total.x2 + total.x1)/2,
+-                        (total.y2 + total.y1)/2,
+-                        total.z2 + 5)
++    if not total.valid:
++        # Scene is empty
++        pass
++    else:
++        # Position of camera and support objects
++        (x, y, z) = ((total.x2 + total.x1)/2,
++                     (total.y2 + total.y1)/2,
++                     total.z2 + 5)
++        
++        ### Add camera
++        cam = Camera.New('ortho')
++        cam.scale = max(total.x2 - total.x1, total.y2 - total.y1)
++        cam.scale += cam.scale * 0.1
++        cam_obj = scn.objects.new(cam)
++        
++        scn.setCurrentCamera(cam_obj)
++        cam_obj.setLocation(x, y, z)
++        # cam_obj.setEuler(Euler(0, math.pi/2, 0))
+ 
+-    render = scn.getRenderingContext()
++        ### Add lamp
++        light = Lamp.New('Lamp')            # create new 'Spot' lamp data
++        light.energy = 2.0
++        # light.setMode('Square', 'Shadow')   # set these two lamp mode flags
++        light_obj = scn.objects.new(light)
++        light_obj.setLocation(x, y, z)
++
++        render = scn.getRenderingContext()
++
++        render.renderwinSize = 100
++        
++        render.aspectX = 100
++        render.aspectY = 100
++
++        render.sizeX = 512
++        render.sizeY = 512
++
++        render.imageType = Render.PNG
++        render.enableRGBAColor()
++
++        render.render()
++
++        render.setRenderPath("")
++        render.saveRenderedImage("/tmp/out.png")
++
++        #scn.objects.unlink(cam_obj)
++        scn.objects.unlink(light_obj)
++
++        print "total: %s" % total
+     
+-    render.aspectX = 100
+-    render.aspectY = 100
+-    
+-    render.sizeX = 512
+-    render.sizeY = 512
+-    
+-    print "total: %s" % total
+-
+ bounding_rect()
+ 
+ # EOF #
+
+
+
+From grumbel at mail.berlios.de  Sun Apr  1 02:00:16 2007
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Sun, 1 Apr 2007 02:00:16 +0200
+Subject: [Windstille-commit] r1362 - trunk/scripts
+Message-ID: <200704010000.l3100GWB025295@sheep.berlios.de>
+
+Author: grumbel
+Date: 2007-04-01 02:00:15 +0200 (Sun, 01 Apr 2007)
+New Revision: 1362
+
+Modified:
+   trunk/scripts/blender_thumbnail.py
+Log:
+- added rendering for multiple sides
+
+Modified: trunk/scripts/blender_thumbnail.py
+===================================================================
+--- trunk/scripts/blender_thumbnail.py	2007-03-31 22:48:54 UTC (rev 1361)
++++ trunk/scripts/blender_thumbnail.py	2007-04-01 00:00:15 UTC (rev 1362)
+@@ -34,6 +34,12 @@
+             self.z1 = None
+             self.z2 = None
+ 
++    def max(self):
++        """Returns the longest side of the bbox"""
++        return max(self.x2 - self.x1,
++                   self.y2 - self.y1,
++                   self.z2 - self.z1)
++
+     def normalize(self):
+         self.x1 = min(self.x1, self.x2)
+         self.x2 = max(self.x2, self.x1)
+@@ -79,19 +85,49 @@
+         pass
+     else:
+         # Position of camera and support objects
+-        (x, y, z) = ((total.x2 + total.x1)/2,
+-                     (total.y2 + total.y1)/2,
+-                     total.z2 + 5)
++        axis = "z"
++        if axis == "x": # ok
++            (x, y, z) = (total.x1 - 5,
++                         (total.y2 + total.y1)/2,
++                         (total.z2 + total.z1)/2)
++            euler = Euler(-math.pi/2, math.pi, math.pi/2)
++        elif axis == "-x": # ok
++            (x, y, z) = (total.x2 + 5,
++                         (total.y2 + total.y1)/2,
++                         (total.z2 + total.z1)/2)
++            euler = Euler(math.pi/2, 0, math.pi/2)
++        elif axis == "y":
++            (x, y, z) = ((total.x2 + total.x1)/2,
++                         total.y1 - 5,
++                         (total.z2 + total.z1)/2)
++            euler = Euler(math.pi/2, 0, 0)     
++        elif axis == "-y":
++            (x, y, z) = ((total.x2 + total.x1)/2,
++                         total.y2 + 5,
++                         (total.z2 + total.z1)/2)
++            euler = Euler(-math.pi/2, math.pi, 0)    
++        elif axis == "z": # ok
++            (x, y, z) = ((total.x2 + total.x1)/2,
++                         (total.y2 + total.y1)/2,
++                         total.z1 - 5)
++            euler = Euler(0, math.pi, 0)
++        elif axis == "-z": # ok
++            (x, y, z) = ((total.x2 + total.x1)/2,
++                         (total.y2 + total.y1)/2,
++                         total.z2 + 5)
++            euler = Euler(0, 0, 0)
++        else:
++            raise "Unknown axis: '%s'" % (axis,)
+         
+         ### Add camera
+         cam = Camera.New('ortho')
+-        cam.scale = max(total.x2 - total.x1, total.y2 - total.y1)
++        cam.scale = total.max() # (total.x2 - total.x1, total.y2 - total.y1)
+         cam.scale += cam.scale * 0.1
+         cam_obj = scn.objects.new(cam)
+         
+         scn.setCurrentCamera(cam_obj)
+         cam_obj.setLocation(x, y, z)
+-        # cam_obj.setEuler(Euler(0, math.pi/2, 0))
++        cam_obj.setEuler(euler)
+ 
+         ### Add lamp
+         light = Lamp.New('Lamp')            # create new 'Spot' lamp data
+
+
+
+From grumbel at mail.berlios.de  Sun Apr  1 02:34:41 2007
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Sun, 1 Apr 2007 02:34:41 +0200
+Subject: [Windstille-commit] r1363 - trunk/scripts
+Message-ID: <200704010034.l310YfaK028804@sheep.berlios.de>
+
+Author: grumbel
+Date: 2007-04-01 02:34:38 +0200 (Sun, 01 Apr 2007)
+New Revision: 1363
+
+Modified:
+   trunk/scripts/blender_thumbnail.py
+Log:
+- cleanup, now usable from command line
+
+Modified: trunk/scripts/blender_thumbnail.py
+===================================================================
+--- trunk/scripts/blender_thumbnail.py	2007-04-01 00:00:15 UTC (rev 1362)
++++ trunk/scripts/blender_thumbnail.py	2007-04-01 00:34:38 UTC (rev 1363)
+@@ -1,3 +1,7 @@
++## Usage:
++## blender longshot.blend -P ~/projects/windstille/trunk/scripts/blender_thumbnail.py
++## ! Argument order matters !
++
+ import Blender
+ from Blender.Mathutils import Vector, Euler
+ from Blender import Camera
+@@ -6,10 +10,8 @@
+ import time
+ import math
+ 
+-print "\033c--- Start --- %s" % time.time()
++# print "\033c--- Start --- %s" % time.time()
+ 
+-scn = Blender.Scene.GetCurrent()
+-
+ class BBox:
+     def __init__(self, bbox = None):
+         self.x1 = self.x2 = None
+@@ -66,24 +68,30 @@
+         self.z2 = max(self.z2, bbox.z2) or bbox.z2
+ 
+     def __str__(self):
+-        return "[bbox: x:%.2f, %.2f, y:%.2f, %.2f, z:%.2f, %.2f]" % (self.x1, self.x2,
+-                               self.y1, self.y2,
+-                               self.z1, self.z2)
++        return "[bbox: x:%.2f, %.2f, y:%.2f, %.2f, z:%.2f, %.2f]" % \
++               (self.x1, self.x2,
++                self.y1, self.y2,
++                self.z1, self.z2)
+ 
+ # Calculate the bounding box of a scene
+ def bounding_rect():
+     total = BBox()
+ 
++    scn = Blender.Scene.GetCurrent()
++
++    # print scn.objects
+     for obj in scn.objects:
+-        if (1 in obj.layers) and obj.boundingBox:
+-            print obj.getType()
+-            print obj.boundingBox
+-            print total.join(BBox(obj.boundingBox))
+-
++        if obj.getType() != "Empty" and \
++           (1 in obj.layers) and obj.boundingBox:
++            # print obj.getType()
++            # print obj.boundingBox
++            total.join(BBox(obj.boundingBox))
++    
+     if not total.valid:
+         # Scene is empty
+         pass
+     else:
++        # print total
+         # Position of camera and support objects
+         axis = "z"
+         if axis == "x": # ok
+@@ -131,7 +139,7 @@
+ 
+         ### Add lamp
+         light = Lamp.New('Lamp')            # create new 'Spot' lamp data
+-        light.energy = 2.0
++        light.energy = 1.5
+         # light.setMode('Square', 'Shadow')   # set these two lamp mode flags
+         light_obj = scn.objects.new(light)
+         light_obj.setLocation(x, y, z)
+@@ -157,10 +165,9 @@
+         #scn.objects.unlink(cam_obj)
+         scn.objects.unlink(light_obj)
+ 
+-        print "total: %s" % total
++        # print "total: %s" % total
++        Blender.Quit()
+     
+ bounding_rect()
+ 
+ # EOF #
+-
+-
+
+
+
+From grumbel at mail.berlios.de  Sun Apr  1 04:23:15 2007
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Sun, 1 Apr 2007 04:23:15 +0200
+Subject: [Windstille-commit] r1364 - trunk/scripts
+Message-ID: <200704010223.l312NF3R002443@sheep.berlios.de>
+
+Author: grumbel
+Date: 2007-04-01 04:23:14 +0200 (Sun, 01 Apr 2007)
+New Revision: 1364
+
+Added:
+   trunk/scripts/blender_thumbnail
+Modified:
+   trunk/scripts/blender_thumbnail.py
+Log:
+- some improvements
+- added script to create four-direcetion preview
+
+Added: trunk/scripts/blender_thumbnail
+===================================================================
+--- trunk/scripts/blender_thumbnail	2007-04-01 00:34:38 UTC (rev 1363)
++++ trunk/scripts/blender_thumbnail	2007-04-01 02:23:14 UTC (rev 1364)
+@@ -0,0 +1,24 @@
++#! /bin/sh
++
++set -e 
++
++export BLEND_THUMB_AXIS=x
++export BLEND_THUMB_OUTPUT="/tmp/x-axis.png"
++blender "$@" -P /home/ingo/projects/windstille/trunk/scripts/blender_thumbnail.py 
++
++export BLEND_THUMB_AXIS=y
++export BLEND_THUMB_OUTPUT="/tmp/y-axis.png"
++blender "$@" -P /home/ingo/projects/windstille/trunk/scripts/blender_thumbnail.py 
++
++export BLEND_THUMB_AXIS=z
++export BLEND_THUMB_OUTPUT="/tmp/z-axis.png"
++blender "$@" -P /home/ingo/projects/windstille/trunk/scripts/blender_thumbnail.py 
++
++export BLEND_THUMB_AXIS="-z"
++export BLEND_THUMB_OUTPUT="/tmp/z2-axis.png"
++blender "$@" -P /home/ingo/projects/windstille/trunk/scripts/blender_thumbnail.py 
++
++montage -background "#FF00FF" -geometry +0+0  "/tmp/x-axis.png" "/tmp/y-axis.png" "/tmp/z-axis.png" "/tmp/z2-axis.png" "/tmp/out.png"
++gliv "/tmp/out.png"
++
++# EOF #
+
+
+Property changes on: trunk/scripts/blender_thumbnail
+___________________________________________________________________
+Name: svn:executable
+   + *
+
+Modified: trunk/scripts/blender_thumbnail.py
+===================================================================
+--- trunk/scripts/blender_thumbnail.py	2007-04-01 00:34:38 UTC (rev 1363)
++++ trunk/scripts/blender_thumbnail.py	2007-04-01 02:23:14 UTC (rev 1364)
+@@ -2,6 +2,16 @@
+ ## blender longshot.blend -P ~/projects/windstille/trunk/scripts/blender_thumbnail.py
+ ## ! Argument order matters !
+ 
++## Bugs: The .blend file must not be in "Maximized Window Mode" (Ctrl
++## UpArrow) or it will segfault
++
++## ToDo:
++## - do multiple renderings in one go without restarting blender
++## - optimize the bounding rect so that the four-dir view contains
++##   less empty space
++## - set some better rendering parameter
++## - add a 3/4 view
++
+ import Blender
+ from Blender.Mathutils import Vector, Euler
+ from Blender import Camera
+@@ -9,6 +19,7 @@
+ from Blender import Lamp
+ import time
+ import math
++import os
+ 
+ # print "\033c--- Start --- %s" % time.time()
+ 
+@@ -74,7 +85,7 @@
+                 self.z1, self.z2)
+ 
+ # Calculate the bounding box of a scene
+-def bounding_rect():
++def render_thumbnail(axis, outfile):
+     total = BBox()
+ 
+     scn = Blender.Scene.GetCurrent()
+@@ -82,6 +93,7 @@
+     # print scn.objects
+     for obj in scn.objects:
+         if obj.getType() != "Empty" and \
++           obj.getType() != "Light" and \
+            (1 in obj.layers) and obj.boundingBox:
+             # print obj.getType()
+             # print obj.boundingBox
+@@ -93,7 +105,7 @@
+     else:
+         # print total
+         # Position of camera and support objects
+-        axis = "z"
++
+         if axis == "x": # ok
+             (x, y, z) = (total.x1 - 5,
+                          (total.y2 + total.y1)/2,
+@@ -160,7 +172,8 @@
+         render.render()
+ 
+         render.setRenderPath("")
+-        render.saveRenderedImage("/tmp/out.png")
++        render.saveRenderedImage(outfile)
++        print "blender_thumbnail: Wrote output to '%s'" % outfile
+ 
+         #scn.objects.unlink(cam_obj)
+         scn.objects.unlink(light_obj)
+@@ -168,6 +181,7 @@
+         # print "total: %s" % total
+         Blender.Quit()
+     
+-bounding_rect()
++render_thumbnail(os.getenv("BLEND_THUMB_AXIS") or "x",
++                 os.getenv("BLEND_THUMB_OUTPUT") or "/tmp/out.png")
+ 
+ # EOF #
+
+
+
+From grumbel at mail.berlios.de  Sun Apr  1 18:15:04 2007
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Sun, 1 Apr 2007 18:15:04 +0200
+Subject: [Windstille-commit] r1365 - trunk/scripts
+Message-ID: <200704011615.l31GF4DU010490@sheep.berlios.de>
+
+Author: grumbel
+Date: 2007-04-01 18:15:02 +0200 (Sun, 01 Apr 2007)
+New Revision: 1365
+
+Modified:
+   trunk/scripts/blender_thumbnail
+   trunk/scripts/blender_thumbnail.py
+Log:
+- added some cropping
+
+Modified: trunk/scripts/blender_thumbnail
+===================================================================
+--- trunk/scripts/blender_thumbnail	2007-04-01 02:23:14 UTC (rev 1364)
++++ trunk/scripts/blender_thumbnail	2007-04-01 16:15:02 UTC (rev 1365)
+@@ -2,23 +2,16 @@
+ 
+ set -e 
+ 
+-export BLEND_THUMB_AXIS=x
+-export BLEND_THUMB_OUTPUT="/tmp/x-axis.png"
+-blender "$@" -P /home/ingo/projects/windstille/trunk/scripts/blender_thumbnail.py 
+ 
+-export BLEND_THUMB_AXIS=y
+-export BLEND_THUMB_OUTPUT="/tmp/y-axis.png"
++for AXIS in "x" "y" "z" "-x" "-y" "-z"; do
++export BLEND_THUMB_AXIS="$AXIS"
++export BLEND_THUMB_OUTPUT="/tmp/render-$AXIS-axis.png"
+ blender "$@" -P /home/ingo/projects/windstille/trunk/scripts/blender_thumbnail.py 
++convert -trim "$BLEND_THUMB_OUTPUT" "$BLEND_THUMB_OUTPUT"
++done
+ 
+-export BLEND_THUMB_AXIS=z
+-export BLEND_THUMB_OUTPUT="/tmp/z-axis.png"
+-blender "$@" -P /home/ingo/projects/windstille/trunk/scripts/blender_thumbnail.py 
++#montage -tile 2x2 -background "#FF00FF" -geometry +0+0 \
++#  "/tmp/render-x-axis.png" "/tmp/render-y-axis.png" "/tmp/render-z-axis.png" "/tmp/render--z-axis.png" "/tmp/render-out.png"
++#gliv "/tmp/render-out.png"
+ 
+-export BLEND_THUMB_AXIS="-z"
+-export BLEND_THUMB_OUTPUT="/tmp/z2-axis.png"
+-blender "$@" -P /home/ingo/projects/windstille/trunk/scripts/blender_thumbnail.py 
+-
+-montage -background "#FF00FF" -geometry +0+0  "/tmp/x-axis.png" "/tmp/y-axis.png" "/tmp/z-axis.png" "/tmp/z2-axis.png" "/tmp/out.png"
+-gliv "/tmp/out.png"
+-
+ # EOF #
+
+Modified: trunk/scripts/blender_thumbnail.py
+===================================================================
+--- trunk/scripts/blender_thumbnail.py	2007-04-01 02:23:14 UTC (rev 1364)
++++ trunk/scripts/blender_thumbnail.py	2007-04-01 16:15:02 UTC (rev 1365)
+@@ -13,7 +13,7 @@
+ ## - add a 3/4 view
+ 
+ import Blender
+-from Blender.Mathutils import Vector, Euler
++from Blender.Mathutils import *
+ from Blender import Camera
+ from Blender.Scene import Render
+ from Blender import Lamp
+@@ -47,6 +47,15 @@
+             self.z1 = None
+             self.z2 = None
+ 
++    def width_x(self):
++        return self.x2 - self.x1
++
++    def width_y(self):
++        return self.y2 - self.y1
++
++    def width_z(self):
++        return self.z2 - self.z1
++
+     def max(self):
+         """Returns the longest side of the bbox"""
+         return max(self.x2 - self.x1,
+@@ -84,8 +93,7 @@
+                 self.y1, self.y2,
+                 self.z1, self.z2)
+ 
+-# Calculate the bounding box of a scene
+-def render_thumbnail(axis, outfile):
++def render_thumbnail(axis, resolution, outfile):
+     total = BBox()
+ 
+     scn = Blender.Scene.GetCurrent()
+@@ -142,10 +150,15 @@
+         ### Add camera
+         cam = Camera.New('ortho')
+         cam.scale = total.max() # (total.x2 - total.x1, total.y2 - total.y1)
+-        cam.scale += cam.scale * 0.1
++        # cam.scale += cam.scale * 0.1
+         cam_obj = scn.objects.new(cam)
+         
+         scn.setCurrentCamera(cam_obj)
++
++        # matrix = TranslationMatrix(Vector(x,y,z))
++        # RotationMatrix(angle, 3, r, vec)
++        # cam_obj.setMatrix(matrix)
++        
+         cam_obj.setLocation(x, y, z)
+         cam_obj.setEuler(euler)
+ 
+@@ -163,10 +176,27 @@
+         render.aspectX = 100
+         render.aspectY = 100
+ 
+-        render.sizeX = 512
+-        render.sizeY = 512
++#         if axis == "x" or axis == "-x": # front
++#             lmax = total.max()  #max(total.width_y(), total.width_z())
++#             render.sizeX = int(resolution * total.width_y() / lmax)
++#             render.sizeY = int(resolution * total.width_z() / lmax)
++#         elif axis == "y" or axis == "-y": # side
++#             lmax = total.max() # max(total.width_x(), total.width_z())
++#             render.sizeX = int(resolution * total.width_x() / lmax)
++#             render.sizeY = int(resolution * total.width_z() / lmax)
++#         elif axis == "z" or axis == "-z": # top
++#             lmax = total.max() # max(total.width_y(), total.width_x())
++#             render.sizeX = int(resolution * total.width_x() / lmax)
++#             render.sizeY = int(resolution * total.width_y() / lmax)
++#         else:
++#             raise "Unknown axis: '%s'" % (axis,)
+ 
++        render.sizeX = resolution
++        render.sizeY = resolution
++
+         render.imageType = Render.PNG
++        # render.crop = True
++        # render.mode['crop'] = True
+         render.enableRGBAColor()
+ 
+         render.render()
+@@ -180,8 +210,9 @@
+ 
+         # print "total: %s" % total
+         Blender.Quit()
+-    
++        
+ render_thumbnail(os.getenv("BLEND_THUMB_AXIS") or "x",
++                 int(os.getenv("BLEND_THUMB_RESOLUTION") or 512),
+                  os.getenv("BLEND_THUMB_OUTPUT") or "/tmp/out.png")
+ 
+ # EOF #
+
+
+
+From grumbel at mail.berlios.de  Sun Apr  1 18:54:23 2007
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Sun, 1 Apr 2007 18:54:23 +0200
+Subject: [Windstille-commit] r1366 - trunk/scripts
+Message-ID: <200704011654.l31GsNWf014036@sheep.berlios.de>
+
+Author: grumbel
+Date: 2007-04-01 18:54:23 +0200 (Sun, 01 Apr 2007)
+New Revision: 1366
+
+Modified:
+   trunk/scripts/blender_thumbnail.py
+Log:
+- some code for 3/4 perspective
+
+Modified: trunk/scripts/blender_thumbnail.py
+===================================================================
+--- trunk/scripts/blender_thumbnail.py	2007-04-01 16:15:02 UTC (rev 1365)
++++ trunk/scripts/blender_thumbnail.py	2007-04-01 16:54:23 UTC (rev 1366)
+@@ -56,12 +56,22 @@
+     def width_z(self):
+         return self.z2 - self.z1
+ 
++    def center(self):
++        return Vector((self.x1 + self.x2)/2, 
++                      (self.y1 + self.y2)/2, 
++                      (self.z1 + self.z2)/2)
++
+     def max(self):
+         """Returns the longest side of the bbox"""
+         return max(self.x2 - self.x1,
+                    self.y2 - self.y1,
+                    self.z2 - self.z1)
+ 
++    def max_diagonal(self):
++        return math.sqrt(self.width_x() ** 2 +
++                         self.width_y() ** 2 +
++                         self.width_z() ** 2)
++
+     def normalize(self):
+         self.x1 = min(self.x1, self.x2)
+         self.x2 = max(self.x2, self.x1)
+@@ -149,26 +159,31 @@
+         
+         ### Add camera
+         cam = Camera.New('ortho')
+-        cam.scale = total.max() # (total.x2 - total.x1, total.y2 - total.y1)
+         # cam.scale += cam.scale * 0.1
+         cam_obj = scn.objects.new(cam)
+-        
+         scn.setCurrentCamera(cam_obj)
+-
+-        # matrix = TranslationMatrix(Vector(x,y,z))
+-        # RotationMatrix(angle, 3, r, vec)
+-        # cam_obj.setMatrix(matrix)
+-        
+-        cam_obj.setLocation(x, y, z)
+-        cam_obj.setEuler(euler)
+-
++         
+         ### Add lamp
+-        light = Lamp.New('Lamp')            # create new 'Spot' lamp data
+-        light.energy = 1.5
++        light = Lamp.New('Sun')            # create new 'Spot' lamp data
++        light.energy = 1.0
+         # light.setMode('Square', 'Shadow')   # set these two lamp mode flags
+         light_obj = scn.objects.new(light)
+-        light_obj.setLocation(x, y, z)
+ 
++        if False: # 3/4 perspective test
++            cam.scale = total.max_diagonal()
++            matrix = RotationMatrix(90, 4, 'x') * \
++                     TranslationMatrix(Vector(0, -total.max_diagonal(),0)) * \
++                     RotationMatrix(-45, 4, 'x') * \
++                     RotationMatrix(-45*3, 4, 'z') * \
++                     TranslationMatrix(total.center())
++            cam_obj.setMatrix(matrix)
++            light_obj.setMatrix(matrix)
++        else:
++            cam.scale = total.max()
++            cam_obj.setLocation(x, y, z)
++            cam_obj.setEuler(euler)
++            light_obj.setLocation(x, y, z)
++
+         render = scn.getRenderingContext()
+ 
+         render.renderwinSize = 100
+@@ -205,7 +220,7 @@
+         render.saveRenderedImage(outfile)
+         print "blender_thumbnail: Wrote output to '%s'" % outfile
+ 
+-        #scn.objects.unlink(cam_obj)
++        scn.objects.unlink(cam_obj)
+         scn.objects.unlink(light_obj)
+ 
+         # print "total: %s" % total
+
+
+
+From grumbel at mail.berlios.de  Sun Apr  1 21:07:55 2007
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Sun, 1 Apr 2007 21:07:55 +0200
+Subject: [Windstille-commit] r1367 - trunk/scripts
+Message-ID: <200704011907.l31J7tMR000597@sheep.berlios.de>
+
+Author: grumbel
+Date: 2007-04-01 21:07:55 +0200 (Sun, 01 Apr 2007)
+New Revision: 1367
+
+Modified:
+   trunk/scripts/blender_thumbnail
+   trunk/scripts/blender_thumbnail.py
+Log:
+- simplified code a bit
+- added free rotation around the object
+
+Modified: trunk/scripts/blender_thumbnail
+===================================================================
+--- trunk/scripts/blender_thumbnail	2007-04-01 16:54:23 UTC (rev 1366)
++++ trunk/scripts/blender_thumbnail	2007-04-01 19:07:55 UTC (rev 1367)
+@@ -3,9 +3,9 @@
+ set -e 
+ 
+ 
+-for AXIS in "x" "y" "z" "-x" "-y" "-z"; do
+-export BLEND_THUMB_AXIS="$AXIS"
+-export BLEND_THUMB_OUTPUT="/tmp/render-$AXIS-axis.png"
++for POS in "0,0,0" "-90,0,0" "90,0,0" "180,0,0" "0,90,0" "0,-90,0" "45,45,0" "135,45,0"; do
++export BLEND_THUMB_POS="$POS"
++export BLEND_THUMB_OUTPUT="/tmp/render-($POS).png"
+ blender "$@" -P /home/ingo/projects/windstille/trunk/scripts/blender_thumbnail.py 
+ convert -trim "$BLEND_THUMB_OUTPUT" "$BLEND_THUMB_OUTPUT"
+ done
+
+Modified: trunk/scripts/blender_thumbnail.py
+===================================================================
+--- trunk/scripts/blender_thumbnail.py	2007-04-01 16:54:23 UTC (rev 1366)
++++ trunk/scripts/blender_thumbnail.py	2007-04-01 19:07:55 UTC (rev 1367)
+@@ -28,7 +28,7 @@
+         self.x1 = self.x2 = None
+         self.y1 = self.y2 = None
+         self.z1 = self.z2 = None    
+-        
++
+         if bbox:                
+             for v in bbox: 
+                 self.x1 = min(self.x1, v.x) or v.x
+@@ -86,7 +86,7 @@
+         return self.x1 and self.x2 and \
+                self.y1 and self.y2 and \
+                self.z1 and self.z2
+-    
++
+     def join(self, bbox):
+         self.x1 = min(self.x1, bbox.x1) or bbox.x1
+         self.x2 = max(self.x2, bbox.x2) or bbox.x2
+@@ -103,7 +103,7 @@
+                 self.y1, self.y2,
+                 self.z1, self.z2)
+ 
+-def render_thumbnail(axis, resolution, outfile):
++def render_thumbnail(longitude, latitude, rotation, resolution, outfile):
+     total = BBox()
+ 
+     scn = Blender.Scene.GetCurrent()
+@@ -116,96 +116,42 @@
+             # print obj.getType()
+             # print obj.boundingBox
+             total.join(BBox(obj.boundingBox))
+-    
++
+     if not total.valid:
+         # Scene is empty
+         pass
+     else:
+-        # print total
+         # Position of camera and support objects
+ 
+-        if axis == "x": # ok
+-            (x, y, z) = (total.x1 - 5,
+-                         (total.y2 + total.y1)/2,
+-                         (total.z2 + total.z1)/2)
+-            euler = Euler(-math.pi/2, math.pi, math.pi/2)
+-        elif axis == "-x": # ok
+-            (x, y, z) = (total.x2 + 5,
+-                         (total.y2 + total.y1)/2,
+-                         (total.z2 + total.z1)/2)
+-            euler = Euler(math.pi/2, 0, math.pi/2)
+-        elif axis == "y":
+-            (x, y, z) = ((total.x2 + total.x1)/2,
+-                         total.y1 - 5,
+-                         (total.z2 + total.z1)/2)
+-            euler = Euler(math.pi/2, 0, 0)     
+-        elif axis == "-y":
+-            (x, y, z) = ((total.x2 + total.x1)/2,
+-                         total.y2 + 5,
+-                         (total.z2 + total.z1)/2)
+-            euler = Euler(-math.pi/2, math.pi, 0)    
+-        elif axis == "z": # ok
+-            (x, y, z) = ((total.x2 + total.x1)/2,
+-                         (total.y2 + total.y1)/2,
+-                         total.z1 - 5)
+-            euler = Euler(0, math.pi, 0)
+-        elif axis == "-z": # ok
+-            (x, y, z) = ((total.x2 + total.x1)/2,
+-                         (total.y2 + total.y1)/2,
+-                         total.z2 + 5)
+-            euler = Euler(0, 0, 0)
+-        else:
+-            raise "Unknown axis: '%s'" % (axis,)
+-        
+         ### Add camera
+         cam = Camera.New('ortho')
+         # cam.scale += cam.scale * 0.1
+         cam_obj = scn.objects.new(cam)
+         scn.setCurrentCamera(cam_obj)
+-         
++
+         ### Add lamp
+         light = Lamp.New('Sun')            # create new 'Spot' lamp data
+         light.energy = 1.0
+         # light.setMode('Square', 'Shadow')   # set these two lamp mode flags
+         light_obj = scn.objects.new(light)
+ 
+-        if False: # 3/4 perspective test
+-            cam.scale = total.max_diagonal()
+-            matrix = RotationMatrix(90, 4, 'x') * \
+-                     TranslationMatrix(Vector(0, -total.max_diagonal(),0)) * \
+-                     RotationMatrix(-45, 4, 'x') * \
+-                     RotationMatrix(-45*3, 4, 'z') * \
+-                     TranslationMatrix(total.center())
+-            cam_obj.setMatrix(matrix)
+-            light_obj.setMatrix(matrix)
+-        else:
+-            cam.scale = total.max()
+-            cam_obj.setLocation(x, y, z)
+-            cam_obj.setEuler(euler)
+-            light_obj.setLocation(x, y, z)
++        cam.scale = total.max_diagonal()
++        matrix = RotationMatrix(rotation, 4, 'z') * \
++                 RotationMatrix(90, 4, 'x') * \
++                 TranslationMatrix(Vector(0, -total.max_diagonal()-2,0)) * \
++                 RotationMatrix(latitude,  4, 'x') * \
++                 RotationMatrix(longitude, 4, 'z') * \
++                 TranslationMatrix(total.center())
++        cam_obj.setMatrix(matrix)
++        light_obj.setMatrix(matrix)
+ 
+         render = scn.getRenderingContext()
+ 
+         render.renderwinSize = 100
+-        
++
+         render.aspectX = 100
+         render.aspectY = 100
+ 
+-#         if axis == "x" or axis == "-x": # front
+-#             lmax = total.max()  #max(total.width_y(), total.width_z())
+-#             render.sizeX = int(resolution * total.width_y() / lmax)
+-#             render.sizeY = int(resolution * total.width_z() / lmax)
+-#         elif axis == "y" or axis == "-y": # side
+-#             lmax = total.max() # max(total.width_x(), total.width_z())
+-#             render.sizeX = int(resolution * total.width_x() / lmax)
+-#             render.sizeY = int(resolution * total.width_z() / lmax)
+-#         elif axis == "z" or axis == "-z": # top
+-#             lmax = total.max() # max(total.width_y(), total.width_x())
+-#             render.sizeX = int(resolution * total.width_x() / lmax)
+-#             render.sizeY = int(resolution * total.width_y() / lmax)
+-#         else:
+-#             raise "Unknown axis: '%s'" % (axis,)
+-
+         render.sizeX = resolution
+         render.sizeY = resolution
+ 
+@@ -225,8 +171,18 @@
+ 
+         # print "total: %s" % total
+         Blender.Quit()
+-        
+-render_thumbnail(os.getenv("BLEND_THUMB_AXIS") or "x",
++
++# longitude: rotations around z-axis
++# latitude:  rotations around x/y-axis
++# rotation:  rotates the final image
++
++pos = os.getenv("BLEND_THUMB_POS") or "0,0,0"
++(longitude, latitude, rotation) = pos.split(',')
++longitude = -int(longitude) + -90
++latitude  = -int(latitude)
++rotation  =  int(rotation)
++
++render_thumbnail(longitude, latitude, rotation,
+                  int(os.getenv("BLEND_THUMB_RESOLUTION") or 512),
+                  os.getenv("BLEND_THUMB_OUTPUT") or "/tmp/out.png")
+ 
+
+
+
+From grumbel at mail.berlios.de  Sun Apr  1 21:50:41 2007
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Sun, 1 Apr 2007 21:50:41 +0200
+Subject: [Windstille-commit] r1368 - trunk/scripts
+Message-ID: <200704011950.l31Jofvm003361@sheep.berlios.de>
+
+Author: grumbel
+Date: 2007-04-01 21:50:41 +0200 (Sun, 01 Apr 2007)
+New Revision: 1368
+
+Modified:
+   trunk/scripts/blender_thumbnail
+   trunk/scripts/blender_thumbnail.py
+Log:
+- added one pass rendering of mutiple thumbnails
+
+Modified: trunk/scripts/blender_thumbnail
+===================================================================
+--- trunk/scripts/blender_thumbnail	2007-04-01 19:07:55 UTC (rev 1367)
++++ trunk/scripts/blender_thumbnail	2007-04-01 19:50:41 UTC (rev 1368)
+@@ -3,13 +3,12 @@
+ set -e 
+ 
+ 
+-for POS in "0,0,0" "-90,0,0" "90,0,0" "180,0,0" "0,90,0" "0,-90,0" "45,45,0" "135,45,0"; do
+-export BLEND_THUMB_POS="$POS"
+-export BLEND_THUMB_OUTPUT="/tmp/render-($POS).png"
++export BLEND_THUMB_POS="0,0,0;-90,0,0;90,0,0;180,0,0;0,90,0;0,-90,0;45,45,0;135,45,0"
++export BLEND_THUMB_OUTPUT="/tmp/render-front.png;/tmp/render-left.png;/tmp/render-right.png;/tmp/render-back.png;/tmp/render-top.png;/tmp/render-bottom.png;/tmp/render-45-front.png;/tmp/render-45-back.png"
+ blender "$@" -P /home/ingo/projects/windstille/trunk/scripts/blender_thumbnail.py 
+-convert -trim "$BLEND_THUMB_OUTPUT" "$BLEND_THUMB_OUTPUT"
+-done
+ 
++# convert -trim "$BLEND_THUMB_OUTPUT" "$BLEND_THUMB_OUTPUT"
++
+ #montage -tile 2x2 -background "#FF00FF" -geometry +0+0 \
+ #  "/tmp/render-x-axis.png" "/tmp/render-y-axis.png" "/tmp/render-z-axis.png" "/tmp/render--z-axis.png" "/tmp/render-out.png"
+ #gliv "/tmp/render-out.png"
+
+Modified: trunk/scripts/blender_thumbnail.py
+===================================================================
+--- trunk/scripts/blender_thumbnail.py	2007-04-01 19:07:55 UTC (rev 1367)
++++ trunk/scripts/blender_thumbnail.py	2007-04-01 19:50:41 UTC (rev 1368)
+@@ -103,50 +103,61 @@
+                 self.y1, self.y2,
+                 self.z1, self.z2)
+ 
+-def render_thumbnail(longitude, latitude, rotation, resolution, outfile):
+-    total = BBox()
++class ThumbnailRender:
++    """
++    bbox:  bounding box
++    scene: scene to render
++    cam_obj:   light object for the render
++    light_obj: camera object for the render
++    """
++    def __init__(self, scene):
++        self.scene = scene
++        self.bbox  = None
++        self.cam_obj   = None
++        self.light_obj = None
++        
++    def calc_bbox(self):
++        self.bbox = BBox()
++        for obj in self.scene.objects:
++            if obj.getType() != "Empty" and \
++               obj.getType() != "Light" and \
++               (1 in obj.layers) and obj.boundingBox:
++                # print obj.getType()
++                # print obj.boundingBox
++                self.bbox.join(BBox(obj.boundingBox))
+ 
+-    scn = Blender.Scene.GetCurrent()
++        if not self.bbox.valid:
++            raise "Error: Scene is empty!"
+ 
+-    # print scn.objects
+-    for obj in scn.objects:
+-        if obj.getType() != "Empty" and \
+-           obj.getType() != "Light" and \
+-           (1 in obj.layers) and obj.boundingBox:
+-            # print obj.getType()
+-            # print obj.boundingBox
+-            total.join(BBox(obj.boundingBox))
++    def place_camera(self, longitude, latitude, rotation):
++        if not self.bbox:
++            self.calc_bbox()
+ 
+-    if not total.valid:
+-        # Scene is empty
+-        pass
+-    else:
+-        # Position of camera and support objects
++        if not self.cam_obj:
++            cam = Camera.New('ortho')
+ 
+-        ### Add camera
+-        cam = Camera.New('ortho')
+-        # cam.scale += cam.scale * 0.1
+-        cam_obj = scn.objects.new(cam)
+-        scn.setCurrentCamera(cam_obj)
++            light = Lamp.New('Sun')            # create new 'Spot' lamp data
++            light.energy = 1.0
+ 
+-        ### Add lamp
+-        light = Lamp.New('Sun')            # create new 'Spot' lamp data
+-        light.energy = 1.0
+-        # light.setMode('Square', 'Shadow')   # set these two lamp mode flags
+-        light_obj = scn.objects.new(light)
++            self.light_obj = self.scene.objects.new(light)
++            self.cam_obj   = self.scene.objects.new(cam)
++            self.scene.setCurrentCamera(self.cam_obj)
+ 
+-        cam.scale = total.max_diagonal()
++            cam.scale = self.bbox.max_diagonal()
++
++        # Position camera and light
+         matrix = RotationMatrix(rotation, 4, 'z') * \
+                  RotationMatrix(90, 4, 'x') * \
+-                 TranslationMatrix(Vector(0, -total.max_diagonal()-2,0)) * \
++                 TranslationMatrix(Vector(0, -self.bbox.max_diagonal()-2,0)) * \
+                  RotationMatrix(latitude,  4, 'x') * \
+                  RotationMatrix(longitude, 4, 'z') * \
+-                 TranslationMatrix(total.center())
+-        cam_obj.setMatrix(matrix)
+-        light_obj.setMatrix(matrix)
++                 TranslationMatrix(self.bbox.center())
++        self.cam_obj.setMatrix(matrix)
++        self.light_obj.setMatrix(matrix)
++        
++    def render(self, resolution, outfile):
++        render = self.scene.getRenderingContext()
+ 
+-        render = scn.getRenderingContext()
+-
+         render.renderwinSize = 100
+ 
+         render.aspectX = 100
+@@ -156,34 +167,58 @@
+         render.sizeY = resolution
+ 
+         render.imageType = Render.PNG
+-        # render.crop = True
+-        # render.mode['crop'] = True
++
+         render.enableRGBAColor()
+ 
+         render.render()
+ 
+         render.setRenderPath("")
+         render.saveRenderedImage(outfile)
+-        print "blender_thumbnail: Wrote output to '%s'" % outfile
+ 
+-        scn.objects.unlink(cam_obj)
+-        scn.objects.unlink(light_obj)
++    def cleanup(self):
++        self.scene.objects.unlink(self.cam_obj)
++        self.scene.objects.unlink(self.light_obj)
++        self.cam_obj = None
++        self.light   = None
+ 
+-        # print "total: %s" % total
+-        Blender.Quit()
+ 
+-# longitude: rotations around z-axis
+-# latitude:  rotations around x/y-axis
+-# rotation:  rotates the final image
++def resize_list(lst, num):
++    """Resizes a list to num elements, repeating the last one"""
++    while len(lst) < num:
++        lst.append(lst[-1])
+ 
+-pos = os.getenv("BLEND_THUMB_POS") or "0,0,0"
+-(longitude, latitude, rotation) = pos.split(',')
+-longitude = -int(longitude) + -90
+-latitude  = -int(latitude)
+-rotation  =  int(rotation)
++def main():
++    # longitude: rotations around z-axis
++    # latitude:  rotations around x/y-axis
++    # rotation:  rotates the final image
++    
++    positions   = (os.getenv("BLEND_THUMB_POS") or "0,0,0").split(';')
++    resolutions = (os.getenv("BLEND_THUMB_RESOLUTION") or "512").split(';')
++    outfiles    = (os.getenv("BLEND_THUMB_OUTPUT") or "/tmp/out.png").split(';')
+ 
+-render_thumbnail(longitude, latitude, rotation,
+-                 int(os.getenv("BLEND_THUMB_RESOLUTION") or 512),
+-                 os.getenv("BLEND_THUMB_OUTPUT") or "/tmp/out.png")
++    num_passes = max(len(positions), len(resolutions), len(outfiles))
+ 
++    resize_list(positions,   num_passes)
++    resize_list(resolutions, num_passes)
++    resize_list(outfiles,    num_passes)
++
++    renderer = ThumbnailRender(Blender.Scene.GetCurrent())
++        
++    for (position, resolution, outfile) in zip(positions, resolutions, outfiles):
++        print "Rendering: %s %s => %s" % (position, resolution, outfile)
++        
++        (longitude, latitude, rotation) = position.split(',')
++        longitude = -int(longitude)
++        latitude  = -int(latitude)
++        rotation  =  int(rotation)
++        
++        renderer.place_camera(longitude, latitude, rotation)
++        renderer.render(int(resolution), outfile)
++    
++    renderer.cleanup()
++    
++    Blender.Quit()
++
++main()
++        
+ # EOF #
+
+
+
+From grumbel at mail.berlios.de  Mon Apr  2 01:02:51 2007
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Mon, 2 Apr 2007 01:02:51 +0200
+Subject: [Windstille-commit] r1369 - trunk/scripts
+Message-ID: <200704012302.l31N2pt9027873@sheep.berlios.de>
+
+Author: grumbel
+Date: 2007-04-02 01:02:50 +0200 (Mon, 02 Apr 2007)
+New Revision: 1369
+
+Modified:
+   trunk/scripts/blender_thumbnail
+Log:
+- rewrote thumbnailer in ruby, added some cool new layouting method
+
+Modified: trunk/scripts/blender_thumbnail
+===================================================================
+--- trunk/scripts/blender_thumbnail	2007-04-01 19:50:41 UTC (rev 1368)
++++ trunk/scripts/blender_thumbnail	2007-04-01 23:02:50 UTC (rev 1369)
+@@ -1,16 +1,70 @@
+-#! /bin/sh
++#!/usr/bin/ruby -w
+ 
+-set -e 
++require "RMagick"
+ 
++angles = {
++  "front"    => "0,0,0",
++  "left"     => "-90,0,0",
++  "right"    => "90,0,0",
++  "back"     => "180,0,0",
++  "top"      => "0,90,90",
++  "bottom"   => "0,-90,90",
++  "45-front" => "45,45,0",
++  "45-back"  => "135,45,0",
++}
+ 
+-export BLEND_THUMB_POS="0,0,0;-90,0,0;90,0,0;180,0,0;0,90,0;0,-90,0;45,45,0;135,45,0"
+-export BLEND_THUMB_OUTPUT="/tmp/render-front.png;/tmp/render-left.png;/tmp/render-right.png;/tmp/render-back.png;/tmp/render-top.png;/tmp/render-bottom.png;/tmp/render-45-front.png;/tmp/render-45-back.png"
+-blender "$@" -P /home/ingo/projects/windstille/trunk/scripts/blender_thumbnail.py 
++layout = [
++          ["left",   "front", "top",    "45-front"],
++          ["right",  "back", "bottom", "45-back"],
++         ]
+ 
+-# convert -trim "$BLEND_THUMB_OUTPUT" "$BLEND_THUMB_OUTPUT"
++ARGV.each{|filename|
++    positions = angles.values
++    outfiles  = angles.keys.map{|name| "/tmp/render-#{name}.png" }
+ 
+-#montage -tile 2x2 -background "#FF00FF" -geometry +0+0 \
+-#  "/tmp/render-x-axis.png" "/tmp/render-y-axis.png" "/tmp/render-z-axis.png" "/tmp/render--z-axis.png" "/tmp/render-out.png"
+-#gliv "/tmp/render-out.png"
++  if true then
++    ENV["BLEND_THUMB_POS"]    = positions.join(';')
++    ENV["BLEND_THUMB_OUTPUT"] = outfiles.join(';')
++    
++    if not system("blender", filename, "-P",
++                  "/home/ingo/projects/windstille/trunk/scripts/blender_thumbnail.py") then
++      puts "Error while rendering '#{filename}', error code #{$?}"
++    end
+ 
++    outfiles.each{|file|
++      puts "Trimming #{file}"
++      if not system("convert", "-trim", file, file) then
++        puts "Error while trying to trim '#{file}'"
++      end
++    }
++  end
++
++  images = {}
++  outfiles.map{|file| Magick::Image.read(file).first}.zip(angles.keys).each{|v, k|
++    images[k] = v
++  }
++
++  spacing = 16
++  width  = 0
++  height = spacing
++  
++  gc = Magick::Draw.new()
++  layout.each{|lst|
++    x = spacing
++    lst.each{|name|
++      image = images[name]
++      gc.composite(x, height, 0, 0, image)
++      x += image.columns + spacing
++    }
++
++    height += lst.map{|i| images[i].rows}.max + spacing
++    width   = [width, lst.map{|i| images[i].columns + spacing}.inject(0){|t,v| t + v} + spacing].max
++  }
++  puts "OutImage: #{width} #{height}"
++  outimage = Magick::Image.new(width, height)
++  gc.draw(outimage)
++
++  outimage.write("/tmp/out.png")
++}
++
+ # EOF #
+
+
+
+From grumbel at mail.berlios.de  Mon Apr  2 01:20:19 2007
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Mon, 2 Apr 2007 01:20:19 +0200
+Subject: [Windstille-commit] r1370 - trunk/scripts
+Message-ID: <200704012320.l31NKJEd014827@sheep.berlios.de>
+
+Author: grumbel
+Date: 2007-04-02 01:20:18 +0200 (Mon, 02 Apr 2007)
+New Revision: 1370
+
+Modified:
+   trunk/scripts/blender_thumbnail
+   trunk/scripts/blender_thumbnail.py
+Log:
+- minor improvment in space usage
+
+Modified: trunk/scripts/blender_thumbnail
+===================================================================
+--- trunk/scripts/blender_thumbnail	2007-04-01 23:02:50 UTC (rev 1369)
++++ trunk/scripts/blender_thumbnail	2007-04-01 23:20:18 UTC (rev 1370)
+@@ -50,10 +50,11 @@
+   
+   gc = Magick::Draw.new()
+   layout.each{|lst|
++    this_height = lst.map{|i| images[i].rows}.max
+     x = spacing
+     lst.each{|name|
+       image = images[name]
+-      gc.composite(x, height, 0, 0, image)
++      gc.composite(x, height + (this_height - image.rows)/2, 0, 0, image)
+       x += image.columns + spacing
+     }
+ 
+
+Modified: trunk/scripts/blender_thumbnail.py
+===================================================================
+--- trunk/scripts/blender_thumbnail.py	2007-04-01 23:02:50 UTC (rev 1369)
++++ trunk/scripts/blender_thumbnail.py	2007-04-01 23:20:18 UTC (rev 1370)
+@@ -6,11 +6,8 @@
+ ## UpArrow) or it will segfault
+ 
+ ## ToDo:
+-## - do multiple renderings in one go without restarting blender
+-## - optimize the bounding rect so that the four-dir view contains
+-##   less empty space
+-## - set some better rendering parameter
+-## - add a 3/4 view
++## - set some better rendering parameter, care less about what is set
++## - in the .blend file (background, ambient occulsion, etc.)
+ 
+ import Blender
+ from Blender.Mathutils import *
+
+
+
+From grumbel at mail.berlios.de  Mon Apr  2 15:29:12 2007
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Mon, 2 Apr 2007 15:29:12 +0200
+Subject: [Windstille-commit] r1371 - trunk/scripts
+Message-ID: <200704021329.l32DTCZX016021@sheep.berlios.de>
+
+Author: grumbel
+Date: 2007-04-02 15:29:11 +0200 (Mon, 02 Apr 2007)
+New Revision: 1371
+
+Modified:
+   trunk/scripts/blender_thumbnail
+Log:
+- added proper command line parsing
+- added some nice background
+
+Modified: trunk/scripts/blender_thumbnail
+===================================================================
+--- trunk/scripts/blender_thumbnail	2007-04-01 23:20:18 UTC (rev 1370)
++++ trunk/scripts/blender_thumbnail	2007-04-02 13:29:11 UTC (rev 1371)
+@@ -1,6 +1,26 @@
+ #!/usr/bin/ruby -w
++##  Blender Thumbnail Generator
++##  Copyright (C) 2007 Ingo Ruhnke <grumbel at gmx.de>
++##
++##  This program is free software; you can redistribute it and/or
++##  modify it under the terms of the GNU General Public License
++##  as published by the Free Software Foundation; either version 2
++##  of the License, or (at your option) any later version.
++##
++##  This program is distributed in the hope that it will be useful,
++##  but WITHOUT ANY WARRANTY; without even the implied warranty of
++##  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++##  GNU General Public License for more details.
++## 
++##  You should have received a copy of the GNU General Public License
++##  along with this program; if not, write to the Free Software
++##  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++##  02111-1307, USA.
++##
+ 
+ require "RMagick"
++require 'getoptlong'
++require 'rdoc/usage'
+ 
+ angles = {
+   "front"    => "0,0,0",
+@@ -18,29 +38,70 @@
+           ["right",  "back", "bottom", "45-back"],
+          ]
+ 
++opts = GetoptLong.new(
++                      [ '--help',       '-h', GetoptLong::NO_ARGUMENT ],
++                      [ '--no-render',           GetoptLong::NO_ARGUMENT ],
++                      [ '--resolution', '-r', GetoptLong::REQUIRED_ARGUMENT ],
++                      [ '--layout'    , '-l', GetoptLong::REQUIRED_ARGUMENT ],
++                      [ '--output'    , '-o', GetoptLong::REQUIRED_ARGUMENT ]
++                      )
++
++$cfg_resolution = "512"
++$cfg_output     = "/tmp/blender_thumbnail_output.png"
++$cfg_render     = true
++$cfg_thumbnail_script = "/home/ingo/projects/windstille/trunk/scripts/blender_thumbnail.py"
++
++opts.each{|opt, arg|
++  case opt
++  when '--help'
++    puts "Usage: #{$0} [OPTION]... FILE..."
++    puts "Generates thumbnails from Blender files."
++    puts ""
++    puts "  --help              Display this help text"
++    puts "  --no-render         Don't render and instead just combine the images (for debugging)"
++    puts "  --resolution RES    Resolution to use for the thumbnail"
++    puts "  --output FILE       Write the final thumbnail to FILE"
++    puts "  --layout LAYOUT     Layout of the thumbnail"
++    puts ""
++    puts "Report bugs to <grumbel at gmx.de>"
++    exit(0)
++
++  when '--no-render'
++    $cfg_render = false
++
++  when '--resolution'
++    $cfg_resolution = arg
++
++  when '--output'
++    $cfg_output = arg
++
++  when '--layout'
++    puts "Layout setting unimplemented"
++    exit(1)
++
++  else
++    puts "Some error!?!"
++    exit(1)
++  end
++}
++
+ ARGV.each{|filename|
+-    positions = angles.values
+-    outfiles  = angles.keys.map{|name| "/tmp/render-#{name}.png" }
++  positions = angles.values
++  outfiles  = angles.keys.map{|name| "/tmp/render-#{name}.png" }
+ 
+-  if true then
+-    ENV["BLEND_THUMB_POS"]    = positions.join(';')
+-    ENV["BLEND_THUMB_OUTPUT"] = outfiles.join(';')
++  if $cfg_render then
++    # render the graphics
++    ENV["BLEND_THUMB_POS"]        = positions.join(';')
++    ENV["BLEND_THUMB_OUTPUT"]     = outfiles.join(';')
++    ENV["BLEND_THUMB_RESOLUTION"] = $cfg_resolution
+     
+-    if not system("blender", filename, "-P",
+-                  "/home/ingo/projects/windstille/trunk/scripts/blender_thumbnail.py") then
++    if not system("blender", filename, "-P", $cfg_thumbnail_script) then
+       puts "Error while rendering '#{filename}', error code #{$?}"
+     end
+-
+-    outfiles.each{|file|
+-      puts "Trimming #{file}"
+-      if not system("convert", "-trim", file, file) then
+-        puts "Error while trying to trim '#{file}'"
+-      end
+-    }
+   end
+ 
+   images = {}
+-  outfiles.map{|file| Magick::Image.read(file).first}.zip(angles.keys).each{|v, k|
++  outfiles.map{|file| Magick::Image.read(file).first.trim! }.zip(angles.keys).each{|v, k|
+     images[k] = v
+   }
+ 
+@@ -62,10 +123,11 @@
+     width   = [width, lst.map{|i| images[i].columns + spacing}.inject(0){|t,v| t + v} + spacing].max
+   }
+   puts "OutImage: #{width} #{height}"
+-  outimage = Magick::Image.new(width, height)
++  outimage = Magick::Image.new(width, height, Magick::HatchFill.new("#78b", "#abd", 32))
+   gc.draw(outimage)
+ 
+-  outimage.write("/tmp/out.png")
++  puts "Writing final image to #{$cfg_output}"
++  outimage.write($cfg_output)
+ }
+ 
+ # EOF #
+
+
+
+From grumbel at mail.berlios.de  Mon Apr  2 16:10:25 2007
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Mon, 2 Apr 2007 16:10:25 +0200
+Subject: [Windstille-commit] r1372 - in trunk/media/models:
+	vehicles/artillery vehicles/battleship vehicles/cargotruck
+	vehicles/cleansweep vehicles/jeep vehicles/mech
+	vehicles/policecar vehicles/rocketlauncher vehicles/submarine
+	vehicles/train vehicles/troopshuttle vehicles/truck
+	vehicles/truck2 weapons/grenade
+Message-ID: <200704021410.l32EAPuW018317@sheep.berlios.de>
+
+Author: grumbel
+Date: 2007-04-02 16:09:41 +0200 (Mon, 02 Apr 2007)
+New Revision: 1372
+
+Modified:
+   trunk/media/models/vehicles/artillery/artillery.blend
+   trunk/media/models/vehicles/battleship/battleship1.blend
+   trunk/media/models/vehicles/cargotruck/cargotruck.blend
+   trunk/media/models/vehicles/cleansweep/cleansweep.blend
+   trunk/media/models/vehicles/jeep/jeep.blend
+   trunk/media/models/vehicles/mech/mech.blend
+   trunk/media/models/vehicles/policecar/policecar.blend
+   trunk/media/models/vehicles/rocketlauncher/rocketlauncher.blend
+   trunk/media/models/vehicles/submarine/submarine.blend
+   trunk/media/models/vehicles/train/publictrain2.blend
+   trunk/media/models/vehicles/troopshuttle/troopshuttle.blend
+   trunk/media/models/vehicles/truck/truck.blend
+   trunk/media/models/vehicles/truck2/truck2.blend
+   trunk/media/models/weapons/grenade/grenade.blend
+Log:
+- removed unneeded lights, ground and other stuff from the model files
+
+Modified: trunk/media/models/vehicles/artillery/artillery.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/media/models/vehicles/battleship/battleship1.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/media/models/vehicles/cargotruck/cargotruck.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/media/models/vehicles/cleansweep/cleansweep.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/media/models/vehicles/jeep/jeep.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/media/models/vehicles/mech/mech.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/media/models/vehicles/policecar/policecar.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/media/models/vehicles/rocketlauncher/rocketlauncher.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/media/models/vehicles/submarine/submarine.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/media/models/vehicles/train/publictrain2.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/media/models/vehicles/troopshuttle/troopshuttle.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/media/models/vehicles/truck/truck.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/media/models/vehicles/truck2/truck2.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/media/models/weapons/grenade/grenade.blend
+===================================================================
+(Binary files differ)
+
+
+
+From grumbel at mail.berlios.de  Mon Apr  2 22:30:43 2007
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Mon, 2 Apr 2007 22:30:43 +0200
+Subject: [Windstille-commit] r1373 - trunk/scripts
+Message-ID: <200704022030.l32KUhab025386@sheep.berlios.de>
+
+Author: grumbel
+Date: 2007-04-02 22:30:42 +0200 (Mon, 02 Apr 2007)
+New Revision: 1373
+
+Modified:
+   trunk/scripts/blender_thumbnail
+   trunk/scripts/blender_thumbnail.py
+Log:
+- removed unneeded angle-name to angle mapping
+- added layout option to command line
+
+Modified: trunk/scripts/blender_thumbnail
+===================================================================
+--- trunk/scripts/blender_thumbnail	2007-04-02 14:09:41 UTC (rev 1372)
++++ trunk/scripts/blender_thumbnail	2007-04-02 20:30:42 UTC (rev 1373)
+@@ -22,36 +22,30 @@
+ require 'getoptlong'
+ require 'rdoc/usage'
+ 
+-angles = {
+-  "front"    => "0,0,0",
+-  "left"     => "-90,0,0",
+-  "right"    => "90,0,0",
+-  "back"     => "180,0,0",
+-  "top"      => "0,90,90",
+-  "bottom"   => "0,-90,90",
+-  "45-front" => "45,45,0",
+-  "45-back"  => "135,45,0",
+-}
+-
+-layout = [
+-          ["left",   "front", "top",    "45-front"],
+-          ["right",  "back", "bottom", "45-back"],
+-         ]
+-
+-opts = GetoptLong.new(
+-                      [ '--help',       '-h', GetoptLong::NO_ARGUMENT ],
+-                      [ '--no-render',           GetoptLong::NO_ARGUMENT ],
+-                      [ '--resolution', '-r', GetoptLong::REQUIRED_ARGUMENT ],
+-                      [ '--layout'    , '-l', GetoptLong::REQUIRED_ARGUMENT ],
+-                      [ '--output'    , '-o', GetoptLong::REQUIRED_ARGUMENT ]
+-                      )
+-
+ $cfg_resolution = "512"
+ $cfg_output     = "/tmp/blender_thumbnail_output.png"
+ $cfg_render     = true
+ $cfg_thumbnail_script = "/home/ingo/projects/windstille/trunk/scripts/blender_thumbnail.py"
++$cfg_layout = [
++          [ "-90,0,0", # left
++            "0,0,0", # front
++            "0,90,90", # top
++            "45,45,0", # 45-front
++          ],
++          ["90,0,0", # right
++           "180,0,0", # back
++           "0,-90,90", # bottom
++           "135,45,0", # 45-back
++          ]
++         ]
+ 
+-opts.each{|opt, arg|
++GetoptLong.new(
++               [ '--help',       '-h', GetoptLong::NO_ARGUMENT ],
++               [ '--no-render',           GetoptLong::NO_ARGUMENT ],
++               [ '--resolution', '-r', GetoptLong::REQUIRED_ARGUMENT ],
++               [ '--layout'    , '-l', GetoptLong::REQUIRED_ARGUMENT ],
++               [ '--output'    , '-o', GetoptLong::REQUIRED_ARGUMENT ]
++               ).each{|opt, arg|
+   case opt
+   when '--help'
+     puts "Usage: #{$0} [OPTION]... FILE..."
+@@ -61,7 +55,7 @@
+     puts "  --no-render         Don't render and instead just combine the images (for debugging)"
+     puts "  --resolution RES    Resolution to use for the thumbnail"
+     puts "  --output FILE       Write the final thumbnail to FILE"
+-    puts "  --layout LAYOUT     Layout of the thumbnail"
++    puts "  --layout LAYOUT     Layout of the thumbnail (ex: [['90,0,0'],['-90,0,0']])"
+     puts ""
+     puts "Report bugs to <grumbel at gmx.de>"
+     exit(0)
+@@ -76,8 +70,7 @@
+     $cfg_output = arg
+ 
+   when '--layout'
+-    puts "Layout setting unimplemented"
+-    exit(1)
++    $cfg_layout = eval(arg)
+ 
+   else
+     puts "Some error!?!"
+@@ -86,8 +79,8 @@
+ }
+ 
+ ARGV.each{|filename|
+-  positions = angles.values
+-  outfiles  = angles.keys.map{|name| "/tmp/render-#{name}.png" }
++  positions = $cfg_layout.flatten
++  outfiles  = positions.map{|name| "/tmp/render-#{name}.png" }
+ 
+   if $cfg_render then
+     # render the graphics
+@@ -101,7 +94,7 @@
+   end
+ 
+   images = {}
+-  outfiles.map{|file| Magick::Image.read(file).first.trim! }.zip(angles.keys).each{|v, k|
++  outfiles.map{|file| Magick::Image.read(file).first.trim! }.zip($cfg_layout.flatten).each{|v, k|
+     images[k] = v
+   }
+ 
+@@ -109,8 +102,9 @@
+   width  = 0
+   height = spacing
+   
++  puts "Composing final image"
+   gc = Magick::Draw.new()
+-  layout.each{|lst|
++  $cfg_layout.each{|lst|
+     this_height = lst.map{|i| images[i].rows}.max
+     x = spacing
+     lst.each{|name|
+@@ -122,11 +116,11 @@
+     height += lst.map{|i| images[i].rows}.max + spacing
+     width   = [width, lst.map{|i| images[i].columns + spacing}.inject(0){|t,v| t + v} + spacing].max
+   }
+-  puts "OutImage: #{width} #{height}"
++  # puts "OutImage: #{width} #{height}"
+   outimage = Magick::Image.new(width, height, Magick::HatchFill.new("#78b", "#abd", 32))
+   gc.draw(outimage)
+ 
+-  puts "Writing final image to #{$cfg_output}"
++  puts "Writing final image to '#{$cfg_output}'"
+   outimage.write($cfg_output)
+ }
+ 
+
+Modified: trunk/scripts/blender_thumbnail.py
+===================================================================
+--- trunk/scripts/blender_thumbnail.py	2007-04-02 14:09:41 UTC (rev 1372)
++++ trunk/scripts/blender_thumbnail.py	2007-04-02 20:30:42 UTC (rev 1373)
+@@ -121,6 +121,8 @@
+                (1 in obj.layers) and obj.boundingBox:
+                 # print obj.getType()
+                 # print obj.boundingBox
++                # print obj, obj.layers, (1 in obj.layers)
++                # FIXME: for some objects the bbox seems to large
+                 self.bbox.join(BBox(obj.boundingBox))
+ 
+         if not self.bbox.valid:
+
+
+
+From grumbel at mail.berlios.de  Mon Apr  2 22:38:44 2007
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Mon, 2 Apr 2007 22:38:44 +0200
+Subject: [Windstille-commit] r1374 - trunk/scripts
+Message-ID: <200704022038.l32KciA0026332@sheep.berlios.de>
+
+Author: grumbel
+Date: 2007-04-02 22:38:43 +0200 (Mon, 02 Apr 2007)
+New Revision: 1374
+
+Modified:
+   trunk/scripts/blender_thumbnail
+   trunk/scripts/blender_thumbnail.py
+Log:
+- made blender binary and render script configurable
+- added GPL
+
+Modified: trunk/scripts/blender_thumbnail
+===================================================================
+--- trunk/scripts/blender_thumbnail	2007-04-02 20:30:42 UTC (rev 1373)
++++ trunk/scripts/blender_thumbnail	2007-04-02 20:38:43 UTC (rev 1374)
+@@ -18,6 +18,16 @@
+ ##  02111-1307, USA.
+ ##
+ 
++## This script works in combination with blender_thumbnail.py, a
++## rendering script for Blender.
++##
++## Example usage:
++## ~~~~~~~~~~~~~~
++##   $ blender_thumbnail minedriller.blend \
++##       --layout "[['45,45,-45'],['135,45,45']]" \
++##       -o render/minedriller.png 
++## 
++
+ require "RMagick"
+ require 'getoptlong'
+ require 'rdoc/usage'
+@@ -25,7 +35,10 @@
+ $cfg_resolution = "512"
+ $cfg_output     = "/tmp/blender_thumbnail_output.png"
+ $cfg_render     = true
+-$cfg_thumbnail_script = "/home/ingo/projects/windstille/trunk/scripts/blender_thumbnail.py"
++
++$cfg_blender_script = "/home/ingo/projects/windstille/trunk/scripts/blender_thumbnail.py"
++$cfg_blender_binary = "blender"
++
+ $cfg_layout = [
+           [ "-90,0,0", # left
+             "0,0,0", # front
+@@ -44,7 +57,9 @@
+                [ '--no-render',           GetoptLong::NO_ARGUMENT ],
+                [ '--resolution', '-r', GetoptLong::REQUIRED_ARGUMENT ],
+                [ '--layout'    , '-l', GetoptLong::REQUIRED_ARGUMENT ],
+-               [ '--output'    , '-o', GetoptLong::REQUIRED_ARGUMENT ]
++               [ '--output'    , '-o', GetoptLong::REQUIRED_ARGUMENT ],
++               [ '--blender'   , GetoptLong::REQUIRED_ARGUMENT ],
++               [ '--script'    , GetoptLong::REQUIRED_ARGUMENT ]
+                ).each{|opt, arg|
+   case opt
+   when '--help'
+@@ -56,10 +71,18 @@
+     puts "  --resolution RES    Resolution to use for the thumbnail"
+     puts "  --output FILE       Write the final thumbnail to FILE"
+     puts "  --layout LAYOUT     Layout of the thumbnail (ex: [['90,0,0'],['-90,0,0']])"
++    puts "  --blender FILE      Path to the blender binary"
++    puts "  --script  FILE      Path to the blender thumbnail script"
+     puts ""
+     puts "Report bugs to <grumbel at gmx.de>"
+     exit(0)
+ 
++  when '--blender'
++    $cfg_blender_binary = arg
++
++  when '--script'
++    $cfg_blender_script = arg
++
+   when '--no-render'
+     $cfg_render = false
+ 
+@@ -88,7 +111,7 @@
+     ENV["BLEND_THUMB_OUTPUT"]     = outfiles.join(';')
+     ENV["BLEND_THUMB_RESOLUTION"] = $cfg_resolution
+     
+-    if not system("blender", filename, "-P", $cfg_thumbnail_script) then
++    if not system($cfg_blender_binary, filename, "-P", $cfg_blender_script) then
+       puts "Error while rendering '#{filename}', error code #{$?}"
+     end
+   end
+
+Modified: trunk/scripts/blender_thumbnail.py
+===================================================================
+--- trunk/scripts/blender_thumbnail.py	2007-04-02 20:30:42 UTC (rev 1373)
++++ trunk/scripts/blender_thumbnail.py	2007-04-02 20:38:43 UTC (rev 1374)
+@@ -1,3 +1,22 @@
++##  Blender Thumbnail Generator
++##  Copyright (C) 2007 Ingo Ruhnke <grumbel at gmx.de>
++##
++##  This program is free software; you can redistribute it and/or
++##  modify it under the terms of the GNU General Public License
++##  as published by the Free Software Foundation; either version 2
++##  of the License, or (at your option) any later version.
++##
++##  This program is distributed in the hope that it will be useful,
++##  but WITHOUT ANY WARRANTY; without even the implied warranty of
++##  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++##  GNU General Public License for more details.
++## 
++##  You should have received a copy of the GNU General Public License
++##  along with this program; if not, write to the Free Software
++##  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++##  02111-1307, USA.
++##
++
+ ## Usage:
+ ## blender longshot.blend -P ~/projects/windstille/trunk/scripts/blender_thumbnail.py
+ ## ! Argument order matters !
+
+
+
+From grumbel at mail.berlios.de  Fri Apr  6 00:08:15 2007
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Fri, 6 Apr 2007 00:08:15 +0200
+Subject: [Windstille-commit] r1375 - in trunk/media: . story
+Message-ID: <200704052208.l35M8FhU024139@sheep.berlios.de>
+
+Author: grumbel
+Date: 2007-04-06 00:08:15 +0200 (Fri, 06 Apr 2007)
+New Revision: 1375
+
+Added:
+   trunk/media/story/
+   trunk/media/story/barsetting.txt
+Log:
+- some story nodes, should probaly go into wiki, but here for now
+
+Added: trunk/media/story/barsetting.txt
+===================================================================
+--- trunk/media/story/barsetting.txt	2007-04-02 20:38:43 UTC (rev 1374)
++++ trunk/media/story/barsetting.txt	2007-04-05 22:08:15 UTC (rev 1375)
+@@ -0,0 +1,113 @@
++Bob: Welcome. 
++
++Jane: One beer for me and a milk for the boy.
++
++Jeff: Hey...
++
++Jane: You still have to drive home.
++
++Jeff: Hrmpf.
++
++---
++
++Drunken Guy: 'nother drink for me...
++
++Bob: Don't you think you had enough.
++
++Drunken Guy: Who are you to judge, just give me the fucking drink.
++
++Bob: As long as you pay and don't care, but if you couse trouble you are out of here.
++
++---
++
++Jane: What else have you to offer?
++
++Bob: Wiskey, Beer, Milk, Snapush, Orange juice, Ventanol, the full programm.
++
++Jane: Give me a <insert joice>
++
++---
++
++Jeff: How about some music.
++
++Bob: Time to quick the jukebox.
++
++Jane: Why the hell are you using such an antique thing?
++
++Bob: Heirloom from my grandfather, beside, y' can't kick a solid state player.
++
++---
++
++Drunken Guy: Hey, Lady, wanna dance.
++
++Jane: No, thank you.
++
++Drunken Guy: Come on just one dance...
++
++Jane: Keep your fingers away.
++
++(touch, punch, K.O.)
++
++Jane: I warned you.
++
++Bob: One for the history books. I guess he had enough for today.
++
++Jeff: Quite a punch you have there.
++
++Jane: Tipping a drunk guy over ain't exactly a hard thing to
++do. Beside, 'ouch, miss my suit.
++
++--- 
++
++RNPC: Anything available to eat?
++
++Bob: How about some good old syntho beef?
++
++RNPC: Sounds fine.
++
++Bob: Ok, takes a minute.
++
++---
++
++Jeff: So, did everything went fine down there.
++
++Jane: Mostly, the generators gave me trouble, but I managed that.
++
++Jeff: Suit reaction was fine.
++
++Jane: Yes, wouldn't have expected anything else after all that data I
++collected in training.
++
++You know anything about the organisation of NourthernStar?
++
++Jeff: Not a thing, but rumors are running pretty wild.
++
++Bob, you heard anything about the events on Hotti?
++
++Bob: Lots of freighter captains have been very worried, looks like
++Central is trying to gain influence.
++
++Jane: But they won't stand a chance there, would they?
++
++Bob: Not by legal means.
++
++Jeff: You think they'd start to use force?
++
++Bob: I don't think so, but what can I say, 100 million kilometer is a
++long distance and its hard to judge the situation down there.
++
++---
++
++Robot: Meep meep. Your drink.
++
++Jane: Whats that?
++
++Bob: My new little helper. Like it?
++
++Jane: Sure... where did you get that.
++
++Bob: I better not answer that one.
++
++---
++
++# EOF #
+
+
+
+From grumbel at mail.berlios.de  Sun Apr  8 02:11:39 2007
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Sun, 8 Apr 2007 02:11:39 +0200
+Subject: [Windstille-commit] r1376 - in trunk/media/models: creatures/spider
+	creatures/vrdummy vehicles/artillery vehicles/battleship
+	vehicles/rocketlauncher vehicles/smallshuttle vehicles/truck
+	vehicles/truck2
+Message-ID: <200704080011.l380Bd7M024799@sheep.berlios.de>
+
+Author: grumbel
+Date: 2007-04-08 02:11:12 +0200 (Sun, 08 Apr 2007)
+New Revision: 1376
+
+Modified:
+   trunk/media/models/creatures/spider/spider-1.blend
+   trunk/media/models/creatures/vrdummy/vrdummy.blend
+   trunk/media/models/vehicles/artillery/artillery.blend
+   trunk/media/models/vehicles/battleship/battleship1.blend
+   trunk/media/models/vehicles/rocketlauncher/rocketlauncher.blend
+   trunk/media/models/vehicles/smallshuttle/shuttle.blend
+   trunk/media/models/vehicles/truck/truck.blend
+   trunk/media/models/vehicles/truck2/truck2.blend
+Log:
+- some cleanup, proper mirroring and such
+
+Modified: trunk/media/models/creatures/spider/spider-1.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/media/models/creatures/vrdummy/vrdummy.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/media/models/vehicles/artillery/artillery.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/media/models/vehicles/battleship/battleship1.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/media/models/vehicles/rocketlauncher/rocketlauncher.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/media/models/vehicles/smallshuttle/shuttle.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/media/models/vehicles/truck/truck.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/media/models/vehicles/truck2/truck2.blend
+===================================================================
+(Binary files differ)
+
+
+
+From grumbel at mail.berlios.de  Thu Apr 26 20:42:24 2007
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Thu, 26 Apr 2007 20:42:24 +0200
+Subject: [Windstille-commit] r1377 - trunk/media/models/characters/jane
+Message-ID: <200704261842.l3QIgOBJ021440@sheep.berlios.de>
+
+Author: grumbel
+Date: 2007-04-26 20:41:49 +0200 (Thu, 26 Apr 2007)
+New Revision: 1377
+
+Added:
+   trunk/media/models/characters/jane/face2.png
+   trunk/media/models/characters/jane/face2.xcf
+Modified:
+   trunk/media/models/characters/jane/body.blend
+Log:
+- face updates
+
+Modified: trunk/media/models/characters/jane/body.blend
+===================================================================
+(Binary files differ)
+
+Added: trunk/media/models/characters/jane/face2.png
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/media/models/characters/jane/face2.png
+___________________________________________________________________
+Name: svn:mime-type
+   + image/png
+
+Added: trunk/media/models/characters/jane/face2.xcf
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/media/models/characters/jane/face2.xcf
+___________________________________________________________________
+Name: svn:mime-type
+   + application/x-xcf
+
+
+

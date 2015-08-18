@@ -1,0 +1,387 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3366 - trunk/windstille/src/display
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3366%20-%20trunk/windstille/src/display&In-Reply-To=%3C20100922113440.95BDA480F56%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002362.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3366 - trunk/windstille/src/display</H1>
+    <B>grumbel at mail.berlios.de</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3366%20-%20trunk/windstille/src/display&In-Reply-To=%3C20100922113440.95BDA480F56%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3366 - trunk/windstille/src/display">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Sep 22 13:34:40 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002362.html">[Windstille-commit] r3365 - in trunk/windstille/src: display font	gui tile
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2363">[ date ]</a>
+              <a href="thread.html#2363">[ thread ]</a>
+              <a href="subject.html#2363">[ subject ]</a>
+              <a href="author.html#2363">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2010-09-22 13:34:40 +0200 (Wed, 22 Sep 2010)
+New Revision: 3366
+
+Modified:
+   trunk/windstille/src/display/shader_object.cpp
+   trunk/windstille/src/display/shader_object.hpp
+   trunk/windstille/src/display/shader_program.cpp
+   trunk/windstille/src/display/shader_program.hpp
+Log:
+Replaced ShaderObject with ShaderObjectPtr, same for ShaderProgram
+
+
+Modified: trunk/windstille/src/display/shader_object.cpp
+===================================================================
+--- trunk/windstille/src/display/shader_object.cpp	2010-09-22 10:46:51 UTC (rev 3365)
++++ trunk/windstille/src/display/shader_object.cpp	2010-09-22 11:34:40 UTC (rev 3366)
+@@ -51,25 +51,17 @@
+   return str;
+ }
+ 
+-class ShaderObjectImpl
++ShaderObjectPtr
++ShaderObject::create(GLenum type, const std::string&amp; filename)
+ {
+-public:
+-  GLuint handle;
+-
+-  ShaderObjectImpl(GLenum type)
+-    : handle(glCreateShader(type))
+-  {
+-  }
+-
+-  ~ShaderObjectImpl()
+-  {
+-    glDeleteShader(handle);
+-  }
+-};
++  return ShaderObjectPtr(new ShaderObject(type, filename));
++}
+ 
+ ShaderObject::ShaderObject(GLenum type, const std::string&amp; filename) :
+-  impl(new ShaderObjectImpl(type))
++  m_handle(0)
+ {
++  m_handle = glCreateShader(type);
++
+   load(filename);
+   compile();
+   print_log();
+@@ -77,13 +69,14 @@
+ 
+ ShaderObject::~ShaderObject()
+ {
++  glDeleteShader(m_handle);
+ }
+ 
+ void
+ ShaderObject::load(const std::string&amp; filename)
+ {
+   GLchar* buf = load_file(filename.c_str());
+-  glShaderSource(impl-&gt;handle, 1, const_cast&lt;const GLchar**&gt;(&amp;buf), NULL);
++  glShaderSource(m_handle, 1, const_cast&lt;const GLchar**&gt;(&amp;buf), NULL);
+   assert_gl(&quot;load_source&quot;);
+ 
+   std::cout &lt;&lt; &quot;Source:\n&quot; &lt;&lt; buf &lt;&lt; std::endl;
+@@ -93,13 +86,13 @@
+ GLuint 
+ ShaderObject::get_handle() const
+ {
+-  return impl-&gt;handle;
++  return m_handle;
+ }
+ 
+ void
+ ShaderObject::compile()
+ {
+-  glCompileShader(impl-&gt;handle);
++  glCompileShader(m_handle);
+ }
+ 
+ void
+@@ -110,7 +103,7 @@
+   GLchar* infoLog;
+ 
+   assert_gl(&quot;print_log1&quot;);
+-  glGetShaderiv(impl-&gt;handle, GL_INFO_LOG_LENGTH, &amp;infologLength);
++  glGetShaderiv(m_handle, GL_INFO_LOG_LENGTH, &amp;infologLength);
+   assert_gl(&quot;print_log2&quot;);
+ 
+   if (infologLength &gt; 0)
+@@ -121,7 +114,7 @@
+       printf(&quot;ERROR: Could not allocate InfoLog buffer\n&quot;);
+       exit(1);
+     }
+-    glGetShaderInfoLog(impl-&gt;handle, infologLength, &amp;charsWritten, infoLog);
++    glGetShaderInfoLog(m_handle, infologLength, &amp;charsWritten, infoLog);
+     printf(&quot;InfoLog:\n%s\n\n&quot;, infoLog);
+     free(infoLog);
+   }
+
+Modified: trunk/windstille/src/display/shader_object.hpp
+===================================================================
+--- trunk/windstille/src/display/shader_object.hpp	2010-09-22 10:46:51 UTC (rev 3365)
++++ trunk/windstille/src/display/shader_object.hpp	2010-09-22 11:34:40 UTC (rev 3366)
+@@ -23,13 +23,19 @@
+ #include &lt;GL/gl.h&gt;
+ #include &lt;string&gt;
+ #include &lt;boost/shared_ptr.hpp&gt;
+-
+-class ShaderObjectImpl;
+-
++
++class ShaderObject;
++typedef boost::shared_ptr&lt;ShaderObject&gt; ShaderObjectPtr;
++
+ class ShaderObject
+ {
+ public:
++  static ShaderObjectPtr create(GLenum type, const std::string&amp; filename);
++
++private:
+   ShaderObject(GLenum type, const std::string&amp; filename);
++
++public:
+   ~ShaderObject();
+ 
+   GLuint get_handle() const;
+@@ -38,9 +44,9 @@
+   void print_log();
+ 
+ private:
+-  boost::shared_ptr&lt;ShaderObjectImpl&gt; impl;
++  GLuint m_handle;
+ };
+-
++
+ #endif
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/display/shader_program.cpp
+===================================================================
+--- trunk/windstille/src/display/shader_program.cpp	2010-09-22 10:46:51 UTC (rev 3365)
++++ trunk/windstille/src/display/shader_program.cpp	2010-09-22 11:34:40 UTC (rev 3366)
+@@ -22,39 +22,33 @@
+ #include &quot;display/assert_gl.hpp&quot;
+ #include &quot;display/shader_program.hpp&quot;
+ 
+-class ShaderProgramImpl
++ShaderProgramPtr
++ShaderProgram::create()
+ {
+-public:
+-  GLuint handle;
+-
+-  ShaderProgramImpl() 
+-    : handle(glCreateProgram())
+-  {}
+-
+-  ~ShaderProgramImpl() {
+-    glDeleteProgram(handle);
+-  }
+-};
+-
++  return ShaderProgramPtr(new ShaderProgram());
++}
++
+ ShaderProgram::ShaderProgram() :
+-  impl(new ShaderProgramImpl())
++ m_handle(0)
+ {
++  m_handle = glCreateProgram();
+ }
+ 
+ ShaderProgram::~ShaderProgram()
+ {
++  glDeleteProgram(m_handle);
+ }
+ 
+ void
+-ShaderProgram::attach(const ShaderObject&amp; obj)
++ShaderProgram::attach(ShaderObjectPtr obj)
+ {
+-  glAttachShader(impl-&gt;handle, obj.get_handle());
++  glAttachShader(m_handle, obj-&gt;get_handle());
+ }
+ 
+ void
+ ShaderProgram::link()
+ {
+-  glLinkProgram(impl-&gt;handle);
++  glLinkProgram(m_handle);
+ }
+ 
+ GLint
+@@ -62,7 +56,7 @@
+ {
+   GLint loc;
+ 
+-  loc = glGetUniformLocation(impl-&gt;handle, name);
++  loc = glGetUniformLocation(m_handle, name);
+ 
+   if (loc == -1)
+     std::cout &lt;&lt; &quot;No such uniform named \&quot;%s\&quot;\n&quot; &lt;&lt; name &lt;&lt; std::endl;
+@@ -75,13 +69,13 @@
+ GLuint 
+ ShaderProgram::get_handle() const
+ {
+-  return impl-&gt;handle;
++  return m_handle;
+ }
+ 
+ void
+ ShaderProgram::set_uniform1f(const char* name, GLfloat v0)
+ {
+-  GLint location = glGetUniformLocation(impl-&gt;handle, name);
++  GLint location = glGetUniformLocation(m_handle, name);
+   if (location == -1)
+     std::cout &lt;&lt; &quot;No such uniform named \&quot;&quot; &lt;&lt; name &lt;&lt; &quot;\&quot;&quot; &lt;&lt; std::endl;
+   else
+@@ -91,7 +85,7 @@
+ void
+ ShaderProgram::set_uniform2f(const char* name, GLfloat v0, GLfloat v1)
+ {
+-  GLint location = glGetUniformLocation(impl-&gt;handle, name);
++  GLint location = glGetUniformLocation(m_handle, name);
+   if (location == -1)
+     std::cout &lt;&lt; &quot;No such uniform named \&quot;&quot; &lt;&lt; name &lt;&lt; &quot;\&quot;&quot; &lt;&lt; std::endl;
+   else
+@@ -101,7 +95,7 @@
+ void
+ ShaderProgram::set_uniform3f(const char* name, GLfloat v0, GLfloat v1, GLfloat v2)
+ {
+-  GLint location = glGetUniformLocation(impl-&gt;handle, name);
++  GLint location = glGetUniformLocation(m_handle, name);
+   if (location == -1)
+     std::cout &lt;&lt; &quot;No such uniform named \&quot;&quot; &lt;&lt; name &lt;&lt; &quot;\&quot;&quot; &lt;&lt; std::endl;
+   else
+@@ -111,7 +105,7 @@
+ void
+ ShaderProgram::set_uniform4f(const char* name, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3)
+ {
+-  GLint location = glGetUniformLocation(impl-&gt;handle, name);
++  GLint location = glGetUniformLocation(m_handle, name);
+   if (location == -1)
+     std::cout &lt;&lt; &quot;No such uniform named \&quot;&quot; &lt;&lt; name &lt;&lt; &quot;\&quot;&quot; &lt;&lt; std::endl;
+   else
+@@ -121,7 +115,7 @@
+ void
+ ShaderProgram::set_uniform1i(const char* name, GLint v0)
+ {
+-  GLint location = glGetUniformLocation(impl-&gt;handle, name);
++  GLint location = glGetUniformLocation(m_handle, name);
+   if (location == -1)
+     std::cout &lt;&lt; &quot;No such uniform named \&quot;&quot; &lt;&lt; name &lt;&lt; &quot;\&quot;&quot; &lt;&lt; std::endl;
+   else
+@@ -131,7 +125,7 @@
+ void
+ ShaderProgram::set_uniform2i(const char* name, GLint v0, GLint v1)
+ {
+-  GLint location = glGetUniformLocation(impl-&gt;handle, name);
++  GLint location = glGetUniformLocation(m_handle, name);
+   if (location == -1)
+     std::cout &lt;&lt; &quot;No such uniform named \&quot;&quot; &lt;&lt; name &lt;&lt; &quot;\&quot;&quot; &lt;&lt; std::endl;
+   else
+@@ -141,7 +135,7 @@
+ void
+ ShaderProgram::set_uniform3i(const char* name, GLint v0, GLint v1, GLint v2)
+ {
+-  GLint location = glGetUniformLocation(impl-&gt;handle, name);
++  GLint location = glGetUniformLocation(m_handle, name);
+   if (location == -1)
+     std::cout &lt;&lt; &quot;No such uniform named \&quot;&quot; &lt;&lt; name &lt;&lt; &quot;\&quot;&quot; &lt;&lt; std::endl;
+   else
+@@ -151,7 +145,7 @@
+ void
+ ShaderProgram::set_uniform4i(const char* name, GLint v0, GLint v1, GLint v2, GLint v3)
+ {
+-  GLint location = glGetUniformLocation(impl-&gt;handle, name);
++  GLint location = glGetUniformLocation(m_handle, name);
+   if (location == -1)
+     std::cout &lt;&lt; &quot;No such uniform named \&quot;&quot; &lt;&lt; name &lt;&lt; &quot;\&quot;&quot; &lt;&lt; std::endl;
+   else
+
+Modified: trunk/windstille/src/display/shader_program.hpp
+===================================================================
+--- trunk/windstille/src/display/shader_program.hpp	2010-09-22 10:46:51 UTC (rev 3365)
++++ trunk/windstille/src/display/shader_program.hpp	2010-09-22 11:34:40 UTC (rev 3366)
+@@ -23,18 +23,24 @@
+ #include &lt;GL/gl.h&gt;
+ #include &lt;boost/shared_ptr.hpp&gt;
+ 
+-class ShaderProgramImpl;
++#include &quot;display/shader_object.hpp&quot;
++
+ class ShaderObject;
++class ShaderProgram;
++typedef boost::shared_ptr&lt;ShaderProgram&gt; ShaderProgramPtr;
+ 
+-/** */
+ class ShaderProgram
+ {
++public:
++  static ShaderProgramPtr create(); 
++
+ private:
++  ShaderProgram();
++
+ public:
+-  ShaderProgram();
+   ~ShaderProgram();
+ 
+-  void attach(const ShaderObject&amp; obj);
++  void attach(ShaderObjectPtr obj);
+   void link();
+ 
+   GLint get_uniform_location(const char* name);
+@@ -53,7 +59,7 @@
+   void set_uniform4i(const char* name, GLint v0, GLint v1, GLint v2, GLint v3);
+ 
+ private:
+-  boost::shared_ptr&lt;ShaderProgramImpl&gt; impl;
++  GLuint m_handle;
+ };
+ 
+ #endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002362.html">[Windstille-commit] r3365 - in trunk/windstille/src: display font	gui tile
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2363">[ date ]</a>
+              <a href="thread.html#2363">[ thread ]</a>
+              <a href="subject.html#2363">[ subject ]</a>
+              <a href="author.html#2363">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

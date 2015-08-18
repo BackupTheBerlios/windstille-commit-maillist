@@ -1,0 +1,298 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1053 - in trunk/src: display particles
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1053%20-%20in%20trunk/src%3A%20display%20particles&In-Reply-To=%3C200509022020.j82KKJCp024810%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000709.html">
+   <LINK REL="Next"  HREF="000711.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1053 - in trunk/src: display particles</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1053%20-%20in%20trunk/src%3A%20display%20particles&In-Reply-To=%3C200509022020.j82KKJCp024810%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1053 - in trunk/src: display particles">grumbel at berlios.de
+       </A><BR>
+    <I>Fri Sep  2 22:20:19 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000709.html">[Windstille-commit] r1052 - trunk/src/collision
+</A></li>
+        <LI>Next message: <A HREF="000711.html">[Windstille-commit] r1054 - trunk/data/images/objects
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#710">[ date ]</a>
+              <a href="thread.html#710">[ thread ]</a>
+              <a href="subject.html#710">[ subject ]</a>
+              <a href="author.html#710">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-09-02 22:20:16 +0200 (Fri, 02 Sep 2005)
+New Revision: 1053
+
+Modified:
+   trunk/src/display/scene_context.cpp
+   trunk/src/display/scene_context.hpp
+   trunk/src/particles/drawer.hpp
+   trunk/src/particles/particle_system.cpp
+   trunk/src/particles/particle_system.hpp
+   trunk/src/particles/spark_drawer.cpp
+   trunk/src/particles/spark_drawer.hpp
+   trunk/src/particles/surface_drawer.cpp
+   trunk/src/particles/surface_drawer.hpp
+Log:
+- added layer support to the ParticleSystem
+
+Modified: trunk/src/display/scene_context.cpp
+===================================================================
+--- trunk/src/display/scene_context.cpp	2005-09-01 00:39:01 UTC (rev 1052)
++++ trunk/src/display/scene_context.cpp	2005-09-02 20:20:16 UTC (rev 1053)
+@@ -217,4 +217,23 @@
+   return impl-&gt;render_mask;
+ }
+ 
++DrawingContext&amp;
++SceneContext::get_layer(unsigned int type)
++{
++  switch(type)
++    {
++    case COLORMAP:
++      return impl-&gt;color;
++
++    case LIGHTMAP:
++      return impl-&gt;light;
++
++    case HIGHLIGHTMAP:
++      return impl-&gt;highlight;
++
++    default:
++      assert(!&quot;SceneContext::get_layer(): Unknown type&quot;);
++    }
++}
++
+ /* EOF */
+
+Modified: trunk/src/display/scene_context.hpp
+===================================================================
+--- trunk/src/display/scene_context.hpp	2005-09-01 00:39:01 UTC (rev 1052)
++++ trunk/src/display/scene_context.hpp	2005-09-02 20:20:16 UTC (rev 1053)
+@@ -79,6 +79,9 @@
+ 
+   void set_render_mask(unsigned int mask);
+   unsigned int get_render_mask();
++
++  DrawingContext&amp; get_layer(unsigned int t);
++
+ private:
+   SceneContextImpl* impl;
+ 
+
+Modified: trunk/src/particles/drawer.hpp
+===================================================================
+--- trunk/src/particles/drawer.hpp	2005-09-01 00:39:01 UTC (rev 1052)
++++ trunk/src/particles/drawer.hpp	2005-09-02 20:20:16 UTC (rev 1053)
+@@ -20,14 +20,14 @@
+ #ifndef HEADER_PARTICLES_DRAWER_HXX
+ #define HEADER_PARTICLES_DRAWER_HXX
+ 
+-class SceneContext;
++class DrawingContext;
+ class ParticleSystem;
+ 
+ class Drawer
+ {
+ public:
+   virtual ~Drawer() {}
+-  virtual void draw(SceneContext&amp; sc, ParticleSystem&amp; psys) =0;
++  virtual void draw(DrawingContext&amp; sc, ParticleSystem&amp; psys) =0;
+ };
+ 
+ #endif
+
+Modified: trunk/src/particles/particle_system.cpp
+===================================================================
+--- trunk/src/particles/particle_system.cpp	2005-09-01 00:39:01 UTC (rev 1052)
++++ trunk/src/particles/particle_system.cpp	2005-09-02 20:20:16 UTC (rev 1053)
+@@ -57,6 +57,8 @@
+   color_start = Color(1.0f, 1.0f, 1.0f, 1.0f);
+   color_stop  = Color(   0,    0,    0,    0);
+ 
++  layer = SceneContext::COLORMAP;
++
+   // Set stuff from Lisp
+   lisp::Properties props(lisp);
+ 
+@@ -112,6 +114,21 @@
+     set_velocity(p_speed.x, p_speed.y);
+ 
+   {
++    std::string layer_str;
++    if (props.get(&quot;layer&quot;, layer_str))
++      {
++        if (layer_str == &quot;highlight&quot;)
++          layer = SceneContext::HIGHLIGHTMAP;
++        else if (layer_str == &quot;light&quot;)
++          layer = SceneContext::LIGHTMAP;
++        else if (layer_str == &quot;color&quot;)
++          layer = SceneContext::COLORMAP;
++        else
++          std::cout &lt;&lt; &quot;ParticleSystem: Unknown layer type: '&quot; &lt;&lt; layer_str &lt;&lt; &quot;'&quot; &lt;&lt; std::endl;
++      }
++  }
++
++  {
+     const lisp::Lisp* drawer_lisp = 0;
+     if (props.get(&quot;drawer&quot;, drawer_lisp))
+       {
+@@ -223,7 +240,7 @@
+ {
+   if (drawer)
+     {
+-      drawer-&gt;draw(sc, *this);
++      drawer-&gt;draw(sc.get_layer(layer), *this);
+     }
+   else
+     {
+
+Modified: trunk/src/particles/particle_system.hpp
+===================================================================
+--- trunk/src/particles/particle_system.hpp	2005-09-01 00:39:01 UTC (rev 1052)
++++ trunk/src/particles/particle_system.hpp	2005-09-02 20:20:16 UTC (rev 1053)
+@@ -56,6 +56,7 @@
+ public:
+   typedef std::vector&lt;Particle&gt; Particles;
+   typedef Particles::iterator iterator;
++
+ private:
+   Particles particles;
+ 
+@@ -80,6 +81,9 @@
+ 
+   float bunching;
+ 
++  /** Type of layer to which this particle system gets drawn */
++  unsigned int layer;
++
+ public:
+   float size_start;
+   float size_stop;
+
+Modified: trunk/src/particles/spark_drawer.cpp
+===================================================================
+--- trunk/src/particles/spark_drawer.cpp	2005-09-01 00:39:01 UTC (rev 1052)
++++ trunk/src/particles/spark_drawer.cpp	2005-09-02 20:20:16 UTC (rev 1053)
+@@ -35,10 +35,10 @@
+ }
+ 
+ void
+-SparkDrawer::draw(SceneContext&amp; sc, ParticleSystem&amp; psys) 
++SparkDrawer::draw(DrawingContext&amp; dc, ParticleSystem&amp; psys) 
+ {
+   VertexArrayDrawingRequest* buffer = new VertexArrayDrawingRequest(Vector(0, 0), psys.get_z_pos(),
+-                                                                    sc.color().get_modelview());
++                                                                    dc.get_modelview());
+   if (width == 1.0f)
+     {
+       buffer-&gt;set_mode(GL_LINES);
+@@ -76,7 +76,7 @@
+         }
+     }
+ 
+-  sc.color().draw(buffer);
++  dc.draw(buffer);
+ }
+ 
+ /* EOF */
+
+Modified: trunk/src/particles/spark_drawer.hpp
+===================================================================
+--- trunk/src/particles/spark_drawer.hpp	2005-09-01 00:39:01 UTC (rev 1052)
++++ trunk/src/particles/spark_drawer.hpp	2005-09-02 20:20:16 UTC (rev 1053)
+@@ -30,9 +30,10 @@
+ private:
+   Color color;
+   float width;
++
+ public:
+   SparkDrawer(const lisp::Lisp* lisp);
+-  void draw(SceneContext&amp; sc, ParticleSystem&amp; psys);
++  void draw(DrawingContext&amp; dc, ParticleSystem&amp; psys);
+ };
+ 
+ #endif
+
+Modified: trunk/src/particles/surface_drawer.cpp
+===================================================================
+--- trunk/src/particles/surface_drawer.cpp	2005-09-01 00:39:01 UTC (rev 1052)
++++ trunk/src/particles/surface_drawer.cpp	2005-09-02 20:20:16 UTC (rev 1053)
+@@ -88,11 +88,11 @@
+ }
+ 
+ void
+-SurfaceDrawer::draw(SceneContext&amp; sc, ParticleSystem&amp; psys) 
++SurfaceDrawer::draw(DrawingContext&amp; dc, ParticleSystem&amp; psys) 
+ {          
+   VertexArrayDrawingRequest* buffer 
+     = new VertexArrayDrawingRequest(Vector(psys.get_x_pos(), psys.get_y_pos()), psys.get_z_pos(),
+-                                    sc.color().get_modelview());
++                                    dc.get_modelview());
+ 
+   buffer-&gt;set_mode(GL_QUADS);
+   buffer-&gt;set_texture(surface.get_texture());
+@@ -142,7 +142,7 @@
+         }
+     }
+ 
+-  sc.color().draw(buffer);
++  dc.draw(buffer);
+ }
+ 
+ /* EOF */
+
+Modified: trunk/src/particles/surface_drawer.hpp
+===================================================================
+--- trunk/src/particles/surface_drawer.hpp	2005-09-01 00:39:01 UTC (rev 1052)
++++ trunk/src/particles/surface_drawer.hpp	2005-09-02 20:20:16 UTC (rev 1053)
+@@ -38,7 +38,7 @@
+   
+   void set_texture(Surface surface);
+   void set_blendfuncs(GLenum blendfunc_src, GLenum blendfunc_dst);
+-  void draw(SceneContext&amp; sc, ParticleSystem&amp; psys);
++  void draw(DrawingContext&amp; sc, ParticleSystem&amp; psys);
+ };
+ 
+ #endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000709.html">[Windstille-commit] r1052 - trunk/src/collision
+</A></li>
+	<LI>Next message: <A HREF="000711.html">[Windstille-commit] r1054 - trunk/data/images/objects
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#710">[ date ]</a>
+              <a href="thread.html#710">[ thread ]</a>
+              <a href="subject.html#710">[ subject ]</a>
+              <a href="author.html#710">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

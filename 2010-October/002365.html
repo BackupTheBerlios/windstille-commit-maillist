@@ -1,0 +1,292 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3368 - trunk/windstille/extra/lenseflair
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2010-October/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3368%20-%20trunk/windstille/extra/lenseflair&In-Reply-To=%3C20101008125226.3C329480DF4%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002364.html">
+   <LINK REL="Next"  HREF="002366.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3368 - trunk/windstille/extra/lenseflair</H1>
+    <B>grumbel at mail.berlios.de</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3368%20-%20trunk/windstille/extra/lenseflair&In-Reply-To=%3C20101008125226.3C329480DF4%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3368 - trunk/windstille/extra/lenseflair">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Oct  8 14:52:26 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002364.html">[Windstille-commit] r3367 - in trunk/windstille/extra: . lenseflair
+</A></li>
+        <LI>Next message: <A HREF="002366.html">[Windstille-commit] r3369 - in trunk/windstille/extra: . lensflare
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2365">[ date ]</a>
+              <a href="thread.html#2365">[ thread ]</a>
+              <a href="subject.html#2365">[ subject ]</a>
+              <a href="author.html#2365">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2010-10-08 14:52:26 +0200 (Fri, 08 Oct 2010)
+New Revision: 3368
+
+Added:
+   trunk/windstille/extra/lenseflair/lightquery.png
+Modified:
+   trunk/windstille/extra/lenseflair/cover.png
+   trunk/windstille/extra/lenseflair/flair2.png
+   trunk/windstille/extra/lenseflair/lenseflair.cpp
+   trunk/windstille/extra/lenseflair/lenseflair.hpp
+   trunk/windstille/extra/lenseflair/light.png
+Log:
+Added occlusion queries to the lenseflair
+
+Modified: trunk/windstille/extra/lenseflair/cover.png
+===================================================================
+(Binary files differ)
+
+Modified: trunk/windstille/extra/lenseflair/flair2.png
+===================================================================
+(Binary files differ)
+
+Modified: trunk/windstille/extra/lenseflair/lenseflair.cpp
+===================================================================
+--- trunk/windstille/extra/lenseflair/lenseflair.cpp	2010-10-07 23:19:09 UTC (rev 3367)
++++ trunk/windstille/extra/lenseflair/lenseflair.cpp	2010-10-08 12:52:26 UTC (rev 3368)
+@@ -34,6 +34,7 @@
+   m_loop(false),
+   
+   m_light(),
++  m_lightquery(),
+   m_superlight(),
+   m_flair1(),
+   m_flair2(),
+@@ -49,6 +50,9 @@
+ void
+ Lenseflair::draw()
+ {
++  GLuint query_id;
++  glGenQueries(1, &amp;query_id);
++
+   Vector2f screen_center(static_cast&lt;float&gt;(m_aspect_ratio.width)  / 2.0f,
+                          static_cast&lt;float&gt;(m_aspect_ratio.height) / 2.0f);
+   float dist = (m_mouse - screen_center).length();
+@@ -57,20 +61,67 @@
+   factor *= 3.3f;
+   std::cout &lt;&lt; factor &lt;&lt; std::endl;
+ 
++  glEnable(GL_DEPTH_TEST);
++
++  glDepthMask(GL_TRUE);
++  glAlphaFunc ( GL_GREATER, 0.1f );
++  glEnable(GL_ALPHA_TEST);
++  m_cover-&gt;draw(Vector2f(600, 400));
++  glDisable(GL_ALPHA_TEST);
++  glDepthMask(GL_FALSE);
++
++  glBeginQuery(GL_SAMPLES_PASSED, query_id);
++  m_lightquery-&gt;draw(SurfaceDrawingParameters()
++                     .set_blend_func(GL_SRC_ALPHA, GL_ONE)
++                     .set_pos(Vector2f(m_mouse.x - m_lightquery-&gt;get_width()/2,
++                                       m_mouse.y - m_lightquery-&gt;get_height()/2)));
++  GLint samples = 0;
++  glEndQuery(GL_SAMPLES_PASSED);
++
++
++  GLint query_counter_bits = 0;
++  glGetQueryiv(GL_SAMPLES_PASSED, GL_QUERY_COUNTER_BITS, &amp;query_counter_bits);
++  if (query_counter_bits == 0)
++  {
++    std::cout &lt;&lt; &quot;Occlusion query not supported&quot; &lt;&lt; std::endl;
++  }
++
++  glGetQueryObjectiv(query_id, GL_QUERY_RESULT, &amp;samples);
++  
++  std::cout &lt;&lt; &quot;samples: &quot; &lt;&lt; samples &lt;&lt; std::endl;
++
++  glDeleteQueries(1, &amp;query_id);
++
++  float visibility = static_cast&lt;float&gt;(samples) / 16384.0f;
++  factor *= visibility;
++
++  m_halo-&gt;draw(SurfaceDrawingParameters()
++               .set_blend_func(GL_SRC_ALPHA, GL_ONE)
++               .set_color(Color(1,1,1,visibility))
++               .set_scale(1.0f)
++               .set_pos(Vector2f(m_mouse.x,
++                                 m_mouse.y)
++                        - Vector2f(m_halo-&gt;get_width()/2 * (1.0f),
++                                   m_halo-&gt;get_height()/2 * (1.0f))));
++
++  glDisable(GL_DEPTH_TEST);
++
+   m_light-&gt;draw(SurfaceDrawingParameters()
+                 .set_blend_func(GL_SRC_ALPHA, GL_ONE)
+-                .set_pos(Vector2f(m_mouse.x - m_light-&gt;get_width()/2,
+-                                  m_mouse.y - m_light-&gt;get_height()/2)));
++                .set_color(Color(1,1,1,1))
++                .set_scale(visibility)
++                .set_pos(Vector2f(m_mouse.x - m_light-&gt;get_width()/2 * visibility,
++                                  m_mouse.y - m_light-&gt;get_height()/2 * visibility)));
+ 
+-  m_cover-&gt;draw(Vector2f(600, 400));
+ 
+   m_halo-&gt;draw(SurfaceDrawingParameters()
+-                 .set_blend_func(GL_SRC_ALPHA, GL_ONE)
+-                 .set_scale(2.0f + factor*5.0f)
+-                 .set_pos(Vector2f(m_mouse.x,
+-                                   m_mouse.y)
+-                          - Vector2f(m_halo-&gt;get_width()/2 * (2.0f + factor*5.0f),
+-                                     m_halo-&gt;get_height()/2 * (2.0f +  factor*5.0f))));
++               .set_blend_func(GL_SRC_ALPHA, GL_ONE)
++               .set_color(Color(1,1,1,visibility))
++               .set_scale(2.0f + factor*5.0f)
++               .set_pos(Vector2f(m_mouse.x,
++                                 m_mouse.y)
++                        - Vector2f(m_halo-&gt;get_width()/2 * (2.0f + factor*5.0f),
++                                   m_halo-&gt;get_height()/2 * (2.0f +  factor*5.0f))));
+ 
+ 
+   m_superlight-&gt;draw(SurfaceDrawingParameters()
+@@ -85,7 +136,7 @@
+     i-&gt;m_surface-&gt;draw(SurfaceDrawingParameters()
+                        .set_blend_func(GL_SRC_ALPHA, GL_ONE)
+                        .set_scale(i-&gt;m_scale)
+-                       .set_color(Color(1,1,1,factor))
++                       .set_color(Color(i-&gt;m_color.r, i-&gt;m_color.g, i-&gt;m_color.b, i-&gt;m_color.a * visibility))
+                        .set_pos(screen_center + (m_mouse - screen_center) * i-&gt;m_distance
+                                 - Vector2f(i-&gt;m_surface-&gt;get_width() /2 * i-&gt;m_scale,
+                                            i-&gt;m_surface-&gt;get_height()/2 * i-&gt;m_scale)));
+@@ -173,29 +224,33 @@
+   SurfaceManager surface_manager;
+ 
+   m_light  = Surface::create(Pathname(&quot;light.png&quot;, Pathname::kSysPath));
++  m_lightquery  = Surface::create(Pathname(&quot;lightquery.png&quot;, Pathname::kSysPath));
+   m_superlight  = Surface::create(Pathname(&quot;superlight.png&quot;, Pathname::kSysPath));
+   m_flair1 = Surface::create(Pathname(&quot;flair1.png&quot;, Pathname::kSysPath));
+   m_flair2 = Surface::create(Pathname(&quot;flair2.png&quot;, Pathname::kSysPath));
+   m_cover = Surface::create(Pathname(&quot;cover.png&quot;, Pathname::kSysPath));
+   m_halo = Surface::create(Pathname(&quot;halo.png&quot;, Pathname::kSysPath));
+ 
+-  m_flairs.push_back(Flair(m_flair1, 0.5f, 0.5f));
+-  m_flairs.push_back(Flair(m_flair1, 1.5f, 0.5f));
+-  m_flairs.push_back(Flair(m_flair1, -1.5f, 0.5f));
+-  m_flairs.push_back(Flair(m_flair1, 1.0/2.0f, 0.5f));
+-  m_flairs.push_back(Flair(m_flair1, 1.0f/8.0f, 0.25f));
+-  m_flairs.push_back(Flair(m_flair2, -1.0f/2.0f, 0.5f));
+-  m_flairs.push_back(Flair(m_flair1, -1.0f/3.0f, 0.25f));
+-  m_flairs.push_back(Flair(m_flair2, -1.0f/4.0f, 0.25f));
+-  m_flairs.push_back(Flair(m_flair1, -1.0f/5.0f, 0.75f));
+-  m_flairs.push_back(Flair(m_flair2, -1.0f/5.5f, 0.75f));
++  float pos[] = { 0.1f, 0.2f, 0.4f, 0.8f, 1.6f, 3.2f };
++  
++  for(size_t i = 0; i &lt; sizeof(pos)/sizeof(float); ++i)
++  {
++    m_flairs.push_back(Flair(m_flair2, pos[i], 1.0f * pos[i], Color(1,1,1,1)));
++    m_flairs.push_back(Flair(m_flair2, -pos[i] * 0.7f, 1.0f * pos[i] * 0.7f, Color(1,1,1,1)));
++  }
+ 
++  for(size_t i = 0; i &lt; sizeof(pos)/sizeof(float); ++i)
++  {
++    m_flairs.push_back(Flair(m_flair1, pos[i]* 0.2f, 1.0f * pos[i] * 0.2f, Color(1,1,1,0.1f)));
++    m_flairs.push_back(Flair(m_flair1, -pos[i] * 0.1f, 1.0f * pos[i] * 0.1f, Color(1,1,1,0.1f)));
++  }
+ 
++
+   m_loop = true;
+   while(m_loop)
+   {
+     glClearColor(0,0,0,0);
+-    glClear(GL_COLOR_BUFFER_BIT);
++    glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
+ 
+     process_input();
+     draw();
+
+Modified: trunk/windstille/extra/lenseflair/lenseflair.hpp
+===================================================================
+--- trunk/windstille/extra/lenseflair/lenseflair.hpp	2010-10-07 23:19:09 UTC (rev 3367)
++++ trunk/windstille/extra/lenseflair/lenseflair.hpp	2010-10-08 12:52:26 UTC (rev 3368)
+@@ -24,19 +24,23 @@
+ #include &quot;math/vector2f.hpp&quot;
+ #include &quot;math/size.hpp&quot;
+ #include &quot;display/surface.hpp&quot;
++#include &quot;display/color.hpp&quot;
+ 
+ struct Flair
+ {
+   SurfacePtr m_surface;
+   float      m_distance;
+   float      m_scale;
+-
++  Color      m_color;
++  
+   Flair(SurfacePtr surface,
+         float      distance,
+-        float      scale) :
++        float      scale,
++        Color color) :
+     m_surface(surface),
+     m_distance(distance),
+-    m_scale(scale)
++    m_scale(scale),
++    m_color(color)
+   {}
+ };
+ 
+@@ -49,6 +53,7 @@
+   bool m_loop;
+ 
+   SurfacePtr m_light;
++  SurfacePtr m_lightquery;
+   SurfacePtr m_superlight;
+   SurfacePtr m_flair1;
+   SurfacePtr m_flair2;
+
+Modified: trunk/windstille/extra/lenseflair/light.png
+===================================================================
+(Binary files differ)
+
+Added: trunk/windstille/extra/lenseflair/lightquery.png
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/windstille/extra/lenseflair/lightquery.png
+___________________________________________________________________
+Added: svn:mime-type
+   + image/png
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002364.html">[Windstille-commit] r3367 - in trunk/windstille/extra: . lenseflair
+</A></li>
+	<LI>Next message: <A HREF="002366.html">[Windstille-commit] r3369 - in trunk/windstille/extra: . lensflare
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2365">[ date ]</a>
+              <a href="thread.html#2365">[ thread ]</a>
+              <a href="subject.html#2365">[ subject ]</a>
+              <a href="author.html#2365">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

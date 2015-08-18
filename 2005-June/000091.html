@@ -1,0 +1,198 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r434 - in trunk/src: . display
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r434%20-%20in%20trunk/src%3A%20.%20display&In-Reply-To=%3C200506261438.j5QEcbC4029399%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000090.html">
+   <LINK REL="Next"  HREF="000092.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r434 - in trunk/src: . display</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r434%20-%20in%20trunk/src%3A%20.%20display&In-Reply-To=%3C200506261438.j5QEcbC4029399%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r434 - in trunk/src: . display">grumbel at sheep.berlios.de
+       </A><BR>
+    <I>Sun Jun 26 16:38:37 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000090.html">[Windstille-commit] r433 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000092.html">[Windstille-commit] r435 - in trunk: data data/images src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#91">[ date ]</a>
+              <a href="thread.html#91">[ thread ]</a>
+              <a href="subject.html#91">[ subject ]</a>
+              <a href="author.html#91">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-06-26 16:38:35 +0200 (Sun, 26 Jun 2005)
+New Revision: 434
+
+Modified:
+   trunk/src/display/scene_context.cxx
+   trunk/src/display/scene_context.hxx
+   trunk/src/game_session.cxx
+Log:
+removed use of CL_Canvas
+
+Modified: trunk/src/display/scene_context.cxx
+===================================================================
+--- trunk/src/display/scene_context.cxx	2005-06-26 13:29:12 UTC (rev 433)
++++ trunk/src/display/scene_context.cxx	2005-06-26 14:38:35 UTC (rev 434)
+@@ -21,6 +21,9 @@
+ #include &lt;ClanLib/gl.h&gt;
+ #include &quot;scene_context.hxx&quot;
+ 
++// The lightmap has a resolution of screen.w/LIGHTMAP, screen.h/LIGHTMAP
++#define LIGHTMAP_DIV 4
++
+ class SceneContextImpl
+ {
+ public:
+@@ -30,16 +33,13 @@
+   unsigned int render_mask;
+ 
+   CL_OpenGLSurface lightmap;
+-  CL_Canvas        canvas;
+ 
+   SceneContextImpl() 
+     : render_mask(SceneContext::COLORMAP | SceneContext::LIGHTMAP | SceneContext::HIGHLIGHTMAP ),
+-      lightmap(CL_PixelBuffer(200, 
+-                              150,
+-                              200*4, CL_PixelFormat::rgba8888)),
+-      canvas(lightmap)
++      lightmap(CL_PixelBuffer(800/LIGHTMAP_DIV, 
++                              600/LIGHTMAP_DIV,
++                              800/LIGHTMAP_DIV*4, CL_PixelFormat::rgba8888))
+   {
+-    canvas.get_gc()-&gt;set_scale(0.25, 0.25);
+   }
+ };
+ 
+@@ -126,11 +126,24 @@
+ void
+ SceneContext::render()
+ {
+-  if (impl-&gt;render_mask &amp; CLEARMAP)
++  if (impl-&gt;render_mask &amp; LIGHTMAP)
+     {
+       CL_Display::clear();
++      
++      CL_Display::push_modelview();
++      CL_Display::add_scale(1.0f/LIGHTMAP_DIV, 1.0f/LIGHTMAP_DIV, 1.0f);
++      impl-&gt;light.render();
++      CL_Display::pop_modelview();
++      
++      // Weird y-pos is needed since OpenGL is upside down when it comes to y-coordinate
++      impl-&gt;lightmap.bind();
++      glCopyTexSubImage2D(GL_TEXTURE_2D, 0,
++                          0, 0, 
++                          0, 600 - impl-&gt;lightmap.get_height(),
++                          impl-&gt;lightmap.get_width(), impl-&gt;lightmap.get_height());
+     }
+ 
++
+   // Render all buffers
+   // FIXME: Render all to pbuffer for later combining of them
+   if (impl-&gt;render_mask &amp; COLORMAP)
+@@ -138,17 +151,11 @@
+       impl-&gt;color.render();
+     }
+ 
+-  if (impl-&gt;render_mask &amp; LIGHTMAP)
++  if (impl-&gt;render_mask &amp; LIGHTMAP &amp;&amp; impl-&gt;render_mask &amp; COLORMAP)
+     {
+-      impl-&gt;light.render(impl-&gt;canvas.get_gc());
+-      impl-&gt;canvas.sync_surface();
+-
+-      //impl-&gt;lightmap.set_blend_func(blend_src_alpha, blend_one);
+       impl-&gt;lightmap.set_blend_func(blend_dest_color, blend_zero);
+-      //GL_DST_COLOR, GL_ZERO
+-      impl-&gt;lightmap.set_scale(4.0f, 4.0f);
+-      impl-&gt;lightmap.draw();
+-      impl-&gt;canvas.get_gc()-&gt;clear();
++      impl-&gt;lightmap.set_scale(LIGHTMAP_DIV, -LIGHTMAP_DIV);
++      impl-&gt;lightmap.draw(0, 600);
+     }
+ 
+   if (impl-&gt;render_mask &amp; HIGHLIGHTMAP)
+
+Modified: trunk/src/display/scene_context.hxx
+===================================================================
+--- trunk/src/display/scene_context.hxx	2005-06-26 13:29:12 UTC (rev 433)
++++ trunk/src/display/scene_context.hxx	2005-06-26 14:38:35 UTC (rev 434)
+@@ -73,8 +73,7 @@
+ 
+   enum { COLORMAP     = 1&lt;&lt;0,
+          LIGHTMAP     = 1&lt;&lt;1,
+-         HIGHLIGHTMAP = 1&lt;&lt;2,
+-         CLEARMAP     = 1&lt;&lt;3
++         HIGHLIGHTMAP = 1&lt;&lt;2
+   };
+ 
+   void set_render_mask(unsigned int mask);
+
+Modified: trunk/src/game_session.cxx
+===================================================================
+--- trunk/src/game_session.cxx	2005-06-26 13:29:12 UTC (rev 433)
++++ trunk/src/game_session.cxx	2005-06-26 14:38:35 UTC (rev 434)
+@@ -338,21 +338,16 @@
+   switch(event.id)
+     {
+     case CL_KEY_1:
+-      sc.set_render_mask(sc.get_render_mask() ^ SceneContext::CLEARMAP);
+-      console.add(&quot;Toggled CLEARMAP: &quot;,  (sc.get_render_mask() &amp; SceneContext::CLEARMAP) &gt; 0);
+-      break;
+-
+-    case CL_KEY_2:
+       sc.set_render_mask(sc.get_render_mask() ^ SceneContext::COLORMAP);
+       console.add(&quot;Toggled COLORMAP: &quot;, (sc.get_render_mask() &amp; SceneContext::COLORMAP) &gt; 0);
+       break;
+ 
+-    case CL_KEY_3:
++    case CL_KEY_2:
+       sc.set_render_mask(sc.get_render_mask() ^ SceneContext::LIGHTMAP);
+       console.add(&quot;Toggled LIGHTMAP: &quot;, (sc.get_render_mask() &amp; SceneContext::LIGHTMAP) &gt; 0);
+       break;
+ 
+-    case CL_KEY_4:
++    case CL_KEY_3:
+       sc.set_render_mask(sc.get_render_mask() ^ SceneContext::HIGHLIGHTMAP);
+       console.add(&quot;Toggled HIGHLIGHTMAP: &quot;, (sc.get_render_mask() &amp; SceneContext::HIGHLIGHTMAP) &gt; 0);
+       break;      
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000090.html">[Windstille-commit] r433 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000092.html">[Windstille-commit] r435 - in trunk: data data/images src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#91">[ date ]</a>
+              <a href="thread.html#91">[ thread ]</a>
+              <a href="subject.html#91">[ subject ]</a>
+              <a href="author.html#91">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

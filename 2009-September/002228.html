@@ -1,0 +1,298 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3231 - trunk/windstille/src/engine
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3231%20-%20trunk/windstille/src/engine&In-Reply-To=%3C200909120524.n8C5OOKk010375%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002227.html">
+   <LINK REL="Next"  HREF="002229.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3231 - trunk/windstille/src/engine</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3231%20-%20trunk/windstille/src/engine&In-Reply-To=%3C200909120524.n8C5OOKk010375%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3231 - trunk/windstille/src/engine">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Sep 12 07:24:24 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002227.html">[Windstille-commit] r3230 - trunk/windstille
+</A></li>
+        <LI>Next message: <A HREF="002229.html">[Windstille-commit] r3232 - in trunk/windstille/src: engine objects	scripting tile
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2228">[ date ]</a>
+              <a href="thread.html#2228">[ thread ]</a>
+              <a href="subject.html#2228">[ subject ]</a>
+              <a href="author.html#2228">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-12 07:24:21 +0200 (Sat, 12 Sep 2009)
+New Revision: 3231
+
+Added:
+   trunk/windstille/src/engine/sector_builder.cpp
+   trunk/windstille/src/engine/sector_builder.hpp
+Modified:
+   trunk/windstille/src/engine/sector.hpp
+Log:
+Added SectorBuilder class for loading the Sector (rather incomplete right now)
+
+Modified: trunk/windstille/src/engine/sector.hpp
+===================================================================
+--- trunk/windstille/src/engine/sector.hpp	2009-09-12 03:22:24 UTC (rev 3230)
++++ trunk/windstille/src/engine/sector.hpp	2009-09-12 05:24:21 UTC (rev 3231)
+@@ -41,7 +41,6 @@
+ class SceneGraph;
+ class Doll;
+ 
+-/** */
+ class Sector : public Currenton&lt;Sector&gt;
+ { 
+ private:
+
+Added: trunk/windstille/src/engine/sector_builder.cpp
+===================================================================
+--- trunk/windstille/src/engine/sector_builder.cpp	2009-09-12 03:22:24 UTC (rev 3230)
++++ trunk/windstille/src/engine/sector_builder.cpp	2009-09-12 05:24:21 UTC (rev 3231)
+@@ -0,0 +1,135 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &quot;engine/sector_builder.hpp&quot;
++
++#include &lt;string&gt;
++#include &lt;iostream&gt;
++#include &lt;sstream&gt;
++#include &lt;stdexcept&gt;
++
++#include &quot;app/globals.hpp&quot;
++#include &quot;display/color.hpp&quot;
++#include &quot;engine/game_object.hpp&quot;
++#include &quot;engine/sector.hpp&quot;
++#include &quot;util/file_reader.hpp&quot;
++
++SectorBuilder::SectorBuilder(const Pathname&amp; filename, Sector&amp; sector)
++  : m_filename(filename),
++    m_sector(sector),
++    id_table(),
++    parent_table()
++{
++  if (debug) std::cout &lt;&lt; &quot;Sector:parse_file '&quot; &lt;&lt; m_filename &lt;&lt; &quot;'&quot; &lt;&lt; std::endl;
++  
++  FileReader reader = FileReader::parse(m_filename);
++  if(reader.get_name() != &quot;windstille-sector&quot;) 
++  {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;'&quot; &lt;&lt; m_filename &lt;&lt; &quot;' is not a windstille-sector file&quot;;
++    throw std::runtime_error(msg.str());
++  }
++  else
++  {
++    parse_body(reader);
++  }
++}
++
++void
++SectorBuilder::parse_body(const FileReader&amp; reader)
++{
++  { // check version
++    int version = 1;
++    if (!reader.get(&quot;version&quot;, version))
++      std::cerr &lt;&lt; &quot;Warning no version specified in levelformat.\n&quot;;
++
++    if (version &gt; 3)
++      std::cerr &lt;&lt; &quot;Warning: format version is newer than game.\n&quot;;
++  }
++
++  //reader.get(&quot;name&quot;,          name);
++  //reader.get(&quot;music&quot;,         music);
++  //reader.get(&quot;init-script&quot;,   init_script);
++
++  Color ambient_light;
++  if (reader.get(&quot;ambient-color&quot;, ambient_light))
++  {
++    m_sector.set_ambient_light(ambient_light);
++  }
++    
++  parse_objects(reader);
++  parse_navgraph(reader);
++
++  if (debug) std::cout &lt;&lt; &quot;Finished parsing&quot; &lt;&lt; std::endl;
++}
++
++void
++SectorBuilder::parse_objects(const FileReader&amp; reader)
++{
++  FileReader objects_reader;
++  if (!reader.get(&quot;objects&quot;, objects_reader))
++  {
++    throw std::runtime_error(&quot;No objects specified&quot;);
++  }
++  else
++  {
++    std::vector&lt;FileReader&gt; objects_readers = objects_reader.get_sections();
++    for(std::vector&lt;FileReader&gt;::iterator i = objects_readers.begin(); i != objects_readers.end(); ++i)
++    {
++      m_sector.add_object(*i);
++    }
++
++    // Set the parents properly
++    for(std::map&lt;GameObject*, std::string&gt;::iterator i = parent_table.begin(); i != parent_table.end(); ++i)
++    {
++      std::map&lt;std::string, GameObject*&gt;::iterator j = id_table.find(i-&gt;second);
++      if (j == id_table.end())
++      {
++        std::cout &lt;&lt; &quot;Error: Couldn't resolve 'id': &quot; &lt;&lt; i-&gt;second &lt;&lt; std::endl;
++      }
++      else
++      {
++        i-&gt;first-&gt;set_parent(j-&gt;second);
++      }
++    }
++  }
++}
++
++void
++SectorBuilder::parse_navgraph(const FileReader&amp; reader)
++{
++  FileReader navgraph_reader;
++  if (!reader.get(&quot;navigation&quot;, navgraph_reader))
++  {
++    throw std::runtime_error(&quot;SectorBuilder: 'navigation' section missing&quot;);
++  }
++  else
++  {
++    FileReader nodes_reader;
++    if (navgraph_reader.get(&quot;nodes&quot;, nodes_reader))
++    {
++    }
++
++    FileReader edges_reader;
++    if (navgraph_reader.get(&quot;edges&quot;, edges_reader))
++    {
++    }
++  }
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/engine/sector_builder.cpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/engine/sector_builder.hpp
+===================================================================
+--- trunk/windstille/src/engine/sector_builder.hpp	2009-09-12 03:22:24 UTC (rev 3230)
++++ trunk/windstille/src/engine/sector_builder.hpp	2009-09-12 05:24:21 UTC (rev 3231)
+@@ -0,0 +1,53 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_WINDSTILLE_EDITOR_SECTOR_BUILDER_HPP
++#define HEADER_WINDSTILLE_EDITOR_SECTOR_BUILDER_HPP
++
++#include &lt;map&gt;
++#include &lt;string&gt;
++
++class FileReader;
++class GameObject;
++class Pathname;
++class Sector;
++
++class SectorBuilder
++{
++private:
++  const Pathname&amp; m_filename;
++  Sector&amp;  m_sector;
++  std::map&lt;std::string, GameObject*&gt; id_table;
++  std::map&lt;GameObject*, std::string&gt; parent_table;
++
++public:
++  SectorBuilder(const Pathname&amp; filename, Sector&amp; sector);
++  
++private:
++  void parse_body(const FileReader&amp; reader);
++  void parse_objects(const FileReader&amp; reader);
++  void parse_navgraph(const FileReader&amp; reader);
++
++private:
++  SectorBuilder(const SectorBuilder&amp;);
++  SectorBuilder&amp; operator=(const SectorBuilder&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/engine/sector_builder.hpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002227.html">[Windstille-commit] r3230 - trunk/windstille
+</A></li>
+	<LI>Next message: <A HREF="002229.html">[Windstille-commit] r3232 - in trunk/windstille/src: engine objects	scripting tile
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2228">[ date ]</a>
+              <a href="thread.html#2228">[ thread ]</a>
+              <a href="subject.html#2228">[ subject ]</a>
+              <a href="author.html#2228">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

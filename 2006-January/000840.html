@@ -1,0 +1,243 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1187 - in trunk/src: . scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1187%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200601052306.k05N68SC027449%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000839.html">
+   <LINK REL="Next"  HREF="000841.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1187 - in trunk/src: . scripting</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1187%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200601052306.k05N68SC027449%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1187 - in trunk/src: . scripting">grumbel at berlios.de
+       </A><BR>
+    <I>Fri Jan  6 00:06:08 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000839.html">[Windstille-commit] r1186 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000841.html">[Windstille-commit] r1188 - in trunk: data/levels data/scripts src src/math src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#840">[ date ]</a>
+              <a href="thread.html#840">[ thread ]</a>
+              <a href="subject.html#840">[ subject ]</a>
+              <a href="author.html#840">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-01-06 00:06:06 +0100 (Fri, 06 Jan 2006)
+New Revision: 1187
+
+Modified:
+   trunk/src/game_session.cpp
+   trunk/src/game_session.hpp
+   trunk/src/scripting/interface.cpp
+Log:
+- some fadein/out improvments and script bindings
+
+Modified: trunk/src/game_session.cpp
+===================================================================
+--- trunk/src/game_session.cpp	2006-01-05 22:34:16 UTC (rev 1186)
++++ trunk/src/game_session.cpp	2006-01-05 23:06:06 UTC (rev 1187)
+@@ -90,6 +90,8 @@
+   
+   enum { FADEIN, RUNNING, FADEOUT } fade_state;
+ 
++  Color fade_color;
++
+   // GUI Elements
+   ControllerHelpWindow controller_help_window;
+   EnergyBar     energy_bar;
+@@ -107,6 +109,9 @@
+     current_gui = 0;
+     cutscene_mode  = false;
+     cutscene_value = 0.0f;
++    fade_color = Color(0.0f, 0.0f, 0.0f, 1.0f);
++    fade_state = FADEOUT;
++    fadeout_value = 1.0f;
+   }
+   ~GameSessionImpl() {
+     delete sector;
+@@ -164,21 +169,11 @@
+   if (current_gui)
+     current_gui-&gt;draw();
+ 
+-  switch (fade_state)
++  if (fade_state == FADEOUT || fade_state == FADEIN)
+     {
+-    case FADEOUT:
+       Display::fill_rect(Rect(0, 0, 
+                                Display::get_width(), Display::get_height()),
+-                          Color(0,0,0, fadeout_value));
+-      break;
+-    case FADEIN:
+-      Display::fill_rect(Rect(0, 0, 
+-                               Display::get_width(), Display::get_height()),
+-                         Color(0,0,0, 1.0f - fadeout_value));
+-      break;
+-
+-    default:
+-      break;
++                         Color(fade_color.r, fade_color.g, fade_color.b, fadeout_value));
+     }
+ 
+   if (pause)
+@@ -225,14 +220,22 @@
+       switch (fade_state)
+         {
+         case FADEIN:
+-          if (fadeout_value &gt; 1.0f)
+-            fade_state = RUNNING;
+-          fadeout_value += delta;
++          if (fadeout_value &lt; 0.0f)
++            {
++              fade_state = RUNNING;
++              fadeout_value = 0.0f;
++            }
++          else
++            {
++              fadeout_value -= delta;
++            }
+           break;
+ 
+         case FADEOUT:
+           if (fadeout_value &gt; 1.0f)
+-            {
++            { 
++              fadeout_value = 1.0f;
++
+               switch(next_action)
+                 {
+                 case CHANGE_SECTOR_ACTION:
+@@ -247,8 +250,10 @@
+                   break;
+                 }
+             }
+-
+-          fadeout_value += delta;
++          else
++            {
++              fadeout_value += delta;
++            }
+           break;
+ 
+         case RUNNING:
+@@ -289,7 +294,6 @@
+   sound_manager-&gt;stop_music();
+ 
+   impl-&gt;fade_state    = GameSessionImpl::FADEOUT;
+-  impl-&gt;fadeout_value = 0;
+   impl-&gt;next_action   = GameSessionImpl::CHANGE_SECTOR_ACTION;
+ }
+ 
+@@ -306,9 +310,8 @@
+   
+   impl-&gt;sector-&gt;spawn_player(&quot;default&quot;);
+   impl-&gt;sector-&gt;activate();
+-    
++  
+   impl-&gt;fade_state    = GameSessionImpl::FADEIN;
+-  impl-&gt;fadeout_value = 0;
+   impl-&gt;next_action   = GameSessionImpl::NO_ACTION;
+ 
+   if (debug) std::cout &lt;&lt; &quot;Finished changing sector&quot; &lt;&lt; std::endl;
+@@ -373,7 +376,6 @@
+ {
+   if (impl-&gt;fade_state != GameSessionImpl::FADEOUT)
+     {
+-      impl-&gt;fadeout_value = 0;
+       sound_manager-&gt;stop_music();
+       impl-&gt;fade_state  = GameSessionImpl::FADEOUT;
+       impl-&gt;next_action = GameSessionImpl::QUIT_ACTION;
+@@ -447,13 +449,16 @@
+ void
+ GameSession::fadeout(const Color&amp; color)
+ {
+-  
++  impl-&gt;fade_color  = color;
++  impl-&gt;fade_state  = GameSessionImpl::FADEOUT;
++  impl-&gt;next_action = GameSessionImpl::NO_ACTION;
+ }
+ 
+ void
+ GameSession::fadein()
+ {
+-  
++  impl-&gt;fade_state  = GameSessionImpl::FADEIN;
++  impl-&gt;next_action = GameSessionImpl::NO_ACTION;
+ }
+ 
+ /* EOF */
+
+Modified: trunk/src/game_session.hpp
+===================================================================
+--- trunk/src/game_session.hpp	2006-01-05 22:34:16 UTC (rev 1186)
++++ trunk/src/game_session.hpp	2006-01-05 23:06:06 UTC (rev 1187)
+@@ -76,7 +76,7 @@
+       most part to switch into a 16:9 viewmode with black borders */
+   void set_cutscene_mode(bool t);
+ 
+-  void fadeout(const Color&amp; color);
++  void fadeout(const Color&amp; color = Color());
+   void fadein();
+ 
+   void draw();
+
+Modified: trunk/src/scripting/interface.cpp
+===================================================================
+--- trunk/src/scripting/interface.cpp	2006-01-05 22:34:16 UTC (rev 1186)
++++ trunk/src/scripting/interface.cpp	2006-01-05 23:06:06 UTC (rev 1187)
+@@ -250,14 +250,17 @@
+ 
+ void fadeout()
+ {
++  GameSession::current()-&gt;fadeout();
+ }
+ 
+ void fadeout_rgb(float r, float g, float b)
+ {
++  GameSession::current()-&gt;fadeout(Color(r, g, b));
+ }
+ 
+ void fadein()
+ {
++  GameSession::current()-&gt;fadein();
+ }
+ 
+ } // namespace Scripting
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000839.html">[Windstille-commit] r1186 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000841.html">[Windstille-commit] r1188 - in trunk: data/levels data/scripts src src/math src/scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#840">[ date ]</a>
+              <a href="thread.html#840">[ thread ]</a>
+              <a href="subject.html#840">[ subject ]</a>
+              <a href="author.html#840">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

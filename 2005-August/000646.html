@@ -1,0 +1,318 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r993 - trunk/src/gui
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r993%20-%20trunk/src/gui&In-Reply-To=%3C200508202358.j7KNwIIL004579%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000645.html">
+   <LINK REL="Next"  HREF="000647.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r993 - trunk/src/gui</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r993%20-%20trunk/src/gui&In-Reply-To=%3C200508202358.j7KNwIIL004579%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r993 - trunk/src/gui">grumbel at berlios.de
+       </A><BR>
+    <I>Sun Aug 21 01:58:18 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000645.html">[Windstille-commit] r992 - in trunk/src: . gui
+</A></li>
+        <LI>Next message: <A HREF="000647.html">[Windstille-commit] r994 - trunk/src/gui
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#646">[ date ]</a>
+              <a href="thread.html#646">[ thread ]</a>
+              <a href="subject.html#646">[ subject ]</a>
+              <a href="author.html#646">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-08-21 01:57:32 +0200 (Sun, 21 Aug 2005)
+New Revision: 993
+
+Modified:
+   trunk/src/gui/grid_component.cpp
+   trunk/src/gui/grid_component.hpp
+   trunk/src/gui/gui_manager.cpp
+Log:
+- added col/rowspan to GridComponent
+
+Modified: trunk/src/gui/grid_component.cpp
+===================================================================
+--- trunk/src/gui/grid_component.cpp	2005-08-20 22:35:34 UTC (rev 992)
++++ trunk/src/gui/grid_component.cpp	2005-08-20 23:57:32 UTC (rev 993)
+@@ -33,7 +33,9 @@
+ GridComponent::GridComponent(const Rectf&amp; rect, int weight, int height, Component* parent)
+   : Component(rect, parent),
+     grid(weight, height),
+-    child_active(false) 
++    pos(0, 0),
++    child_active(false)
++
+ {
+ }
+ 
+@@ -50,11 +52,12 @@
+   for(int y = 0; y &lt; grid.get_height(); ++y)
+     for(int x = 0; x &lt; grid.get_width(); ++x)
+       {
+-        if (grid(x, y))
++        if (grid(x, y).component &amp;&amp; !grid(x, y).has_parent())
+           {
+             if (x == pos.x &amp;&amp; y == pos.y)
+-              Display::fill_rect(grid(x, y)-&gt;get_screen_rect(), Color(1.0f, 1.0f, 1.0f, 0.5f));
+-            grid(x, y)-&gt;draw();
++              Display::fill_rect(grid(x, y).component-&gt;get_screen_rect(), Color(1.0f, 1.0f, 1.0f, 0.5f));
++            
++            grid(x, y).component-&gt;draw();
+           }
+       }
+ }
+@@ -65,12 +68,12 @@
+   for(int y = 0; y &lt; grid.get_height(); ++y)
+     for(int x = 0; x &lt; grid.get_width(); ++x)
+       {
+-        if (grid(x, y)) 
++        if (grid(x, y).component &amp;&amp; !grid(x, y).has_parent())
+           {
+             if (child_active &amp;&amp; pos.x == x &amp;&amp; pos.y == y)
+-              grid(x, y)-&gt;update(delta, controller);
++              grid(x, y).component-&gt;update(delta, controller);
+             else
+-              grid(x, y)-&gt;update(delta, Controller());
++              grid(x, y).component-&gt;update(delta, Controller());
+           }
+       }
+ 
+@@ -93,59 +96,105 @@
+             {
+               if (i-&gt;axis.pos &lt; 0)
+                 {
+-                  pos.x -= 1;
+-                  if (pos.x &lt; 0)
+-                    pos.x = grid.get_width()-1;
++                  move_left();
+                 }
+               else if (i-&gt;axis.pos &gt; 0)
+                 {
+-                  pos.x += 1;
+-                  if (pos.x &gt;= grid.get_width())
+-                    pos.x = 0;
++                  move_right();
+                 }
+             }
+           else if (i-&gt;axis.name == Y_AXIS)
+             {
+               if (i-&gt;axis.pos &lt; 0)
+                 {
+-                  pos.y -= 1;
+-                  if (pos.y &lt; 0)
+-                    pos.y = grid.get_height()-1;
++                  move_down();
+                 }
+               else if (i-&gt;axis.pos &gt; 0)
+                 {
+-                  pos.y += 1;
+-                  if (pos.y &gt;= grid.get_height())
+-                    pos.y = 0;
++                  move_up();
+                 }
+-            }            
++            }
+         }
+     }
+ }
+ 
+ void
+-GridComponent::pack(Component* component, int x, int y)
++GridComponent::move_up()
+ {
++  pos.y += grid(pos.x, pos.y).span.height;
++  if (pos.y &gt;= grid.get_height())
++    pos.y = 0;
++
++  if (grid(pos.x, pos.y).has_parent())
++    pos = grid(pos.x, pos.y).parent;
++}
++
++void
++GridComponent::move_down()
++{
++  pos.y -= 1;
++  if (pos.y &lt; 0)
++    pos.y = grid.get_height()-1;
++
++  if (grid(pos.x, pos.y).has_parent())
++    pos = grid(pos.x, pos.y).parent;
++}
++
++void
++GridComponent::move_left()
++{
++  pos.x -= 1;
++  if (pos.x &lt; 0)
++    pos.x = grid.get_width()-1;  
++
++  if (grid(pos.x, pos.y).has_parent())
++    pos = grid(pos.x, pos.y).parent;
++}
++
++void
++GridComponent::move_right()
++{
++  pos.x += grid(pos.x, pos.y).span.width;
++  if (pos.x &gt;= grid.get_width())
++    pos.x = 0;
++
++  if (grid(pos.x, pos.y).has_parent())
++    pos = grid(pos.x, pos.y).parent;
++}
++
++void
++GridComponent::pack(Component* component, int x, int y, int colspan, int rowspan)
++{
+   assert(x &gt;= 0);
+   assert(y &gt;= 0);
+   assert(x &lt; grid.get_width());
+   assert(y &lt; grid.get_height());
+ 
+-  if (grid(x, y) != 0)
++  if (grid(x, y).component != 0)
+     {
+       std::cout &lt;&lt; &quot;Warning component already at: &quot; &lt;&lt; x &lt;&lt; &quot;, &quot; &lt;&lt; y &lt;&lt; &quot;, ignoring&quot; &lt;&lt; std::endl;
+     }
+   else
+     {
+       Rectf rect = get_screen_rect();
+-      grid(x, y) = component;
++      if (colspan == 1 &amp;&amp; rowspan == 1)
++        grid(x, y) = ComponentBox(component, Size(colspan, rowspan));
++      else
++        {
++          for(int iy = 0; iy &lt; rowspan; ++iy)
++            for(int ix = 0; ix &lt; colspan; ++ix)
++              {
++                grid(x + ix, y + iy) = ComponentBox(component, Size(0, 0), Point(x, y));
++              }
++          grid(x, y) = ComponentBox(component, Size(colspan, rowspan));
++        }
+ 
+       float padding = 15.0f;
+ 
+-      component-&gt;set_screen_rect(Rectf(Vector(rect.left + x * (rect.get_width()/grid.get_width()) + padding,
++      component-&gt;set_screen_rect(Rectf(Vector(rect.left + x * (rect.get_width() /grid.get_width())  + padding,
+                                               rect.top  + y * (rect.get_height()/grid.get_height()) + padding),
+-                                       Sizef(rect.get_width()/grid.get_width() - 2*padding,
+-                                             rect.get_height()/grid.get_height() - 2*padding)));
++                                       Sizef((rect.get_width()/grid.get_width())   * colspan - 2*padding,
++                                             (rect.get_height()/grid.get_height()) * rowspan - 2*padding)));
+     }
+ }
+ 
+
+Modified: trunk/src/gui/grid_component.hpp
+===================================================================
+--- trunk/src/gui/grid_component.hpp	2005-08-20 22:35:34 UTC (rev 992)
++++ trunk/src/gui/grid_component.hpp	2005-08-20 23:57:32 UTC (rev 993)
+@@ -35,7 +35,25 @@
+ class GridComponent : public Component
+ {
+ private:
+-  typedef Field&lt;Component*&gt; Grid;
++  struct ComponentBox 
++  {
++    enum { } type;
++
++    Component* component;
++    Size  span;
++    Point parent;
++
++    ComponentBox() 
++      : component(0), span(1, 1), parent(-1, -1) {}
++
++    ComponentBox(Component* c, const Size&amp; s, const Point&amp; parent_ = Point(-1, -1))
++      : component(c), span(s), parent(parent_) {}
++
++    bool is_simple()  const { return (span.width == 1 &amp;&amp; span.height == 1); }
++    bool has_parent() const { return (parent.x != -1 || parent.y != -1); }
++  };
++
++  typedef Field&lt;ComponentBox&gt; Grid;
+   Grid grid;
+   Point pos;
+   bool child_active;
+@@ -47,7 +65,13 @@
+   void draw();
+   void update(float delta, const Controller&amp; controller);
+ 
+-  void pack(Component* component, int x, int y);
++  void pack(Component* component, int x, int y, int colspan = 1, int rowspan = 1);
++
++  void move_up();
++  void move_down();
++
++  void move_left();
++  void move_right();
+ private:
+   GridComponent (const GridComponent&amp;);
+   GridComponent&amp; operator= (const GridComponent&amp;);
+
+Modified: trunk/src/gui/gui_manager.cpp
+===================================================================
+--- trunk/src/gui/gui_manager.cpp	2005-08-20 22:35:34 UTC (rev 992)
++++ trunk/src/gui/gui_manager.cpp	2005-08-20 23:57:32 UTC (rev 993)
+@@ -41,14 +41,14 @@
+   grid-&gt;pack(new Button(&quot;3&quot;, grid), 2, 0);
+ 
+   grid-&gt;pack(new Button(&quot;4&quot;, grid), 0, 1);
+-  grid-&gt;pack(new Button(&quot;5&quot;, grid), 1, 1);
+-  grid-&gt;pack(new Button(&quot;6&quot;, grid), 2, 1);
++  grid-&gt;pack(new Button(&quot;5&quot;, grid), 1, 1, 2, 2);
++  //grid-&gt;pack(new Button(&quot;6&quot;, grid), 2, 1);
+ 
+-  grid-&gt;pack(new Button(&quot;7&quot;, grid), 0, 2);
+-  grid-&gt;pack(new Button(&quot;8&quot;, grid), 1, 2);
+-  grid-&gt;pack(new Button(&quot;9&quot;, grid), 2, 2);
++  grid-&gt;pack(new Button(&quot;7&quot;, grid), 0, 2, 1, 2);
++  //grid-&gt;pack(new Button(&quot;8&quot;, grid), 1, 2);
++  //grid-&gt;pack(new Button(&quot;9&quot;, grid), 2, 2);
+ 
+-  grid-&gt;pack(new Button(&quot;Cl&quot;, grid), 0, 3);
++  //grid-&gt;pack(new Button(&quot;Cl&quot;, grid), 0, 3);
+   grid-&gt;pack(new Button(&quot;0&quot;,  grid), 1, 3);
+   grid-&gt;pack(new Button(&quot;Ok&quot;, grid), 2, 3);
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000645.html">[Windstille-commit] r992 - in trunk/src: . gui
+</A></li>
+	<LI>Next message: <A HREF="000647.html">[Windstille-commit] r994 - trunk/src/gui
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#646">[ date ]</a>
+              <a href="thread.html#646">[ thread ]</a>
+              <a href="subject.html#646">[ subject ]</a>
+              <a href="author.html#646">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,511 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2564 - trunk/windstille/src/engine
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2564%20-%20trunk/windstille/src/engine&In-Reply-To=%3C200903080322.n283MC9h029126%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001560.html">
+   <LINK REL="Next"  HREF="001562.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2564 - trunk/windstille/src/engine</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2564%20-%20trunk/windstille/src/engine&In-Reply-To=%3C200903080322.n283MC9h029126%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2564 - trunk/windstille/src/engine">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Mar  8 04:22:12 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001560.html">[Windstille-commit] r2563 - in trunk/windstille/src: engine objects
+</A></li>
+        <LI>Next message: <A HREF="001562.html">[Windstille-commit] r2565 - in trunk/windstille/src: . engine
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1561">[ date ]</a>
+              <a href="thread.html#1561">[ thread ]</a>
+              <a href="subject.html#1561">[ subject ]</a>
+              <a href="author.html#1561">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-08 04:22:11 +0100 (Sun, 08 Mar 2009)
+New Revision: 2564
+
+Modified:
+   trunk/windstille/src/engine/script_manager.cpp
+   trunk/windstille/src/engine/script_manager.hpp
+Log:
+Moved a bunch of code into SquirrelVM class
+
+Modified: trunk/windstille/src/engine/script_manager.cpp
+===================================================================
+--- trunk/windstille/src/engine/script_manager.cpp	2009-03-08 01:49:06 UTC (rev 2563)
++++ trunk/windstille/src/engine/script_manager.cpp	2009-03-08 03:22:11 UTC (rev 2564)
+@@ -20,7 +20,7 @@
+ using namespace Scripting;
+ 
+ ScriptManager* ScriptManager::current_ = 0;
+-
++
+ static void printfunc(HSQUIRRELVM, const char* str, ...)
+ {
+   char buf[4096];
+@@ -31,7 +31,7 @@
+   puts(buf);
+   va_end(arglist); 
+ }
+-
++
+ ScriptManager::ScriptManager()
+ {
+   assert(current_ == 0);
+@@ -77,11 +77,11 @@
+ 
+ ScriptManager::~ScriptManager()
+ {
+-  for(SquirrelVMs::iterator i = squirrel_vms.begin(); i != squirrel_vms.end(); ++i)
+-    sq_release(vm, &amp;(i-&gt;vm_obj));
++  // Manually clear it so that the boost::shared_ptr get deleted
++  // before we close the vm
++  squirrel_vms.clear();
+ 
+   sq_close(vm);
+-
+   current_ = 0;
+ }
+ 
+@@ -115,84 +115,23 @@
+ void
+ ScriptManager::run_script(std::istream&amp; in, const std::string&amp; sourcename)
+ {
+-  HSQUIRRELVM thread = sq_newthread(vm, 1024);
+-  if(thread == 0)
+-    {
+-      throw SquirrelError(vm, &quot;Couldn't create new VM&quot;);
+-    }
+-  else
+-    {
+-      // retrieve reference to thread from stack and increase refcounter
+-      HSQOBJECT vm_obj;
+-
+-      // Init the object
+-      sq_resetobject(&amp;vm_obj);
+-
+-      // store thread created by sq_newthread into vm_obj
+-      if(sq_getstackobj(vm, -1, &amp;vm_obj) &lt; 0)
+-        throw SquirrelError(vm, &quot;Couldn't get coroutine vm from stack&quot;);
+-
+-      // Add reference and remove object from stack
+-      sq_addref(vm, &amp;vm_obj);
+-      sq_pop(vm, 1);
+-  
+-      // Compile the script and push it on the stack
+-      if(sq_compile(thread, squirrel_read_char, &amp;in, sourcename.c_str(), true) &lt; 0)
+-        throw SquirrelError(thread, &quot;Couldn't parse script&quot;);
+-     
+-      // Add VM to the list of VMs
+-      squirrel_vms.push_back(SquirrelVM(sourcename, thread, vm_obj));
+-      already_run_scripts[sourcename] = true;
+-
+-      // FIXME: a script that gets run shouldn't have direct access to the root table
+-      // <A HREF="http://wiki.squirrel-lang.org/default.aspx/SquirrelWiki/MultiVMs.html">http://wiki.squirrel-lang.org/default.aspx/SquirrelWiki/MultiVMs.html</A>
+-      sq_pushroottable(thread);
+-      //sq_clone(thread, -1); //FIXME
+-
+-      // Start the script that was previously compiled
+-      if (SQ_FAILED(sq_call(thread, 1, false, true)))
+-        throw SquirrelError(thread, &quot;Couldn't start script&quot;);
+-    }
++  // Add VM to the list of VMs
++  squirrel_vms.push_back(boost::shared_ptr&lt;SquirrelVM&gt;(new SquirrelVM(in, sourcename, vm)));
++  squirrel_vms.back()-&gt;run();
++  already_run_scripts[sourcename] = true;   
+ }
+ 
+ void
+ ScriptManager::update()
+ {
+-  // 
+   for(SquirrelVMs::iterator i = squirrel_vms.begin(); i != squirrel_vms.end(); ) 
+     {
+-      SquirrelVM&amp; squirrel_vm = *i;
+-      int vm_state = sq_getvmstate(squirrel_vm.vm);
+-    
+-      if (vm_state == SQ_VMSTATE_SUSPENDED)
++      if ((*i)-&gt;update())
+         {
+-          if (squirrel_vm.wakeup_time &gt; 0 &amp;&amp; 
+-              game_time &gt;= squirrel_vm.wakeup_time) 
+-            {
+-              squirrel_vm.waiting_for_events = WakeupData(NO_EVENT);
+-              try 
+-                {
+-                  if(sq_wakeupvm(squirrel_vm.vm, false, false, true) &lt; 0) 
+-                    {
+-                      throw SquirrelError(squirrel_vm.vm, &quot;Couldn't resume script&quot;);
+-                    }
+-                } 
+-              catch(std::exception&amp; e) 
+-                {
+-                  std::cerr &lt;&lt; &quot;Problem executing script: &quot; &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
+-                  sq_release(vm, &amp;squirrel_vm.vm_obj);
+-                  i = squirrel_vms.erase(i);
+-                  continue;
+-                }
+-            }
+-          else
+-            {
+-              ++i;
+-            }
++          ++i;
+         }
+-      else // if (vm_state != SQ_VMSTATE_SUSPENDED) 
++      else
+         {
+-          sq_release(vm, &amp;squirrel_vm.vm_obj);
+           i = squirrel_vms.erase(i);
+         }
+     }
+@@ -202,23 +141,13 @@
+ ScriptManager::set_wakeup_event(HSQUIRRELVM vm, WakeupData event, float timeout)
+ {
+   assert(event.type &gt;= 0 &amp;&amp; event.type &lt; MAX_WAKEUP_EVENT_COUNT);
++
+   // find the VM in the list and update it
+   for(SquirrelVMs::iterator i = squirrel_vms.begin(); i != squirrel_vms.end(); ++i) 
+     {
+-      SquirrelVM&amp; squirrel_vm = *i;
+-
+-      if(squirrel_vm.vm == vm) 
++      if((*i)-&gt;vm == vm) 
+         {
+-          squirrel_vm.waiting_for_events = event;
+-
+-          if(timeout &lt; 0) 
+-            {
+-              squirrel_vm.wakeup_time = -1;
+-            } 
+-          else 
+-            {
+-              squirrel_vm.wakeup_time = game_time + timeout;
+-            }
++          (*i)-&gt;set_wakeup_event(event, timeout);
+           return;
+         }
+     }
+@@ -237,25 +166,7 @@
+ 
+   for(SquirrelVMs::iterator i = squirrel_vms.begin(); i != squirrel_vms.end(); ++i) 
+     {
+-      SquirrelVM&amp; vm = *i;
+-
+-      if(vm.waiting_for_events.type == event.type &amp;&amp; 
+-         vm.waiting_for_events.type != NO_EVENT)
+-        {
+-          switch (event.type)
+-            {
+-              case GAMEOBJECT_DONE:
+-                if (vm.waiting_for_events.game_object == event.game_object)
+-                  {
+-                    vm.wakeup_time = game_time;
+-                  }
+-                break;
+-
+-              default:
+-                vm.wakeup_time = game_time;
+-                break;
+-            }
+-        }
++      (*i)-&gt;fire_wakeup_event(event);
+     }
+ }
+ 
+@@ -272,8 +183,8 @@
+ 
+   for(SquirrelVMs::iterator i = squirrel_vms.begin(); i != squirrel_vms.end(); ++i) 
+     {
+-      if (i-&gt;vm == vm)
+-        name = i-&gt;name;
++      if ((*i)-&gt;vm == vm)
++        name = (*i)-&gt;name;
+     }
+   
+   if (already_run_scripts.find(name) == already_run_scripts.end())
+@@ -281,14 +192,139 @@
+   else
+     return true;
+ }
+-
+-ScriptManager::SquirrelVM::SquirrelVM(const std::string&amp; arg_name, HSQUIRRELVM arg_vm, HSQOBJECT arg_obj)
++
++ScriptManager::SquirrelVM::SquirrelVM(std::istream&amp; in, const std::string&amp; arg_name, HSQUIRRELVM parent_vm)
+   : name(arg_name),
+-    vm(arg_vm), 
+-    vm_obj(arg_obj)
++    parent_vm(parent_vm),
++    waiting_for_events(NO_EVENT),
++    wakeup_time(0)
+ {
+-  waiting_for_events = WakeupData(NO_EVENT);
+-  wakeup_time        = 0;
++  vm = sq_newthread(parent_vm, 1024);
++
++  if (vm == 0)
++    {
++      throw SquirrelError(vm, &quot;Couldn't create new VM&quot;);
++    }
++  else
++    {
++      // retrieve reference to thread from stack and increase refcounter
++
++      // Init the object
++      sq_resetobject(&amp;vm_obj);
++
++      // store thread created by sq_newthread into vm_obj
++      if(sq_getstackobj(parent_vm, -1, &amp;vm_obj) &lt; 0)
++        {
++          throw SquirrelError(parent_vm, &quot;Couldn't get coroutine vm from stack&quot;);
++        }
++      else
++        {
++          // Add reference and remove object from stack
++          sq_addref(parent_vm, &amp;vm_obj);
++          sq_pop(parent_vm, 1);
++  
++          // Compile the script and push it on the stack
++          if(sq_compile(vm, squirrel_read_char, &amp;in, name.c_str(), true) &lt; 0)
++            throw SquirrelError(vm, &quot;Couldn't parse script&quot;);
++        }
++
++      // FIXME: a script that gets run shouldn't have direct access to the root table
++      // <A HREF="http://wiki.squirrel-lang.org/default.aspx/SquirrelWiki/MultiVMs.html">http://wiki.squirrel-lang.org/default.aspx/SquirrelWiki/MultiVMs.html</A>
++      sq_pushroottable(vm);
++      //sq_clone(vm, -1); //FIXME
++    }
+ }
+ 
++ScriptManager::SquirrelVM::~SquirrelVM()
++{
++  sq_release(vm, &amp;vm_obj);  
++}
++
++void 
++ScriptManager::SquirrelVM::run()
++{
++  // Start the script that was previously compiled
++  if (SQ_FAILED(sq_call(vm, 1, false, true)))
++    throw SquirrelError(vm, &quot;Couldn't start script&quot;);
++}
++
++void
++ScriptManager::SquirrelVM::set_wakeup_event(const WakeupData&amp; event, float timeout)
++{
++  waiting_for_events = event;
++
++  if (timeout &lt; 0) 
++    {
++      wakeup_time = -1;
++    } 
++  else 
++    {
++      wakeup_time = game_time + timeout;
++    }
++}
++
++void
++ScriptManager::SquirrelVM::fire_wakeup_event(const WakeupData&amp; event)
++{ 
++  if (waiting_for_events.type == event.type &amp;&amp; 
++      waiting_for_events.type != NO_EVENT)
++    {
++      switch (event.type)
++        {
++          case GAMEOBJECT_DONE:
++            if (waiting_for_events.game_object == event.game_object)
++              {
++                wakeup_time = game_time;
++              }
++            break;
++
++          default:
++            wakeup_time = game_time;
++            break;
++        }
++    }
++}
++
++bool
++ScriptManager::SquirrelVM::update()
++{
++  int vm_state = sq_getvmstate(vm);
++    
++  switch(vm_state)
++    {
++      case SQ_VMSTATE_SUSPENDED:
++        if (wakeup_time &gt; 0 &amp;&amp; 
++            game_time &gt;= wakeup_time) 
++          {
++            waiting_for_events = WakeupData(NO_EVENT);
++
++            try 
++              {
++                if(sq_wakeupvm(vm, false, false, true) &lt; 0) 
++                  {
++                    throw SquirrelError(vm, &quot;Couldn't resume script&quot;);
++                  }
++                return true;
++              }
++            catch(std::exception&amp; e) 
++              {
++                std::cerr &lt;&lt; &quot;Problem executing script: &quot; &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
++                return false;
++              }
++          }
++        else
++          {
++            return true;
++          }
++        break;
++
++      case SQ_VMSTATE_IDLE:
++      case SQ_VMSTATE_RUNNING: // FIXME: How can this happen?
++        return false;
++
++      default: 
++        assert(!&quot;never reached&quot;);
++    }
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/engine/script_manager.hpp
+===================================================================
+--- trunk/windstille/src/engine/script_manager.hpp	2009-03-08 01:49:06 UTC (rev 2563)
++++ trunk/windstille/src/engine/script_manager.hpp	2009-03-08 03:22:11 UTC (rev 2564)
+@@ -24,9 +24,10 @@
+ #include &lt;map&gt;
+ #include &lt;squirrel.h&gt;
+ #include &lt;iostream&gt;
++#include &lt;boost/shared_ptr.hpp&gt;
+ #include &quot;scripting/wrapper.hpp&quot;
+ #include &quot;scripting/util.hpp&quot;
+-
++
+ /**
+  * This class is responsible for managing all running squirrel threads
+  * (called coroutines by others)
+@@ -41,18 +42,20 @@
+   static ScriptManager* current() { return current_; }
+ 
+ public:
+-  enum WakeupEvent {
+-    NO_EVENT,
+-    TIME,
+-    DIALOG_CLOSED,
+-    CONVERSATION_CLOSED,
+-    FADE_DONE,
+-    CAMERA_DONE,
+-    GAMEOBJECT_DONE,
+-    MAX_WAKEUP_EVENT_COUNT
+-  };
++  enum WakeupEvent 
++    {
++      NO_EVENT,
++      TIME,
++      DIALOG_CLOSED,
++      CONVERSATION_CLOSED,
++      FADE_DONE,
++      CAMERA_DONE,
++      GAMEOBJECT_DONE,
++      MAX_WAKEUP_EVENT_COUNT
++    };
+ 
+-  struct WakeupData {
++  struct WakeupData 
++  {
+     explicit WakeupData() : type(NO_EVENT) {}
+     explicit WakeupData(WakeupEvent type_) : type(type_) {}
+ 
+@@ -64,21 +67,35 @@
+     };
+   };
+ 
+-private:
+   class SquirrelVM
+   {
+   public:
+     std::string name;
++  private:
++    HSQUIRRELVM parent_vm;
++  public:
+     HSQUIRRELVM vm;
++  private:
+     HSQOBJECT   vm_obj;
++    
++    WakeupData  waiting_for_events;
+     float       wakeup_time;
+-    WakeupData  waiting_for_events;
+ 
+   public:
+-    SquirrelVM(const std::string&amp; arg_name, HSQUIRRELVM arg_vm, HSQOBJECT arg_obj);
++    SquirrelVM(std::istream&amp; in, const std::string&amp; arg_name, HSQUIRRELVM parent_vm);
++    ~SquirrelVM();
++
++    void run();
++
++    void set_wakeup_event(const WakeupData&amp; event, float timeout);
++    void fire_wakeup_event(const WakeupData&amp; event);
++
++    /** Returns false when the VM is done and can be removed */
++    bool update();
+   };
+-  
+-  typedef std::list&lt;SquirrelVM&gt; SquirrelVMs;
++
++private:  
++  typedef std::list&lt;boost::shared_ptr&lt;SquirrelVM&gt; &gt; SquirrelVMs;
+   SquirrelVMs squirrel_vms;
+   std::map&lt;std::string, bool&gt; already_run_scripts;
+ 
+@@ -113,7 +130,7 @@
+       before, if the vm is run for the first time return true */
+   bool run_before(HSQUIRRELVM vm);
+ };
+-
++
+ #endif
+ 
+ /* EOF */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001560.html">[Windstille-commit] r2563 - in trunk/windstille/src: engine objects
+</A></li>
+	<LI>Next message: <A HREF="001562.html">[Windstille-commit] r2565 - in trunk/windstille/src: . engine
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1561">[ date ]</a>
+              <a href="thread.html#1561">[ thread ]</a>
+              <a href="subject.html#1561">[ subject ]</a>
+              <a href="author.html#1561">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

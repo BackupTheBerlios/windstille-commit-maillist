@@ -1,0 +1,250 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1303 - trunk/html2image
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-January/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1303%20-%20trunk/html2image&In-Reply-To=%3C200701212207.l0LM771t003399%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000955.html">
+   <LINK REL="Next"  HREF="000957.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1303 - trunk/html2image</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1303%20-%20trunk/html2image&In-Reply-To=%3C200701212207.l0LM771t003399%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1303 - trunk/html2image">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Jan 21 23:07:07 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000955.html">[Windstille-commit] r1302 - in trunk: . html2image
+</A></li>
+        <LI>Next message: <A HREF="000957.html">[Windstille-commit] r1304 - trunk/html2image
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#956">[ date ]</a>
+              <a href="thread.html#956">[ thread ]</a>
+              <a href="subject.html#956">[ subject ]</a>
+              <a href="author.html#956">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-01-21 23:07:07 +0100 (Sun, 21 Jan 2007)
+New Revision: 1303
+
+Modified:
+   trunk/html2image/SConstruct
+   trunk/html2image/htmlcreator.cpp
+Log:
+- changed code so that it can handle pages larger then 16384
+
+Modified: trunk/html2image/SConstruct
+===================================================================
+--- trunk/html2image/SConstruct	2007-01-21 16:47:08 UTC (rev 1302)
++++ trunk/html2image/SConstruct	2007-01-21 22:07:07 UTC (rev 1303)
+@@ -1,7 +1,7 @@
+ # -*- python -*-
+ 
+-env = Environment()
+-env['CPPPATH'] = ['/usr/include/kde', '/usr/include/qt3']
++env = Environment(CXXFLAGS=['-g', '-Wall'])
++env['CPPPATH'] = ['/usr/include/kde', '/usr/include/qt3', 'khtml']
+ env['LIBS'] = ['qt-mt', 'khtml']
+ env.Program('htmlcreator', ['htmlcreator.cpp'])
+ 
+
+Modified: trunk/html2image/htmlcreator.cpp
+===================================================================
+--- trunk/html2image/htmlcreator.cpp	2007-01-21 16:47:08 UTC (rev 1302)
++++ trunk/html2image/htmlcreator.cpp	2007-01-21 22:07:07 UTC (rev 1303)
+@@ -1,3 +1,4 @@
++#include &lt;vector&gt;
+ #include &lt;iostream&gt;
+ #include &lt;time.h&gt;
+ #include &lt;kapp.h&gt;
+@@ -3,5 +4,8 @@
+ #include &lt;kapplication.h&gt;
+ #include &lt;kcmdlineargs.h&gt;
++#define private public
+ #include &lt;khtml_part.h&gt;
++#include &lt;khtmlview.h&gt;
++#undef  private 
+ #include &lt;kuniqueapplication.h&gt;
+ #include &lt;qimage.h&gt;
+@@ -11,6 +15,8 @@
+ #include &lt;qpixmap.h&gt;
+ #include &lt;qvbox.h&gt;
+ 
++#include &quot;khtml/rendering/render_canvas.h&quot;
++#include &quot;khtml/rendering/render_layer.h&quot;
+ #include &quot;htmlcreator.h&quot;
+ 
+ QCString output_file;
+@@ -33,12 +39,29 @@
+     }
+ }
+ 
++int last_empty_line(QImage&amp; img)
++{
++  for(int i = img.height()-1; i &gt;= 0; --i)
++    {
++      uchar* p  = img.scanLine(i);
++      int width = img.width();
++      for(int x = 0; x &lt; 4*width; ++x)
++        {
++          if (p[x] != 255)
++            {
++              return i+1;
++            }
++        }
++    }  
++  return 0;
++}
++
+ HTMLCreator::HTMLCreator(int width, int heigth)
+   : KMainWindow(0L, &quot;HTMLCreator&quot;)
+ {
+   QVBox * vbox = new QVBox ( this );
+ 
+-  m_html = new KHTMLPart(vbox);
++  m_html = new KHTMLPart;//(vbox);
+   connect(m_html, SIGNAL(completed()), this, SLOT(save()));
+   m_html-&gt;setJScriptEnabled(false);
+   m_html-&gt;setJavaEnabled(false);
+@@ -48,6 +71,7 @@
+   m_html-&gt;setZoomFactor(100);
+   //m_html-&gt;getHeight();
+   //m_html-&gt;resize(480,640);
++  m_html-&gt;view()-&gt;resize(480,640);
+   
+   m_html-&gt;openURL(input_file);
+   std::cout &lt;&lt; &quot;Opening: &quot; &lt;&lt; input_file &lt;&lt; std::endl;
+@@ -61,45 +85,62 @@
+ 
+ HTMLCreator::~HTMLCreator()
+ {
+-    delete m_html;
++  delete m_html;
+ }
+ 
+ void HTMLCreator::save()
+ {
+-  int start_height = 2048;
+-
+   QImage  img;
++  bool more = false;
++  int yoff = 0;
++  int last_empty = 1; 
++  
++  std::vector&lt;QImage&gt; images;
+   do
+     {
+-      start_height *= 2;
+-
+       QPixmap pix;
+-      pix.resize(480, start_height);
++      pix.resize(480, 2048);
+       pix.fill( QColor( 255, 255, 255 ));
+-      QRect rc(0, 0, pix.width(), pix.height());
+-
++      //QRect rc(0, -yoff, pix.width(), pix.height()+yoff);
++      QRect rc(0, -yoff, pix.width(), pix.height()+yoff);
+       QPainter p;
+       ////p.setRenderHints()
+       p.begin(&amp;pix);
+-      m_html-&gt;paint(&amp;p, rc);
++      m_html-&gt;paint(&amp;p, rc, yoff, &amp;more);
+       p.end();
++
++      yoff += pix.height();
+   
+       img = pix.convertToImage();
+ 
+-      trim(img);
+-      std::cout &lt;&lt; &quot;Got &quot; &lt;&lt; start_height &lt;&lt; &quot; trim to &quot; &lt;&lt; img.height() &lt;&lt; std::endl;
++      last_empty = last_empty_line(img);
++
++      images.push_back(img.copy(0, 0, img.width(), 
++                                std::max(0, std::min(last_empty + 6, img.height()))));
+     }
+-  while(img.height() &gt; start_height - 100 &amp;&amp; !(start_height &gt; img.height()) &amp;&amp; start_height &lt; 16384);
+-  
+-  if (img.save(output_file, &quot;JPEG&quot;, 80))
++  while(last_empty != 0); //(img.height() &gt; start_height - 100 &amp;&amp; !(start_height &gt; img.height()) &amp;&amp; start_height &lt; 16384);
++      
++  std::cout &lt;&lt; &quot;Got &quot; &lt;&lt; images.size() &lt;&lt; &quot; pages&quot; &lt;&lt; std::endl;
++
++  int img_width  = 480;
++  int img_height = 0;
++  for(int i = 0; i &lt; (int)images.size(); ++i)
++    img_height += images[i].height();
++
++  QImage total(img_width, img_height, 32);
++
++  int y = 0;
++  for(int i = 0; i &lt; (int)images.size(); ++i)
+     {
+-      std::cout &lt;&lt; &quot;Save to: &quot; &lt;&lt; output_file &lt;&lt; std::endl;
++      bitBlt(&amp;total, 0, y, &amp;images[i], 0, 0, -1, -1, 0);
++      y += images[i].height();
+     }
+-  else
+-    {
+-      std::cout &lt;&lt; &quot;Save: not done&quot; &lt;&lt; std::endl;
+-    }
++
++  //img = img.copy(0, 0, img.width(), std::max(272, last_empty));
+   
++  total.save(output_file, &quot;JPEG&quot;, 80);
++  std::cout &lt;&lt; &quot;Outfile: &quot; &lt;&lt; output_file &lt;&lt; std::endl;
++
+   // Brute force!
+   exit(0);
+ }
+@@ -108,12 +149,12 @@
+   {
+     { &quot;output &lt;file&gt;&quot;, &quot;Output file&quot;, 0 },
+     { &quot;file &lt;file&gt;&quot;,   &quot;A required argument 'file'&quot;, 0 },
+-    NULL
++    { NULL }
+   };
+   
+ int main(int argc, char** argv)
+ {
+-  std::cout &lt;&lt; &quot;Relative paths don't work!&quot; &lt;&lt; std::endl;
++  //std::cout &lt;&lt; &quot;Relative paths don't work!&quot; &lt;&lt; std::endl;
+   KCmdLineArgs::init(argc, argv, &quot;htmlcreator&quot;, &quot;htmlcreator&quot;, &quot;Converts HTML to PNG&quot;, &quot;0.0.0&quot;);
+   KCmdLineArgs::addCmdLineOptions( options );
+   KUniqueApplication::addCmdLineOptions();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000955.html">[Windstille-commit] r1302 - in trunk: . html2image
+</A></li>
+	<LI>Next message: <A HREF="000957.html">[Windstille-commit] r1304 - trunk/html2image
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#956">[ date ]</a>
+              <a href="thread.html#956">[ thread ]</a>
+              <a href="subject.html#956">[ subject ]</a>
+              <a href="author.html#956">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

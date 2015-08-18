@@ -1,0 +1,1818 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2707 - in trunk/windstille/src: . app display	engine font gui tile
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2707%20-%20in%20trunk/windstille/src%3A%20.%20app%20display%0A%09engine%20font%20gui%20tile&In-Reply-To=%3C200903191942.n2JJgDCq028159%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001703.html">
+   <LINK REL="Next"  HREF="001705.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2707 - in trunk/windstille/src: . app display	engine font gui tile</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2707%20-%20in%20trunk/windstille/src%3A%20.%20app%20display%0A%09engine%20font%20gui%20tile&In-Reply-To=%3C200903191942.n2JJgDCq028159%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2707 - in trunk/windstille/src: . app display	engine font gui tile">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Mar 19 20:42:13 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001703.html">[Windstille-commit] r2706 - trunk/windstille/src/app
+</A></li>
+        <LI>Next message: <A HREF="001705.html">[Windstille-commit] r2708 - in trunk/windstille/src: . editor engine
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1704">[ date ]</a>
+              <a href="thread.html#1704">[ thread ]</a>
+              <a href="subject.html#1704">[ subject ]</a>
+              <a href="author.html#1704">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-19 20:42:10 +0100 (Thu, 19 Mar 2009)
+New Revision: 2707
+
+Added:
+   trunk/windstille/src/display/software_surface.cpp
+   trunk/windstille/src/display/software_surface.hpp
+Modified:
+   trunk/windstille/src/SConscript
+   trunk/windstille/src/app/windstille_main.cpp
+   trunk/windstille/src/app/windstille_main.hpp
+   trunk/windstille/src/display/blitter.cpp
+   trunk/windstille/src/display/blitter.hpp
+   trunk/windstille/src/display/display.cpp
+   trunk/windstille/src/display/framebuffer.cpp
+   trunk/windstille/src/display/framebuffer.hpp
+   trunk/windstille/src/display/surface_manager.cpp
+   trunk/windstille/src/display/surface_manager.hpp
+   trunk/windstille/src/display/texture.cpp
+   trunk/windstille/src/display/texture.hpp
+   trunk/windstille/src/display/texture_manager.cpp
+   trunk/windstille/src/display/texture_manager.hpp
+   trunk/windstille/src/engine/sector.hpp
+   trunk/windstille/src/font/border_font_effect.cpp
+   trunk/windstille/src/font/border_font_effect.hpp
+   trunk/windstille/src/font/font_effect.hpp
+   trunk/windstille/src/font/no_font_effect.cpp
+   trunk/windstille/src/font/no_font_effect.hpp
+   trunk/windstille/src/font/ttf_font.cpp
+   trunk/windstille/src/gui/automap.cpp
+   trunk/windstille/src/tile/tile_description.cpp
+   trunk/windstille/src/tile/tile_factory.cpp
+   trunk/windstille/src/tile/tile_factory.hpp
+   trunk/windstille/src/tile/tile_packer.cpp
+   trunk/windstille/src/tile/tile_packer.hpp
+Log:
+Replaced raw SDL_Surface with refcounted SoftwareSurface
+
+Modified: trunk/windstille/src/SConscript
+===================================================================
+--- trunk/windstille/src/SConscript	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/SConscript	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -61,6 +61,7 @@
+ 'display/scene_context.cpp',
+ 'display/shader_object.cpp',
+ 'display/shader_program.cpp',
++'display/software_surface.cpp',
+ 'display/surface.cpp',
+ 'display/surface_manager.cpp',
+ 'display/text_area.cpp',
+
+Modified: trunk/windstille/src/app/windstille_main.cpp
+===================================================================
+--- trunk/windstille/src/app/windstille_main.cpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/app/windstille_main.cpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -62,78 +62,81 @@
+ int 
+ WindstilleMain::main(int argc, char** argv)
+ {
+-  try {
+-    config.parse_args(argc, argv);
++  try 
++    {
++      config.parse_args(argc, argv);
+ 
+-    init_physfs(argv[0]);
+-    init_sdl();
++      init_physfs(argv[0]);
++      init_sdl();
+ 
+-    config.load();
++      config.load();
+     
+-    config.parse_args(argc, argv);
++      config.parse_args(argc, argv);
+ 
+-    init_modules();
++      init_modules();
+     
+-    if (debug) std::cout &lt;&lt; &quot;Starting file: '&quot; &lt;&lt; config.get_string(&quot;levelfile&quot;) &lt;&lt; &quot;'&quot; 
+-                         &lt;&lt; std::endl;
++      if (debug) 
++        std::cout &lt;&lt; &quot;Starting file: '&quot; &lt;&lt; config.get_string(&quot;levelfile&quot;) &lt;&lt; &quot;'&quot; &lt;&lt; std::endl;
+     
+-    std::string levelfile;
+-    if (config.get&lt;std::string&gt;(&quot;levelfile&quot;).is_set())
+-      {
+-        // FIXME: Looks a little hacky, doesn't it?
+-        std::string leveldir = dirname(config.get_string(&quot;levelfile&quot;));
+-        PHYSFS_addToSearchPath(leveldir.c_str(), true);
+-        levelfile = basename(config.get_string(&quot;levelfile&quot;));
+-      }
++      std::string levelfile;
++      if (config.get&lt;std::string&gt;(&quot;levelfile&quot;).is_set())
++        {
++          // FIXME: Looks a little hacky, doesn't it?
++          std::string leveldir = dirname(config.get_string(&quot;levelfile&quot;));
++          PHYSFS_addToSearchPath(leveldir.c_str(), true);
++          levelfile = basename(config.get_string(&quot;levelfile&quot;));
++        }
+ 
+-    if (sprite3dview)
+-      {
+-        std::auto_ptr&lt;Sprite3DView&gt; sprite3dview(new Sprite3DView());
++      if (sprite3dview)
++        {
++          std::auto_ptr&lt;Sprite3DView&gt; sprite3dview(new Sprite3DView());
+ 
+-        if (!levelfile.empty())
+-          sprite3dview-&gt;set_model(levelfile);
++          if (!levelfile.empty())
++            sprite3dview-&gt;set_model(levelfile);
+ 
+-        // Launching Sprite3DView instead of game
+-        screen_manager.push_screen(sprite3dview.release());
+-      }
+-    else if (sprite2dview)
+-      {
+-        std::auto_ptr&lt;Sprite2DView&gt; sprite2dview(new Sprite2DView());
++          // Launching Sprite3DView instead of game
++          screen_manager.push_screen(sprite3dview.release());
++        }
++      else if (sprite2dview)
++        {
++          std::auto_ptr&lt;Sprite2DView&gt; sprite2dview(new Sprite2DView());
+ 
+-        if (!levelfile.empty())
+-          sprite2dview-&gt;set_sprite(levelfile);
++          if (!levelfile.empty())
++            sprite2dview-&gt;set_sprite(levelfile);
+ 
+-        // Launching Sprite2DView instead of game
+-        screen_manager.push_screen(sprite2dview.release());
+-      }
+-    else if (particleview)
+-      {
+-        ParticleViewer* particle_viewer = new ParticleViewer();
+-        if (!levelfile.empty())
+-          particle_viewer-&gt;load(levelfile);
+-        screen_manager.push_screen(particle_viewer);
+-      }
+-    else
+-      {
+-        if (levelfile.empty())
+-          {
+-            //screen_manager.push_screen(new GameSession(&quot;levels/newformat2.wst&quot;));
+-            screen_manager.push_screen(new TitleScreen());
+-          }
+-        else
+-          {
+-            screen_manager.push_screen(new GameSession(levelfile));
+-          }
+-      }
++          // Launching Sprite2DView instead of game
++          screen_manager.push_screen(sprite2dview.release());
++        }
++      else if (particleview)
++        {
++          ParticleViewer* particle_viewer = new ParticleViewer();
++          if (!levelfile.empty())
++            particle_viewer-&gt;load(levelfile);
++          screen_manager.push_screen(particle_viewer);
++        }
++      else
++        {
++          if (levelfile.empty())
++            {
++              //screen_manager.push_screen(new GameSession(&quot;levels/newformat2.wst&quot;));
++              screen_manager.push_screen(new TitleScreen());
++            }
++          else
++            {
++              screen_manager.push_screen(new GameSession(levelfile));
++            }
++        }
+         
+-    screen_manager.run();
++      screen_manager.run();
+     
+-    deinit_modules();
++      deinit_modules();
+ 
+-  } catch (std::exception&amp; err)
++    } 
++  catch (std::exception&amp; err)
+     {
+       std::cout &lt;&lt; &quot;std::exception: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
+-    } catch (...)
++    }
++  catch (...)
+     {
+       std::cout &lt;&lt; &quot;Error catched something unknown?!&quot; &lt;&lt; std::endl;
+     }
+@@ -263,11 +266,11 @@
+ #endif
+ 
+   if (SDL_Init(flags) &lt; 0)
+-      {
+-        std::stringstream msg;
+-        msg &lt;&lt; &quot;Couldn't initialize SDL: &quot; &lt;&lt; SDL_GetError();
+-        throw std::runtime_error(msg.str());
+-      }
++    {
++      std::stringstream msg;
++      msg &lt;&lt; &quot;Couldn't initialize SDL: &quot; &lt;&lt; SDL_GetError();
++      throw std::runtime_error(msg.str());
++    }
+ 
+   SDL_EnableUNICODE(1);
+ }
+@@ -370,10 +373,10 @@
+       PHYSFS_freeList(search_path);
+     }
+ }
+-
++
+ int main(int argc, char** argv)
+ {
+   return WindstilleMain().main(argc, argv);
+ }
+-
++
+ /* EOF */
+
+Modified: trunk/windstille/src/app/windstille_main.hpp
+===================================================================
+--- trunk/windstille/src/app/windstille_main.hpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/app/windstille_main.hpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -49,8 +49,6 @@
+ 
+ #include &quot;screen/screen.hpp&quot;
+ 
+-struct SDL_Surface;
+-
+ class WindstilleMain
+ {  
+ public:
+
+Modified: trunk/windstille/src/display/blitter.cpp
+===================================================================
+--- trunk/windstille/src/display/blitter.cpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/display/blitter.cpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -21,21 +21,23 @@
+ #include &lt;iostream&gt;
+ #include &lt;algorithm&gt;
+ #include &lt;stdint.h&gt;
++
++#include &quot;display/software_surface.hpp&quot;
+ #include &quot;blitter.hpp&quot;
+ 
+-void generate_border(SDL_Surface* surface,
++void generate_border(const SoftwareSurface&amp; surface,
+                      int x_pos, int y_pos, int width, int height)
+ {
+-  assert(surface-&gt;format-&gt;BitsPerPixel == 32);
+-  SDL_LockSurface(surface);
++  assert(surface.get_bits_per_pixel() == 32);
+  
+-  uint8_t* data = static_cast&lt;uint8_t*&gt;(surface-&gt;pixels);
+-  int pitch = surface-&gt;pitch;
++  uint8_t* data = static_cast&lt;uint8_t*&gt;(surface.get_pixels());
++  int pitch = surface.get_pitch();
+ 
+   // duplicate the top line
+   memcpy(data + (y_pos-1)*pitch + 4*x_pos, 
+          data + (y_pos)*pitch + 4*x_pos,
+          4*width);
++
+   // duplicate the bottom line
+   memcpy(data + (y_pos+height)*pitch + 4*x_pos, 
+          data + (y_pos+height-1)*pitch + 4*x_pos,  
+@@ -49,24 +51,20 @@
+       p = reinterpret_cast&lt;uint32_t*&gt; (data + (y*pitch + 4*(x_pos + width)));
+       *p = *(p-1);
+     }
+-
+-  SDL_UnlockSurface(surface);
+ }
+ 
+ void 
+-blit_ftbitmap(SDL_Surface* target, const FT_Bitmap&amp; brush, int x_pos, int y_pos)
++blit_ftbitmap(const SoftwareSurface&amp; target, const FT_Bitmap&amp; brush, int x_pos, int y_pos)
+ {
+-  SDL_LockSurface(target);
+-  
+   int start_x = std::max(0, -x_pos);
+   int start_y = std::max(0, -y_pos);
+   
+-  int end_x = std::min(brush.width, target-&gt;w  - x_pos);
+-  int end_y = std::min(brush.rows,  target-&gt;h - y_pos);
++  int end_x = std::min(brush.width, target.get_width()  - x_pos);
++  int end_y = std::min(brush.rows,  target.get_height() - y_pos);
+ 
+-  unsigned char* target_buf = static_cast&lt;unsigned char*&gt;(target-&gt;pixels);
++  unsigned char* target_buf = static_cast&lt;unsigned char*&gt;(target.get_pixels());
+ 
+-  int target_pitch = target-&gt;pitch;
++  int target_pitch = target.get_pitch();
+ 
+   for (int y = start_y; y &lt; end_y; ++y)
+     for (int x = start_x; x &lt; end_x; ++x)
+@@ -79,8 +77,6 @@
+         target_buf[target_pos + 2] = 255;
+         target_buf[target_pos + 3] = brush.buffer[brush_pos];
+       }
+-    
+-  SDL_UnlockSurface(target);
+ }
+ 
+ SDL_Surface* create_surface_rgba(int width, int height)
+
+Modified: trunk/windstille/src/display/blitter.hpp
+===================================================================
+--- trunk/windstille/src/display/blitter.hpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/display/blitter.hpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -18,12 +18,12 @@
+ #ifndef HEADER_BLITTER_HPP
+ #define HEADER_BLITTER_HPP
+ 
+-#include &lt;SDL.h&gt;
+-
+ #include &lt;ft2build.h&gt;
+ #include FT_FREETYPE_H
+ #include FT_GLYPH_H
+-
++
++class SoftwareSurface;
++
+ /** Duplicate all the edge pixel of the given rectangle to the outside
+     of the rectangle, thus creating a border around the given
+     rectangle, this is needed for OpenGL textures to avoid filtering
+@@ -34,10 +34,9 @@
+     X 4 5 6 X  / 4 4 5 6 6
+     X X X X X    4 4 5 6 6
+ */
+-void generate_border(SDL_Surface* surface, int x_pos, int y_pos, int width, int height);
+-void blit_ftbitmap(SDL_Surface* target, const FT_Bitmap&amp; brush, int x_pos, int y_pos);
+-SDL_Surface* create_surface_rgba(int width, int height);
+-
++void generate_border(const SoftwareSurface&amp; surface, int x_pos, int y_pos, int width, int height);
++void blit_ftbitmap(const SoftwareSurface&amp; target, const FT_Bitmap&amp; brush, int x_pos, int y_pos);
++
+ #endif
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/display/display.cpp
+===================================================================
+--- trunk/windstille/src/display/display.cpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/display/display.cpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -244,48 +244,50 @@
+     {
+       throw std::runtime_error(&quot;Display:: Couldn't create window&quot;);
+     }
++  else
++    {
++      SDL_WM_SetCaption(&quot;Windstille&quot;, 0 /* icon */);
+ 
+-  SDL_WM_SetCaption(&quot;Windstille&quot;, 0 /* icon */);
++      GLenum err = glewInit();
++      if(err != GLEW_OK) {
++        std::ostringstream msg;
++        msg &lt;&lt; &quot;Display:: Couldn't initialize glew: &quot; &lt;&lt; glewGetString(err);
++        throw std::runtime_error(msg.str());
++      }
++      /*
++        if(!GLEW_EXT_framebuffer_object) {
++        std::ostringstream msg;
++        msg &lt;&lt; &quot;Display:: Framebuffer opengl extension not supported&quot;;
++        throw std::runtime_error(msg.str());
++        }
++      */
+ 
+-  GLenum err = glewInit();
+-  if(err != GLEW_OK) {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Display:: Couldn't initialize glew: &quot; &lt;&lt; glewGetString(err);
+-    throw std::runtime_error(msg.str());
+-  }
+-  /*
+-    if(!GLEW_EXT_framebuffer_object) {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Display:: Framebuffer opengl extension not supported&quot;;
+-    throw std::runtime_error(msg.str());
+-    }
+-  */
++      glViewport(0, 0, window-&gt;w, window-&gt;h);
++      glMatrixMode(GL_PROJECTION);
++      glLoadIdentity();
+ 
+-  glViewport(0, 0, window-&gt;w, window-&gt;h);
+-  glMatrixMode(GL_PROJECTION);
+-  glLoadIdentity();
++      static const float cl_pixelcenter_constant = 0.375;
+ 
+-  static const float cl_pixelcenter_constant = 0.375;
+-
+-  //glOrtho(0.0, window-&gt;w, window-&gt;h, 0.0, -1000.0, 1000.0);
++      //glOrtho(0.0, window-&gt;w, window-&gt;h, 0.0, -1000.0, 1000.0);
+   
+-  // glOrtho(0.0, 800, 0.0, 600.0, 1000.0, -1000.0); // proper right-hand CO
+-  Display::aspect_size = Size(config.get_int(&quot;aspect-width&quot;), 
+-                              config.get_int(&quot;aspect-height&quot;));
++      // glOrtho(0.0, 800, 0.0, 600.0, 1000.0, -1000.0); // proper right-hand CO
++      Display::aspect_size = Size(config.get_int(&quot;aspect-width&quot;), 
++                                  config.get_int(&quot;aspect-height&quot;));
+ 
+-  glOrtho(0.0, 
+-          aspect_size.width, aspect_size.height,
+-          0.0, 1000.0, -1000.0);
+-  glMatrixMode(GL_MODELVIEW);
+-  glLoadIdentity();
+-  glTranslated(cl_pixelcenter_constant, cl_pixelcenter_constant, 0.0);
++      glOrtho(0.0, 
++              aspect_size.width, aspect_size.height,
++              0.0, 1000.0, -1000.0);
++      glMatrixMode(GL_MODELVIEW);
++      glLoadIdentity();
++      glTranslated(cl_pixelcenter_constant, cl_pixelcenter_constant, 0.0);
+ 
+-  if (config.get_int(&quot;anti-aliasing&quot;))
+-    glEnable(GL_MULTISAMPLE_ARB); 
++      if (config.get_int(&quot;anti-aliasing&quot;))
++        glEnable(GL_MULTISAMPLE_ARB); 
+ 
+-  assert_gl(&quot;setup projection&quot;);
++      assert_gl(&quot;setup projection&quot;);
+ 
+-  OpenGLState::init();
++      OpenGLState::init();
++    }
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/display/framebuffer.cpp
+===================================================================
+--- trunk/windstille/src/display/framebuffer.cpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/display/framebuffer.cpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -22,7 +22,7 @@
+ #include &quot;texture.hpp&quot;
+ #include &quot;render_buffer.hpp&quot;
+ #include &quot;framebuffer.hpp&quot;
+-
++
+ class FramebufferImpl
+ {
+ public:
+@@ -56,7 +56,7 @@
+     glDeleteFramebuffersEXT(1, &amp;handle);
+   }
+ };
+-
++
+ Framebuffer::Framebuffer()
+ {
+ }
+@@ -112,5 +112,5 @@
+ {
+   return impl.get() != other.impl.get();
+ }
+-
++
+ /* EOF */
+
+Modified: trunk/windstille/src/display/framebuffer.hpp
+===================================================================
+--- trunk/windstille/src/display/framebuffer.hpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/display/framebuffer.hpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -20,10 +20,9 @@
+ #define HEADER_WINDSTILLE_DISPLAY_FRAMEBUFFER_HPP
+ 
+ #include &quot;texture.hpp&quot;
+-
++
+ class FramebufferImpl;
+-
+-/** */
++
+ class Framebuffer
+ {
+ public:
+@@ -48,7 +47,7 @@
+ private:
+   boost::shared_ptr&lt;FramebufferImpl&gt; impl;
+ };
+-
++
+ #endif
+ 
+ /* EOF */
+
+Added: trunk/windstille/src/display/software_surface.cpp
+===================================================================
+--- trunk/windstille/src/display/software_surface.cpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/display/software_surface.cpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -0,0 +1,116 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &lt;sstream&gt;
++#include &lt;stdexcept&gt;
++#include &lt;SDL_image.h&gt;
++#include &quot;physfs/physfs_sdl.hpp&quot;
++#include &quot;software_surface.hpp&quot;
++
++class SoftwareSurfaceImpl
++{
++public:
++  SDL_Surface* surface;
++};
++
++SoftwareSurface::SoftwareSurface(const std::string&amp; filename)
++  : impl(new SoftwareSurfaceImpl())
++{
++  impl-&gt;surface = IMG_Load_RW(get_physfs_SDLRWops(filename), 1);
++
++  if (!impl-&gt;surface)
++    {
++      std::ostringstream str;
++      str &lt;&lt; &quot;SoftwareSurface: Couldn't load: &quot; &lt;&lt; filename &lt;&lt; std::endl;
++      throw std::runtime_error(str.str());
++    }
++  else
++    {
++      SDL_SetAlpha(impl-&gt;surface, 0, 0);
++
++      assert(!SDL_MUSTLOCK(impl-&gt;surface));
++    }
++}
++
++SoftwareSurface::SoftwareSurface(int width, int height, Format format)
++  : impl(new SoftwareSurfaceImpl())
++{
++  assert(format == RGBA);
++
++#if SDL_BYTEORDER == SDL_BIG_ENDIAN
++  impl-&gt;surface = SDL_CreateRGBSurface(SDL_SWSURFACE,
++                                       width, height, 32,
++                                       0xff000000, 0x00ff0000, 0x0000ff00, 0x000000ff);
++#else
++  impl-&gt;surface = SDL_CreateRGBSurface(SDL_SWSURFACE,
++                                       width, height, 32,
++                                       0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000);
++#endif
++
++  SDL_SetAlpha(impl-&gt;surface, 0, 0);
++
++  assert(!SDL_MUSTLOCK(impl-&gt;surface));
++}
++
++SoftwareSurface::~SoftwareSurface()
++{
++}
++
++int
++SoftwareSurface::get_bytes_per_pixel() const
++{
++  return impl-&gt;surface-&gt;format-&gt;BytesPerPixel;
++}
++
++int
++SoftwareSurface::get_bits_per_pixel() const
++{
++  return impl-&gt;surface-&gt;format-&gt;BitsPerPixel;
++}
++
++int
++SoftwareSurface::get_width() const
++{
++  return impl-&gt;surface-&gt;w;
++}
++
++int
++SoftwareSurface::get_height() const
++{
++  return impl-&gt;surface-&gt;h;
++}
++
++int
++SoftwareSurface::get_pitch() const
++{
++  return impl-&gt;surface-&gt;pitch;
++}
++
++void*
++SoftwareSurface::get_pixels() const
++{
++  return impl-&gt;surface-&gt;pixels;
++}
++
++SDL_Surface*
++SoftwareSurface::get_surface() const
++{
++  return impl-&gt;surface;
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/display/software_surface.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/display/software_surface.hpp
+===================================================================
+--- trunk/windstille/src/display/software_surface.hpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/display/software_surface.hpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -0,0 +1,55 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef HEADER_SOFTWARE_SURFACE_HPP
++#define HEADER_SOFTWARE_SURFACE_HPP
++
++#include &quot;SDL.h&quot;
++#include &lt;boost/shared_ptr.hpp&gt;
++#include &lt;string&gt;
++
++class SoftwareSurfaceImpl;
++
++class SoftwareSurface
++{
++public:
++  enum Format {
++    RGB,
++    RGBA
++  };
++
++  SoftwareSurface(const std::string&amp; filename);
++  SoftwareSurface(int width, int height, Format format = RGBA);
++  ~SoftwareSurface();
++
++  int   get_bytes_per_pixel() const;
++  int   get_bits_per_pixel() const;
++  int   get_width() const;
++  int   get_pitch() const;
++  int   get_height() const;
++  void* get_pixels() const;
++
++  SDL_Surface* get_surface() const;
++
++private:
++  boost::shared_ptr&lt;SoftwareSurfaceImpl&gt; impl;
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/display/software_surface.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/windstille/src/display/surface_manager.cpp
+===================================================================
+--- trunk/windstille/src/display/surface_manager.cpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/display/surface_manager.cpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -21,13 +21,14 @@
+ #include &lt;iostream&gt;
+ #include &lt;sstream&gt;
+ #include &lt;stdexcept&gt;
+-#include &lt;SDL_image.h&gt;
+ #include &lt;GL/glew.h&gt;
+ #include &lt;GL/gl.h&gt;
++
+ #include &quot;util/util.hpp&quot;
+ #include &quot;app/globals.hpp&quot;
+ #include &quot;texture.hpp&quot;
+ #include &quot;surface.hpp&quot;
++#include &quot;software_surface.hpp&quot;
+ #include &quot;texture_manager.hpp&quot;
+ #include &quot;physfs/physfs_sdl.hpp&quot;
+ 
+@@ -42,13 +43,13 @@
+ SurfaceManager::~SurfaceManager()
+ {
+   if(debug)
+-  {
+-    for(Surfaces::iterator i = surfaces.begin(); i != surfaces.end(); ++i)
+     {
+-      //      if (i-&gt;second.use_count() &gt; 1)
+-        std::cerr &lt;&lt; &quot;Warning: Surface '&quot; &lt;&lt; i-&gt;first &lt;&lt; &quot;' not released.\n&quot;;
++      for(Surfaces::iterator i = surfaces.begin(); i != surfaces.end(); ++i)
++        {
++          //      if (i-&gt;second.use_count() &gt; 1)
++          std::cerr &lt;&lt; &quot;Warning: Surface '&quot; &lt;&lt; i-&gt;first &lt;&lt; &quot;' not released.\n&quot;;
++        }
+     }
+-  }
+ 
+   current_ = 0;
+ }
+@@ -59,36 +60,32 @@
+   Surfaces::iterator i = surfaces.find(filename);
+ 
+   if(i != surfaces.end())
+-    return i-&gt;second;
++    { // Surface in cache, return it
++      return i-&gt;second;
++    }
++  else
++    {
++      SoftwareSurface image(filename);
+ 
+-  SDL_Surface* image = IMG_Load_RW(get_physfs_SDLRWops(filename), 1);
+-  if(!image)
+-  {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't load image '&quot; &lt;&lt; filename &lt;&lt; &quot;' :&quot; &lt;&lt; SDL_GetError();
+-    throw std::runtime_error(msg.str());
+-  }
++      float maxu, maxv;
++      Texture texture;
+ 
+-  float maxu, maxv;
+-  Texture texture;
+-  try
+-  {
+-    texture = create_texture(image, maxu, maxv);
+-  }
+-  catch(std::exception&amp; e)
+-  {
+-    SDL_FreeSurface(image);
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't create texture for '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot; &lt;&lt; e.what();
+-    throw std::runtime_error(msg.str());
+-  }
++      try
++        {
++          texture = create_texture(image, maxu, maxv);
++        }
++      catch(std::exception&amp; e)
++        {
++          std::ostringstream msg;
++          msg &lt;&lt; &quot;Couldn't create texture for '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot; &lt;&lt; e.what();
++          throw std::runtime_error(msg.str());
++        }
+ 
+-  Surface result(texture, Rectf(0, 0, maxu, maxv), image-&gt;w, image-&gt;h);
+-  surfaces.insert(std::make_pair(filename, result));
++      Surface result(texture, Rectf(0, 0, maxu, maxv), image.get_width(), image.get_height());
++      surfaces.insert(std::make_pair(filename, result));
+   
+-  SDL_FreeSurface(image);
+-
+-  return result;
++      return result;
++    }
+ }
+ 
+ void
+@@ -96,42 +93,34 @@
+                           std::vector&lt;Surface&gt;&amp; surfaces,
+                           int width, int height)
+ {
+-  SDL_Surface* image = IMG_Load_RW(get_physfs_SDLRWops(filename), 1);
+-  if(!image)
+-  {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't load image '&quot; &lt;&lt; filename &lt;&lt; &quot;' :&quot; &lt;&lt; SDL_GetError();
+-    throw std::runtime_error(msg.str());
+-  }
+-
++  SoftwareSurface image(filename);
+   float maxu, maxv;
+ 
+   Texture texture;
++
+   try
+-  {                                                                       
+-    texture = create_texture(image, maxu, maxv);
+-  }
++    {                                                                       
++      texture = create_texture(image, maxu, maxv);
++    }
+   catch(std::exception&amp; e)
+-  {
+-    SDL_FreeSurface(image);
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't create texture for '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot; &lt;&lt; e.what();
+-    throw std::runtime_error(msg.str());                                      
+-  }
++    {
++      std::ostringstream msg;
++      msg &lt;&lt; &quot;Couldn't create texture for '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot; &lt;&lt; e.what();
++      throw std::runtime_error(msg.str());                                      
++    }
+ 
+-  for(int y = 0; y &lt;= image-&gt;h - height + 1; y += height)
+-  {
+-    for(int x = 0; x &lt;= image-&gt;w - width + 1; x += width)
++  for(int y = 0; y &lt;= image.get_height() - height + 1; y += height)
+     {
+-      float s_min_u = maxu * x / static_cast&lt;float&gt;(image-&gt;w);
+-      float s_max_u = (maxu * (x + width)) / static_cast&lt;float&gt;(image-&gt;w);
+-      float s_min_v = maxv * x / static_cast&lt;float&gt;(image-&gt;h);
+-      float s_max_v = (maxv * (x + height)) / static_cast&lt;float&gt;(image-&gt;h);
++      for(int x = 0; x &lt;= image.get_width() - width + 1; x += width)
++        {
++          float s_min_u = maxu * x / static_cast&lt;float&gt;(image.get_width());
++          float s_max_u = (maxu * (x + width)) / static_cast&lt;float&gt;(image.get_width());
++          float s_min_v = maxv * x / static_cast&lt;float&gt;(image.get_height());
++          float s_max_v = (maxv * (x + height)) / static_cast&lt;float&gt;(image.get_height());
+ 
+-      surfaces.push_back(Surface(texture, Rectf(s_min_u, s_min_v, s_max_u, s_max_v), width, height));
++          surfaces.push_back(Surface(texture, Rectf(s_min_u, s_min_v, s_max_u, s_max_v), width, height));
++        }
+     }
+-  }
+-  SDL_FreeSurface(image);
+ }
+ 
+ static int power_of_two(int val) {
+@@ -142,43 +131,20 @@
+ }
+ 
+ Texture
+-SurfaceManager::create_texture(SDL_Surface* image,
++SurfaceManager::create_texture(const SoftwareSurface&amp; image,
+                                float&amp; maxu, float&amp; maxv)
+ {
+-  int texture_w = power_of_two(image-&gt;w);
+-  int texture_h = power_of_two(image-&gt;h);
+-#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+-  SDL_Surface* convert = SDL_CreateRGBSurface(SDL_SWSURFACE,
+-      texture_w, texture_h, 32,
+-      0xff000000, 0x00ff0000, 0x0000ff00, 0x000000ff);
+-#else
+-  SDL_Surface* convert = SDL_CreateRGBSurface(SDL_SWSURFACE,
+-      texture_w, texture_h, 32,
+-      0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000);
+-#endif
++  int texture_w = power_of_two(image.get_width());
++  int texture_h = power_of_two(image.get_height());
+ 
+-  if(convert == 0) 
+-  {
+-    throw std::runtime_error(&quot;Couldn't create texture: out of memory&quot;);
+-  }
+-  SDL_SetAlpha(image, 0, 0);
+-  SDL_BlitSurface(image, 0, convert, 0);
++  SoftwareSurface convert(texture_w, texture_h);
+ 
+-  Texture texture;
++  SDL_BlitSurface(image.get_surface(), 0, convert.get_surface(), 0);
+ 
+-  try 
+-  {
+-    texture = Texture(convert);
+-  }
+-  catch(...) 
+-  {
+-    SDL_FreeSurface(convert);
+-    throw;
+-  }
+-  SDL_FreeSurface(convert);
++  Texture texture = Texture(convert);
+   
+-  maxu = static_cast&lt;float&gt;(image-&gt;w)/static_cast&lt;float&gt;(texture_w);
+-  maxv = static_cast&lt;float&gt;(image-&gt;h)/static_cast&lt;float&gt;(texture_h);
++  maxu = static_cast&lt;float&gt;(image.get_width())/static_cast&lt;float&gt;(texture_w);
++  maxv = static_cast&lt;float&gt;(image.get_height())/static_cast&lt;float&gt;(texture_h);
+ 
+   return texture;
+ }
+
+Modified: trunk/windstille/src/display/surface_manager.hpp
+===================================================================
+--- trunk/windstille/src/display/surface_manager.hpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/display/surface_manager.hpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -22,7 +22,6 @@
+ #include &lt;string&gt;
+ #include &lt;vector&gt;
+ #include &lt;map&gt;
+-#include &lt;SDL.h&gt;
+ #include &lt;GL/glew.h&gt;
+ #include &lt;GL/gl.h&gt;
+ #include &quot;texture.hpp&quot;
+@@ -53,7 +52,7 @@
+   void load_grid(const std::string&amp; filename,
+       std::vector&lt;Surface&gt;&amp; surfaces, int width, int height);
+ 
+-  Texture create_texture(SDL_Surface* image, 
++  Texture create_texture(const SoftwareSurface&amp; image,
+                          float&amp; maxu, float&amp; maxv);
+ 
+   /** Removes all cached Sprites that are no longer in use */
+
+Modified: trunk/windstille/src/display/texture.cpp
+===================================================================
+--- trunk/windstille/src/display/texture.cpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/display/texture.cpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -22,6 +22,7 @@
+ #include &lt;GL/glew.h&gt;
+ #include &lt;GL/gl.h&gt;
+ #include &quot;texture.hpp&quot;
++#include &quot;display/software_surface.hpp&quot;
+ #include &quot;display/opengl_state.hpp&quot;
+ #include &quot;texture_manager.hpp&quot;
+ #include &quot;util/util.hpp&quot;
+@@ -83,19 +84,17 @@
+   return (v &amp; (v-1)) == 0;
+ }
+ 
+-Texture::Texture(SDL_Surface* image, GLint glformat)
++Texture::Texture(const SoftwareSurface&amp; image, GLint glformat)
+   : impl(new TextureImpl())
+ {
+   impl-&gt;target = GL_TEXTURE_2D;
+-  impl-&gt;width  = image-&gt;w;
+-  impl-&gt;height = image-&gt;h;
++  impl-&gt;width  = image.get_width();
++  impl-&gt;height = image.get_height();
+ 
+-  const SDL_PixelFormat* format = image-&gt;format;
+-
+-  if(!is_power_of_2(image-&gt;w) || !is_power_of_2(image-&gt;h))
++  if(!is_power_of_2(image.get_width()) || !is_power_of_2(image.get_height()))
+     throw std::runtime_error(&quot;image has no power of 2 size&quot;);
+ 
+-  if(format-&gt;BitsPerPixel != 24 &amp;&amp; format-&gt;BitsPerPixel != 32)
++  if (image.get_bits_per_pixel() != 24 &amp;&amp; image.get_bits_per_pixel() != 32)
+     throw std::runtime_error(&quot;image has not 24 or 32 bit color depth&quot;);
+ 
+   // FIXME: User SDL_ConvertSurface to bring images in the right format
+@@ -105,17 +104,19 @@
+     {
+       GLint maxt;
+       glGetIntegerv(GL_MAX_TEXTURE_SIZE, &amp;maxt);
+-      if(image-&gt;w &gt; maxt || image-&gt;h &gt; maxt)
++
++      if(image.get_width() &gt; maxt || image.get_height() &gt; maxt)
+         {
+           throw std::runtime_error(&quot;Texture size not supported&quot;);
+         }
+ 
+       GLint sdl_format;
+-      if (format-&gt;BytesPerPixel == 3)
++
++      if (image.get_bytes_per_pixel() == 3)
+         {
+           sdl_format = GL_RGB;
+         }
+-      else if (format-&gt;BytesPerPixel == 4)
++      else if (image.get_bytes_per_pixel() == 4)
+         {
+           sdl_format = GL_RGBA;
+         }
+@@ -129,10 +130,10 @@
+       state.activate();
+ 
+       glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+-      glPixelStorei(GL_UNPACK_ROW_LENGTH, image-&gt;pitch/format-&gt;BytesPerPixel);
++      glPixelStorei(GL_UNPACK_ROW_LENGTH, image.get_pitch() / image.get_bytes_per_pixel());
+       glTexImage2D(impl-&gt;target, 0, glformat,
+-                   image-&gt;w, image-&gt;h, 0, sdl_format,
+-                   GL_UNSIGNED_BYTE, image-&gt;pixels);
++                   image.get_width(), image.get_height(), 0, sdl_format,
++                   GL_UNSIGNED_BYTE, image.get_pixels());
+ 
+       assert_gl(&quot;creating texture&quot;);
+ 
+@@ -173,14 +174,15 @@
+ }
+ 
+ void
+-Texture::put(SDL_Surface* image, int x, int y)
++Texture::put(const SoftwareSurface&amp; image, int x, int y)
+ {
+   GLint sdl_format;
+-  if (image-&gt;format-&gt;BytesPerPixel == 3)
++
++  if (image.get_bytes_per_pixel() == 3)
+     {
+       sdl_format = GL_RGB;
+     }
+-  else if (image-&gt;format-&gt;BytesPerPixel == 4)
++  else if (image.get_bytes_per_pixel() == 4)
+     {
+       sdl_format = GL_RGBA;
+     }
+@@ -196,11 +198,11 @@
+   // FIXME: Add some checks here to make sure image has the right format 
+   glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+   glPixelStorei(GL_UNPACK_ROW_LENGTH,
+-                image-&gt;pitch / image-&gt;format-&gt;BytesPerPixel);
++                image.get_pitch() / image.get_bytes_per_pixel());
+ 
+   glTexSubImage2D(impl-&gt;target, 0, x, y,
+-                  image-&gt;w, image-&gt;h, sdl_format, GL_UNSIGNED_BYTE,
+-                  image-&gt;pixels);
++                  image.get_width(), image.get_height(), sdl_format, GL_UNSIGNED_BYTE,
++                  image.get_pixels());
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/display/texture.hpp
+===================================================================
+--- trunk/windstille/src/display/texture.hpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/display/texture.hpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -23,11 +23,11 @@
+ #include &lt;string&gt;
+ #include &lt;GL/glew.h&gt;
+ #include &lt;GL/gl.h&gt;
+-#include &lt;SDL.h&gt;
+ #include &lt;boost/shared_ptr.hpp&gt;
+-
++
++class SoftwareSurface;
+ class TextureImpl;
+-
++
+ class Texture
+ {
+ public:
+@@ -39,10 +39,10 @@
+   explicit Texture(const std::string&amp; filename);
+ 
+   /**
+-   * Upload an SDL_Surface onto an OpenGL texture. The surface must have power
++   * Upload an SoftwareSurface onto an OpenGL texture. The surface must have power
+    * of 2 dimensions
+    * */
+-  explicit Texture(SDL_Surface* image, GLint format = GL_RGBA);
++  explicit Texture(const SoftwareSurface&amp; image, GLint format = GL_RGBA);
+ 
+   /** 
+    * Create an empty Texture with the given dimensions
+@@ -65,7 +65,7 @@
+   void set_filter(GLenum mode);
+ 
+   /** Uploads the given image to the given coordinates */
+-  void put(SDL_Surface* image, int x, int y);
++  void put(const SoftwareSurface&amp; image, int x, int y);
+ 
+   GLuint get_handle() const;
+   
+@@ -81,7 +81,7 @@
+ private:
+   boost::shared_ptr&lt;TextureImpl&gt; impl;
+ };
+-
++
+ #endif
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/display/texture_manager.cpp
+===================================================================
+--- trunk/windstille/src/display/texture_manager.cpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/display/texture_manager.cpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -21,12 +21,12 @@
+ #include &lt;iostream&gt;
+ #include &lt;sstream&gt;
+ #include &lt;stdexcept&gt;
+-#include &lt;SDL_image.h&gt;
+ #include &lt;GL/glew.h&gt;
+ #include &lt;GL/gl.h&gt;
+ #include &quot;util/util.hpp&quot;
+ #include &quot;app/globals.hpp&quot;
+ #include &quot;texture.hpp&quot;
++#include &quot;software_surface.hpp&quot;
+ #include &quot;physfs/physfs_sdl.hpp&quot;
+ 
+ TextureManager* texture_manager = 0;
+@@ -50,35 +50,26 @@
+ {
+   Textures::iterator i = textures.find(filename);
+   if(i != textures.end())
+-    return i-&gt;second;
+-
+-  SDL_Surface* image = 0;
+-  try {
+-    image = IMG_Load_RW(get_physfs_SDLRWops(filename), 1);
+-    if(!image) {
+-      std::ostringstream msg;
+-      msg &lt;&lt; &quot;Couldn't load image '&quot; &lt;&lt; filename &lt;&lt; &quot;' :&quot; &lt;&lt; SDL_GetError();
+-      throw std::runtime_error(msg.str());
++    {
++      return i-&gt;second;
+     }
+-  } catch(std::exception&amp; e) {
+-    std::cerr &lt;&lt; e.what() &lt;&lt; std::endl;
+-    return get(&quot;images/404.png&quot;);
+-  }
++  else
++    {
++      try 
++        {
++          SoftwareSurface image(filename);
++          Texture texture(image);
+ 
+-  Texture texture;
+-  try {
+-    texture = Texture(image);
+-  } catch(std::exception&amp; e) {
+-    SDL_FreeSurface(image);
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't create texture for '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot; &lt;&lt; e.what();
+-    throw std::runtime_error(msg.str());
+-  }
++          textures.insert(std::make_pair(filename, texture));
+ 
+-  SDL_FreeSurface(image);
+-  
+-  textures.insert(std::make_pair(filename, texture));
+-  return texture;
++          return texture;
++        } 
++      catch(std::exception&amp; e) 
++        {
++          std::cerr &lt;&lt; e.what() &lt;&lt; std::endl;
++          return get(&quot;images/404.png&quot;);
++        }
++    }
+ }
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/display/texture_manager.hpp
+===================================================================
+--- trunk/windstille/src/display/texture_manager.hpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/display/texture_manager.hpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -21,7 +21,6 @@
+ 
+ #include &lt;string&gt;
+ #include &lt;map&gt;
+-#include &lt;SDL.h&gt;
+ #include &lt;GL/glew.h&gt;
+ #include &lt;GL/gl.h&gt;
+ 
+
+Modified: trunk/windstille/src/engine/sector.hpp
+===================================================================
+--- trunk/windstille/src/engine/sector.hpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/engine/sector.hpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -110,10 +110,6 @@
+   TileMap* get_tilemap() const { return interactive_tilemap; }
+   TileMap* get_tilemap2() const { return interactivebackground_tilemap; }
+   void     set_tilemap(TileMap* t);
+-  Player*  get_player() const
+-  {
+-    return player;
+-  }
+ 
+   void call_script_function(const std::string&amp; name);
+   
+
+Modified: trunk/windstille/src/font/border_font_effect.cpp
+===================================================================
+--- trunk/windstille/src/font/border_font_effect.cpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/font/border_font_effect.cpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -17,6 +17,7 @@
+ */
+ 
+ #include &lt;algorithm&gt;
++#include &quot;display/software_surface.hpp&quot;
+ #include &quot;border_font_effect.hpp&quot;
+ 
+ BorderFontEffect::BorderFontEffect(int size_, bool outline_)
+@@ -60,22 +61,20 @@
+ }
+ 
+ void
+-BorderFontEffect::blit(SDL_Surface* target, const FT_Bitmap&amp; brush, int x_pos, int y_pos) const
++BorderFontEffect::blit(const SoftwareSurface&amp; target, const FT_Bitmap&amp; brush, int x_pos, int y_pos) const
+ {
+-  SDL_LockSurface(target);
+-  
+   x_pos += size;
+   y_pos += size;
+ 
+   int start_x = std::max(0, -x_pos);
+   int start_y = std::max(0, -y_pos);
+   
+-  int end_x = std::min(brush.width, target-&gt;w - x_pos);
+-  int end_y = std::min(brush.rows,  target-&gt;h - y_pos);
++  int end_x = std::min(brush.width, target.get_width()  - x_pos);
++  int end_y = std::min(brush.rows,  target.get_height() - y_pos);
+ 
+-  unsigned char* target_buf = static_cast&lt;unsigned char*&gt;(target-&gt;pixels);
++  unsigned char* target_buf = static_cast&lt;unsigned char*&gt;(target.get_pixels());
+ 
+-  int target_pitch = target-&gt;pitch;
++  int target_pitch = target.get_pitch();
+ 
+   uint8_t red   = 0;
+   uint8_t blue  = 0;
+@@ -120,8 +119,6 @@
+             target_buf[target_pos + 3] = std::min(target_buf[target_pos + 3] + brush.buffer[brush_pos], 255);
+           }
+     }
++}  
+ 
+-  SDL_UnlockSurface(target);
+-}
+-
+ /* EOF */
+
+Modified: trunk/windstille/src/font/border_font_effect.hpp
+===================================================================
+--- trunk/windstille/src/font/border_font_effect.hpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/font/border_font_effect.hpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -45,7 +45,7 @@
+   int get_x_offset(int orig_glyph_offset) const;
+   int get_y_offset(int orig_glyph_offset) const;
+   
+-  void blit(SDL_Surface* target, const FT_Bitmap&amp; brush, int x_pos, int y_pos) const;
++  void blit(const SoftwareSurface&amp; target, const FT_Bitmap&amp; brush, int x_pos, int y_pos) const;
+ 
+ private:
+   BorderFontEffect (const BorderFontEffect&amp;);
+
+Modified: trunk/windstille/src/font/font_effect.hpp
+===================================================================
+--- trunk/windstille/src/font/font_effect.hpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/font/font_effect.hpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -19,11 +19,12 @@
+ #ifndef HEADER_WINDSTILLE_FONT_FONT_EFFECT_HPP
+ #define HEADER_WINDSTILLE_FONT_FONT_EFFECT_HPP
+ 
+-#include &lt;SDL.h&gt;
+ #include &lt;ft2build.h&gt;
+ #include FT_FREETYPE_H
+ #include FT_GLYPH_H
+-
++
++class SoftwareSurface;
++
+ /** 
+  *  The FontEffect class manages the blitting from a glyph bitmap to
+  *  the SDL_Surface, it allows to apply different kinds of effects to
+@@ -45,13 +46,13 @@
+   virtual int get_x_offset(int orig_glyph_offset) const =0;
+   virtual int get_y_offset(int orig_glyph_offset) const =0;
+   
+-  virtual void blit(SDL_Surface* target, const FT_Bitmap&amp; brush, int x_pos, int y_pos) const =0;
++  virtual void blit(const SoftwareSurface&amp; target, const FT_Bitmap&amp; brush, int x_pos, int y_pos) const =0;
+ 
+ private:
+   FontEffect (const FontEffect&amp;);
+   FontEffect&amp; operator= (const FontEffect&amp;);
+ };
+-
++
+ #endif
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/font/no_font_effect.cpp
+===================================================================
+--- trunk/windstille/src/font/no_font_effect.cpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/font/no_font_effect.cpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -1,33 +1,27 @@
+-/*  $Id$
+-**   __      __ __             ___        __   __ __   __
+-**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
+-**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
+-**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
+-**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
+-**         \/          \/      \/    \/                         \/
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
+ **  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
+ **
+-**  This program is free software; you can redistribute it and/or
+-**  modify it under the terms of the GNU General Public License
+-**  as published by the Free Software Foundation; either version 2
+-**  of the License, or (at your option) any later version.
+-**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
+ **  This program is distributed in the hope that it will be useful,
+ **  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ **  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ **  GNU General Public License for more details.
+-** 
++**  
+ **  You should have received a copy of the GNU General Public License
+-**  along with this program; if not, write to the Free Software
+-**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
+-**  02111-1307, USA.
++**  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
+ #include &quot;display/blitter.hpp&quot;
++#include &quot;display/software_surface.hpp&quot;
+ #include &quot;no_font_effect.hpp&quot;
+ 
+ void
+-NoFontEffect::blit(SDL_Surface* target, const FT_Bitmap&amp; brush, int x_pos, int y_pos) const
++NoFontEffect::blit(const SoftwareSurface&amp; target, const FT_Bitmap&amp; brush, int x_pos, int y_pos) const
+ {
+   blit_ftbitmap(target, brush, x_pos, y_pos);
+ }
+
+Modified: trunk/windstille/src/font/no_font_effect.hpp
+===================================================================
+--- trunk/windstille/src/font/no_font_effect.hpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/font/no_font_effect.hpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -36,7 +36,7 @@
+   int get_x_offset(int orig_glyph_offset) const { return orig_glyph_offset; }
+   int get_y_offset(int orig_glyph_offset) const { return orig_glyph_offset; }
+   
+-  void blit(SDL_Surface* target, const FT_Bitmap&amp; brush, int x_pos, int y_pos) const;
++  void blit(const SoftwareSurface&amp; target, const FT_Bitmap&amp; brush, int x_pos, int y_pos) const;
+   
+ private:
+   NoFontEffect (const NoFontEffect&amp;);
+
+Modified: trunk/windstille/src/font/ttf_font.cpp
+===================================================================
+--- trunk/windstille/src/font/ttf_font.cpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/font/ttf_font.cpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -27,6 +27,7 @@
+ 
+ #include &quot;display/blitter.hpp&quot;
+ #include &quot;display/opengl_state.hpp&quot;
++#include &quot;display/software_surface.hpp&quot;
+ #include &quot;display/texture_manager.hpp&quot;
+ #include &quot;font_effect.hpp&quot;
+ #include &quot;physfs/physfs_stream.hpp&quot;
+@@ -85,9 +86,8 @@
+   FT_Select_Charmap(face,  FT_ENCODING_UNICODE);
+ 
+   // FIXME: should calculate texture size, based on font size
+-  SDL_Surface* pixelbuffer = create_surface_rgba(1024, 1024);
+-  SDL_SetAlpha(pixelbuffer, 0, 0);
+-
++  SoftwareSurface pixelbuffer(1024, 1024);
++  
+   int x_pos = 1;
+   int y_pos = 1;
+   
+@@ -124,39 +124,30 @@
+                          effect.get_y_offset(-face-&gt;glyph-&gt;bitmap_top)),
+                    Size(glyph_width, glyph_height));
+ 
+-          Rectf uv(x_pos/float(pixelbuffer-&gt;w),
+-                   y_pos/float(pixelbuffer-&gt;h),
+-                   (x_pos + glyph_width)/float(pixelbuffer-&gt;w),
+-                   (y_pos + glyph_height)/float(pixelbuffer-&gt;h));
++          Rectf uv(x_pos/float(pixelbuffer.get_width()),
++                   y_pos/float(pixelbuffer.get_height()),
++                   (x_pos + glyph_width)/float(pixelbuffer.get_width()),
++                   (y_pos + glyph_height)/float(pixelbuffer.get_height()));
+       
+           impl-&gt;characters.push_back(TTFCharacter(pos, uv,
+                                                   face-&gt;glyph-&gt;advance.x &gt;&gt; 6));
+ 
+           // we leave a one pixel border around the letters which we fill with generate_border
+           x_pos += glyph_width + 2;
+-          if (x_pos + max_glyph_height + 2 &gt; pixelbuffer-&gt;w) // FIXME: should use glyph_width of the next glyph instead of max_glyph_height
++          if (x_pos + max_glyph_height + 2 &gt; pixelbuffer.get_width()) // FIXME: should use glyph_width of the next glyph instead of max_glyph_height
+             {
+               y_pos += max_glyph_height + 2;
+               x_pos = 1;
+             }
+ 
+-          if (y_pos + max_glyph_height + 2 &gt; pixelbuffer-&gt;h)
++          if (y_pos + max_glyph_height + 2 &gt; pixelbuffer.get_height())
+             throw std::runtime_error(&quot;Font Texture to small&quot;);
+         }
+     }
+   FT_Done_Face(face);
+ 
+-  try 
+-    {
+-      impl-&gt;texture = Texture(pixelbuffer);
+-      impl-&gt;texture.set_filter(GL_NEAREST);
+-    }
+-  catch(...) 
+-    {
+-      SDL_FreeSurface(pixelbuffer);
+-      throw;
+-    }
+-  SDL_FreeSurface(pixelbuffer);
++  impl-&gt;texture = Texture(pixelbuffer);
++  impl-&gt;texture.set_filter(GL_NEAREST);
+ }
+ 
+ TTFFont::~TTFFont()
+
+Modified: trunk/windstille/src/gui/automap.cpp
+===================================================================
+--- trunk/windstille/src/gui/automap.cpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/gui/automap.cpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -21,6 +21,7 @@
+ #include &quot;engine/sector.hpp&quot;
+ #include &quot;tile/tile_map.hpp&quot;
+ #include &quot;display/display.hpp&quot;
++#include &quot;display/software_surface.hpp&quot;
+ #include &quot;automap.hpp&quot;
+ 
+ namespace gui {
+@@ -37,47 +38,33 @@
+     zoom(6.0f)
+ {
+   TileMap* tilemap = Sector::current()-&gt;get_tilemap();
+-  
+-#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+-  SDL_Surface* image = SDL_CreateRGBSurface(SDL_SWSURFACE,
+-                                            tilemap-&gt;get_width(), tilemap-&gt;get_height(), 32,
+-                                            0xff000000, 0x00ff0000, 0x0000ff00, 0x000000ff);
+-#else
+-  SDL_Surface* image = SDL_CreateRGBSurface(SDL_SWSURFACE,
+-                                            tilemap-&gt;get_width(), tilemap-&gt;get_height(), 32,
+-                                            0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000);
+-#endif
+ 
+-  SDL_LockSurface(image);
++  SoftwareSurface image(tilemap-&gt;get_width(), tilemap-&gt;get_height());
+   
+-  unsigned char* buffer = static_cast&lt;unsigned char*&gt;(image-&gt;pixels);
++  unsigned char* buffer = static_cast&lt;unsigned char*&gt;(image.get_pixels());
+ 
+-  for(int y = 0; y &lt; image-&gt;h; ++y)
+-    for(int x = 0; x &lt; image-&gt;w; ++x)
++  for(int y = 0; y &lt; image.get_height(); ++y)
++    for(int x = 0; x &lt; image.get_width(); ++x)
+       {
+         if (tilemap-&gt;get_pixel(x, y))
+           {
+-            buffer[image-&gt;pitch * y + 4*x + 0] = 255;
+-            buffer[image-&gt;pitch * y + 4*x + 1] = 255;
+-            buffer[image-&gt;pitch * y + 4*x + 2] = 255;
+-            buffer[image-&gt;pitch * y + 4*x + 3] = 255;
++            buffer[image.get_pitch() * y + 4*x + 0] = 255;
++            buffer[image.get_pitch() * y + 4*x + 1] = 255;
++            buffer[image.get_pitch() * y + 4*x + 2] = 255;
++            buffer[image.get_pitch() * y + 4*x + 3] = 255;
+           }
+         else
+           {
+-            buffer[image-&gt;pitch * y + 4*x + 0] = 0;
+-            buffer[image-&gt;pitch * y + 4*x + 1] = 0;
+-            buffer[image-&gt;pitch * y + 4*x + 2] = 0;
+-            buffer[image-&gt;pitch * y + 4*x + 3] = 255;
++            buffer[image.get_pitch() * y + 4*x + 0] = 0;
++            buffer[image.get_pitch() * y + 4*x + 1] = 0;
++            buffer[image.get_pitch() * y + 4*x + 2] = 0;
++            buffer[image.get_pitch() * y + 4*x + 3] = 255;
+           }
+       }
+ 
+   surface = Surface(tilemap-&gt;get_width(), tilemap-&gt;get_height());
+   surface.get_texture().set_filter(GL_NEAREST);
+   surface.get_texture().put(image, 0, 0);
+-
+-  SDL_UnlockSurface(image);
+-
+-  SDL_FreeSurface(image);
+ }
+ 
+ Automap::~Automap()
+
+Modified: trunk/windstille/src/tile/tile_description.cpp
+===================================================================
+--- trunk/windstille/src/tile/tile_description.cpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/tile/tile_description.cpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -19,10 +19,9 @@
+ #include &lt;iostream&gt;
+ #include &lt;sstream&gt;
+ #include &lt;stdexcept&gt;
+-#include &lt;SDL.h&gt;
+-#include &lt;SDL_image.h&gt;
+ #include &quot;physfs/physfs_sdl.hpp&quot;
+ #include &quot;app/globals.hpp&quot;
++#include &quot;display/software_surface.hpp&quot;
+ #include &quot;tile.hpp&quot;
+ #include &quot;tile_packer.hpp&quot;
+ #include &quot;tile_factory.hpp&quot;
+@@ -47,55 +46,38 @@
+   if (debug)
+     std::cout &lt;&lt; &quot;Loading tiles: &quot; &lt;&lt; filename &lt;&lt; std::endl;
+ 
+-  SDL_Surface* image = IMG_Load_RW(get_physfs_SDLRWops(filename), 1);
+-  if(!image) 
++  SoftwareSurface image(filename);
++
++  int num_tiles = width * height; //(image-&gt;w/TILE_RESOLUTION) * (image-&gt;h/TILE_RESOLUTION);
++  if (int(colmap.size()) != num_tiles)
+     {
+-      std::ostringstream msg;
+-      msg &lt;&lt; &quot;Couldn't load image '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot; &lt;&lt; SDL_GetError();
+-      throw std::runtime_error(msg.str());
++      std::ostringstream str;
++      str &lt;&lt; &quot;'colmap' information and num_tiles mismatch (&quot; 
++          &lt;&lt; colmap.size() &lt;&lt; &quot; != &quot; &lt;&lt; num_tiles &lt;&lt; &quot;) for image '&quot; &lt;&lt; filename &lt;&lt; &quot;'&quot;;
++      throw std::runtime_error(str.str());
+     }
+-  else
++
++  if (int(ids.size()) != num_tiles)
+     {
+-      try 
++      std::ostringstream str;
++      str &lt;&lt; &quot;'ids' information and num_tiles mismatch (&quot; 
++          &lt;&lt; ids.size() &lt;&lt; &quot; != &quot; &lt;&lt; num_tiles &lt;&lt; &quot;) for image '&quot; &lt;&lt; filename &lt;&lt; &quot;'&quot;;
++      throw std::runtime_error(str.str());
++    }
++    
++  int i = 0;
++  for (int y = 0; y &lt; height*TILE_RESOLUTION; y += TILE_RESOLUTION)
++    {
++      for (int x = 0; x &lt; width*TILE_RESOLUTION; x += TILE_RESOLUTION)
+         {
+-          int num_tiles = width * height; //(image-&gt;w/TILE_RESOLUTION) * (image-&gt;h/TILE_RESOLUTION);
+-          if (int(colmap.size()) != num_tiles)
++          if(ids[i] != -1)
+             {
+-              std::ostringstream str;
+-              str &lt;&lt; &quot;'colmap' information and num_tiles mismatch (&quot; 
+-                  &lt;&lt; colmap.size() &lt;&lt; &quot; != &quot; &lt;&lt; num_tiles &lt;&lt; &quot;) for image '&quot; &lt;&lt; filename &lt;&lt; &quot;'&quot;;
+-              throw std::runtime_error(str.str());
++              factory-&gt;pack(ids[i], colmap[i], image,
++                            Rect(x, y, x+TILE_RESOLUTION, y+TILE_RESOLUTION));
+             }
+ 
+-          if (int(ids.size()) != num_tiles)
+-            {
+-              std::ostringstream str;
+-              str &lt;&lt; &quot;'ids' information and num_tiles mismatch (&quot; 
+-                  &lt;&lt; ids.size() &lt;&lt; &quot; != &quot; &lt;&lt; num_tiles &lt;&lt; &quot;) for image '&quot; &lt;&lt; filename &lt;&lt; &quot;'&quot;;
+-              throw std::runtime_error(str.str());
+-            }
+-    
+-          int i = 0;
+-          for (int y = 0; y &lt; height*TILE_RESOLUTION; y += TILE_RESOLUTION)
+-            {
+-              for (int x = 0; x &lt; width*TILE_RESOLUTION; x += TILE_RESOLUTION)
+-                {
+-                  if(ids[i] != -1)
+-                    {
+-                      factory-&gt;pack(ids[i], colmap[i], image,
+-                                    Rect(x, y, x+TILE_RESOLUTION, y+TILE_RESOLUTION));
+-                    }
+-
+-                  i += 1; 
+-                }
+-            }
+-        } 
+-      catch(...) 
+-        {
+-          SDL_FreeSurface(image);
+-          throw;
++          i += 1; 
+         }
+-      SDL_FreeSurface(image);
+     }
+ }
+ 
+
+Modified: trunk/windstille/src/tile/tile_factory.cpp
+===================================================================
+--- trunk/windstille/src/tile/tile_factory.cpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/tile/tile_factory.cpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -18,8 +18,6 @@
+ 
+ #include &lt;string&gt;
+ #include &lt;sstream&gt;
+-#include &lt;SDL.h&gt;
+-#include &lt;SDL_image.h&gt;
+ #include &lt;assert.h&gt;
+ #include &lt;sstream&gt;
+ #include &lt;iostream&gt;
+@@ -31,6 +29,7 @@
+ #include &quot;tile_description.hpp&quot;
+ #include &quot;util/sexpr_file_reader.hpp&quot;
+ #include &quot;display/surface_manager.hpp&quot;
++#include &quot;display/software_surface.hpp&quot;
+ #include &quot;display/texture.hpp&quot;
+ #include &quot;physfs/physfs_sdl.hpp&quot;
+ 
+@@ -39,23 +38,19 @@
+ std::string TileFactory::tile_def_file = &quot;tiles.scm&quot;;
+ 
+ /** Check if the given region of the given image is fully transparent */
+-bool surface_empty(SDL_Surface* image, int sx, int sy, int w, int h)
+-{
+-  SDL_LockSurface(image);
++bool surface_empty(const SoftwareSurface&amp; image, int sx, int sy, int w, int h)
++{ 
++  unsigned char* data = static_cast&lt;unsigned char*&gt;(image.get_pixels());
+   
+-  unsigned char* data = static_cast&lt;unsigned char*&gt;(image-&gt;pixels);
+-  
+   for(int y = sy; y &lt; sy + h; ++y)
+     for(int x = sx; x &lt; sx + w; ++x)
+       {
+-        if (data[y * image-&gt;pitch + 4*x + 3] != 0)
++        if (data[y * image.get_pitch() + 4*x + 3] != 0)
+           { 
+-            SDL_UnlockSurface(image);
+             return false;
+           }
+       }
+ 
+-  SDL_UnlockSurface(image);
+   return true;
+ }
+ 
+@@ -129,7 +124,7 @@
+ }
+ 
+ void
+-TileFactory::pack(int id, int colmap, SDL_Surface* image, const Rect&amp; rect)
++TileFactory::pack(int id, int colmap, const SoftwareSurface&amp; image, const Rect&amp; rect)
+ {
+   if(id &lt; int(tiles.size())
+      &amp;&amp; tiles[id] != 0
+
+Modified: trunk/windstille/src/tile/tile_factory.hpp
+===================================================================
+--- trunk/windstille/src/tile/tile_factory.hpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/tile/tile_factory.hpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -63,7 +63,7 @@
+   /** 
+    * Adds a surface to the TileFactory
+    */
+-  void pack(int id, int colmap, SDL_Surface* image, const Rect&amp; rect);
++  void pack(int id, int colmap, const SoftwareSurface&amp; image, const Rect&amp; rect);
+ 
+   /** Create the default TileFactor*/
+   static void init();
+
+Modified: trunk/windstille/src/tile/tile_packer.cpp
+===================================================================
+--- trunk/windstille/src/tile/tile_packer.cpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/tile/tile_packer.cpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -24,6 +24,7 @@
+ #include &quot;tile_packer.hpp&quot;
+ #include &quot;util/util.hpp&quot;
+ #include &quot;display/blitter.hpp&quot;
++#include &quot;display/software_surface.hpp&quot;
+ 
+ class TilePackerImpl
+ {
+@@ -60,40 +61,31 @@
+ /** Pack a tile and return the position where it is placed in the
+     pixel buffer */
+ Rectf
+-TilePacker::pack(SDL_Surface* image, int x, int y, int w, int h)
++TilePacker::pack(const SoftwareSurface&amp; image, int x, int y, int w, int h)
+ {
+   assert(w == TILE_RESOLUTION &amp;&amp; h == TILE_RESOLUTION);
+   assert(!is_full());
+ 
+-#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+-  SDL_Surface* convert = SDL_CreateRGBSurface(SDL_SWSURFACE,
+-    w+2, h+2, 32,
+-    0xff000000, 0x00ff0000, 0x0000ff00, 0x000000ff);
+-#else
+-  SDL_Surface* convert = SDL_CreateRGBSurface(SDL_SWSURFACE,
+-    w+2, h+2, 32,
+-      0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000);
+-#endif
+-  if(convert == 0)
+-    throw std::runtime_error(&quot;Couldn't pack texture: out of memory&quot;);
++  SoftwareSurface convert(w+2, h+2);
+ 
+   SDL_Rect source_rect;
+   source_rect.x = x;
+   source_rect.y = y;
+   source_rect.w = w;
+   source_rect.h = h;
++
+   SDL_Rect dest_rect;
+   dest_rect.x = 1;
+   dest_rect.y = 1;
+   dest_rect.w = w;
+   dest_rect.h = h;
+-  SDL_SetAlpha(image, 0, 0);
+-  SDL_BlitSurface(image, &amp;source_rect, convert, &amp;dest_rect);
++
++  SDL_BlitSurface(image.get_surface(), &amp;source_rect, convert.get_surface(), &amp;dest_rect);
++
+   generate_border(convert, 1, 1, TILE_RESOLUTION, TILE_RESOLUTION);
+ 
+   impl-&gt;texture.put(convert, impl-&gt;x_pos, impl-&gt;y_pos);
+-  SDL_FreeSurface(convert);
+-
++  
+   assert_gl(&quot;updating tilepacker texture&quot;);
+ 
+   Rectf rect(Vector2f(static_cast&lt;float&gt;(impl-&gt;x_pos+1)/impl-&gt;width, 
+
+Modified: trunk/windstille/src/tile/tile_packer.hpp
+===================================================================
+--- trunk/windstille/src/tile/tile_packer.hpp	2009-03-19 17:43:11 UTC (rev 2706)
++++ trunk/windstille/src/tile/tile_packer.hpp	2009-03-19 19:42:10 UTC (rev 2707)
+@@ -19,12 +19,12 @@
+ #ifndef HEADER_WINDSTILLE_TILE_TILE_PACKER_HPP
+ #define HEADER_WINDSTILLE_TILE_TILE_PACKER_HPP
+ 
+-#include &lt;SDL.h&gt;
+ #include &lt;GL/glew.h&gt;
+ #include &lt;GL/gl.h&gt;
+ #include &quot;display/texture.hpp&quot;
+ #include &quot;math/rect.hpp&quot;
+ 
++class SoftwareSurface;
+ class TilePackerImpl;
+ 
+ /** Creates a pixelbuffer of the given size and packs 32x32 large
+@@ -40,7 +40,7 @@
+ 
+   /** Pack a tile and return the position where it is placed in the
+       pixel buffer */
+-  Rectf pack(SDL_Surface* image, int x, int y, int w, int h);
++  Rectf pack(const SoftwareSurface&amp; image, int x, int y, int w, int h);
+ 
+   /** Return true if the PixelBuffer is full */
+   bool is_full() const;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001703.html">[Windstille-commit] r2706 - trunk/windstille/src/app
+</A></li>
+	<LI>Next message: <A HREF="001705.html">[Windstille-commit] r2708 - in trunk/windstille/src: . editor engine
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1704">[ date ]</a>
+              <a href="thread.html#1704">[ thread ]</a>
+              <a href="subject.html#1704">[ subject ]</a>
+              <a href="author.html#1704">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

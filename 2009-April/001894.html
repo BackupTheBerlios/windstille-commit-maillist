@@ -1,0 +1,191 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2897 - in trunk/windstille/src: editor	navigation
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2897%20-%20in%20trunk/windstille/src%3A%20editor%0A%09navigation&In-Reply-To=%3C200904081634.n38GYLDi016666%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001893.html">
+   <LINK REL="Next"  HREF="001895.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2897 - in trunk/windstille/src: editor	navigation</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2897%20-%20in%20trunk/windstille/src%3A%20editor%0A%09navigation&In-Reply-To=%3C200904081634.n38GYLDi016666%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2897 - in trunk/windstille/src: editor	navigation">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Apr  8 18:34:21 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001893.html">[Windstille-commit] r2896 - trunk/windstille
+</A></li>
+        <LI>Next message: <A HREF="001895.html">[Windstille-commit] r2898 - in trunk/windstille: data/editor	src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1894">[ date ]</a>
+              <a href="thread.html#1894">[ thread ]</a>
+              <a href="subject.html#1894">[ subject ]</a>
+              <a href="author.html#1894">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-04-08 18:34:18 +0200 (Wed, 08 Apr 2009)
+New Revision: 2897
+
+Modified:
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/navigation/navigation_graph.cpp
+   trunk/windstille/src/navigation/navigation_graph.hpp
+Log:
+Added NavGraph loading and saving to the editor
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-04-08 03:14:21 UTC (rev 2896)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-04-08 16:34:18 UTC (rev 2897)
+@@ -379,6 +379,10 @@
+           ambient_color = Color(0,0,0,1);
+           reader.get(&quot;ambient-color&quot;, ambient_color);
+ 
++          FileReader navigation_section;
++          reader.get(&quot;navigation&quot;, navigation_section);
++          nav_graph-&gt;load(navigation_section);
++
+           const std::vector&lt;FileReader&gt;&amp; sections = reader.get_sections();
+           for(std::vector&lt;FileReader&gt;::const_iterator i = sections.begin(); i != sections.end(); ++i)
+             {
+@@ -416,6 +420,10 @@
+   writer.write(&quot;ambient-color&quot;, ambient_color);
+   writer.write(&quot;init-script&quot;, &quot;init.nut&quot;);
+ 
++  writer.start_section(&quot;navigation&quot;);
++  nav_graph-&gt;write(writer);
++  writer.end_section();
++
+   write(writer, *(layer_tree-&gt;children().begin()));
+ 
+   writer.end_section();
+
+Modified: trunk/windstille/src/navigation/navigation_graph.cpp
+===================================================================
+--- trunk/windstille/src/navigation/navigation_graph.cpp	2009-04-08 03:14:21 UTC (rev 2896)
++++ trunk/windstille/src/navigation/navigation_graph.cpp	2009-04-08 16:34:18 UTC (rev 2897)
+@@ -27,6 +27,7 @@
+ #include &quot;edge_position.hpp&quot;
+ #include &quot;node.hpp&quot;
+ #include &quot;util/file_reader.hpp&quot;
++#include &quot;util/file_writer.hpp&quot;
+ 
+ #include &quot;navigation_graph.hpp&quot;
+ 
+@@ -260,6 +261,9 @@
+ void
+ NavigationGraph::load(FileReader&amp; reader)
+ {
++  nodes.clear();
++  edges.clear();
++
+   int id_count = 1;
+   std::map&lt;int, Node*&gt; id2ptr;
+ 
+@@ -335,7 +339,7 @@
+ 
+ void
+ NavigationGraph::save(std::ostream&amp; out)
+-{
++{ // FIXME: Obsolete
+   int id = 1;
+   std::map&lt;Node*, int&gt; ptr2id;
+ 
+@@ -364,6 +368,38 @@
+   out.flags(old_flags); // restore flags
+ }
+ 
++void
++NavigationGraph::write(FileWriter&amp; writer)
++{
++  std::map&lt;Node*, int&gt; ptr2id;
++
++  {
++    for(Nodes::iterator i = nodes.begin(); i != nodes.end(); ++i)
++      ptr2id[*i] = i - nodes.begin() + 1;
++  }
++
++  writer.start_section(&quot;nodes&quot;);
++  for(Nodes::iterator i = nodes.begin(); i != nodes.end(); ++i)
++    {
++      writer.start_section(&quot;node&quot;);
++      writer.write(&quot;id&quot;, ptr2id[*i]);
++      writer.write(&quot;pos&quot;, (*i)-&gt;get_pos());
++      writer.end_section();
++    }
++  writer.end_section();
++
++  writer.start_section(&quot;edges&quot;);
++  for(Edges::iterator i = edges.begin(); i != edges.end(); ++i)  
++    {
++      writer.start_section(&quot;edge&quot;);
++      writer.write(&quot;node1&quot;, ptr2id[(*i)-&gt;get_node1()]);
++      writer.write(&quot;node2&quot;, ptr2id[(*i)-&gt;get_node2()]);
++      writer.write(&quot;properties&quot;, (int)(*i)-&gt;get_properties());
++      writer.end_section();
++    }
++  writer.end_section();
++}
++
+ bool
+ NavigationGraph::valid(Edge* edge)
+ {
+
+Modified: trunk/windstille/src/navigation/navigation_graph.hpp
+===================================================================
+--- trunk/windstille/src/navigation/navigation_graph.hpp	2009-04-08 03:14:21 UTC (rev 2896)
++++ trunk/windstille/src/navigation/navigation_graph.hpp	2009-04-08 16:34:18 UTC (rev 2897)
+@@ -26,6 +26,7 @@
+ class Rectf;
+ class Node;
+ class FileReader;
++class FileWriter;
+ class Edge;
+ class EdgePosition;
+ 
+@@ -127,6 +128,7 @@
+ 
+   void load(FileReader&amp; reader);
+   void save(std::ostream&amp; out);
++  void write(FileWriter&amp; writer);
+ 
+   bool valid(Edge* edge);
+   bool valid(Node* node);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001893.html">[Windstille-commit] r2896 - trunk/windstille
+</A></li>
+	<LI>Next message: <A HREF="001895.html">[Windstille-commit] r2898 - in trunk/windstille: data/editor	src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1894">[ date ]</a>
+              <a href="thread.html#1894">[ thread ]</a>
+              <a href="subject.html#1894">[ subject ]</a>
+              <a href="author.html#1894">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

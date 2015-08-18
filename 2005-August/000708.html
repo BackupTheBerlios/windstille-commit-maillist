@@ -1,0 +1,461 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1051 - in trunk/src: . collision
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1051%20-%20in%20trunk/src%3A%20.%20collision&In-Reply-To=%3C200508312155.j7VLt6OW008300%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000707.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1051 - in trunk/src: . collision</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1051%20-%20in%20trunk/src%3A%20.%20collision&In-Reply-To=%3C200508312155.j7VLt6OW008300%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1051 - in trunk/src: . collision">grumbel at berlios.de
+       </A><BR>
+    <I>Wed Aug 31 23:55:06 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000707.html">[Windstille-commit] r1050 - trunk/src/collision
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#708">[ date ]</a>
+              <a href="thread.html#708">[ thread ]</a>
+              <a href="subject.html#708">[ subject ]</a>
+              <a href="author.html#708">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-08-31 23:55:04 +0200 (Wed, 31 Aug 2005)
+New Revision: 1051
+
+Modified:
+   trunk/src/collision/Jamfile
+   trunk/src/collision/contact.hpp
+   trunk/src/collision/stair_contact.cpp
+   trunk/src/collision/stair_contact.hpp
+   trunk/src/player.cpp
+   trunk/src/player.hpp
+Log:
+- changed stair implementation a bit
+
+Modified: trunk/src/collision/Jamfile
+===================================================================
+--- trunk/src/collision/Jamfile	2005-08-30 18:01:34 UTC (rev 1050)
++++ trunk/src/collision/Jamfile	2005-08-31 21:55:04 UTC (rev 1051)
+@@ -9,6 +9,9 @@
+   collision_object.hpp
+   collision_test.cpp
+   collision_test.hpp
++  contact.hpp
++  stair_contact.hpp
++  stair_contact.cpp
+ ;
+ 
+ TRANSLATABLE_SOURCES += [ SearchSource $(sources) ] ;
+
+Modified: trunk/src/collision/contact.hpp
+===================================================================
+--- trunk/src/collision/contact.hpp	2005-08-30 18:01:34 UTC (rev 1050)
++++ trunk/src/collision/contact.hpp	2005-08-31 21:55:04 UTC (rev 1051)
+@@ -33,11 +33,12 @@
+ private:
+ public:
+   Contact()  {}
+-  ~Contact() {}
++  virtual ~Contact() {}
+ 
+-  virtual void set_velocity(float a) =0;
+   virtual void update(float delta) =0;
+-
++  virtual void advance(float s) =0;
++  virtual bool is_active() const =0;
++  virtual Vector get_pos() const =0;
+ private:
+   Contact (const Contact&amp;);
+   Contact&amp; operator= (const Contact&amp;);
+
+Modified: trunk/src/collision/stair_contact.cpp
+===================================================================
+--- trunk/src/collision/stair_contact.cpp	2005-08-30 18:01:34 UTC (rev 1050)
++++ trunk/src/collision/stair_contact.cpp	2005-08-31 21:55:04 UTC (rev 1051)
+@@ -23,21 +23,104 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;iostream&gt;
++#include &quot;tile.hpp&quot;
++#include &quot;tile_map.hpp&quot;
+ #include &quot;stair_contact.hpp&quot;
+ 
+-StairContact::StairContact()
++StairContact::StairContact(TileMap* tilemap_, const Point&amp; pos_)
++  : tilemap(tilemap_), pos(pos_), advancement(0.0f)
+ {
++  unsigned int col = tilemap-&gt;get_pixel(pos.x, pos.y);
++  if (!(col &amp; TILE_STAIRS))
++    std::cout &lt;&lt; &quot;Warning: StairContact: Given tile is no stair tile&quot; &lt;&lt; std::endl;
++
++  tile_type = col;
+ }
+ 
+ void
+-StairContact::set_velocity(float a)
++StairContact::update(float delta)
+ {
++  // shouldn't be needed!?
++}
++
++void
++StairContact::advance(float s)
++{
++  if (s == 0)
++    return;
++
++  s /= 32.0f;
++
++  //std::cout &lt;&lt; &quot;Advance: (&quot; &lt;&lt; pos.x &lt;&lt; &quot;, &quot; &lt;&lt; pos.y &lt;&lt; &quot;) &quot; &lt;&lt; advancement &lt;&lt; &quot; &quot; &lt;&lt; s &lt;&lt; std::endl;
+   
++  float step = (s &gt; 0.0f) ? 1.0f : -1.0f;
++
++  // advancement must happen tile by tile  
++  while ((fabs(s) &gt; fabs(step)) &amp;&amp; is_active())
++    {
++      advancement += step;
++      s -= step;
++
++      // increment tile position, based on tile direction
++      // can be up/down, left/rigth
++      advance_or_not();
++    }
++
++  advancement += s;
++  advance_or_not();
+ }
+ 
+ void
+-StairContact::update(float delta)
++StairContact::advance_or_not()
+ {
++  if (tile_type &amp; TILE_LEFT)
++    {
++      if (advancement &lt; -0.5f)
++        {
++          pos.x -= 1;
++          pos.y += 1;
++          advancement += 1.0f;
++        }
++      else if (advancement &gt; 0.5f)
++        {
++          pos.x += 1;
++          pos.y -= 1;
++          advancement -= 1.0f;
++        }
++    }
++  else if (tile_type &amp; TILE_RIGHT)
++    {
++      if (advancement &lt; -0.5f)
++        {
++          pos.x += 1;
++          pos.y -= 1;
++          advancement += 1.0f;
++        }
++      else if (advancement &gt; 0.5f)
++        {
++          pos.x -= 1;
++          pos.y += 1;
++          advancement -= 1.0f;
++        }
++    }
+ }
+ 
++Vector
++StairContact::get_pos() const
++{
++  if (tile_type &amp; TILE_RIGHT)
++    return Vector(pos.x * 32 + 16 + 32 * advancement,
++                  pos.y * 32 + 16 + 32 * advancement);
++  else // (tile_type &amp; TILE_LEFT)
++    return Vector(pos.x * 32 + 16 + 32 * advancement,
++                  pos.y * 32 + 16 - 32 * advancement);
++}
++
++bool
++StairContact::is_active() const
++{
++  return (tilemap-&gt;get_pixel(pos.x, pos.y) &amp; TILE_STAIRS);
++}
++
+ /* EOF */
+
+Modified: trunk/src/collision/stair_contact.hpp
+===================================================================
+--- trunk/src/collision/stair_contact.hpp	2005-08-30 18:01:34 UTC (rev 1050)
++++ trunk/src/collision/stair_contact.hpp	2005-08-31 21:55:04 UTC (rev 1051)
+@@ -28,17 +28,43 @@
+ 
+ #include &quot;contact.hpp&quot;
+ 
++class TileMap;
++
+ /** A special contact to walk stairs up or down */
+ class StairContact : public Contact
+ {
+ private:
++  /** The tilemap with which the contact interacts */
++  TileMap* tilemap;
++
++  /** Current position in unit of tiles */
++  Point pos;
++
++  /** Amount of how much we are away from the center of the tile, its
++      in range [-0.5, 0.5], else we move on to the next tile.
++      advancement is in sync with the x-axis, y-axis depend on
++      direction */
++  float advancement;
++
++  unsigned int tile_type;
++
+ public:
+-  StairContact();
++  StairContact(TileMap* tilemap, const Point&amp; p);
+   
+-  void set_velocity(float a);
+   void update(float delta);
+ 
++  /** Move the contact forward or backward across the stairs */
++  void advance(float s);
++
++  /** Get the current position in world coordinates */
++  Vector get_pos() const;
++
++  /** Return false when the given contact has left the stairs */
++  bool is_active() const;
++
+ private:
++  void advance_or_not();
++
+   StairContact (const StairContact&amp;);
+   StairContact&amp; operator= (const StairContact&amp;);
+ };
+
+Modified: trunk/src/player.cpp
+===================================================================
+--- trunk/src/player.cpp	2005-08-30 18:01:34 UTC (rev 1050)
++++ trunk/src/player.cpp	2005-08-31 21:55:04 UTC (rev 1051)
+@@ -32,6 +32,7 @@
+ #include &quot;particles/particle_system.hpp&quot;
+ #include &quot;collision/collision_engine.hpp&quot;
+ #include &quot;laser_pointer.hpp&quot;
++#include &quot;collision/stair_contact.hpp&quot;
+ #include &quot;game_session.hpp&quot;
+ #include &quot;console.hpp&quot;
+ 
+@@ -73,6 +74,8 @@
+   Sector::current()-&gt;get_collision_engine()-&gt;add(c_object);
+ 
+   z_pos = 100.0f;
++
++  contact = 0;
+ }
+ 
+ Player::~Player()
+@@ -134,7 +137,7 @@
+ }
+ 
+ void 
+-Player::update (float delta)
++Player::update(float delta)
+ {
+   laser_pointer-&gt;update(delta);
+ 
+@@ -189,10 +192,8 @@
+           update_pull_gun();
+           break;
+         case STAIRS_DOWN:
+-          update_stairs_down(delta);
+-          break;
+         case STAIRS_UP:
+-          update_stairs_up(delta);
++          update_stairs(delta);
+           break;
+         default:
+           assert(false);
+@@ -226,11 +227,15 @@
+     TileMap* tilemap = Sector::current()-&gt;get_tilemap2();
+     if (tilemap)
+       {
+-        unsigned int col = tilemap-&gt;get_pixel(int(pos.x)/32, (int(pos.y)/32 + 1));
++        Point p(int(pos.x)/32, (int(pos.y)/32 + 1));
++        unsigned int col = tilemap-&gt;get_pixel(p.x, p.y);
+ 
+         if ((col &amp; TILE_STAIRS) &amp;&amp; (get_direction() == WEST &amp;&amp; (col &amp; TILE_LEFT) ||
+                                     get_direction() == EAST &amp;&amp; (col &amp; TILE_RIGHT)))
+           {
++            delete contact;
++            contact = new StairContact(tilemap, p);
++
+             std::cout &lt;&lt; &quot;Stair mode&quot; &lt;&lt; std::endl;
+             state = STAIRS_DOWN;
+             //c_object-&gt;get_check_domains() &amp; (~CollisionObject::DOMAIN_TILEMAP));
+@@ -248,12 +253,15 @@
+     TileMap* tilemap = Sector::current()-&gt;get_tilemap2();
+     if (tilemap)
+       {
+-        unsigned int col = tilemap-&gt;get_pixel(int(pos.x)/32 + ((get_direction() == WEST) ? -1 : +1),
+-                                              (int(pos.y)/32));
++        Point p(int(pos.x)/32 + ((get_direction() == WEST) ? -1 : +1), (int(pos.y)/32));
++        unsigned int col = tilemap-&gt;get_pixel(p.x, p.y);
+ 
+         if ((col &amp; TILE_STAIRS) &amp;&amp; (get_direction() == EAST &amp;&amp; (col &amp; TILE_LEFT) ||
+                                     get_direction() == WEST &amp;&amp; (col &amp; TILE_RIGHT)))
+           {
++            delete contact;
++            contact = new StairContact(tilemap, p);
++
+             state = STAIRS_UP;
+             //c_object-&gt;get_check_domains() &amp; (~CollisionObject::DOMAIN_TILEMAP));
+             Sector::current()-&gt;get_collision_engine()-&gt;remove(c_object);
+@@ -270,65 +278,25 @@
+ }
+ 
+ void
+-Player::update_stairs_up(float delta)
++Player::update_stairs(float delta)
+ {
+-  if (get_direction() == WEST)
+-    {
+-      c_object-&gt;set_pos(c_object-&gt;get_pos() + Vector(-WALK_SPEED, -WALK_SPEED) * delta * 0.7f);
+-    }
+-  else
+-    {
+-      c_object-&gt;set_pos(c_object-&gt;get_pos() + Vector(WALK_SPEED, -WALK_SPEED) * delta * 0.7f);
+-    }
++  assert(contact);
+ 
+-  if (!(controller.get_axis_state(Y_AXIS) &lt; 0)) {
+-     Sector::current()-&gt;get_collision_engine()-&gt;add(c_object);
+-     set_stand();
+-     z_pos = 100.0f;
+-  }
++  if (controller.get_axis_state(X_AXIS) &lt; 0 ||
++      controller.get_axis_state(Y_AXIS) &gt; 0)
++    contact-&gt;advance(-WALK_SPEED * delta * 0.7f);
++  else if (controller.get_axis_state(X_AXIS) &gt; 0 ||
++           controller.get_axis_state(Y_AXIS) &lt; 0)
++    contact-&gt;advance(WALK_SPEED * delta * 0.7f);
+ 
+-  if (0)
+-    {
+-      TileMap* tilemap = Sector::current()-&gt;get_tilemap2();
+-      if (tilemap)
+-        {
+-          unsigned int col = tilemap-&gt;get_pixel(int(pos.x)/32, (int(pos.y)/32 + 1));
+-          if ((col &amp; TILE_SOLID) &amp;&amp; !(col &amp; TILE_STAIRS))
+-            {
+-              Sector::current()-&gt;get_collision_engine()-&gt;add(c_object);
+-              set_stand();
+-            }
+-        }
+-    }
+-
+   velocity = Vector(0, 0);
+-}
++  c_object-&gt;set_pos(contact-&gt;get_pos());
+ 
+-void
+-Player::update_stairs_down(float delta)
+-{
+-  if (get_direction() == WEST)
++  if (!contact-&gt;is_active())
+     {
+-      c_object-&gt;set_pos(c_object-&gt;get_pos() + Vector(-WALK_SPEED, WALK_SPEED) * delta * 0.7f);
++      Sector::current()-&gt;get_collision_engine()-&gt;add(c_object);
++      state = STAND;
+     }
+-  else
+-    {
+-      c_object-&gt;set_pos(c_object-&gt;get_pos() + Vector(WALK_SPEED, WALK_SPEED) * delta * 0.7f);
+-    }
+-
+-  TileMap* tilemap = Sector::current()-&gt;get_tilemap2();
+-  if (tilemap)
+-    {
+-      unsigned int col = tilemap-&gt;get_pixel(int(pos.x)/32, (int(pos.y)/32 + 1));
+-      if ((col &amp; TILE_SOLID) &amp;&amp; !(col &amp; TILE_STAIRS))
+-        {
+-          Sector::current()-&gt;get_collision_engine()-&gt;add(c_object);
+-          set_stand();
+-          z_pos = 100.0f;
+-        }
+-    }
+-
+-  velocity = Vector(0, 0);
+ }
+ 
+ Entity*
+
+Modified: trunk/src/player.hpp
+===================================================================
+--- trunk/src/player.hpp	2005-08-30 18:01:34 UTC (rev 1050)
++++ trunk/src/player.hpp	2005-08-31 21:55:04 UTC (rev 1051)
+@@ -30,6 +30,7 @@
+ #include &quot;glutil/surface.hpp&quot;
+ 
+ class Controller;
++class Contact;
+ class LaserPointer;
+ 
+ class Player : public Entity
+@@ -52,6 +53,8 @@
+   Slot slot;
+ 
+   LaserPointer* laser_pointer;
++  Contact* contact;
++
+ public:
+   enum State
+   {
+@@ -146,8 +149,7 @@
+   void update_jump_up_land();
+ 
+   void update_pull_gun();
+-  void update_stairs_up(float delta);
+-  void update_stairs_down(float delta);
++  void update_stairs(float delta);
+ 
+   /**
+    * Sets an action for the sprite. In contrast to sprite-&gt;set_action this
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000707.html">[Windstille-commit] r1050 - trunk/src/collision
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#708">[ date ]</a>
+              <a href="thread.html#708">[ thread ]</a>
+              <a href="subject.html#708">[ subject ]</a>
+              <a href="author.html#708">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

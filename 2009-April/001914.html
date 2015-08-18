@@ -1,0 +1,410 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2917 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2917%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200904140226.n3E2QUBR028782%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001913.html">
+   <LINK REL="Next"  HREF="001915.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2917 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2917%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200904140226.n3E2QUBR028782%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2917 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Apr 14 04:26:30 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001913.html">[Windstille-commit] r2916 - trunk/windstille/src/screen
+</A></li>
+        <LI>Next message: <A HREF="001915.html">[Windstille-commit] r2918 - trunk/windstille
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1914">[ date ]</a>
+              <a href="thread.html#1914">[ thread ]</a>
+              <a href="subject.html#1914">[ subject ]</a>
+              <a href="author.html#1914">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-04-14 04:26:29 +0200 (Tue, 14 Apr 2009)
+New Revision: 2917
+
+Modified:
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/editor_window.hpp
+   trunk/windstille/src/editor/object_selector.cpp
+   trunk/windstille/src/editor/object_selector.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+Log:
+Moved object loading code into ObjectSelector and added drag&amp;drop of URIs, so D&amp;D from WindstilleEditor to Gimp is possible
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-04-14 02:23:49 UTC (rev 2916)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-04-14 02:26:29 UTC (rev 2917)
+@@ -384,12 +384,7 @@
+   // Window
+   add(vbox);
+ 
+-  fill_object_selector(&quot;data/images/decal/&quot;);
+-  fill_object_selector(&quot;data/images/objects/bar/&quot;);
+-  //fill_object_selector(&quot;data/images/inventory/&quot;);
+-  //fill_object_selector(&quot;data/images/portraits/&quot;);
+-  fill_object_selector(&quot;data/images/objects/&quot;);
+-  fill_object_selector(&quot;data/images/&quot;);
++  object_selector.populate();
+ }
+ 
+ EditorWindow::~EditorWindow()
+@@ -688,84 +683,6 @@
+     }
+ }
+ 
+-static bool has_suffix(const std::string&amp; str, const std::string&amp; suffix)
+-{
+-  if (str.length() &gt;= suffix.length())
+-    return str.compare(str.length() - suffix.length(), suffix.length(), suffix) == 0;
+-  else
+-    return false;
+-}
+-
+-void
+-EditorWindow::fill_object_selector(const std::string&amp; directory)
+-{
+-  std::vector&lt;Glib::ustring&gt; images;
+-
+-  Glib::Dir dir(directory);
+-  for(Glib::Dir::iterator i = dir.begin(); i != dir.end(); ++i)
+-    {
+-      if (has_suffix(*i, &quot;.png&quot;))
+-        {
+-          Glib::ustring path = directory;
+-          path += *i;
+-          images.push_back(path);
+-        }
+-    }
+-
+-  std::sort(images.begin(), images.end());
+-
+-  for(std::vector&lt;Glib::ustring&gt;::iterator i = images.begin(); i != images.end(); ++i)    
+-    {
+-      Glib::RefPtr&lt;Gdk::Pixbuf&gt; pixbuf = Gdk::Pixbuf::create_from_file(*i);
+-      Glib::RefPtr&lt;Gdk::Pixbuf&gt; icon;
+-
+-      { // Create an icon, by scaling it down, keeping aspect
+-        // intact and adding a background (important to make drag&amp;drop easier)
+-        int size     = 48; // size of the icon
+-        int min_size = 16; // minimum width/height of the icon after scaling
+-
+-        if (1)
+-          {
+-            icon = Gdk::Pixbuf::create_from_file(&quot;data/editor/icon_bg.png&quot;);
+-            size = std::max(icon-&gt;get_width(), icon-&gt;get_height());
+-          }
+-        else
+-          {
+-            icon = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, true, 8, size, size);
+-            icon-&gt;fill(0x444444ff);
+-          }
+-
+-        // Scale pixbuf to icon size while keeping aspect ratio intact
+-        double x_scale = (double)size / pixbuf-&gt;get_width();
+-        double y_scale = (double)size / pixbuf-&gt;get_height();
+-
+-        if (x_scale * pixbuf-&gt;get_width() &lt; min_size)
+-          x_scale = min_size / pixbuf-&gt;get_width();
+-
+-        if (y_scale * pixbuf-&gt;get_height() &lt; min_size)
+-          y_scale = min_size / pixbuf-&gt;get_height();
+-
+-        if (pixbuf-&gt;get_width() &gt; pixbuf-&gt;get_height())              
+-          y_scale = x_scale;
+-        else
+-          x_scale = y_scale;
+-
+-        int r_w = int(pixbuf-&gt;get_width() * x_scale);
+-        int r_h = int(pixbuf-&gt;get_height() * y_scale);
+-
+-        pixbuf-&gt;composite(icon, 
+-                          (size - r_w)/2, (size - r_h)/2,
+-                          r_w, r_h,
+-                          (size - r_w)/2, (size - r_h)/2,
+-                          x_scale, y_scale,
+-                          Gdk::INTERP_TILES, 
+-                          255);
+-      }
+-
+-      object_selector.add_object(*i, icon);
+-    }
+-}
+-
+ bool
+ EditorWindow::get_draw_navgraph() const
+ {
+
+Modified: trunk/windstille/src/editor/editor_window.hpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.hpp	2009-04-14 02:23:49 UTC (rev 2916)
++++ trunk/windstille/src/editor/editor_window.hpp	2009-04-14 02:26:29 UTC (rev 2917)
+@@ -99,8 +99,7 @@
+   virtual ~EditorWindow();
+ 
+   void show_minimap(bool v);
+-  void fill_object_selector(const std::string&amp; directory);
+-
++  
+ public:
+   void on_new();
+   void on_open();
+
+Modified: trunk/windstille/src/editor/object_selector.cpp
+===================================================================
+--- trunk/windstille/src/editor/object_selector.cpp	2009-04-14 02:23:49 UTC (rev 2916)
++++ trunk/windstille/src/editor/object_selector.cpp	2009-04-14 02:26:29 UTC (rev 2917)
+@@ -30,6 +30,7 @@
+ class ObjectIconColumns : public Gtk::TreeModel::ColumnRecord
+ {
+ public:
++  Gtk::TreeModelColumn&lt;std::string&gt; url;
+   Gtk::TreeModelColumn&lt;std::string&gt; pathname;
+   Gtk::TreeModelColumn&lt;Glib::RefPtr&lt;Gdk::Pixbuf&gt; &gt;  icon;
+   
+@@ -45,6 +46,7 @@
+ 
+   ObjectIconColumns() {
+     add(pathname); 
++    add(url);
+     add(icon);
+   }
+ };
+@@ -76,6 +78,8 @@
+   // Change background color
+   // iconview.modify_base(Gtk::STATE_NORMAL, Gdk::Color(&quot;#444444&quot;));
+   
++  set_border_width(1);
++
+   iconview.set_model(list_store);
+ 
+   // Trying to get spacing to minimum, without much effect
+@@ -89,7 +93,11 @@
+   iconview.set_model(list_store);
+ 
+   std::vector&lt;Gtk::TargetEntry&gt; targets;
+-  targets.push_back(Gtk::TargetEntry(&quot;WindstilleObject&quot;));
++  //targets.push_back(Gtk::TargetEntry(&quot;image/png&quot;));
++  targets.push_back(Gtk::TargetEntry(&quot;text/uri-list&quot;));
++  targets.push_back(Gtk::TargetEntry(&quot;STRING&quot;));
++  targets.push_back(Gtk::TargetEntry(&quot;text/plain&quot;));
++  targets.push_back(Gtk::TargetEntry(&quot;application/x-windstille-decal&quot;));
+   iconview.drag_source_set(targets, Gdk::BUTTON1_MASK, Gdk::ACTION_COPY);
+ 
+   iconview.signal_drag_begin().connect(sigc::mem_fun(*this, &amp;ObjectSelector::on_drag_begin));
+@@ -111,18 +119,112 @@
+ }
+ 
+ void
+-ObjectSelector::add_object(const std::string&amp; pathname,
+-                           const Glib::RefPtr&lt;Gdk::Pixbuf&gt;&amp; icon)
++ObjectSelector::add_decal(const Glib::RefPtr&lt;Gdk::Pixbuf&gt;&amp; icon,
++                          const std::string&amp; pathname,
++                          const std::string&amp; url)
+ {
+-  Gtk::ListStore::iterator it  = list_store-&gt;append();
++  Gtk::ListStore::iterator it = list_store-&gt;append();
++
+   (*it)[ObjectIconColumns::instance().pathname] = pathname;
++  (*it)[ObjectIconColumns::instance().url]      = url;
+   (*it)[ObjectIconColumns::instance().icon]     = icon;
+ }
+ 
++static bool has_suffix(const std::string&amp; str, const std::string&amp; suffix)
++{
++  if (str.length() &gt;= suffix.length())
++    return str.compare(str.length() - suffix.length(), suffix.length(), suffix) == 0;
++  else
++    return false;
++}
++
+ void
++ObjectSelector::add_decals_from_directory(const std::string&amp; pathname)
++{
++  std::vector&lt;Glib::ustring&gt; images;
++
++  Glib::Dir dir(pathname);
++  for(Glib::Dir::iterator i = dir.begin(); i != dir.end(); ++i)
++    {
++      if (has_suffix(*i, &quot;.png&quot;))
++        {
++          Glib::ustring path = pathname;
++          path += *i;
++          images.push_back(path);
++        }
++    }
++
++  std::sort(images.begin(), images.end());
++
++  for(std::vector&lt;Glib::ustring&gt;::iterator i = images.begin(); i != images.end(); ++i)    
++    {
++      Glib::RefPtr&lt;Gdk::Pixbuf&gt; pixbuf = Gdk::Pixbuf::create_from_file(*i);
++      Glib::RefPtr&lt;Gdk::Pixbuf&gt; icon;
++
++      { // Create an icon, by scaling it down, keeping aspect
++        // intact and adding a background (important to make drag&amp;drop easier)
++        int size     = 48; // size of the icon
++        int min_size = 16; // minimum width/height of the icon after scaling
++
++        if (1)
++          {
++            icon = Gdk::Pixbuf::create_from_file(&quot;data/editor/icon_bg.png&quot;);
++            size = std::max(icon-&gt;get_width(), icon-&gt;get_height());
++          }
++        else
++          {
++            icon = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, true, 8, size, size);
++            icon-&gt;fill(0x444444ff);
++          }
++
++        // Scale pixbuf to icon size while keeping aspect ratio intact
++        double x_scale = (double)size / pixbuf-&gt;get_width();
++        double y_scale = (double)size / pixbuf-&gt;get_height();
++
++        if (x_scale * pixbuf-&gt;get_width() &lt; min_size)
++          x_scale = min_size / pixbuf-&gt;get_width();
++
++        if (y_scale * pixbuf-&gt;get_height() &lt; min_size)
++          y_scale = min_size / pixbuf-&gt;get_height();
++
++        if (pixbuf-&gt;get_width() &gt; pixbuf-&gt;get_height())              
++          y_scale = x_scale;
++        else
++          x_scale = y_scale;
++
++        int r_w = int(pixbuf-&gt;get_width() * x_scale);
++        int r_h = int(pixbuf-&gt;get_height() * y_scale);
++
++        pixbuf-&gt;composite(icon, 
++                          (size - r_w)/2, (size - r_h)/2,
++                          r_w, r_h,
++                          (size - r_w)/2, (size - r_h)/2,
++                          x_scale, y_scale,
++                          Gdk::INTERP_TILES, 
++                          255);
++      }
++
++      add_decal(icon, *i, 
++                &quot;<A HREF="file:///home/ingo/projects/windstille/trunk/windstille/">file:///home/ingo/projects/windstille/trunk/windstille/</A>&quot; + *i);
++    }
++}
++
++void
++ObjectSelector::populate()
++{
++  add_decals_from_directory(&quot;data/images/decal/&quot;);
++  add_decals_from_directory(&quot;data/images/objects/bar/&quot;);
++  add_decals_from_directory(&quot;data/images/objects/&quot;);
++  add_decals_from_directory(&quot;data/images/&quot;);
++  //(&quot;data/images/inventory/&quot;);
++  //(&quot;data/images/portraits/&quot;);
++}
++void
+ ObjectSelector::refresh()
+ {
+-  std::cout &lt;&lt; &quot;Refresh&quot; &lt;&lt; std::endl;
++  std::cout &lt;&lt; &quot;ObjectSelector::refresh()&quot; &lt;&lt; std::endl;
++  list_store-&gt;clear();
++  populate();
+ }
+                     
+ void
+@@ -164,10 +266,18 @@
+     {
+       Gtk::ListStore::iterator it = list_store-&gt;get_iter(*i);
+ 
+-      //if (it)
+-      //std::cout &lt;&lt; &quot;on_drag_begin: &quot; &lt;&lt; (*it)[ObjectIconColumns::instance().pathname] &lt;&lt; std::endl;
++      std::cout &lt;&lt; &quot;TARGET: &quot; &lt;&lt; selection_data.get_target() &lt;&lt; std::endl;
+ 
+-      selection_data.set(&quot;data&quot;, (*it)[ObjectIconColumns::instance().pathname]);
++      if (selection_data.get_target() == &quot;application/x-windstille-decal&quot;)
++        {
++          const std::string&amp; str = (*it)[ObjectIconColumns::instance().pathname];
++          selection_data.set(8, reinterpret_cast&lt;const guint8*&gt;(str.c_str()), str.length());
++        }
++      else
++        {
++          const std::string&amp; str = (*it)[ObjectIconColumns::instance().url];
++          selection_data.set(8, reinterpret_cast&lt;const guint8*&gt;(str.c_str()), str.length());
++        }
+     }
+ }
+ 
+
+Modified: trunk/windstille/src/editor/object_selector.hpp
+===================================================================
+--- trunk/windstille/src/editor/object_selector.hpp	2009-04-14 02:23:49 UTC (rev 2916)
++++ trunk/windstille/src/editor/object_selector.hpp	2009-04-14 02:26:29 UTC (rev 2917)
+@@ -42,9 +42,13 @@
+   ObjectSelector(EditorWindow&amp; editor);
+   virtual ~ObjectSelector();
+ 
+-  void add_object(const std::string&amp; pathname,
+-                  const Glib::RefPtr&lt;Gdk::Pixbuf&gt;&amp; icon);
++  void add_decal(const Glib::RefPtr&lt;Gdk::Pixbuf&gt;&amp; icon,
++                 const std::string&amp; pathname,
++                 const std::string&amp; url);
+ 
++  void add_decals_from_directory(const std::string&amp; pathname);
++
++  void populate();
+   void refresh();
+ 
+ protected:
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-04-14 02:23:49 UTC (rev 2916)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-04-14 02:26:29 UTC (rev 2917)
+@@ -98,7 +98,7 @@
+ 
+   // Glib::signal_timeout().connect(sigc::mem_fun(this, &amp;WindstilleWidget::on_timeout), 33);
+   std::vector&lt;Gtk::TargetEntry&gt; targets;
+-  targets.push_back(Gtk::TargetEntry(&quot;WindstilleObject&quot;));
++  targets.push_back(Gtk::TargetEntry(&quot;application/x-windstille-decal&quot;));
+   drag_dest_set(targets, Gtk::DEST_DEFAULT_ALL, Gdk::ACTION_COPY);
+ 
+   set_selection(Selection::create());
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001913.html">[Windstille-commit] r2916 - trunk/windstille/src/screen
+</A></li>
+	<LI>Next message: <A HREF="001915.html">[Windstille-commit] r2918 - trunk/windstille
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1914">[ date ]</a>
+              <a href="thread.html#1914">[ thread ]</a>
+              <a href="subject.html#1914">[ subject ]</a>
+              <a href="author.html#1914">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

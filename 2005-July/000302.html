@@ -1,0 +1,405 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r649 - in trunk/src: . input scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r649%20-%20in%20trunk/src%3A%20.%20input%20scripting&In-Reply-To=%3C200507152014.j6FKEYm0009248%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000301.html">
+   <LINK REL="Next"  HREF="000303.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r649 - in trunk/src: . input scripting</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r649%20-%20in%20trunk/src%3A%20.%20input%20scripting&In-Reply-To=%3C200507152014.j6FKEYm0009248%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r649 - in trunk/src: . input scripting">grumbel at berlios.de
+       </A><BR>
+    <I>Fri Jul 15 22:14:34 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000301.html">[Windstille-commit] r648 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000303.html">[Windstille-commit] r650 - in trunk/src: . display particles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#302">[ date ]</a>
+              <a href="thread.html#302">[ thread ]</a>
+              <a href="subject.html#302">[ subject ]</a>
+              <a href="author.html#302">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-07-15 22:14:32 +0200 (Fri, 15 Jul 2005)
+New Revision: 649
+
+Modified:
+   trunk/src/console.cpp
+   trunk/src/console.hpp
+   trunk/src/game_object.hpp
+   trunk/src/input/input_keyboard_input_device.cpp
+   trunk/src/scripting/interface.cpp
+   trunk/src/scripting/interface.hpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/sector.cpp
+Log:
+- added some primitive tab completion to the console
+- added functions to activate/deactivate objects
+- added function to list gameobjects by name
+
+Modified: trunk/src/console.cpp
+===================================================================
+--- trunk/src/console.cpp	2005-07-15 16:59:46 UTC (rev 648)
++++ trunk/src/console.cpp	2005-07-15 20:14:32 UTC (rev 649)
+@@ -116,18 +116,20 @@
+   void draw();
+   void update(float delta);
+   void eval_command_line();
+-  void tab_complete() {}
++  void tab_complete();
+ 
+   /** adds a newline if the current line contains content */
+   void maybe_newline();
+ 
++  std::vector&lt;std::string&gt; get_roottable();
++
+   void add(char* buf, int len)
+   {
+     current_entry.display_time = 0;
+ 
+     for (int i = 0; i &lt; len; ++i)
+       {
+-        if (buf[i] == '\n')
++        if (buf[i] == '\n' || (current_entry.message.size() &gt; 80 &amp;&amp; buf[i] == ' ')) // primitive linebreak
+           {
+             buffer.push_back(current_entry);
+             current_entry = ConsoleEntry();
+@@ -315,21 +317,85 @@
+     }
+ }
+ 
+-void
+-Console::scroll(int lines)
++std::vector&lt;std::string&gt;
++ConsoleImpl::get_roottable()
+ {
+-  impl-&gt;scroll_offset += lines;
++  std::vector&lt;std::string&gt; roottable;
++  HSQUIRRELVM v = script_manager-&gt;get_vm();
++
++  sq_pushroottable(v);
++
++  //push your table/array here
++  sq_pushnull(v);  //null iterator
++  while(SQ_SUCCEEDED(sq_next(v,-2)))
++    {
++      //here -1 is the value and -2 is the key
++      const SQChar *s;
++      if (SQ_SUCCEEDED(sq_getstring(v,-2, &amp;s)))
++        {
++          roottable.push_back((char*)s);
++        }
++      else
++        {
++          console &lt;&lt; &quot;Unknown key type for element&quot; &lt;&lt; std::endl;
++        }
++                              
++      sq_pop(v,2); //pops key and val before the nex iteration
++    }
++                          
++  sq_pop(v, 1);
+   
+-  if (impl-&gt;scroll_offset &lt; 0)
+-    impl-&gt;scroll_offset = 0;
+-  else if (impl-&gt;scroll_offset &gt;= int(impl-&gt;buffer.size()))
+-    impl-&gt;scroll_offset = impl-&gt;buffer.size()-1;
++  return roottable;
+ }
+ 
++static bool has_prefix(const std::string&amp; lhs, const std::string rhs)
++{
++  if (lhs.length() &lt; rhs.length())
++    return false;
++  else
++    return lhs.compare(0, rhs.length(), rhs) == 0;
++}
++
+ void
++ConsoleImpl::tab_complete()
++{
++  const std::vector&lt;std::string&gt;&amp; roottable = get_roottable();
++  std::vector&lt;std::string&gt; completions;
++
++  for(std::vector&lt;std::string&gt;::const_iterator i = roottable.begin();
++      i != roottable.end();
++      ++i)
++    {
++      if (has_prefix(*i, command_line))
++        {
++          completions.push_back(*i);
++        }
++    }
++
++  if (completions.empty())
++    {
++      // console &lt;&lt; &quot;No completions&quot; &lt;&lt; std::endl;
++    }
++  else if (completions.size() == 1)
++    {
++      command_line = completions.front();
++      cursor_pos = command_line.size();
++    }
++  else 
++    {
++      console &lt;&lt; &quot;&gt;&quot; &lt;&lt; command_line &lt;&lt; std::endl;
++      for(std::vector&lt;std::string&gt;::iterator i = completions.begin(); i != completions.end(); ++i)
++        {
++          console &lt;&lt; *i &lt;&lt; &quot; &quot;;
++        }
++      console &lt;&lt; std::endl;
++    }
++}
++
++void
+ ConsoleImpl::eval_command_line()
+ {
+-  if (history.empty() || history.back() != command_line)
++  if (!command_line.empty() &amp;&amp; (history.empty() || history.back() != command_line))
+     {
+       history.push_back(command_line);
+       history_position = history.size();
+@@ -445,4 +511,15 @@
+   impl-&gt;add(buf, len);
+ }
+ 
++void
++Console::scroll(int lines)
++{
++  impl-&gt;scroll_offset += lines;
++  
++  if (impl-&gt;scroll_offset &lt; 0)
++    impl-&gt;scroll_offset = 0;
++  else if (impl-&gt;scroll_offset &gt;= int(impl-&gt;buffer.size()))
++    impl-&gt;scroll_offset = impl-&gt;buffer.size()-1;
++}
++
+ /* EOF */
+
+Modified: trunk/src/console.hpp
+===================================================================
+--- trunk/src/console.hpp	2005-07-15 16:59:46 UTC (rev 648)
++++ trunk/src/console.hpp	2005-07-15 20:14:32 UTC (rev 649)
+@@ -28,7 +28,6 @@
+ class Console : public std::ostream
+ {
+ public:
+-  friend class ConsoleStreambuf;
+   Console();
+ 
+   void draw();
+
+Modified: trunk/src/game_object.hpp
+===================================================================
+--- trunk/src/game_object.hpp	2005-07-15 16:59:46 UTC (rev 648)
++++ trunk/src/game_object.hpp	2005-07-15 20:14:32 UTC (rev 649)
+@@ -40,8 +40,10 @@
+    */
+   std::string name;
+ 
++  /** If a object is 'active = false' it will neither be drawn or updated */
++  bool active;
+ public:
+-  GameObject() : removable(false) {}
++  GameObject() : removable(false), active(true) {}
+   virtual ~GameObject() {}
+ 
+ 
+@@ -59,6 +61,9 @@
+     return name;
+   }
+ 
++  void set_active(bool a) { active = a; }
++  bool is_active() const { return active; }
++
+   virtual void draw (SceneContext&amp; context) = 0;
+   virtual void update (float elapsed_time) = 0;
+     
+
+Modified: trunk/src/input/input_keyboard_input_device.cpp
+===================================================================
+--- trunk/src/input/input_keyboard_input_device.cpp	2005-07-15 16:59:46 UTC (rev 648)
++++ trunk/src/input/input_keyboard_input_device.cpp	2005-07-15 20:14:32 UTC (rev 649)
+@@ -37,7 +37,7 @@
+ void
+ InputKeyboardInputDevice::on_key_down(const CL_InputEvent&amp; event)
+ {
+-  if (!event.str.empty() &amp;&amp; (isgraph(event.str[0]) || event.str[0] == ' ' ||  event.str[0] == '\t'))
++  if (!event.str.empty() &amp;&amp; (isgraph(event.str[0]) || event.str[0] == ' '))
+     key(KeyboardEvent::LETTER, event.str[0]);
+   else
+     key(KeyboardEvent::SPECIAL, event.id);
+
+Modified: trunk/src/scripting/interface.cpp
+===================================================================
+--- trunk/src/scripting/interface.cpp	2005-07-15 16:59:46 UTC (rev 648)
++++ trunk/src/scripting/interface.cpp	2005-07-15 20:14:32 UTC (rev 649)
+@@ -1,3 +1,4 @@
++#include &lt;vector&gt;
+ #include &quot;wrapper.interface.hpp&quot;
+ #include &quot;interface.hpp&quot;
+ #include &quot;sound/sound_manager.hpp&quot;
+@@ -96,4 +97,26 @@
+   sq_pop(v, 1);
+ }
+ 
++void activate_object(const std::string&amp; name, bool active)
++{
++  ::GameObject* obj = Sector::current()-&gt;get_object(name);
++  if (obj)
++    obj-&gt;set_active(active);
++  else
++    console &lt;&lt; &quot;No such object: '&quot; &lt;&lt; name &lt;&lt; &quot;'&quot; &lt;&lt; std::endl;
+ }
++
++void list_objects()
++{
++  // std::vector&lt;::GameObject*&gt; didn't work me, the typedef is the workaround
++  typedef ::GameObject GameObject;
++  std::vector&lt;GameObject*&gt;* objects = Sector::current()-&gt;get_objects();
++  
++  for(std::vector&lt;GameObject *&gt;::iterator i = objects-&gt;begin(); i != objects-&gt;end(); ++i)
++    {
++      if (!(*i)-&gt;get_name().empty())
++        console &lt;&lt; (*i)-&gt;get_name() &lt;&lt; std::endl;
++    }
++}
++
++}
+
+Modified: trunk/src/scripting/interface.hpp
+===================================================================
+--- trunk/src/scripting/interface.hpp	2005-07-15 16:59:46 UTC (rev 648)
++++ trunk/src/scripting/interface.hpp	2005-07-15 20:14:32 UTC (rev 649)
+@@ -39,6 +39,9 @@
+ void save_state(HSQUIRRELVM v, const std::string&amp; filename);
+ void load_state(HSQUIRRELVM v, const std::string&amp; filename);
+ 
++void activate_object(const std::string&amp; name, bool active);
++void list_objects();
++
+ //Waits the specified time in seconds.
+ void wait(HSQUIRRELVM vm, float time) __suspend;
+ }
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2005-07-15 16:59:46 UTC (rev 648)
++++ trunk/src/scripting/wrapper.cpp	2005-07-15 20:14:32 UTC (rev 649)
+@@ -381,6 +381,27 @@
+   return 0;
+ }
+ 
++static int activate_object_wrapper(HSQUIRRELVM v)
++{
++  const char* arg0;
++  sq_getstring(v, 2, &amp;arg0);
++  SQBool arg1;
++  sq_getbool(v, 3, &amp;arg1);
++  
++  Scripting::activate_object(arg0, arg1);
++  
++  return 0;
++}
++
++static int list_objects_wrapper(HSQUIRRELVM v)
++{
++  (void) v;
++  
++  Scripting::list_objects();
++  
++  return 0;
++}
++
+ static int wait_wrapper(HSQUIRRELVM v)
+ {
+   HSQUIRRELVM arg0 = v;
+@@ -560,6 +581,22 @@
+     throw SquirrelError(v, msg.str());
+   }
+ 
++  sq_pushstring(v, &quot;activate_object&quot;, -1);
++  sq_newclosure(v, &amp;activate_object_wrapper, 0);
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'activate_object'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  sq_pushstring(v, &quot;list_objects&quot;, -1);
++  sq_newclosure(v, &amp;list_objects_wrapper, 0);
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'list_objects'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
+   sq_pushstring(v, &quot;wait&quot;, -1);
+   sq_newclosure(v, &amp;wait_wrapper, 0);
+   if(sq_createslot(v, -3) &lt; 0) {
+
+Modified: trunk/src/sector.cpp
+===================================================================
+--- trunk/src/sector.cpp	2005-07-15 16:59:46 UTC (rev 648)
++++ trunk/src/sector.cpp	2005-07-15 20:14:32 UTC (rev 649)
+@@ -189,7 +189,8 @@
+ 
+   for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
+     {
+-      (*i)-&gt;draw(sc);
++      if ((*i)-&gt;is_active())
++        (*i)-&gt;draw(sc);
+     }
+ }
+ 
+@@ -209,8 +210,8 @@
+   collision_engine-&gt;update(delta);
+ 
+   for(Objects::iterator i = objects.begin(); i != objects.end(); ++i) {
+-    GameObject* object = *i;
+-    object-&gt;update(delta);
++    if ((*i)-&gt;is_active())
++      (*i)-&gt;update(delta);
+   }
+   commit_removes();
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000301.html">[Windstille-commit] r648 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000303.html">[Windstille-commit] r650 - in trunk/src: . display particles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#302">[ date ]</a>
+              <a href="thread.html#302">[ thread ]</a>
+              <a href="subject.html#302">[ subject ]</a>
+              <a href="author.html#302">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,637 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2288 - in trunk/griv/new: . math
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2288%20-%20in%20trunk/griv/new%3A%20.%20math&In-Reply-To=%3C200808081524.m78FOrr9022207%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001307.html">
+   <LINK REL="Next"  HREF="001309.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2288 - in trunk/griv/new: . math</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2288%20-%20in%20trunk/griv/new%3A%20.%20math&In-Reply-To=%3C200808081524.m78FOrr9022207%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2288 - in trunk/griv/new: . math">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Aug  8 17:24:53 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001307.html">[Windstille-commit] r2287 - trunk/griv/new
+</A></li>
+        <LI>Next message: <A HREF="001309.html">[Windstille-commit] r2289 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1308">[ date ]</a>
+              <a href="thread.html#1308">[ thread ]</a>
+              <a href="subject.html#1308">[ subject ]</a>
+              <a href="author.html#1308">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-08 17:24:53 +0200 (Fri, 08 Aug 2008)
+New Revision: 2288
+
+Modified:
+   trunk/griv/new/SConstruct
+   trunk/griv/new/griv.cpp
+   trunk/griv/new/image.cpp
+   trunk/griv/new/math/vector3f.cpp
+   trunk/griv/new/software_surface.cpp
+   trunk/griv/new/software_surface.hpp
+   trunk/griv/new/surface.cpp
+   trunk/griv/new/surface.hpp
+   trunk/griv/new/texture.cpp
+   trunk/griv/new/texture.hpp
+Log:
+Plenty of fixing and rewriting of the Texture and Surface classes, code now far enough to draw things to the screen
+
+Modified: trunk/griv/new/SConstruct
+===================================================================
+--- trunk/griv/new/SConstruct	2008-08-08 01:27:54 UTC (rev 2287)
++++ trunk/griv/new/SConstruct	2008-08-08 15:24:53 UTC (rev 2288)
+@@ -12,6 +12,7 @@
+         'math/rect.cpp',
+         'math/vector2i.cpp',
+         'math/vector2f.cpp',
++        'math/vector3f.cpp',
+         'software_surface.cpp',
+         'url.cpp',
+         'md5.cpp',
+
+Modified: trunk/griv/new/griv.cpp
+===================================================================
+--- trunk/griv/new/griv.cpp	2008-08-08 01:27:54 UTC (rev 2287)
++++ trunk/griv/new/griv.cpp	2008-08-08 15:24:53 UTC (rev 2288)
+@@ -31,6 +31,7 @@
+ #include &lt;vector&gt;
+ #include &quot;FreeImage.h&quot;
+ 
++#include &quot;surface.hpp&quot;
+ #include &quot;framebuffer.hpp&quot;
+ #include &quot;math/size.hpp&quot;
+ #include &quot;math/rect.hpp&quot;
+@@ -138,6 +139,8 @@
+         }
+     }
+ 
++  Surface surface(SoftwareSurface(&quot;test.jpg&quot;));
++
+   bool force_redraw = false;
+   bool quit = false;
+   while(!quit)
+@@ -160,12 +163,22 @@
+                 force_redraw = true;
+                 break;
+ 
++              case SDL_KEYDOWN:
++                if (event.key.keysym.sym == SDLK_ESCAPE)
++                  {
++                    quit = true;
++                  }
++                break;
++
+               default:
+                 break;
+             }
+         }
+ 
++      Framebuffer::clear();
++      surface.draw(Vector2f(0, 0));
+       workspace.draw();
++      Framebuffer::flip();
+     }
+ 
+   Framebuffer::deinit();
+
+Modified: trunk/griv/new/image.cpp
+===================================================================
+--- trunk/griv/new/image.cpp	2008-08-08 01:27:54 UTC (rev 2287)
++++ trunk/griv/new/image.cpp	2008-08-08 15:24:53 UTC (rev 2288)
+@@ -41,7 +41,7 @@
+         Surface* tile = tiles(x,y);
+         if (tile)
+           {
+-            tile-&gt;draw(x*256, y*256);
++            tile-&gt;draw(Vector2f(x*256, y*256));
+           }
+       }
+ 
+
+Modified: trunk/griv/new/math/vector3f.cpp
+===================================================================
+--- trunk/griv/new/math/vector3f.cpp	2008-08-08 01:27:54 UTC (rev 2287)
++++ trunk/griv/new/math/vector3f.cpp	2008-08-08 15:24:53 UTC (rev 2288)
+@@ -15,7 +15,7 @@
+ //  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ 
+ #include &lt;iostream&gt;
+-#include &quot;math.hpp&quot;
++#include &quot;../math.hpp&quot;
+ #include &quot;vector3f.hpp&quot;
+ #include &quot;vector2f.hpp&quot;
+ 
+
+Modified: trunk/griv/new/software_surface.cpp
+===================================================================
+--- trunk/griv/new/software_surface.cpp	2008-08-08 01:27:54 UTC (rev 2287)
++++ trunk/griv/new/software_surface.cpp	2008-08-08 15:24:53 UTC (rev 2288)
+@@ -116,6 +116,13 @@
+     return SoftwareSurface(img);
+ }
+ 
++Size
++SoftwareSurface::get_size()  const
++{
++  return Size(FreeImage_GetWidth(impl-&gt;bitmap),
++              FreeImage_GetHeight(impl-&gt;bitmap));
++}
++
+ int
+ SoftwareSurface::get_width()  const
+ {
+
+Modified: trunk/griv/new/software_surface.hpp
+===================================================================
+--- trunk/griv/new/software_surface.hpp	2008-08-08 01:27:54 UTC (rev 2287)
++++ trunk/griv/new/software_surface.hpp	2008-08-08 15:24:53 UTC (rev 2288)
+@@ -43,6 +43,7 @@
+   SoftwareSurface(FIBITMAP* bitmap);
+   ~SoftwareSurface();
+ 
++  Size get_size()  const;
+   int get_width()  const;
+   int get_height() const;
+   int get_pitch()  const;
+
+Modified: trunk/griv/new/surface.cpp
+===================================================================
+--- trunk/griv/new/surface.cpp	2008-08-08 01:27:54 UTC (rev 2287)
++++ trunk/griv/new/surface.cpp	2008-08-08 15:24:53 UTC (rev 2288)
+@@ -27,92 +27,107 @@
+ #include &lt;assert.h&gt;
+ #include &quot;framebuffer.hpp&quot;
+ #include &quot;math.hpp&quot;
++#include &quot;math/vector2i.hpp&quot;
++#include &quot;math/vector2f.hpp&quot;
++#include &quot;math/size.hpp&quot;
++#include &quot;math/rect.hpp&quot;
+ #include &quot;software_surface.hpp&quot;
+ #include &quot;surface.hpp&quot;
+-
+-Surface::Surface(const SoftwareSurface&amp; surface, int x, int y, int w, int h)
+-  : texture(0)
++
++class SurfaceImpl
+ {
+-  assert(surface);
++public:
++  Texture texture;
++  Size    texture_size;
++  Sizef   uv;
+ 
+-  tex_w = Math::round_to_power_of_two(w);
+-  tex_h = Math::round_to_power_of_two(h);
++  Size size;
++  
++  SurfaceImpl(const SoftwareSurface&amp; src, const Rect&amp; srcrect)
++  {
++    assert(src);
+ 
+-  if (tex_w &lt;= 1024 &amp;&amp; tex_h &lt;= 1024)
+-    {
+-      texture = new Texture(tex_w, tex_h, 
+-                            surface,
+-                            x, y, w, h);
++    texture_size = Size(Math::round_to_power_of_two(srcrect.get_width()),
++                        Math::round_to_power_of_two(srcrect.get_height()));
++
++    texture = Texture(texture_size, src, srcrect);
+     
+-      u = float(w) / tex_w;
+-      v = float(h) / tex_h;
++    uv = Sizef(float(srcrect.get_width())  / texture_size.width,
++               float(srcrect.get_height()) / texture_size.height);
+ 
+-      aspect = float(w) / h;
++    size = Size(srcrect.get_size());
++  }
++  
++  ~SurfaceImpl()
++  {
++  }
+ 
+-      width  = w;
+-      height = h;
+-    }
+-  else
+-    {
+-      std::cout &lt;&lt; &quot;Image violates maximum texture size: &quot;
+-                &lt;&lt; surface.get_width() &lt;&lt; &quot;x&quot; &lt;&lt; surface.get_height() &lt;&lt; std::endl;
+-    }
++  void draw(const Rectf&amp; rect)
++  {
++    if (texture)
++      {
++        texture.bind();
++      
++        glColor3f(1.0f, 1.0f, 1.0f);
++        
++        glBegin(GL_QUADS);
++        glTexCoord2f(      0,        0);
++        glVertex2f(rect.left, rect.top);
++
++        glTexCoord2f(uv.width,        0);
++        glVertex2f(rect.right, rect.top);
++
++        glTexCoord2f(uv.width, uv.height);
++        glVertex2f(rect.right, rect.bottom);
++
++        glTexCoord2f(      0, uv.height);
++        glVertex2f(rect.left, rect.bottom);
++        glEnd();
++      }   
++  }
++
++  void draw(const Vector2f&amp; pos)
++  {
++    draw(Rectf(pos, size));
++  }
++};
++
++Surface::Surface(const SoftwareSurface&amp; src)
++  : impl(new SurfaceImpl(src, Rect(Vector2i(0, 0), src.get_size())))
++{
+ }
+ 
++Surface::Surface(const SoftwareSurface&amp; src, const Rect&amp; srcrect)
++  : impl(new SurfaceImpl(src, srcrect))
++{
++}
++
+ Surface::~Surface()
+ {
+-  delete texture;
+ }
+ 
+ void
+-Surface::draw(float x, float y)
++Surface::draw(const Vector2f&amp; pos)
+ {
+-  draw(x, y, width, height);
++  impl-&gt;draw(pos);
+ }
+ 
+ void
+-Surface::draw(float x, float y, float orig_w, float orig_h)
++Surface::draw(const Rectf&amp; rect)
+ {
+-  if (texture)
+-    {
+-      texture-&gt;bind();
+-      
+-      glColor3f(1.0f, 1.0f, 1.0f);
++  impl-&gt;draw(rect);
++}
+ 
+-      if (0)
+-        {
+-          float w, h;
+-          if (aspect &gt; 1.0f)
+-            { // FIXME: This only works as long as w == h
+-              w = orig_w;
+-              h = orig_h / aspect;
+-            }
+-          else
+-            {
+-              w = orig_w * aspect;
+-              h = orig_h;
+-            }
++int
++Surface::get_width() const 
++{
++  return impl-&gt;size.width; 
++}
+ 
+-          x += (orig_w - w)/2;
+-          y += (orig_h - h)/2;
+-        }
+-      float w = orig_w;
+-      float h = orig_h;
+-
+-      glBegin(GL_QUADS);
+-      glTexCoord2f(0,0);
+-      glVertex2f(x, y);
+-
+-      glTexCoord2f(u,0);
+-      glVertex2f(x + w, y);
+-
+-      glTexCoord2f(u,v);
+-      glVertex2f(x + w, y + h);
+-
+-      glTexCoord2f(0,v);
+-      glVertex2f(x, y + h);
+-      glEnd();
+-    }
++int
++Surface::get_height() const
++{
++  return impl-&gt;size.height; 
+ }
+-
++
+ /* EOF */
+
+Modified: trunk/griv/new/surface.hpp
+===================================================================
+--- trunk/griv/new/surface.hpp	2008-08-08 01:27:54 UTC (rev 2287)
++++ trunk/griv/new/surface.hpp	2008-08-08 15:24:53 UTC (rev 2288)
+@@ -30,38 +30,29 @@
+ #include &lt;boost/smart_ptr.hpp&gt;
+ #include &quot;texture.hpp&quot;
+ #include &quot;software_surface.hpp&quot;
+-
+-/** */
++
++class SurfaceImpl;
++class Rect;
++class Rectf;
++class Vector2f;
++
+ class Surface
+ {
+-private: 
+-  Texture* texture;
+-  int tex_w;
+-  int tex_h;
+-
+-  float u;
+-  float v;
+-
+-  float aspect;
+-
+-  int width;
+-  int height;
+-  
+ public:
+-  Surface(const SoftwareSurface&amp; surface, int x, int y, int w, int h);
++  Surface(const SoftwareSurface&amp; src, const Rect&amp; srcrect);
++  Surface(const SoftwareSurface&amp; src);
+   ~Surface();
+ 
+-  void draw(float x, float y);
+-  void draw(float x, float y, float w, float h);
++  void draw(const Vector2f&amp; pos);
++  void draw(const Rectf&amp; rect);
+ 
+-  int get_width()  const { return width; }
+-  int get_height() const { return height; }
++  int get_width()  const;
++  int get_height() const;
+ 
+ private:
+-  Surface (const Surface&amp;);
+-  Surface&amp; operator= (const Surface&amp;);
++  boost::shared_ptr&lt;SurfaceImpl&gt; impl;
+ };
+-
++
+ #endif
+ 
+ /* EOF */
+
+Modified: trunk/griv/new/texture.cpp
+===================================================================
+--- trunk/griv/new/texture.cpp	2008-08-08 01:27:54 UTC (rev 2287)
++++ trunk/griv/new/texture.cpp	2008-08-08 15:24:53 UTC (rev 2288)
+@@ -28,95 +28,97 @@
+ #include &lt;stdexcept&gt;
+ #include &lt;boost/format.hpp&gt;
+ #include &lt;string.h&gt;
++
++#include &quot;math/size.hpp&quot;
++#include &quot;math/rect.hpp&quot;
+ #include &quot;framebuffer.hpp&quot;
+ #include &quot;software_surface.hpp&quot;
+ #include &quot;texture.hpp&quot;
+-
+-Texture::Texture(int width, int height, 
+-                 const SoftwareSurface&amp; surface, int s_x, int s_y, int s_w, int s_h)
+-  : handle(0),
+-    width(width),
+-    height(height)
++
++class TextureImpl
+ {
+-  assert(surface);
++public:
++  GLuint handle;
++  Size   size;
+ 
+-  glGenTextures(1, &amp;handle);
++  TextureImpl(const Size&amp; size_,
++              const SoftwareSurface&amp; src, const Rect&amp; srcrect)
++    : size(size_)
++  {
++    glGenTextures(1, &amp;handle);
+   
+-  GLint maxt;
+-  glGetIntegerv(GL_MAX_TEXTURE_SIZE, &amp;maxt);
+-  if(width &gt; maxt || height &gt; maxt)
+-    {
+-      throw std::runtime_error(&quot;Texture size not supported&quot;);
+-    }
+-
+-  GLint sdl_format = GL_RGB;
++    assert(src);
+     
+-  glBindTexture(GL_TEXTURE_2D, handle);
+-  glEnable(GL_TEXTURE_2D);
++    glBindTexture(GL_TEXTURE_2D, handle);
++    glEnable(GL_TEXTURE_2D);
+ 
+-  glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+-  glPixelStorei(GL_UNPACK_ALIGNMENT,  4);
+-
+-  // FIXME: By setting the right glPixelStorei parameter we should be
+-  // able to get this done without dummy
+-
+-  { // Create the texture
+-    unsigned char dummy[width*height*3];
+-    memset(dummy, 150, width*height*3);
+     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB,
+-                 width,
+-                 height,
+-                 0,
++                 size.width, size.height,
++                 0, /* border */
+                  GL_RGB,
+                  GL_UNSIGNED_BYTE,
+-                 dummy);
+-  }
++                 0 /* pixels */);
+ 
+-  assert_gl(&quot;packing image texture&quot;);
++    assert_gl(&quot;packing image texture&quot;);
+ 
+-  glPixelStorei(GL_UNPACK_ROW_LENGTH, surface.get_width());
+-  glPixelStorei(GL_UNPACK_ALIGNMENT,  16);
++    assert(src.get_pitch() % src.get_width() == 0);
++
++    glPixelStorei(GL_UNPACK_ALIGNMENT,  1);
++    glPixelStorei(GL_UNPACK_ROW_LENGTH, src.get_pitch()/3);
+     
+-  // Upload the subimage
+-  glTexSubImage2D(GL_TEXTURE_2D, 0, 
+-                  0, 0, s_w, s_h, sdl_format,
+-                  GL_UNSIGNED_BYTE, 
+-                  (Uint8*)surface.get_data()
+-                  + (surface.get_pitch() * s_y)
+-                  + (s_x * 3));
++    // Upload the subimage
++    glTexSubImage2D(GL_TEXTURE_2D, 0, 
++                    0, 0, srcrect.get_width(), srcrect.get_height(), GL_RGB,
++                    GL_UNSIGNED_BYTE, 
++                    (Uint8*)src.get_data() + (src.get_pitch() * srcrect.top) + (srcrect.left * 3));
+ 
+-  assert_gl(&quot;creating texture&quot;);
++    assert_gl(&quot;creating texture&quot;);
+ 
+-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,     GL_CLAMP);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T,     GL_CLAMP);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R,     GL_CLAMP);
+ 
+-  assert_gl(&quot;setting texture parameters&quot;);
++    assert_gl(&quot;setting texture parameters&quot;);
++  }
++
++  ~TextureImpl()
++  {
++    glDeleteTextures(1, &amp;handle);    
++  }
++};
++
++Texture::Texture()
++{
+ }
+ 
++Texture::Texture(const Size&amp; size,
++                 const SoftwareSurface&amp; src, const Rect&amp; srcrect)
++  : impl(new TextureImpl(size, src, srcrect))
++{
++}
++
+ Texture::~Texture()
+ {
+-  glDeleteTextures(1, &amp;handle);
+ }
+ 
+ void
+ Texture::bind()
+ {
+-  glBindTexture(GL_TEXTURE_2D, handle);
++  glBindTexture(GL_TEXTURE_2D, impl-&gt;handle);
+ }
+ 
+ int
+ Texture::get_width() const
+ {
+-  return width;
++  return impl-&gt;size.width;
+ }
+ 
+ int
+ Texture::get_height() const
+ {
+-  return height;
++  return impl-&gt;size.height;
+ }
+-
++
+ /* EOF */
+
+Modified: trunk/griv/new/texture.hpp
+===================================================================
+--- trunk/griv/new/texture.hpp	2008-08-08 01:27:54 UTC (rev 2287)
++++ trunk/griv/new/texture.hpp	2008-08-08 15:24:53 UTC (rev 2288)
+@@ -26,31 +26,32 @@
+ #ifndef HEADER_TEXTURE_HPP
+ #define HEADER_TEXTURE_HPP
+ 
++#include &lt;boost/shared_ptr.hpp&gt;
+ #include &lt;GL/gl.h&gt;
+ #include &lt;GL/glu.h&gt;
+ #include &quot;SDL.h&quot;
+ 
++class Rect;
++class Size;
+ class SoftwareSurface;
++class TextureImpl;
+ 
+ class Texture
+ {
+-private:
+-  GLuint handle;
+-
+-  int width;
+-  int height;
+-
+ public:
+-  Texture(int w, int h, const SoftwareSurface&amp; surface, int s_x, int s_y, int s_w, int s_h);
++  Texture();
++  Texture(const Size&amp; size, const SoftwareSurface&amp; src, const Rect&amp; srcrect);
+   ~Texture();
+ 
+   int get_width() const;
+   int get_height() const;
+   
+   void bind();
++
++  operator bool() const { return impl.get(); }
++
+ private:
+-  Texture (const Texture&amp;);
+-  Texture&amp; operator= (const Texture&amp;);
++  boost::shared_ptr&lt;TextureImpl&gt; impl;
+ };
+ 
+ #endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001307.html">[Windstille-commit] r2287 - trunk/griv/new
+</A></li>
+	<LI>Next message: <A HREF="001309.html">[Windstille-commit] r2289 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1308">[ date ]</a>
+              <a href="thread.html#1308">[ thread ]</a>
+              <a href="subject.html#1308">[ subject ]</a>
+              <a href="author.html#1308">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

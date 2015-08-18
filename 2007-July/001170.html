@@ -1,0 +1,206 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1519 - in trunk/windstille/src: . input
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1519%20-%20in%20trunk/windstille/src%3A%20.%20input&In-Reply-To=%3C200707060646.l666kNO6030740%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001169.html">
+   <LINK REL="Next"  HREF="001171.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1519 - in trunk/windstille/src: . input</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1519%20-%20in%20trunk/windstille/src%3A%20.%20input&In-Reply-To=%3C200707060646.l666kNO6030740%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1519 - in trunk/windstille/src: . input">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Jul  6 08:46:23 CEST 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001169.html">[Windstille-commit] r1518 - trunk/windstille/src/input
+</A></li>
+        <LI>Next message: <A HREF="001171.html">[Windstille-commit] r1520 - in trunk/windstille/src: . input
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1170">[ date ]</a>
+              <a href="thread.html#1170">[ thread ]</a>
+              <a href="subject.html#1170">[ subject ]</a>
+              <a href="author.html#1170">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-07-06 08:46:20 +0200 (Fri, 06 Jul 2007)
+New Revision: 1519
+
+Modified:
+   trunk/windstille/src/config.cpp
+   trunk/windstille/src/input/input_manager_sdl.cpp
+   trunk/windstille/src/menu_manager.cpp
+   trunk/windstille/src/menu_manager.hpp
+Log:
+- made connection to wiimote an option
+
+Modified: trunk/windstille/src/config.cpp
+===================================================================
+--- trunk/windstille/src/config.cpp	2007-07-05 20:36:06 UTC (rev 1518)
++++ trunk/windstille/src/config.cpp	2007-07-06 06:46:20 UTC (rev 1519)
+@@ -50,7 +50,6 @@
+   add(new ConfigValue&lt;int&gt;(&quot;screen-width&quot;,   _(&quot;Screen Width&quot;),   true, 800));
+   add(new ConfigValue&lt;int&gt;(&quot;screen-height&quot;,   _(&quot;Screen Height&quot;), true, 600));
+ 
+-
+   add(new ConfigValue&lt;std::string&gt;(&quot;levelfile&quot;,       _(&quot;Levelfile to be used at startup&quot;), false));
+ 
+   // FIXME: There is no need to limit this to just two
+@@ -63,6 +62,8 @@
+   add(new ConfigValue&lt;std::string&gt;(&quot;playback-file&quot;,   _(&quot;File from which a demo is played&quot;), false));
+ 
+   add(new ConfigValue&lt;int&gt;(&quot;master-volume&quot;,  _(&quot;Master Volume&quot;), true, 100));
++
++  add(new ConfigValue&lt;bool&gt;(&quot;wiimote&quot;, _(&quot;Try to connect to Wiimote on startup&quot;), true, false));
+ }
+ 
+ Config::~Config()
+@@ -163,6 +164,7 @@
+   argp.add_option('c', &quot;controller&quot;, &quot;FILE&quot;, &quot;Use controller as defined in FILE&quot;);
+   argp.add_option(secondary_controller_file, &quot;secondary-controller&quot;, &quot;FILE&quot;,
+                   &quot;Use controller as defined in FILE&quot;);
++  argp.add_option('w', &quot;wiimote&quot;, &quot;&quot;, &quot;Connect to Wiimote on startup&quot;);
+ 
+   argp.add_group(&quot;Misc Options:&quot;);
+   argp.add_option('d', &quot;datadir&quot;,    &quot;DIR&quot;, &quot;Fetch game data from DIR&quot;);
+@@ -206,6 +208,10 @@
+           get&lt;std::string&gt;(&quot;playback-file&quot;) = argp.get_argument();
+           break;
+ 
++        case 'w':
++          get&lt;bool&gt;(&quot;wiimote&quot;) = true;
++          break;
++
+         case 'd':
+           datadir = argp.get_argument();
+           break;
+
+Modified: trunk/windstille/src/input/input_manager_sdl.cpp
+===================================================================
+--- trunk/windstille/src/input/input_manager_sdl.cpp	2007-07-05 20:36:06 UTC (rev 1518)
++++ trunk/windstille/src/input/input_manager_sdl.cpp	2007-07-06 06:46:20 UTC (rev 1519)
+@@ -28,6 +28,7 @@
+ #include &lt;sstream&gt;
+ #include &lt;stdexcept&gt;
+ #include &lt;vector&gt;
++#include &quot;config.hpp&quot;
+ #include &quot;wiimote.hpp&quot;
+ #include &quot;file_reader.hpp&quot;
+ #include &quot;controller_def.hpp&quot;
+@@ -226,7 +227,9 @@
+   
+   // FIXME: doesn't really belong here
+   Wiimote::init();
+-  wiimote-&gt;connect();
++  
++  if (config.get&lt;bool&gt;(&quot;wiimote&quot;).get())
++    wiimote-&gt;connect();
+ }
+ 
+ InputManagerSDL::~InputManagerSDL()
+
+Modified: trunk/windstille/src/menu_manager.cpp
+===================================================================
+--- trunk/windstille/src/menu_manager.cpp	2007-07-05 20:36:06 UTC (rev 1518)
++++ trunk/windstille/src/menu_manager.cpp	2007-07-06 06:46:20 UTC (rev 1519)
+@@ -43,6 +43,7 @@
+ #include &quot;armature_test.hpp&quot;
+ #include &quot;navigation_test.hpp&quot;
+ #include &quot;gui/menu_item.hpp&quot;
++#include &quot;input/wiimote.hpp&quot;
+ #include &quot;menu_manager.hpp&quot;
+ 
+ MenuManager menu_manager;
+@@ -109,6 +110,13 @@
+   slots.push_back(gamma_item-&gt;sig_change().connect(this, &amp;MenuManager::menu_gamma));
+   menu-&gt;add_item(gamma_item);
+ 
++  if (wiimote)
++    {
++      ButtonMenuItem* wiimote_button = new ButtonMenuItem(menu,  &quot;Try to Connect Wiimote&quot;);
++      slots.push_back(wiimote_button-&gt;sig_click().connect(this, &amp;MenuManager::menu_wiimote));
++      menu-&gt;add_item(wiimote_button);
++    }
++
+   manager-&gt;get_root()-&gt;add_child(group);
+   group-&gt;layout();
+   screen_manager.push_overlay(manager);
+@@ -600,6 +608,27 @@
+ }
+ 
+ void
++MenuManager::menu_wiimote()
++{
++  if (wiimote &amp;&amp; !wiimote-&gt;is_connected())
++    {
++      // FIXME: This never appears on screen due to timeout
++      console &lt;&lt; &quot;Trying to connect Wiimote: Press buttons 1 and 2 to connect&quot; &lt;&lt; std::endl;
++
++      wiimote-&gt;connect();
++
++      if (wiimote-&gt;is_connected())
++        console &lt;&lt; &quot;Wiimote connected&quot; &lt;&lt; std::endl;
++      else
++        console &lt;&lt; &quot;Wiimote connection failed&quot; &lt;&lt; std::endl;
++    }
++  else
++    {
++      console &lt;&lt; &quot;Wiimote already is connected&quot; &lt;&lt; std::endl;
++    }
++}
++
++void
+ MenuManager::menu_music_volume(int i)
+ {
+   config.set_int(&quot;master-volume&quot;, i);
+
+Modified: trunk/windstille/src/menu_manager.hpp
+===================================================================
+--- trunk/windstille/src/menu_manager.hpp	2007-07-05 20:36:06 UTC (rev 1518)
++++ trunk/windstille/src/menu_manager.hpp	2007-07-06 06:46:20 UTC (rev 1519)
+@@ -64,6 +64,7 @@
+   void menu_show_navigation_test();
+   void menu_show_particle_system(std::string file);
+   void menu_gamma(int i);
++  void menu_wiimote();
+ private:
+   MenuManager (const MenuManager&amp;);
+   MenuManager&amp; operator= (const MenuManager&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001169.html">[Windstille-commit] r1518 - trunk/windstille/src/input
+</A></li>
+	<LI>Next message: <A HREF="001171.html">[Windstille-commit] r1520 - in trunk/windstille/src: . input
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1170">[ date ]</a>
+              <a href="thread.html#1170">[ thread ]</a>
+              <a href="subject.html#1170">[ subject ]</a>
+              <a href="author.html#1170">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

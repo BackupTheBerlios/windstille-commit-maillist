@@ -1,0 +1,381 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1159 - facebuilder
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-December/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1159%20-%20facebuilder&In-Reply-To=%3C200512252048.jBPKmR30017573%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000811.html">
+   <LINK REL="Next"  HREF="000813.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1159 - facebuilder</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1159%20-%20facebuilder&In-Reply-To=%3C200512252048.jBPKmR30017573%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1159 - facebuilder">grumbel at berlios.de
+       </A><BR>
+    <I>Sun Dec 25 21:48:27 CET 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000811.html">[Windstille-commit] r1158 - facebuilder
+</A></li>
+        <LI>Next message: <A HREF="000813.html">[Windstille-commit] r1160 - facebuilder
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#812">[ date ]</a>
+              <a href="thread.html#812">[ thread ]</a>
+              <a href="subject.html#812">[ subject ]</a>
+              <a href="author.html#812">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-12-25 21:48:22 +0100 (Sun, 25 Dec 2005)
+New Revision: 1159
+
+Modified:
+   facebuilder/face.rb
+   facebuilder/facebuilder.glade
+   facebuilder/facebuilder.rb
+Log:
+- added simple undo/redo
+
+Modified: facebuilder/face.rb
+===================================================================
+--- facebuilder/face.rb	2005-12-25 19:20:56 UTC (rev 1158)
++++ facebuilder/face.rb	2005-12-25 20:48:22 UTC (rev 1159)
+@@ -1,6 +1,21 @@
+ require &quot;rexml/document&quot;
+ require 'gnomecanvas2'
+ 
++class FaceCommand
++  def initialize(undo_, redo_)
++    @undo = undo_
++    @redo = redo_    
++  end
++
++  def do_undo()
++    @undo.call()
++  end
++  
++  def do_redo()
++    @redo.call()
++  end
++end
++
+ class FacePart
+   attr_reader :type, :offset, :filename, :canvas_items, :scale, :rotation
+   
+@@ -43,10 +58,19 @@
+     when Gdk::Event::BUTTON_RELEASE
+       item.ungrab(event.time)
+       @dragging = false;
++
++      if @old_offset != @offset then
++        old_offset = @old_offset.clone()
++        offset     = @offset.clone()
++
++        @parent.undo_stack &lt;&lt; FaceCommand.new(proc{ @parent.get_part(@type).offset = old_offset },
++                                              proc{ @parent.get_part(@type).offset = offset     })
++      end
+     end
+   end
+ 
+-  def initialize(root, type, filename, offset)
++  def initialize(parent, root, type, filename, offset)
++    @parent = parent
+     @type     = type
+     @offset   = offset
+     @filename = filename
+@@ -134,6 +158,8 @@
+   end
+ 
+   def update_items()
++    $facebuilder.update_undo() if $facebuilder
++
+     if @canvas_items.length == 1 then
+       @canvas_items[0].affine_absolute(Art::Affine.translate(@offset.x, @offset.y) *
+                                        Art::Affine.rotate(@rotation) *
+@@ -189,21 +215,26 @@
+ end
+ 
+ class Face
++  attr_accessor :undo_stack, :redo_stack, :parts
++
+   def initialize(root, filename = nil)
++    @undo_stack = []
++    @redo_stack = []
++
+     @root = root
+     @parts  = {
+-      :head    =&gt; FacePart.new(root, :head,    &quot;data/head/0000.png&quot;,    Point.new(0, 0)),
+-      :forehead    =&gt; FacePart.new(root, :forehead,    &quot;data/forehead/0000.png&quot;,    Point.new(0, -75)),
+-      :eye     =&gt; FacePart.new(root, :eye,     &quot;data/eye/0000.png&quot;,     Point.new(35, -10)),
+-      :eyebrow =&gt; FacePart.new(root, :eyebrow, &quot;data/eyebrow/0000.png&quot;, Point.new(45, -30)),
+-      :ear     =&gt; FacePart.new(root, :ear,     &quot;data/ear/0000.png&quot;,     Point.new(90, 0)),
+-      :nose    =&gt; FacePart.new(root, :nose,    &quot;data/nose/0000.png&quot;,    Point.new(0, 30)),
+-      :mouth   =&gt; FacePart.new(root, :mouth,   &quot;data/mouth/0000.png&quot;,   Point.new(0, 75)),
+-      :mouthfold =&gt; FacePart.new(root, :mouthfold,   &quot;data/mouthfold/0000.png&quot;,   Point.new(40, 75)),
+-      :beard   =&gt; FacePart.new(root, :beard,   &quot;data/beard/0000.png&quot;,   Point.new(0, 75)),
+-      :glasses =&gt; FacePart.new(root, :glasses, &quot;data/glasses/0000.png&quot;, Point.new(0, -10)),
+-      :hair    =&gt; FacePart.new(root, :hair,    &quot;data/hair/0000.png&quot;,    Point.new(0, -20)),
+-      :hat     =&gt; FacePart.new(root,  :hat,    &quot;data/hat/0000.png&quot;,    Point.new(0, -50))
++      :head      =&gt; FacePart.new(self, root, :head,      &quot;data/head/0000.png&quot;,      Point.new( 0,   0)),
++      :forehead  =&gt; FacePart.new(self, root, :forehead,  &quot;data/forehead/0000.png&quot;,  Point.new( 0, -75)),
++      :eye       =&gt; FacePart.new(self, root, :eye,       &quot;data/eye/0000.png&quot;,       Point.new(35, -10)),
++      :eyebrow   =&gt; FacePart.new(self, root, :eyebrow,   &quot;data/eyebrow/0000.png&quot;,   Point.new(45, -30)),
++      :ear       =&gt; FacePart.new(self, root, :ear,       &quot;data/ear/0000.png&quot;,       Point.new(90,   0)),
++      :nose      =&gt; FacePart.new(self, root, :nose,      &quot;data/nose/0000.png&quot;,      Point.new( 0,  30)),
++      :mouth     =&gt; FacePart.new(self, root, :mouth,     &quot;data/mouth/0000.png&quot;,     Point.new( 0,  75)),
++      :mouthfold =&gt; FacePart.new(self, root, :mouthfold, &quot;data/mouthfold/0000.png&quot;, Point.new(40,  75)),
++      :beard     =&gt; FacePart.new(self, root, :beard,     &quot;data/beard/0000.png&quot;,     Point.new( 0,  75)),
++      :glasses   =&gt; FacePart.new(self, root, :glasses,   &quot;data/glasses/0000.png&quot;,   Point.new( 0, -10)),
++      :hair      =&gt; FacePart.new(self, root, :hair,      &quot;data/hair/0000.png&quot;,      Point.new( 0, -20)),
++      :hat       =&gt; FacePart.new(self, root, :hat,       &quot;data/hat/0000.png&quot;,       Point.new( 0, -50))
+     }
+   end
+ 
+@@ -235,6 +266,34 @@
+                                         element.elements['offset/y'].text.to_f)
+     }
+   end
++
++  def do_undo()
++    if ! @undo_stack.empty? then
++      cmd = @undo_stack.pop
++      cmd.do_undo()
++      @redo_stack &lt;&lt; cmd
++    end
++  end
++
++  def do_redo()
++    if ! @redo_stack.empty? then
++      cmd = @redo_stack.pop
++      cmd.do_redo()
++      @undo_stack &lt;&lt; cmd
++    end    
++  end
++
++  def has_undo_stack?()
++    return ! @undo_stack.empty?
++  end
++
++  def has_redo_stack?()
++    return ! @redo_stack.empty?
++  end
++
++  def on_change()
++    
++  end
+ end
+ 
+ # EOF #
+
+Modified: facebuilder/facebuilder.glade
+===================================================================
+--- facebuilder/facebuilder.glade	2005-12-25 19:20:56 UTC (rev 1158)
++++ facebuilder/facebuilder.glade	2005-12-25 20:48:22 UTC (rev 1159)
+@@ -270,6 +270,88 @@
+ 		  &lt;property name=&quot;homogeneous&quot;&gt;True&lt;/property&gt;
+ 		&lt;/packing&gt;
+ 	      &lt;/child&gt;
++
++	      &lt;child&gt;
++		&lt;widget class=&quot;GtkToolButton&quot; id=&quot;toolbutton4&quot;&gt;
++		  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;stock_id&quot;&gt;gtk-save-as&lt;/property&gt;
++		  &lt;property name=&quot;visible_horizontal&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;visible_vertical&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;is_important&quot;&gt;False&lt;/property&gt;
++		&lt;/widget&gt;
++		&lt;packing&gt;
++		  &lt;property name=&quot;expand&quot;&gt;False&lt;/property&gt;
++		  &lt;property name=&quot;homogeneous&quot;&gt;True&lt;/property&gt;
++		&lt;/packing&gt;
++	      &lt;/child&gt;
++
++	      &lt;child&gt;
++		&lt;widget class=&quot;GtkToolButton&quot; id=&quot;toolbutton_reload&quot;&gt;
++		  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;stock_id&quot;&gt;gtk-refresh&lt;/property&gt;
++		  &lt;property name=&quot;visible_horizontal&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;visible_vertical&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;is_important&quot;&gt;False&lt;/property&gt;
++		&lt;/widget&gt;
++		&lt;packing&gt;
++		  &lt;property name=&quot;expand&quot;&gt;False&lt;/property&gt;
++		  &lt;property name=&quot;homogeneous&quot;&gt;True&lt;/property&gt;
++		&lt;/packing&gt;
++	      &lt;/child&gt;
++
++	      &lt;child&gt;
++		&lt;widget class=&quot;GtkSeparatorToolItem&quot; id=&quot;separatortoolitem1&quot;&gt;
++		  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;draw&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;visible_horizontal&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;visible_vertical&quot;&gt;True&lt;/property&gt;
++		&lt;/widget&gt;
++		&lt;packing&gt;
++		  &lt;property name=&quot;expand&quot;&gt;False&lt;/property&gt;
++		  &lt;property name=&quot;homogeneous&quot;&gt;False&lt;/property&gt;
++		&lt;/packing&gt;
++	      &lt;/child&gt;
++
++	      &lt;child&gt;
++		&lt;widget class=&quot;GtkToolButton&quot; id=&quot;toolbutton_undo&quot;&gt;
++		  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;stock_id&quot;&gt;gtk-undo&lt;/property&gt;
++		  &lt;property name=&quot;visible_horizontal&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;visible_vertical&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;is_important&quot;&gt;False&lt;/property&gt;
++		&lt;/widget&gt;
++		&lt;packing&gt;
++		  &lt;property name=&quot;expand&quot;&gt;False&lt;/property&gt;
++		  &lt;property name=&quot;homogeneous&quot;&gt;True&lt;/property&gt;
++		&lt;/packing&gt;
++	      &lt;/child&gt;
++
++	      &lt;child&gt;
++		&lt;widget class=&quot;GtkToolButton&quot; id=&quot;toolbutton_redo&quot;&gt;
++		  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;stock_id&quot;&gt;gtk-redo&lt;/property&gt;
++		  &lt;property name=&quot;visible_horizontal&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;visible_vertical&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;is_important&quot;&gt;False&lt;/property&gt;
++		&lt;/widget&gt;
++		&lt;packing&gt;
++		  &lt;property name=&quot;expand&quot;&gt;False&lt;/property&gt;
++		  &lt;property name=&quot;homogeneous&quot;&gt;True&lt;/property&gt;
++		&lt;/packing&gt;
++	      &lt;/child&gt;
++
++	      &lt;child&gt;
++		&lt;widget class=&quot;GtkSeparatorToolItem&quot; id=&quot;separatortoolitem2&quot;&gt;
++		  &lt;property name=&quot;visible&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;draw&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;visible_horizontal&quot;&gt;True&lt;/property&gt;
++		  &lt;property name=&quot;visible_vertical&quot;&gt;True&lt;/property&gt;
++		&lt;/widget&gt;
++		&lt;packing&gt;
++		  &lt;property name=&quot;expand&quot;&gt;False&lt;/property&gt;
++		  &lt;property name=&quot;homogeneous&quot;&gt;False&lt;/property&gt;
++		&lt;/packing&gt;
++	      &lt;/child&gt;
+ 	    &lt;/widget&gt;
+ 	  &lt;/child&gt;
+ 	&lt;/widget&gt;
+
+Modified: facebuilder/facebuilder.rb
+===================================================================
+--- facebuilder/facebuilder.rb	2005-12-25 19:20:56 UTC (rev 1158)
++++ facebuilder/facebuilder.rb	2005-12-25 20:48:22 UTC (rev 1159)
+@@ -31,20 +31,21 @@
+                Gnome::UIInfo::menu_preferences_item(callback_dummy, nil),
+                Gnome::UIInfo::menu_about_item(callback_dummy, nil),
+               ]
+-    uiinfos[0][9] = @glade['new1']
+-    uiinfos[1][9] = @glade['open1']
+-    uiinfos[2][9] = @glade['save1']
+-    uiinfos[3][9] = @glade['save_as1']
+-    uiinfos[4][9] = @glade['quit1']
+-    uiinfos[5][9] = @glade['cut1']
+-    uiinfos[6][9] = @glade['copy1']
+-    uiinfos[7][9] = @glade['paste1']
+-    uiinfos[8][9] = @glade['clear1']
+-    uiinfos[9][9] = @glade['properties1']
++    uiinfos[0][9]  = @glade['new1']
++    uiinfos[1][9]  = @glade['open1']
++    uiinfos[2][9]  = @glade['save1']
++    uiinfos[3][9]  = @glade['save_as1']
++    uiinfos[4][9]  = @glade['quit1']
++    uiinfos[5][9]  = @glade['cut1']
++    uiinfos[6][9]  = @glade['copy1']
++    uiinfos[7][9]  = @glade['paste1']
++    uiinfos[8][9]  = @glade['clear1']
++    uiinfos[9][9]  = @glade['properties1']
+     uiinfos[10][9] = @glade['preferences1']
+     uiinfos[11][9] = @glade['about1']
+     app.install_menu_hints(uiinfos)
+   end
++
+   # Creates tooltips.
+   def create_tooltips
+     @tooltip = Gtk::Tooltips.new
+@@ -52,9 +53,13 @@
+     @glade['toolbutton_open_file'].set_tooltip(@tooltip, _('Open File'))
+     @glade['toolbutton_save_file'].set_tooltip(@tooltip, _('Save File'))
+ 
++    @glade['toolbutton_undo'].signal_connect(&quot;clicked&quot;) { |*params| self.on_undo() }
++    @glade['toolbutton_redo'].signal_connect(&quot;clicked&quot;) { |*params| self.on_redo() }
++
+     @glade['toolbutton_open_file'].signal_connect(&quot;clicked&quot;) { |*params| on_open1_activate(nil) }
+     @glade['toolbutton_save_file'].signal_connect(&quot;clicked&quot;) { |*params| on_save_as1_activate(nil) }
+   end
++
+   def initialize(path_or_data, root = nil, domain = nil, localedir = nil, flag = GladeXML::FILE)
+     bindtextdomain(domain, localedir, nil, &quot;UTF-8&quot;)
+     @glade = GladeXML.new(path_or_data, root, domain, localedir, flag) {|handler| method(handler)}
+@@ -153,6 +158,14 @@
+       end
+     }
+   end
++
++  def on_undo()
++    @face.do_undo()
++  end
++
++  def on_redo()
++    @face.do_redo()
++  end
+   
+   def on_open1_activate(widget)
+     dialog =  Gtk::FileChooserDialog.new(&quot;Gtk::FileChooser sample&quot;, nil,
+@@ -346,6 +359,11 @@
+       end
+     }   
+   end
++
++  def update_undo()
++    @glade['toolbutton_undo'].set_sensitive(@face.has_undo_stack?)
++    @glade['toolbutton_redo'].set_sensitive(@face.has_redo_stack?)
++  end
+ end
+ 
+ # Main program
+@@ -360,3 +378,5 @@
+   $facebuilder = FacebuilderGlade.new(PROG_PATH, nil, PROG_NAME)
+   Gtk.main
+ end
++
++# EOF #
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000811.html">[Windstille-commit] r1158 - facebuilder
+</A></li>
+	<LI>Next message: <A HREF="000813.html">[Windstille-commit] r1160 - facebuilder
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#812">[ date ]</a>
+              <a href="thread.html#812">[ thread ]</a>
+              <a href="subject.html#812">[ subject ]</a>
+              <a href="author.html#812">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

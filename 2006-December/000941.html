@@ -1,0 +1,635 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1288 - trunk/txt2png
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-December/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1288%20-%20trunk/txt2png&In-Reply-To=%3C200612191833.kBJIXEGJ006747%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000940.html">
+   <LINK REL="Next"  HREF="000942.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1288 - trunk/txt2png</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1288%20-%20trunk/txt2png&In-Reply-To=%3C200612191833.kBJIXEGJ006747%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1288 - trunk/txt2png">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Dec 19 19:33:14 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000940.html">[Windstille-commit] r1287 - in trunk: . txt2png
+</A></li>
+        <LI>Next message: <A HREF="000942.html">[Windstille-commit] r1289 - trunk/txt2png
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#941">[ date ]</a>
+              <a href="thread.html#941">[ thread ]</a>
+              <a href="subject.html#941">[ subject ]</a>
+              <a href="author.html#941">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-12-19 19:33:13 +0100 (Tue, 19 Dec 2006)
+New Revision: 1288
+
+Added:
+   trunk/txt2png/command_line.cpp
+   trunk/txt2png/command_line.hpp
+   trunk/txt2png/command_line_generic.cpp
+   trunk/txt2png/command_line_generic.hpp
+Modified:
+   trunk/txt2png/SConstruct
+   trunk/txt2png/bitmap.cpp
+   trunk/txt2png/bitmap.hpp
+   trunk/txt2png/ttf_font.cpp
+   trunk/txt2png/txt2png.cpp
+Log:
+- added some proper commandline options
+
+Modified: trunk/txt2png/SConstruct
+===================================================================
+--- trunk/txt2png/SConstruct	2006-12-19 04:28:06 UTC (rev 1287)
++++ trunk/txt2png/SConstruct	2006-12-19 18:33:13 UTC (rev 1288)
+@@ -2,9 +2,13 @@
+ 
+ env = Environment()
+ env.ParseConfig('freetype-config --libs --cflags')
++env['LIBS'] += ['jpeg']
++env['CXXFLAGS'] += ['-g', '-O0', '-Wall']
+ env.Program('txt2png', ['txt2png.cpp',
+                         'bitmap.cpp',
+-                        'ttf_font.cpp'],
+-            CXXFLAGS=&quot;-g -O0 -Wall&quot;)
++                        'ttf_font.cpp',
++                        'command_line.cpp',
++                        'command_line_generic.cpp'
++                        ])
+ 
+ # EOF #
+
+Modified: trunk/txt2png/bitmap.cpp
+===================================================================
+--- trunk/txt2png/bitmap.cpp	2006-12-19 04:28:06 UTC (rev 1287)
++++ trunk/txt2png/bitmap.cpp	2006-12-19 18:33:13 UTC (rev 1288)
+@@ -23,6 +23,9 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;stdio.h&gt;
++#include &lt;jpeglib.h&gt;
++#include &lt;iostream&gt;
+ #include &lt;algorithm&gt;
+ #include &lt;fstream&gt;
+ #include &lt;string.h&gt;
+@@ -33,7 +36,7 @@
+     height(height_),
+     buffer(new unsigned char[width * height])
+ {
+-  memset(buffer, 0, width * height);
++  memset(buffer, 255, width * height);
+ }
+ 
+ Bitmap::~Bitmap()
+@@ -44,7 +47,7 @@
+ void
+ Bitmap::clear()
+ {
+-  memset(buffer, 0, width * height);
++  memset(buffer, 255, width * height);
+ }
+ 
+ void
+@@ -75,11 +78,61 @@
+   for(int y = 0; y &lt; get_height(); ++y)
+     for(int x = 0; x &lt; get_width(); ++x)
+       {
+-        out &lt;&lt; 255 - int(at(x, y)) &lt;&lt; &quot; &quot;;
++        out &lt;&lt; int(at(x, y)) &lt;&lt; &quot; &quot;;
+       }
+   out &lt;&lt; std::endl;
+ }
+ 
++void
++Bitmap::write_jpg(const std::string&amp; filename)
++{
++  struct jpeg_compress_struct cinfo;
++  struct jpeg_error_mgr jerr;
++  
++  /* More stuff */
++  FILE * outfile;		/* target file */
++
++  cinfo.err = jpeg_std_error(&amp;jerr);
++  /* Now we can initialize the JPEG compression object. */
++  jpeg_create_compress(&amp;cinfo);
++
++  if ((outfile = fopen(filename.c_str(), &quot;wb&quot;)) == NULL)
++    {
++      std::cerr &lt;&lt; &quot;can't open &quot;  &lt;&lt; filename &lt;&lt; std::endl;
++      return;
++    }
++  jpeg_stdio_dest(&amp;cinfo, outfile);
++
++  cinfo.image_width  = get_width();
++  cinfo.image_height = get_height();
++  cinfo.input_components = 1;	//3	/* # of color components per pixel */
++  cinfo.in_color_space = JCS_GRAYSCALE; /* colorspace of input image */
++
++  jpeg_set_defaults(&amp;cinfo);
++
++  jpeg_set_quality(&amp;cinfo, 85, TRUE /* limit to baseline-JPEG values */);
++
++  /* TRUE ensures that we will write a complete interchange-JPEG file.
++   * Pass TRUE unless you are very sure of what you're doing. */
++  jpeg_start_compress(&amp;cinfo, TRUE);
++
++  JSAMPROW row_pointer[get_height()];	/* pointer to JSAMPLE row[s] */
++
++  for(int y = 0; y &lt; get_height(); ++y)
++    row_pointer[y] = &amp;buffer[y * get_width()];
++
++  while (cinfo.next_scanline &lt; cinfo.image_height) 
++    {
++      jpeg_write_scanlines(&amp;cinfo, row_pointer, get_height());
++    }
++
++  jpeg_finish_compress(&amp;cinfo);
++
++  fclose(outfile);
++
++  jpeg_destroy_compress(&amp;cinfo);
++}
++
+ unsigned char
+ Bitmap::at(int x, int y)
+ {
+@@ -102,4 +155,20 @@
+       }
+ }
+ 
++void
++Bitmap::fill(int x1, int y1, int x2, int y2, unsigned char c)
++{  
++  x1 = std::max(0, x1);
++  y1 = std::max(0, y1);
++
++  x2 = std::min(width,  x2);
++  y2 = std::min(height, y2);
++
++  for(int y = y1; y &lt; y2; ++y)
++    for(int x = x1; x &lt; x2; ++x)
++      {
++        buffer[y * width + x] = c;
++      }
++}
++
+ /* EOF */
+
+Modified: trunk/txt2png/bitmap.hpp
+===================================================================
+--- trunk/txt2png/bitmap.hpp	2006-12-19 04:28:06 UTC (rev 1287)
++++ trunk/txt2png/bitmap.hpp	2006-12-19 18:33:13 UTC (rev 1288)
+@@ -47,10 +47,14 @@
+   unsigned char* get_data() { return buffer; }
+   void clear();
+   void write_pgm(const std::string&amp; filename);
++  void write_jpg(const std::string&amp; filename);
++  
+ 
+   /** Invert the given region */
+   void invert(int x1, int y1, int x2, int y2);
+ 
++  /** Fill the given region with color \a c */
++  void fill(int x1, int y1, int x2, int y2, unsigned char c);
+ private:
+   Bitmap (const Bitmap&amp;);
+   Bitmap&amp; operator= (const Bitmap&amp;);
+
+Copied: trunk/txt2png/command_line.cpp (from rev 1276, trunk/windstille/src/command_line.cpp)
+
+Copied: trunk/txt2png/command_line.hpp (from rev 1276, trunk/windstille/src/command_line.hpp)
+
+Copied: trunk/txt2png/command_line_generic.cpp (from rev 1276, trunk/windstille/src/command_line_generic.cpp)
+
+Copied: trunk/txt2png/command_line_generic.hpp (from rev 1276, trunk/windstille/src/command_line_generic.hpp)
+
+Modified: trunk/txt2png/ttf_font.cpp
+===================================================================
+--- trunk/txt2png/ttf_font.cpp	2006-12-19 04:28:06 UTC (rev 1287)
++++ trunk/txt2png/ttf_font.cpp	2006-12-19 18:33:13 UTC (rev 1288)
+@@ -48,7 +48,7 @@
+   for(int y = 0; y &lt; bitmap-&gt;get_height(); ++y)
+     for(int x = 0; x &lt; bitmap-&gt;get_width(); ++x)
+       {
+-        bitmap-&gt;get_data()[y * bitmap-&gt;get_width() + x] = glyph-&gt;bitmap.buffer[y * glyph-&gt;bitmap.pitch + x];
++        bitmap-&gt;get_data()[y * bitmap-&gt;get_width() + x] = 255 - glyph-&gt;bitmap.buffer[y * glyph-&gt;bitmap.pitch + x];
+       }
+ }
+ 
+@@ -104,16 +104,27 @@
+ 
+   impl-&gt;height = impl-&gt;size;
+ 
++  std::cout &lt;&lt; &quot;BBox: &quot; &lt;&lt; impl-&gt;size &lt;&lt; &quot; &quot;
++            &lt;&lt; impl-&gt;size * face-&gt;bbox.xMin/face-&gt;units_per_EM &lt;&lt; &quot; &quot; 
++            &lt;&lt; impl-&gt;size * face-&gt;bbox.yMin/face-&gt;units_per_EM &lt;&lt; &quot; &quot; 
++            &lt;&lt; impl-&gt;size * face-&gt;bbox.xMax/face-&gt;units_per_EM &lt;&lt; &quot; &quot; 
++            &lt;&lt; impl-&gt;size * face-&gt;bbox.yMax/face-&gt;units_per_EM &lt;&lt; &quot; &quot; 
++            &lt;&lt; face-&gt;units_per_EM
++            &lt;&lt; std::endl;
++
+   // We limit ourself to 256 characters for the momemnt
+   for(int glyph_index = 0; glyph_index &lt; 256; glyph_index += 1)
+     {
+-      if (FT_Load_Char( face,  glyph_index, FT_LOAD_RENDER))
++      if (FT_Load_Char( face,  glyph_index, FT_LOAD_RENDER))//| FT_LOAD_FORCE_AUTOHINT))
+         {
+-          // FIXME: happens when character is not in font, should be handled more gentle
+-          throw std::runtime_error(&quot;couldn't load char&quot;);
++          std::cerr &lt;&lt; &quot;couldn't load char: &quot; &lt;&lt; glyph_index &lt;&lt; &quot; '&quot; &lt;&lt; char(glyph_index) &lt;&lt; &quot;'&quot; &lt;&lt; std::endl;
++          impl-&gt;characters.push_back(0);
+         }
+-            
+-      impl-&gt;characters.push_back(new TTFCharacter(face-&gt;glyph));
++      else
++        {
++          impl-&gt;characters.push_back(new TTFCharacter(face-&gt;glyph));
++        }
++      //std::cout &lt;&lt; &quot;Char: &quot; &lt;&lt; int(glyph_index) &lt;&lt; &quot; &quot; &lt;&lt; face-&gt;glyph-&gt;bitmap_top &lt;&lt; std::endl;
+     }
+ 
+   FT_Done_Face(face);
+@@ -128,7 +139,10 @@
+ TTFFont::get_character(int c) const
+ {
+   assert(c &gt;= 0 &amp;&amp; c &lt; 256);
+-  return *impl-&gt;characters[c];
++  if (impl-&gt;characters[c] == 0)
++    return *impl-&gt;characters['?'];
++  else
++    return *impl-&gt;characters[c];
+ }
+ 
+ int
+@@ -142,7 +156,7 @@
+ {
+   int width = 0;
+   for(std::string::const_iterator i = text.begin(); i != text.end(); ++i)
+-    width += impl-&gt;characters[*i]-&gt;advance;
++    width += get_character(*i).advance;
+   return width;
+ }
+ 
+
+Modified: trunk/txt2png/txt2png.cpp
+===================================================================
+--- trunk/txt2png/txt2png.cpp	2006-12-19 04:28:06 UTC (rev 1287)
++++ trunk/txt2png/txt2png.cpp	2006-12-19 18:33:13 UTC (rev 1288)
+@@ -3,33 +3,90 @@
+ #include &lt;iomanip&gt;
+ #include &lt;sstream&gt;
+ #include &lt;fstream&gt;
++#include &quot;command_line.hpp&quot;
+ #include &quot;ttf_font.hpp&quot;
+ 
+-void render(Bitmap&amp; canvas, TTFFont&amp; font, const std::string&amp; text)
++struct Options {
++  std::string font_file;
++  int font_size;
++  std::string output_file;
++  std::string text_file;
++  std::string type;
++  std::string title;
++  bool status;
++  int canvas_width;
++  int canvas_height;
++  int text_x;
++  int text_y;
++  int text_w;
++  int text_h;
++  bool area_set;
++  bool break_lines;
++  bool info_mode;
++
++  Options()
++  {
++    font_file = &quot;VeraMono.ttf&quot;;
++    font_size = 10;
++    output_file = &quot;out/page&quot;;
++    type = &quot;jpg&quot;;
++      
++    status = false;
++      
++    canvas_width  = 480;
++    canvas_height = 272;
++      
++    text_x = -1;
++    text_y = -1;
++    text_w = -1;
++    text_h = -1;
++    area_set = false;
++    
++    break_lines = false;
++    info_mode   = false;
++  }
++};
++
++Options options;
++
++void render(Bitmap&amp; canvas, TTFFont&amp; font, const std::string&amp; text, 
++            int start_x, int start_y,
++            int text_width, int text_height)
+ {
+-  int start_x = 4;
+-  int start_y = 4+10;
+-
+   int page = 0;
+-  int x = start_x;
+-  int y = start_y; // &lt;- refers to the baseline of the font!
++  int x = 0;
++  int y = 0; // &lt;- refers to the baseline of the font!
+ 
+   for(std::string::size_type i = 0; i &lt; text.size(); ++i)
+     {
+       if (text[i] == '\n')
+         {
+-          x = start_x;
++          x = 0;
+           y += font.get_height();
+ 
+-          if (y &gt;= canvas.get_height() - start_y + font.get_height())
++          if (y &gt;= text_height)
+             { // FIXME :Duplicate code
+-              y = start_y;
+-              x = start_x;
++              y = 0;
++              x = 0;
++              
++              std::ostringstream tstr;
++              if (!options.title.empty())
++                tstr &lt;&lt; options.title &lt;&lt; &quot; &quot;;
+ 
++              tstr &lt;&lt; &quot;Page &quot;
++                   &lt;&lt; std::setfill('0') &lt;&lt; std::setw(2) &lt;&lt; page &lt;&lt; &quot;/21 - &quot; 
++                   &lt;&lt; std::setw(3) &lt;&lt; 100 * page / 21 &lt;&lt; &quot;%&quot;;
++              render(canvas, font, tstr.str(),
++                     canvas.get_width()/2 - font.get_width(tstr.str())/2, 
++                     canvas.get_height() - font.get_height() + font.get_character('M').bitmap-&gt;get_height()+2,
++                     canvas.get_width(), canvas.get_height());
++              canvas.invert(0, canvas.get_height() - font.get_height(),
++                            canvas.get_width(), canvas.get_height());
++
+               std::ostringstream str;
+-              str &lt;&lt; &quot;out/page&quot; &lt;&lt; std::setfill('0') &lt;&lt; std::setw(3) &lt;&lt; page &lt;&lt; &quot;.pgm&quot;;
++              str &lt;&lt; &quot;out/page&quot; &lt;&lt; std::setfill('0') &lt;&lt; std::setw(3) &lt;&lt; page &lt;&lt; &quot;.jpg&quot;;
+               std::cout &lt;&lt; &quot;Writing: &quot; &lt;&lt; str.str() &lt;&lt; std::endl;
+-              canvas.write_pgm(str.str());
++              canvas.write_jpg(str.str());
+               canvas.clear();
+ 
+               page += 1;
+@@ -37,35 +94,39 @@
+         }
+       else if (text[i] == '\r')
+         {
+-          // ignore
++          // ignore so both DOS and Unix files look fine
+         }
+       else if (text[i] == '\t')
+         {
+           int cw = font.get_character(' ').advance * 8;
+-          x = start_x + ((((x-start_x)/cw) + 1) * cw);
++          x = (x/cw + 1) * cw;
+         }
+       else
+         {
+           const TTFCharacter&amp; glyph = font.get_character(text[i]);
+ 
+           canvas.blit(*glyph.bitmap, 
+-                      x + glyph.x_offset,
+-                      y + glyph.y_offset);
++                      x + glyph.x_offset + start_x,
++                      y + glyph.y_offset + start_y);
+ 
+           x += glyph.advance;
+ 
+-          if (x &gt;= canvas.get_width())
++          if (x &gt;= text_width)
+             {
+               std::cout &lt;&lt; &quot;Illegal line break on page &quot; &lt;&lt; page &lt;&lt; std::endl;
+-              x = start_x;
++              x = 0;
+               y += font.get_height();              
+             }
+ 
+-          if (y &gt;= canvas.get_height() - start_y + font.get_height())
++          if (y &gt;= text_height)
+             {
+-              y = start_y;
+-              x = start_x;
++              y = 0;
++              x = 0;
+ 
++              canvas.invert(0, canvas.get_height() - font.get_height(),
++                            canvas.get_width(), canvas.get_height());
++
++
+               std::ostringstream str;
+               str &lt;&lt; &quot;out/page&quot; &lt;&lt; std::setfill('0') &lt;&lt; std::setw(3) &lt;&lt; page &lt;&lt; &quot;.pgm&quot;;
+               std::cout &lt;&lt; &quot;Writing: &quot; &lt;&lt; str.str() &lt;&lt; std::endl;
+@@ -78,35 +139,154 @@
+     }
+ }
+ 
++void parse_args(int argc, char** argv, Options&amp; options)
++{
++  CommandLine argp;
++
++  argp.set_help_indent(24);
++  argp.add_usage (&quot;[OPTION]... TEXTFILE&quot;);
++  argp.add_doc   (&quot;text2image converts ascii text files to images&quot;);
++
++  argp.add_group(&quot;Options:&quot;);
++  argp.add_option('f', &quot;font&quot;,      &quot;FONT&quot;,    &quot;Use FONT for rendering the text, must be a ttf font (default: VerdanaMono.ttf)&quot;);
++  argp.add_option('s',  &quot;size&quot;,     &quot;NUM&quot;,     &quot;Set the font size to NUM (default: 12)&quot;);
++  argp.add_option('o', &quot;output&quot;,    &quot;FILE&quot;,    &quot;Write the rendered image to file&quot;);
++  argp.add_option('t',  &quot;type&quot;,     &quot;TYPE&quot;,    &quot;Use TYPE format when writing the file, can be 'jpg' or 'pgm'&quot;);
++  argp.add_option('l',  &quot;status-line&quot;,   &quot;&quot;,        &quot;Add a statusbar to the rendering output&quot;);
++  argp.add_option('a',  &quot;area&quot;, &quot;WxH+X+Y&quot;,&quot;limit text rendering to the given area&quot;);
++  argp.add_option('n',  &quot;title&quot;,    &quot;NAME&quot;,    &quot;Use NAME as title in the status line&quot;);
++  argp.add_option('c',  &quot;canvas&quot;,   &quot;WxH&quot;,      &quot;Use a canvas for size WxH+X+Y&quot;);
++  argp.add_option('b',  &quot;break&quot;,    &quot;&quot;,        &quot;Break long lines&quot;);
++  argp.add_option('i',  &quot;info&quot;,     &quot;&quot;,        &quot;Print information about the text&quot;);
++  argp.add_option('h',  &quot;help&quot;,     &quot;&quot;,        &quot;Display this help&quot;);
++  
++  argp.parse_args(argc, argv);
++
++  while (argp.next())
++    {
++      switch (argp.get_key())
++        {
++        case 'f': // font
++          options.font_file = argp.get_argument();
++          break;
++
++        case 'o': // output
++          options.output_file = argp.get_argument();
++          break;
++
++        case 't': // type
++          if (argp.get_argument() != &quot;jpg&quot; || argp.get_argument() != &quot;pgm&quot;)
++            {
++              std::cerr &lt;&lt; &quot;Only 'pgm' or 'jpg' allowed as format type options&quot; &lt;&lt; std::endl;
++              exit(EXIT_FAILURE);              
++            }
++          options.type = argp.get_argument();
++          break;
++
++        case 'a': // area
++          if (sscanf(argp.get_argument().c_str(), &quot;%dx%d+%d+%d&quot;,
++                     &amp;options.text_w,
++                     &amp;options.text_h,
++                     &amp;options.text_x,
++                     &amp;options.text_y) != 4)
++            {
++              std::cerr &lt;&lt; &quot;Expected WIDTHxHEIGHT+X+Y as argument&quot; &lt;&lt; std::endl;
++              exit(EXIT_FAILURE);
++            }
++
++          options.area_set = true;
++          break;
++
++        case 'c': // canvas
++          if (sscanf(argp.get_argument().c_str(), &quot;%dx%d&quot;, &amp;options.canvas_width, &amp;options.canvas_height) != 2)
++            {
++              std::cerr &lt;&lt; &quot;Expected WIDTHxHEIGHT as argument&quot; &lt;&lt; std::endl;
++              exit(EXIT_FAILURE);
++            }
++          break;
++
++        case 'i': // info
++          options.info_mode = true;
++          break;
++
++        case 'n': // title
++          options.title = argp.get_argument();
++          break;
++
++        case 'b': // break
++          options.break_lines = true;
++          break;
++
++        case 'l': // status-line
++          options.status = true;
++          break;
++
++        case 's': // size
++          if (sscanf(argp.get_argument().c_str(), &quot;%d&quot;, &amp;options.font_size) != 1)
++            {
++              std::cerr &lt;&lt; &quot;Expected Integer as argument for --size&quot; &lt;&lt; std::endl;
++              exit(EXIT_FAILURE);
++            }
++
++          break;
++
++        case 'h':
++          argp.print_help();
++          exit(EXIT_SUCCESS);
++          break;
++
++        case CommandLine::REST_ARG:
++          if (options.text_file.empty())
++            {
++              options.text_file = argp.get_argument();
++            }
++          else
++            {
++              std::cerr &lt;&lt; &quot;Only one text file can be given&quot; &lt;&lt; std::endl;
++              exit(EXIT_FAILURE); 
++            }
++          break;
++
++        default: 
++          std::cerr &lt;&lt; &quot;Unknown argument: &quot; &lt;&lt; argp.get_key() &lt;&lt; std::endl;
++          exit(EXIT_FAILURE);
++        }
++    }
++}
++
+ int main(int argc, char** argv)
+ {
+-  if (argc != 4)
++  parse_args(argc, argv, options);
++
++  if (options.text_file.empty())
+     {
+-      std::cout &lt;&lt; &quot;Usage: &quot; &lt;&lt; argv[0] &lt;&lt; &quot; FONT SIZE TEXT&quot; &lt;&lt; std::endl;
++      std::cout &lt;&lt; &quot;Usage: &quot; &lt;&lt; argv[0] &lt;&lt; &quot; [OPTION]... TEXTFILE&quot; &lt;&lt; std::endl;
+     }
+   else
+     {
+-      std::string font_filename = argv[1];
+-      int font_size = atoi(argv[2]);
+-      std::string text_filename = argv[3];
+-
+       TTFFont::init();
+ 
+       //std::cout &lt;&lt; &quot;Load font&quot; &lt;&lt; std::endl;
+-      TTFFont font(font_filename, font_size);
++      TTFFont font(options.font_file, options.font_size);
+ 
+       //  std::cout &lt;&lt; &quot;Create bitmap&quot; &lt;&lt; std::endl;
+-      Bitmap  bitmap(480, 272);
++      Bitmap  bitmap(options.canvas_width, options.canvas_height);
+ 
+-      std::ifstream fin(text_filename.c_str());
++      std::ifstream fin(options.text_file.c_str());
+       std::istreambuf_iterator&lt;char&gt; first(fin), last;
+       std::string text(first, last); 
+ 
+       //std::cout &lt;&lt; &quot;Render...&quot; &lt;&lt; std::endl;
+-      render(bitmap, font, text);
++
++      if (options.area_set)
++        render(bitmap, font, text, options.text_x, options.text_y, options.text_w, options.text_h);
++      else
++        render(bitmap, font, text,
++               4, font.get_height(), bitmap.get_width() - 4, bitmap.get_height() - font.get_height()*2);
+   
+       TTFFont::deinit();
+     }
++
+   return 0;
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000940.html">[Windstille-commit] r1287 - in trunk: . txt2png
+</A></li>
+	<LI>Next message: <A HREF="000942.html">[Windstille-commit] r1289 - trunk/txt2png
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#941">[ date ]</a>
+              <a href="thread.html#941">[ thread ]</a>
+              <a href="subject.html#941">[ subject ]</a>
+              <a href="author.html#941">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,369 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r639 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r639%20-%20trunk/src&In-Reply-To=%3C200507141524.j6EFO8pK021940%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000291.html">
+   <LINK REL="Next"  HREF="000293.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r639 - trunk/src</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r639%20-%20trunk/src&In-Reply-To=%3C200507141524.j6EFO8pK021940%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r639 - trunk/src">grumbel at berlios.de
+       </A><BR>
+    <I>Thu Jul 14 17:24:08 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000291.html">[Windstille-commit] r638 - trunk/data/scripts
+</A></li>
+        <LI>Next message: <A HREF="000293.html">[Windstille-commit] r640 - in trunk/src: . scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#292">[ date ]</a>
+              <a href="thread.html#292">[ thread ]</a>
+              <a href="subject.html#292">[ subject ]</a>
+              <a href="author.html#292">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-07-14 17:24:06 +0200 (Thu, 14 Jul 2005)
+New Revision: 639
+
+Modified:
+   trunk/src/character.cpp
+   trunk/src/console.cpp
+   trunk/src/console.hpp
+   trunk/src/game_session.cpp
+   trunk/src/game_session.hpp
+   trunk/src/screen.cpp
+   trunk/src/script_manager.cpp
+   trunk/src/windstille_main.cpp
+   trunk/src/windstille_menu.cpp
+Log:
+- moved console into screen so that it is available in the menu took- there is now a global variable 'console' which can be used like std::cout
+
+Modified: trunk/src/character.cpp
+===================================================================
+--- trunk/src/character.cpp	2005-07-14 15:21:05 UTC (rev 638)
++++ trunk/src/character.cpp	2005-07-14 15:24:06 UTC (rev 639)
+@@ -88,7 +88,7 @@
+     {
+       script_manager-&gt;run_script(script, name);
+     } catch (std::exception e) {
+-      Console::current() &lt;&lt; e.what() &lt;&lt; std::endl;
++      console &lt;&lt; e.what() &lt;&lt; std::endl;
+     }
+ }
+ 
+
+Modified: trunk/src/console.cpp
+===================================================================
+--- trunk/src/console.cpp	2005-07-14 15:21:05 UTC (rev 638)
++++ trunk/src/console.cpp	2005-07-14 15:24:06 UTC (rev 639)
+@@ -27,7 +27,7 @@
+ #include &quot;script_manager.hpp&quot;
+ #include &quot;console.hpp&quot;
+ 
+-Console* Console::current_ = 0;
++Console console;
+ 
+ ConsoleStreambuf::ConsoleStreambuf(Console* console_)
+   : console(console_)
+@@ -68,23 +68,16 @@
+ 
+ //-------------------------------------------------------------------------------
+ 
+-Console::Console(int arg_x, int arg_y)
++Console::Console()
+   : std::ostream(new ConsoleStreambuf(this))
+ {
+-  current_ = this;
+-  x_pos = arg_x;
+-  y_pos = arg_y;
++  x_pos = 16;
++  y_pos = 600-16;
++
+   active = false;
+-  history_position = 1;
++  history_position = 1; 
+ }
+ 
+-Console&amp;
+-Console::current()
+-{
+-  assert(current_);
+-  return *current_;
+-}
+-
+ void
+ Console::add(char* buf, int len)
+ {
+@@ -116,6 +109,10 @@
+ 
+   int num_lines = 600 / (Fonts::copyright.get_height() + 2);
+ 
++  if (is_active())
++    CL_Display::fill_rect(CL_Rect(0,0, 800, 600),
++                          CL_Color(0, 0, 0, 60));
++
+   for(Buffer::reverse_iterator i = buffer.rbegin(); i != buffer.rend() &amp;&amp; num_lines &gt; 0; ++i, --num_lines)
+     {
+       if (i-&gt;display_time &lt; 5.0f || is_active())
+
+Modified: trunk/src/console.hpp
+===================================================================
+--- trunk/src/console.hpp	2005-07-14 15:21:05 UTC (rev 638)
++++ trunk/src/console.hpp	2005-07-14 15:24:06 UTC (rev 639)
+@@ -59,11 +59,10 @@
+   std::vector&lt;std::string&gt; history;
+   int history_position;
+   ConsoleEntry current_entry;
++
+ public:
+-  static Console&amp; current();
++  Console();
+ 
+-  Console(int x, int y);
+-
+   void add(char* buf, int len);
+ 
+   void draw();
+@@ -80,6 +79,8 @@
+   Console&amp; operator= (const Console&amp;);
+ };
+ 
++extern Console console;
++
+ #endif
+ 
+ /* EOF */
+
+Modified: trunk/src/game_session.cpp
+===================================================================
+--- trunk/src/game_session.cpp	2005-07-14 15:21:05 UTC (rev 638)
++++ trunk/src/game_session.cpp	2005-07-14 15:24:06 UTC (rev 639)
+@@ -54,8 +54,7 @@
+ GameSession* GameSession::current_ = 0; 
+ 
+ GameSession::GameSession(const std::string&amp; arg_filename)
+-  : console(16, CL_Display::get_height()-16),
+-    control_dialog(&quot;controldialog&quot;, resources),
++  : control_dialog(&quot;controldialog&quot;, resources),
+     world (0)
+ {
+   current_ = this;
+@@ -119,7 +118,6 @@
+   //std::cout &lt;&lt; gluErrorString(glGetError()) &lt;&lt; std::endl;
+ 
+   draw_game();
+-  console.draw();
+ 
+   switch (fade_state)
+     {
+@@ -162,8 +160,6 @@
+ void
+ GameSession::update(float delta)
+ {  
+-  console.update(delta);
+-
+   if(CL_Keyboard::get_keycode(CL_KEY_NUMPAD1))
+     game_speed *= 1.0 - delta;
+   if(CL_Keyboard::get_keycode(CL_KEY_NUMPAD3))
+@@ -213,8 +209,6 @@
+   
+   if (CL_Keyboard::get_keycode(CL_KEY_ESCAPE))
+     quit();
+-  
+-  InputManager::clear();
+ }
+ 
+ void
+@@ -330,24 +324,20 @@
+     {
+       switch(event.id)
+         {
+-        case CL_KEY_F1:
+-          console.activate();
+-          break;
+-
+         case CL_KEY_1:
+           sc.set_render_mask(sc.get_render_mask() ^ SceneContext::COLORMAP);
+-          console.add(&quot;Toggled COLORMAP: &quot;, (sc.get_render_mask() &amp; SceneContext::COLORMAP) &gt; 0);
++          console &lt;&lt; &quot;Toggled COLORMAP: &quot; &lt;&lt; ((sc.get_render_mask() &amp; SceneContext::COLORMAP) &gt; 0) &lt;&lt; std::endl;
+           break;
+ 
+         case CL_KEY_2:
+           sc.set_render_mask(sc.get_render_mask() ^ SceneContext::LIGHTMAP);
+-          console.add(&quot;Toggled LIGHTMAP: &quot;, (sc.get_render_mask() &amp; SceneContext::LIGHTMAP) &gt; 0);
++          console &lt;&lt; &quot;Toggled LIGHTMAP: &quot; &lt;&lt; ((sc.get_render_mask() &amp; SceneContext::LIGHTMAP) &gt; 0) &lt;&lt; std::endl;
+           break;
+-
++          
+         case CL_KEY_3:
+           sc.set_render_mask(sc.get_render_mask() ^ SceneContext::HIGHLIGHTMAP);
+-          console.add(&quot;Toggled HIGHLIGHTMAP: &quot;, (sc.get_render_mask() &amp; SceneContext::HIGHLIGHTMAP) &gt; 0);
+-          break;      
++          console &lt;&lt; &quot;Toggled HIGHLIGHTMAP: &quot; &lt;&lt; ((sc.get_render_mask() &amp; SceneContext::HIGHLIGHTMAP) &gt; 0) &lt;&lt; std::endl;
++      break;      
+ 
+         default:
+           // ignore key
+
+Modified: trunk/src/game_session.hpp
+===================================================================
+--- trunk/src/game_session.hpp	2005-07-14 15:21:05 UTC (rev 638)
++++ trunk/src/game_session.hpp	2005-07-14 15:24:06 UTC (rev 639)
+@@ -42,7 +42,6 @@
+ {
+ private:
+   SceneContext sc;
+-  Console console;
+ 
+   float fadeout_value;
+ 
+
+Modified: trunk/src/screen.cpp
+===================================================================
+--- trunk/src/screen.cpp	2005-07-14 15:21:05 UTC (rev 638)
++++ trunk/src/screen.cpp	2005-07-14 15:24:06 UTC (rev 639)
+@@ -25,6 +25,7 @@
+ #include &quot;globals.hpp&quot;
+ #include &quot;console.hpp&quot;
+ #include &quot;gameconfig.hpp&quot;
++#include &quot;input/input_manager.hpp&quot;
+ #include &quot;sound/sound_manager.hpp&quot;
+ 
+ namespace Windstille {
+@@ -56,18 +57,26 @@
+   
+   if (config-&gt;show_fps)
+     draw_fps(delta);
++
++  console.draw();
++
+   CL_Display::flip(0);
+   
+   ++frames;
+   
+   while (delta &gt; step)
+     {
++      console.update(step);
+       update(step);
++      InputManager::clear();
++  
+       delta -= step;
+     }
+   // FIXME: non constant delta isn't a good idea
+   update(delta);
+-  
++  console.update(delta);
++  InputManager::clear(); 
++
+   // update(0.020f);
+ 
+   sound_manager-&gt;update();
+@@ -98,11 +107,17 @@
+ void
+ Screen::key_down(const CL_InputEvent&amp; event)
+ {
+-  switch (event.id) {
++  switch (event.id) 
++    {
++    case CL_KEY_F1:
++      if (!console.is_active())
++        console.activate();
++      break;
++
+     case CL_KEY_C:
+       if(debug) {
+         collision_debug = !collision_debug;
+-        Console::current() &lt;&lt; &quot;Collision Debugging &quot; &lt;&lt; (collision_debug ? &quot;enabled&quot; : &quot;disabled&quot;) &lt;&lt; std::endl;
++        console &lt;&lt; &quot;Collision Debugging &quot; &lt;&lt; (collision_debug ? &quot;enabled&quot; : &quot;disabled&quot;) &lt;&lt; std::endl;
+       }
+       break;
+     case CL_KEY_F10:
+@@ -122,7 +137,7 @@
+       std::cout &lt;&lt; &quot;Saving screenshot to: &quot; &lt;&lt; filename &lt;&lt; std::endl;
+       CL_ProviderFactory::save(CL_Display::get_front_buffer(),
+                                filename);
+-    break;
++      break;
+     }
+ }
+ 
+
+Modified: trunk/src/script_manager.cpp
+===================================================================
+--- trunk/src/script_manager.cpp	2005-07-14 15:21:05 UTC (rev 638)
++++ trunk/src/script_manager.cpp	2005-07-14 15:24:06 UTC (rev 639)
+@@ -25,7 +25,7 @@
+   va_list arglist; 
+   va_start(arglist, str); 
+   vsprintf(buf, str, arglist);
+-  Console::current() &lt;&lt; (char*)buf;
++  console &lt;&lt; (char*)buf;
+   puts(buf);
+   va_end(arglist); 
+ }
+
+Modified: trunk/src/windstille_main.cpp
+===================================================================
+--- trunk/src/windstille_main.cpp	2005-07-14 15:21:05 UTC (rev 638)
++++ trunk/src/windstille_main.cpp	2005-07-14 15:24:06 UTC (rev 639)
+@@ -264,7 +264,6 @@
+ 
+   if (debug) std::cout &lt;&lt; &quot;Initialising ScriptManager&quot; &lt;&lt; std::endl;
+   script_manager = new ScriptManager();
+-
+   sprite3d_manager = new Sprite3DManager;
+ }
+ 
+
+Modified: trunk/src/windstille_menu.cpp
+===================================================================
+--- trunk/src/windstille_menu.cpp	2005-07-14 15:21:05 UTC (rev 638)
++++ trunk/src/windstille_menu.cpp	2005-07-14 15:24:06 UTC (rev 639)
+@@ -109,8 +109,6 @@
+     }
+   else if (current_choice &gt; 1 )
+     current_choice = 0;
+-
+-  InputManager::clear();
+ }
+ 
+ void
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000291.html">[Windstille-commit] r638 - trunk/data/scripts
+</A></li>
+	<LI>Next message: <A HREF="000293.html">[Windstille-commit] r640 - in trunk/src: . scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#292">[ date ]</a>
+              <a href="thread.html#292">[ thread ]</a>
+              <a href="subject.html#292">[ subject ]</a>
+              <a href="author.html#292">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

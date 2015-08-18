@@ -1,0 +1,193 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3350 - trunk/windstille/extra/slideshow
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3350%20-%20trunk/windstille/extra/slideshow&In-Reply-To=%3C20100902220348.51D08481019%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002346.html">
+   <LINK REL="Next"  HREF="002348.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3350 - trunk/windstille/extra/slideshow</H1>
+    <B>grumbel at mail.berlios.de</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3350%20-%20trunk/windstille/extra/slideshow&In-Reply-To=%3C20100902220348.51D08481019%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3350 - trunk/windstille/extra/slideshow">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Sep  3 00:03:48 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002346.html">[Windstille-commit] r3349 - in trunk/windstille/extra/slideshow: .	plugins
+</A></li>
+        <LI>Next message: <A HREF="002348.html">[Windstille-commit] r3351 - trunk/windstille/extra/slideshow
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2347">[ date ]</a>
+              <a href="thread.html#2347">[ thread ]</a>
+              <a href="subject.html#2347">[ subject ]</a>
+              <a href="author.html#2347">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2010-09-03 00:03:48 +0200 (Fri, 03 Sep 2010)
+New Revision: 3350
+
+Modified:
+   trunk/windstille/extra/slideshow/slide_object.cpp
+   trunk/windstille/extra/slideshow/slide_object.hpp
+Log:
+slideshow: added on-demand loading
+
+Modified: trunk/windstille/extra/slideshow/slide_object.cpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slide_object.cpp	2010-09-02 22:01:54 UTC (rev 3349)
++++ trunk/windstille/extra/slideshow/slide_object.cpp	2010-09-02 22:03:48 UTC (rev 3350)
+@@ -20,15 +20,19 @@
+ 
+ #include &lt;math.h&gt;
+ 
++#include &quot;plugins/jpeg.hpp&quot;
+ #include &quot;display/surface_drawing_parameters.hpp&quot;
+ 
+ SlideObject::SlideObject(const Pathname&amp; filename) :
+-  m_surface(filename),
++  m_filename(filename),
++  m_size(0.0f, 0.0f),
++  m_surface(),
+   m_begin(0.0f),
+   m_path(),
+   m_fade_in_time(0.0f),
+   m_fade_out_time(0.0f)
+ {  
++  m_size = JPEG::get_size(filename.get_sys_path());
+ }
+ 
+ void
+@@ -46,6 +50,11 @@
+ void
+ SlideObject::draw(float relative_time)
+ {
++  if (!m_surface)
++  {
++    m_surface = Surface(m_filename);
++  }
++
+   SlidePathNode node = m_path.get(relative_time);
+ 
+   // FIXME: hardcoded fade hack
+@@ -87,6 +96,12 @@
+   return m_begin;
+ }
+ 
++float
++SlideObject::end() const
++{
++  return begin() + length();
++}
++
+ void
+ SlideObject::set_begin(float beg)
+ {
+@@ -96,13 +111,34 @@
+ float
+ SlideObject::get_width() const
+ {
+-  return m_surface.get_width();
++  return m_size.width;
+ }
+ 
+ float
+ SlideObject::get_height() const
+ {
+-  return m_surface.get_height();
++  return m_size.height;
+ }
+ 
++Pathname 
++SlideObject::get_filename() const
++{
++  return m_filename;
++}
++
++bool
++SlideObject::unload()
++{
++  if (m_surface)
++  {
++    m_surface = Surface();
++    std::cout &lt;&lt; &quot;Unloading: &quot; &lt;&lt; m_filename.get_sys_path() &lt;&lt; std::endl;
++    return true;
++  }
++  else
++  {
++    return false;
++  }
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/extra/slideshow/slide_object.hpp
+===================================================================
+--- trunk/windstille/extra/slideshow/slide_object.hpp	2010-09-02 22:01:54 UTC (rev 3349)
++++ trunk/windstille/extra/slideshow/slide_object.hpp	2010-09-02 22:03:48 UTC (rev 3350)
+@@ -28,6 +28,8 @@
+ class SlideObject
+ {
+ private:
++  Pathname m_filename;
++  Sizef m_size;
+   Surface m_surface;
+   float m_begin;
+   SlidePath m_path;
+@@ -42,6 +44,8 @@
+ 
+   float length() const;
+   float begin() const;
++  float end() const;
++
+   void set_begin(float beg);
+   void set_fade_in(float f);
+   void set_fade_out(float f);
+@@ -51,6 +55,10 @@
+   float get_width() const;
+   float get_height() const;
+ 
++  Pathname get_filename() const;
++
++  bool unload();
++
+ private:
+   SlideObject(const SlideObject&amp;);
+   SlideObject&amp; operator=(const SlideObject&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002346.html">[Windstille-commit] r3349 - in trunk/windstille/extra/slideshow: .	plugins
+</A></li>
+	<LI>Next message: <A HREF="002348.html">[Windstille-commit] r3351 - trunk/windstille/extra/slideshow
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2347">[ date ]</a>
+              <a href="thread.html#2347">[ thread ]</a>
+              <a href="subject.html#2347">[ subject ]</a>
+              <a href="author.html#2347">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

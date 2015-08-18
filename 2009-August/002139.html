@@ -1,0 +1,268 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3142 - trunk/windstille/src/display
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3142%20-%20trunk/windstille/src/display&In-Reply-To=%3C200908302111.n7ULBLGJ002087%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002138.html">
+   <LINK REL="Next"  HREF="002140.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3142 - trunk/windstille/src/display</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3142%20-%20trunk/windstille/src/display&In-Reply-To=%3C200908302111.n7ULBLGJ002087%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3142 - trunk/windstille/src/display">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Aug 30 23:11:21 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002138.html">[Windstille-commit] r3141 -	trunk/windstille/data/sectors/trainstation
+</A></li>
+        <LI>Next message: <A HREF="002140.html">[Windstille-commit] r3143 - trunk/windstille
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2139">[ date ]</a>
+              <a href="thread.html#2139">[ thread ]</a>
+              <a href="subject.html#2139">[ subject ]</a>
+              <a href="author.html#2139">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-08-30 23:11:21 +0200 (Sun, 30 Aug 2009)
+New Revision: 3142
+
+Modified:
+   trunk/windstille/src/display/surface_manager.cpp
+   trunk/windstille/src/display/surface_manager.hpp
+   trunk/windstille/src/display/texture.cpp
+Log:
+Disabled TexturePacker, use non-power-of-two Textures directly
+
+Modified: trunk/windstille/src/display/surface_manager.cpp
+===================================================================
+--- trunk/windstille/src/display/surface_manager.cpp	2009-08-30 20:34:37 UTC (rev 3141)
++++ trunk/windstille/src/display/surface_manager.cpp	2009-08-30 21:11:21 UTC (rev 3142)
+@@ -26,7 +26,7 @@
+ 
+ 
+ SurfaceManager::SurfaceManager()
+-  : texture_packer(new TexturePacker(Size(2048, 2048))),
++  : texture_packer(0), // (new TexturePacker(Size(2048, 2048))),
+     surfaces()
+ {
+ }
+@@ -51,42 +51,43 @@
+   Surfaces::iterator i = surfaces.find(filename);
+ 
+   if(i != surfaces.end())
+-    { // Surface in cache, return it
+-      return i-&gt;second;
+-    }
++  { // Surface in cache, return it
++    return i-&gt;second;
++  }
+   else
++  {
++    SoftwareSurface software_surface(filename);
++
++    if (texture_packer)
+     {
+-      SoftwareSurface image(filename);
++      Surface result = texture_packer-&gt;upload(software_surface);
++      surfaces.insert(std::make_pair(filename, result));
++      return result;              
++    }
++    else
++    {
++      float maxu = 0.0f;
++      float maxv = 0.0f;
++      Texture texture;
+ 
+-      if (1)
+-        {
+-          Surface result = texture_packer-&gt;upload(image);
+-          surfaces.insert(std::make_pair(filename, result));
+-          return result;              
+-        }
+-      else
+-        {
+-          float maxu, maxv;
+-          Texture texture;
+-
+-          try
+-            {
+-              texture = create_texture(image, maxu, maxv);
+-            }
+-          catch(std::exception&amp; e)
+-            {
+-              std::ostringstream msg;
+-              msg &lt;&lt; &quot;Couldn't create texture for '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot; &lt;&lt; e.what();
+-              throw std::runtime_error(msg.str());
+-            }
++      try
++      {
++        texture = create_texture(software_surface, &amp;maxu, &amp;maxv);
++      }
++      catch(std::exception&amp; e)
++      {
++        std::ostringstream msg;
++        msg &lt;&lt; &quot;Couldn't create texture for '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot; &lt;&lt; e.what();
++        throw std::runtime_error(msg.str());
++      }
+         
+-          Surface result(texture, Rectf(0.0f, 0.0f, maxu, maxv),
+-                         Sizef(static_cast&lt;float&gt;(image.get_width()),
+-                               static_cast&lt;float&gt;(image.get_height())));
+-          surfaces.insert(std::make_pair(filename, result));
+-          return result;
+-        }      
++      Surface result(texture, Rectf(0.0f, 0.0f, maxu, maxv),
++                     Sizef(static_cast&lt;float&gt;(software_surface.get_width()),
++                           static_cast&lt;float&gt;(software_surface.get_height())));
++      surfaces.insert(std::make_pair(filename, result));
++      return result;
+     }
++  }
+ }
+ 
+ void
+@@ -101,7 +102,7 @@
+ 
+   try
+     {                                                                       
+-      texture = create_texture(image, maxu, maxv);
++      texture = create_texture(image, &amp;maxu, &amp;maxv);
+     }
+   catch(std::exception&amp; e)
+     {
+@@ -129,10 +130,11 @@
+ 
+ Texture
+ SurfaceManager::create_texture(const SoftwareSurface&amp; image,
+-                               float&amp; maxu, float&amp; maxv)
++                               float* maxu, float* maxv)
+ {
+-  int texture_w = math::round_to_power_of_two(image.get_width());
+-  int texture_h = math::round_to_power_of_two(image.get_height());
++  // OpenGL2.0 should be fine with non-power-of-two
++  int texture_w = image.get_width();  //math::round_to_power_of_two(image.get_width());
++  int texture_h = image.get_height(); //math::round_to_power_of_two(image.get_height());
+ 
+   SoftwareSurface convert(texture_w, texture_h);
+ 
+@@ -140,8 +142,8 @@
+ 
+   Texture texture = Texture(convert);
+   
+-  maxu = static_cast&lt;float&gt;(image.get_width())/static_cast&lt;float&gt;(texture_w);
+-  maxv = static_cast&lt;float&gt;(image.get_height())/static_cast&lt;float&gt;(texture_h);
++  *maxu = static_cast&lt;float&gt;(image.get_width())  / static_cast&lt;float&gt;(texture_w);
++  *maxv = static_cast&lt;float&gt;(image.get_height()) / static_cast&lt;float&gt;(texture_h);
+ 
+   return texture;
+ }
+
+Modified: trunk/windstille/src/display/surface_manager.hpp
+===================================================================
+--- trunk/windstille/src/display/surface_manager.hpp	2009-08-30 20:34:37 UTC (rev 3141)
++++ trunk/windstille/src/display/surface_manager.hpp	2009-08-30 21:11:21 UTC (rev 3142)
+@@ -57,7 +57,7 @@
+                  std::vector&lt;Surface&gt;&amp; surfaces, int width, int height);
+ 
+   Texture create_texture(const SoftwareSurface&amp; image,
+-                         float&amp; maxu, float&amp; maxv);
++                         float* maxu, float* maxv);
+ 
+   /** Removes all cached Sprites that are no longer in use */
+   void cleanup();
+
+Modified: trunk/windstille/src/display/texture.cpp
+===================================================================
+--- trunk/windstille/src/display/texture.cpp	2009-08-30 20:34:37 UTC (rev 3141)
++++ trunk/windstille/src/display/texture.cpp	2009-08-30 21:11:21 UTC (rev 3142)
+@@ -96,8 +96,9 @@
+   impl-&gt;width  = image.get_width();
+   impl-&gt;height = image.get_height();
+ 
+-  if(!is_power_of_2(image.get_width()) || !is_power_of_2(image.get_height()))
+-    throw std::runtime_error(&quot;image has no power of 2 size&quot;);
++  // Should be ok with OpenGL2.0
++  //if(!is_power_of_2(image.get_width()) || !is_power_of_2(image.get_height()))
++  //throw std::runtime_error(&quot;image has no power of 2 size&quot;);
+ 
+   if (image.get_bits_per_pixel() != 24 &amp;&amp; image.get_bits_per_pixel() != 32)
+     throw std::runtime_error(&quot;image has not 24 or 32 bit color depth&quot;);
+@@ -138,24 +139,24 @@
+       glPixelStorei(GL_UNPACK_ROW_LENGTH, image.get_pitch() / image.get_bytes_per_pixel());
+ 
+       if (0)
+-        {
+-          glTexImage2D(impl-&gt;target, 0, glformat,
+-                       image.get_width(), image.get_height(), 0, sdl_format,
+-                       GL_UNSIGNED_BYTE, image.get_pixels());
+-
+-          glTexParameteri(impl-&gt;target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+-          glTexParameteri(impl-&gt;target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+-        }
++      { // no mipmapping
++        glTexImage2D(impl-&gt;target, 0, glformat,
++                     image.get_width(), image.get_height(), 0, sdl_format,
++                     GL_UNSIGNED_BYTE, image.get_pixels());
++        
++        glTexParameteri(impl-&gt;target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
++        glTexParameteri(impl-&gt;target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++      }
+       else
+-        {
+-          gluBuild2DMipmaps(impl-&gt;target, glformat,
+-                            image.get_width(), image.get_height(), sdl_format,
+-                            GL_UNSIGNED_BYTE, image.get_pixels());
++      { // use mipmapping
++        gluBuild2DMipmaps(impl-&gt;target, glformat,
++                          image.get_width(), image.get_height(), sdl_format,
++                          GL_UNSIGNED_BYTE, image.get_pixels());
++        
++        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
++        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++      }
+ 
+-          glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+-          glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+-        }
+-
+       assert_gl(&quot;creating texture&quot;);
+ 
+       glTexParameteri(impl-&gt;target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002138.html">[Windstille-commit] r3141 -	trunk/windstille/data/sectors/trainstation
+</A></li>
+	<LI>Next message: <A HREF="002140.html">[Windstille-commit] r3143 - trunk/windstille
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2139">[ date ]</a>
+              <a href="thread.html#2139">[ thread ]</a>
+              <a href="subject.html#2139">[ subject ]</a>
+              <a href="author.html#2139">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

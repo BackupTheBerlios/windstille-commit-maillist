@@ -1,0 +1,231 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2719 - in trunk/windstille: . src src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2719%20-%20in%20trunk/windstille%3A%20.%20src%20src/editor&In-Reply-To=%3C200903211414.n2LEEhCH000792%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001715.html">
+   <LINK REL="Next"  HREF="001717.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2719 - in trunk/windstille: . src src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2719%20-%20in%20trunk/windstille%3A%20.%20src%20src/editor&In-Reply-To=%3C200903211414.n2LEEhCH000792%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2719 - in trunk/windstille: . src src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Mar 21 15:14:43 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001715.html">[Windstille-commit] r2718 - in trunk/windstille: . src src/app	src/display src/editor src/screen
+</A></li>
+        <LI>Next message: <A HREF="001717.html">[Windstille-commit] r2720 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1716">[ date ]</a>
+              <a href="thread.html#1716">[ thread ]</a>
+              <a href="subject.html#1716">[ subject ]</a>
+              <a href="author.html#1716">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-21 15:14:42 +0100 (Sat, 21 Mar 2009)
+New Revision: 2719
+
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/src/SConscript
+   trunk/windstille/src/editor/main.cpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/editor/windstille_widget.hpp
+Log:
+a little bit of lib initialisation in the editor, mostly still non functional
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-03-21 03:48:28 UTC (rev 2718)
++++ trunk/windstille/TODO	2009-03-21 14:14:42 UTC (rev 2719)
+@@ -464,6 +464,9 @@
+ Editor
+ ======
+ 
++* use SceneContext in WindstilleWidget and setup Physfs,
++  SurfaceManager, TextureManager and everything else that is needed
++
+ * add a new layer to SceneContext that is used for UI elements, such
+   as control handles for scale or rotate, could maybe also used for
+   use-verbs and stuff. The new layer shall only translate objects, but
+
+Modified: trunk/windstille/src/SConscript
+===================================================================
+--- trunk/windstille/src/SConscript	2009-03-21 03:48:28 UTC (rev 2718)
++++ trunk/windstille/src/SConscript	2009-03-21 14:14:42 UTC (rev 2719)
+@@ -57,8 +57,8 @@
+         'math/vector2f.cpp',
+         ])
+ 
+-display_env = Environment(CPPPATH=['.'],
+-                          CXXFLAGS=['-Wall', '-Werror', '-O2', '-g'])
++display_env = conf_env.Clone()
++display_env['CPPPATH'] = ['.', '..']
+ display_env.ParseConfig('sdl-config --cflags --libs')
+ display_env.ParseConfig('freetype-config --libs --cflags')
+ 
+@@ -224,7 +224,7 @@
+ 
+ editor_env = Environment(CPPPATH=['.'],
+                          CXXFLAGS=['-Wall', '-Werror', '-O2', '-g'],
+-                         LIBS = [display_lib, physfs_lib, util_lib, math_lib, 'GL', 'GLEW', 'SDL_image', 'physfs'])
++                         LIBS = [display_lib, util_lib, physfs_lib, math_lib, 'GL', 'GLEW', 'SDL_image', 'physfs'])
+ 
+ editor_env.ParseConfig('pkg-config libpng --libs --cflags')
+ editor_env.ParseConfig('sdl-config --cflags --libs')
+
+Modified: trunk/windstille/src/editor/main.cpp
+===================================================================
+--- trunk/windstille/src/editor/main.cpp	2009-03-21 03:48:28 UTC (rev 2718)
++++ trunk/windstille/src/editor/main.cpp	2009-03-21 14:14:42 UTC (rev 2719)
+@@ -16,10 +16,14 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
++#include &lt;GL/glew.h&gt;
++#include &lt;GL/gl.h&gt;
+ #include &lt;iostream&gt;
+-#include &lt;gtkmm.h&gt;
++#include &lt;stdexcept&gt;
++#include &lt;sstream&gt;
++#include &lt;gtkmm/main.h&gt;
+ #include &lt;gtkglmm.h&gt;
+-#include &lt;gtkmm/gl/widget.h&gt;
++#include &lt;physfs.h&gt;
+ 
+ #include &quot;editor_window.hpp&quot;
+ #include &quot;main.hpp&quot;
+@@ -32,6 +36,15 @@
+       Gtk::Main kit(&amp;argc, &amp;argv);
+       Gtk::GL::init(&amp;argc, &amp;argv);
+ 
++            if (!PHYSFS_init(argv[0]))
++        {
++          std::ostringstream msg;
++          msg &lt;&lt; &quot;Couldn't initialize physfs: &quot; &lt;&lt; PHYSFS_getLastError();
++          throw std::runtime_error(msg.str());
++        }
++  
++      PHYSFS_addToSearchPath(&quot;data/&quot;, 0);
++
+       EditorWindow window;
+       
+       window.show_all();
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-03-21 03:48:28 UTC (rev 2718)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-03-21 14:14:42 UTC (rev 2719)
+@@ -22,7 +22,16 @@
+ 
+ #include &lt;gtkmm.h&gt;
+ 
++
++#include &quot;sprite2d/sprite.hpp&quot;
++#include &quot;display/texture_manager.hpp&quot;
++#include &quot;display/surface_manager.hpp&quot;
++#include &quot;display/opengl_state.hpp&quot;
++
++#include &quot;display/surface.hpp&quot;
+ #include &quot;windstille_widget.hpp&quot;
++
++bool lib_init = false;
+ 
+ WindstilleWidget::WindstilleWidget()
+ {
+@@ -87,12 +96,26 @@
+ void
+ WindstilleWidget::on_realize()
+ {
++  std::cout &lt;&lt; &quot;WindstilleWidget::on_realize()&quot; &lt;&lt; std::endl;
++
+   Gtk::DrawingArea::on_realize();
+ 
+   Glib::RefPtr&lt;Gdk::GL::Window&gt; glwindow = get_gl_window();
+ 
+   if (glwindow-&gt;gl_begin(get_gl_context()))
+     {
++      if (!lib_init)
++        {
++          lib_init = true;
++          OpenGLState::init();
++          //texture_manager  = new TextureManager();
++          //new SurfaceManager();
++          //sprite2d_manager = new SpriteManager();
++          //sc.reset(new SceneContext());
++        }
++
++      //Surface surface(&quot;images/hedgehog.png&quot;);
++      
+       glViewport(0, 0, get_width(), get_height());
+       glMatrixMode(GL_PROJECTION);
+       glLoadIdentity();
+@@ -135,6 +158,7 @@
+ bool
+ WindstilleWidget::on_expose_event(GdkEventExpose* event)
+ {
++  std::cout &lt;&lt; &quot;WindstilleWidget::on_expose()&quot; &lt;&lt; std::endl;
+   Glib::RefPtr&lt;Gdk::GL::Window&gt; glwindow = get_gl_window();
+ 
+   if (!glwindow-&gt;gl_begin(get_gl_context()))
+
+Modified: trunk/windstille/src/editor/windstille_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.hpp	2009-03-21 03:48:28 UTC (rev 2718)
++++ trunk/windstille/src/editor/windstille_widget.hpp	2009-03-21 14:14:42 UTC (rev 2719)
+@@ -19,6 +19,7 @@
+ #ifndef HEADER_WINDSTILLE_EDITOR_WINDSTILLE_WIDGET_HPP
+ #define HEADER_WINDSTILLE_EDITOR_WINDSTILLE_WIDGET_HPP
+ 
++#include &lt;memory&gt;
+ #include &lt;GL/glew.h&gt;
+ #include &lt;GL/gl.h&gt;
+ 
+@@ -39,7 +40,7 @@
+ {
+ private:
+   std::vector&lt;Vector2f&gt; objects;
+-    SceneContext sc;
++  std::auto_ptr&lt;SceneContext&gt; sc;
+   
+ public:
+   WindstilleWidget();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001715.html">[Windstille-commit] r2718 - in trunk/windstille: . src src/app	src/display src/editor src/screen
+</A></li>
+	<LI>Next message: <A HREF="001717.html">[Windstille-commit] r2720 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1716">[ date ]</a>
+              <a href="thread.html#1716">[ thread ]</a>
+              <a href="subject.html#1716">[ subject ]</a>
+              <a href="author.html#1716">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,579 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r562 - in trunk/src: . input sprite3d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r562%20-%20in%20trunk/src%3A%20.%20input%20sprite3d&In-Reply-To=%3C200507081428.j68ESJkP029913%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000215.html">
+   <LINK REL="Next"  HREF="000217.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r562 - in trunk/src: . input sprite3d</H1>
+    <B>Matthias Braun at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r562%20-%20in%20trunk/src%3A%20.%20input%20sprite3d&In-Reply-To=%3C200507081428.j68ESJkP029913%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r562 - in trunk/src: . input sprite3d">matzebraun at berlios.de
+       </A><BR>
+    <I>Fri Jul  8 16:28:19 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000215.html">[Windstille-commit] r561 - trunk/data/blender/yagor
+</A></li>
+        <LI>Next message: <A HREF="000217.html">[Windstille-commit] r563 - trunk/src/sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#216">[ date ]</a>
+              <a href="thread.html#216">[ thread ]</a>
+              <a href="subject.html#216">[ subject ]</a>
+              <a href="author.html#216">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: matzebraun
+Date: 2005-07-08 16:28:17 +0200 (Fri, 08 Jul 2005)
+New Revision: 562
+
+Modified:
+   trunk/src/collision_manager.cpp
+   trunk/src/globals.cpp
+   trunk/src/globals.hpp
+   trunk/src/input/input_manager_impl.cpp
+   trunk/src/player.cpp
+   trunk/src/screen.cpp
+   trunk/src/sprite3d/sprite3d.cpp
+   trunk/src/sprite3d/sprite3d.hpp
+   trunk/src/windstille_main.cpp
+   trunk/src/windstille_main.hpp
+Log:
+- New algorithm for sprite3d animations. Simpler, more robust and always smooth
+  now :)
+
+
+
+Modified: trunk/src/collision_manager.cpp
+===================================================================
+--- trunk/src/collision_manager.cpp	2005-07-08 13:10:57 UTC (rev 561)
++++ trunk/src/collision_manager.cpp	2005-07-08 14:28:17 UTC (rev 562)
+@@ -25,7 +25,7 @@
+ }
+ 
+ void
+-CollisionManager::update(float delta)
++CollisionManager::update(float )
+ {
+ }
+ 
+
+Modified: trunk/src/globals.cpp
+===================================================================
+--- trunk/src/globals.cpp	2005-07-08 13:10:57 UTC (rev 561)
++++ trunk/src/globals.cpp	2005-07-08 14:28:17 UTC (rev 562)
+@@ -27,7 +27,12 @@
+ int SUBTILE_NUM  = (TILE_SIZE/SUBTILE_SIZE);
+ 
+ float game_speed = 1.0f;
+-int debug = 1;
++#ifdef DEBUG
++bool debug = true;
++#else
++bool debug = false;
++#endif
++bool collision_debug = false;
+ bool sound_disabled = false;
+ GameMainState game_main_state;
+ 
+
+Modified: trunk/src/globals.hpp
+===================================================================
+--- trunk/src/globals.hpp	2005-07-08 13:10:57 UTC (rev 561)
++++ trunk/src/globals.hpp	2005-07-08 14:28:17 UTC (rev 562)
+@@ -38,7 +38,8 @@
+ extern float game_speed;
+ extern bool sound_disabled;
+ 
+-extern int debug;
++extern bool debug;
++extern bool collision_debug;
+ 
+ enum GameMainState { RUN_GAME, LOAD_MENU, LOAD_GAME_SESSION, QUIT_GAME };
+ extern GameMainState game_main_state;
+
+Modified: trunk/src/input/input_manager_impl.cpp
+===================================================================
+--- trunk/src/input/input_manager_impl.cpp	2005-07-08 13:10:57 UTC (rev 561)
++++ trunk/src/input/input_manager_impl.cpp	2005-07-08 14:28:17 UTC (rev 562)
+@@ -53,7 +53,7 @@
+ }
+ 
+ void
+-InputManagerImpl::add_keyboard_event(int name, KeyboardEvent::KeyType key_type, int code)
++InputManagerImpl::add_keyboard_event(int , KeyboardEvent::KeyType key_type, int code)
+ {
+   InputEvent event;
+   event.type = KEYBOARD_EVENT;
+
+Modified: trunk/src/player.cpp
+===================================================================
+--- trunk/src/player.cpp	2005-07-08 13:10:57 UTC (rev 561)
++++ trunk/src/player.cpp	2005-07-08 14:28:17 UTC (rev 562)
+@@ -238,11 +238,13 @@
+   }
+   
+   if(!controller.get_button_state(DOWN_BUTTON) &amp;&amp; sprite-&gt;get_speed() &gt; 0) {
++    printf(&quot;Changespeed1.\n&quot;);
+     sprite-&gt;set_speed(-1.0);
+     sprite-&gt;set_next_action(&quot;Stand&quot;);
+     sprite-&gt;set_next_speed(1.0);
+   } else if(controller.get_button_state(DOWN_BUTTON) 
+       &amp;&amp; sprite-&gt;get_speed() &lt; 0) {
++    printf(&quot;Changespeed2.\n&quot;);
+     sprite-&gt;set_speed(1.0);
+     sprite-&gt;set_next_action(&quot;Ducking&quot;);
+     sprite-&gt;set_next_speed(1.0);
+
+Modified: trunk/src/screen.cpp
+===================================================================
+--- trunk/src/screen.cpp	2005-07-08 13:10:57 UTC (rev 561)
++++ trunk/src/screen.cpp	2005-07-08 14:28:17 UTC (rev 562)
+@@ -22,6 +22,8 @@
+ #include &quot;windstille_main.hpp&quot;
+ #include &quot;screen.hpp&quot;
+ #include &quot;fonts.hpp&quot;
++#include &quot;globals.hpp&quot;
++#include &quot;console.hpp&quot;
+ #include &quot;gameconfig.hpp&quot;
+ #include &quot;sound/sound_manager.hpp&quot;
+ 
+@@ -97,6 +99,13 @@
+ Screen::key_down(const CL_InputEvent&amp; event)
+ {
+   switch (event.id) {
++    case CL_KEY_C:
++      if(debug) {
++        collision_debug = !collision_debug;
++        Console::current()-&gt;add(std::string(&quot;Collision Debugging &quot;)
++            + (collision_debug ? &quot;enabled&quot; : &quot;disabled&quot;));
++      }
++      break;
+     case CL_KEY_F10:
+       config-&gt;show_fps = ! (config-&gt;show_fps);
+       break;
+
+Modified: trunk/src/sprite3d/sprite3d.cpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d.cpp	2005-07-08 13:10:57 UTC (rev 561)
++++ trunk/src/sprite3d/sprite3d.cpp	2005-07-08 14:28:17 UTC (rev 562)
+@@ -34,16 +34,14 @@
+ #include &quot;timer.hpp&quot;
+ 
+ Sprite3D::Sprite3D(const Sprite3DData* data)
+-  : data(data), rot(false), actions_switched(false), next_action(0), next_rot(0)
++  : data(data), rot(false), actions_switched(false),
++    next_action(0), next_rot(0), next_speed(1.0)
+ {
+   current_action = &amp;data-&gt;actions[0];
+   last_frame = current_action-&gt;frame_count - 1;
+-  animation_time = 0;
++  reverse = false;
+   speed = 1.0;
+-  update(0);
+-  
+-  frame1 = &amp;current_action-&gt;frames[0];
+-  frame2 = &amp;current_action-&gt;frames[1];
++  update(0);  
+ }
+ 
+ Sprite3D::~Sprite3D()
+@@ -54,8 +52,8 @@
+ Sprite3D::set_action(const std::string&amp; actionname)
+ {
+   current_action = &amp; data-&gt;get_action(actionname);
+-  animation_time = 0;
+   last_frame = current_action-&gt;frame_count - 1;
++  next_action = 0;
+ }
+ 
+ const std::string&amp;
+@@ -95,11 +93,8 @@
+ bool
+ Sprite3D::after_marker(const std::string&amp; name) const
+ {
+-  const Marker&amp; marker = data-&gt;get_marker(current_action, name);
+-  
+-  int frame = static_cast&lt;int&gt;(animation_time) % current_action-&gt;frame_count;
+-  
+-  return frame &gt;= marker.frame;
++  const Marker&amp; marker = data-&gt;get_marker(current_action, name);  
++  return current_frame &gt;= marker.frame;
+ }
+ 
+ bool
+@@ -116,27 +111,35 @@
+ void
+ Sprite3D::set_speed(float speed)
+ {
+-  if(this-&gt;speed &gt; 0 &amp;&amp; speed &lt; 0) {
+-    this-&gt;last_frame = 0;
+-    if(animation_time &gt;= current_action-&gt;frame_count - 1)
+-      animation_time = current_action-&gt;frame_count - 1.0001;
+-  } else if(this-&gt;speed &lt; 0 &amp;&amp; speed &gt; 0) {
+-    this-&gt;last_frame = current_action-&gt;frame_count - 1;
+-    if(animation_time &gt;= current_action-&gt;frame_count - 1)
+-      animation_time = current_action-&gt;frame_count - 1.0001;
++  if(this-&gt;speed &gt; 0 &amp;&amp; speed &lt; 0
++      || this-&gt;speed &lt; 0 &amp;&amp; speed &gt; 0) {
++    if(speed &gt;= 0) {
++      current_frame = (current_frame + 1) &amp; current_action-&gt;frame_count;
++      this-&gt;last_frame = 0;
++    } else {
++      current_frame = (current_frame + current_action-&gt;frame_count - 1)
++        % current_action-&gt;frame_count;
++      this-&gt;last_frame = current_action-&gt;frame_count - 1;
++    }
++    blend_time = 1.0 - blend_time;
++    std::swap(frame1, frame2);
+   }
+-  if(speed &lt; 0 &amp;&amp; animation_time == 0) {
+-    // don't produce an action switch right away when starting backwards
+-    animation_time = current_action-&gt;frame_count - 1.0001;
++  if(speed &gt;= 0) {
++    reverse = false;
++  } else {
++    speed = -speed;
++    reverse = true;
+   }
+-
+   this-&gt;speed = speed;
+ }
+ 
+ float
+ Sprite3D::get_speed() const
+ {
+-  return speed;
++  if(reverse)
++    return -speed;
++  else
++    return speed;
+ }
+ 
+ void
+@@ -164,93 +167,58 @@
+ };
+ 
+ void
+-Sprite3D::update(float elapsed_time)
++Sprite3D::set_next_frame()
+ {
+-  float animation_time_delta = elapsed_time * current_action-&gt;speed * speed;
++  if(current_frame == last_frame &amp;&amp; next_action != 0) {
++    current_action = next_action;
++    speed = next_speed;
++    if(speed &lt; 0) {
++      speed = -speed;
++      reverse = true;
++    } else {
++      reverse = false;
++    }
++    rot = next_rot;
++    next_action = 0;
++    actions_switched = true;
+ 
+-  if(speed &gt;= 0) {
+-    int frame = static_cast&lt;int&gt;(animation_time);
+-    frame1 = &amp;current_action-&gt;frames[frame];
+-    blend_time = fmodf(animation_time, 1.0);
+-    assert(frame &gt;= 0);
+-    assert(frame &lt; current_action-&gt;frame_count);
+-
+-    // last frame
+-    if(frame &gt;= last_frame) {
+-      if(next_action != 0) {
+-        if(next_speed &gt; 0) {
+-          frame2 = &amp;next_action-&gt;frames[0];
+-        } else {
+-          frame2 = &amp;next_action-&gt;frames[next_action-&gt;frame_count - 1];
+-        }
+-
+-        // time to switch actions?
+-        if(blend_time + animation_time_delta &gt;= 1.0) {
+-          switch_next_action();
+-          animation_time = blend_time + animation_time_delta - 1.0;
+-        }
+-      } else {
+-        frame2 = &amp;current_action-&gt;frames[0];
+-        if(blend_time + animation_time &gt;= 1.0) {
+-          animation_time -= current_action-&gt;frame_count;
+-        }
+-      }
++    if(reverse) {
++      current_frame = current_action-&gt;frame_count - 1;
++      last_frame = 0;                                      
+     } else {
+-      assert(frame + 1 &lt; current_action-&gt;frame_count);
+-      frame2 = &amp;current_action-&gt;frames[frame + 1];
++      current_frame = 0;
++      last_frame = current_action-&gt;frame_count - 1;      
+     }
+   } else {
+-    int frame 
+-      = (static_cast&lt;int&gt;(animation_time) + 1) % current_action-&gt;frame_count;
+-    frame1 = &amp;current_action-&gt;frames[frame];
+-    blend_time = 1.0 - fmodf(animation_time, 1.0);
+-    assert(frame &gt;= 0);
+-    assert(frame &lt; current_action-&gt;frame_count);
+-
+-    // last frame
+-    if(frame &lt;= last_frame) {
+-      if(next_action != 0) {
+-        if(next_speed &gt; 0) {
+-          frame2 = &amp;next_action-&gt;frames[0];
+-        } else {
+-          frame2 = &amp;next_action-&gt;frames[next_action-&gt;frame_count - 1];
+-        }
+-
+-        // time to switch actions?
+-        if(blend_time - animation_time_delta &gt;= 1.0) {
+-          switch_next_action();
+-          animation_time = static_cast&lt;float&gt;(current_action-&gt;frame_count) 
+-            - (blend_time - animation_time_delta - 1.0);
+-        }
+-      } else {
+-        frame2 = &amp;current_action-&gt;frames[current_action-&gt;frame_count - 1];
+-      }
++    if(reverse) {
++      current_frame = (current_frame + current_action-&gt;frame_count - 1) 
++        % current_action-&gt;frame_count;                                         
+     } else {
+-      int fr2 = (frame + current_action-&gt;frame_count - 1) 
+-        % current_action-&gt;frame_count;
+-      frame2 = &amp;current_action-&gt;frames[fr2];
+-      if(animation_time + animation_time_delta &lt;= 0.0) {
+-        animation_time += current_action-&gt;frame_count;
+-      }                                                     
++      current_frame = (current_frame + 1) % current_action-&gt;frame_count;
+     }
+   }
+ 
+-  animation_time += animation_time_delta;
++  assert(current_frame &gt;= 0);
++  assert(current_frame &lt; current_action-&gt;frame_count);
++  frame2.frame = &amp;current_action-&gt;frames[current_frame];
++  frame2.speed = speed;
++  frame2.rot = rot;
+ }
+ 
+ void
+-Sprite3D::switch_next_action()
++Sprite3D::update(float elapsed_time)
+ {
+-  current_action = next_action;
+-  speed = next_speed;
+-  rot = next_rot;
+-  next_action = 0;
+-  actions_switched = true;
++  float time_delta = elapsed_time * current_action-&gt;speed * speed;
+ 
+-  if(speed &gt;= 0)
+-    last_frame = current_action-&gt;frame_count - 1;
+-  else
+-    last_frame = 0;
++  while(blend_time + time_delta &gt;= 1.0) {
++    frame1 = frame2;
++    elapsed_time -= (1.0 - blend_time) / (current_action-&gt;speed * speed);
++    set_next_frame();
++
++    time_delta = elapsed_time * current_action-&gt;speed * speed;
++    blend_time = 0.0;
++  }
++  blend_time += time_delta;
+ }
+ 
+ void
+@@ -271,7 +239,7 @@
+   glPushMatrix();
+   glMultMatrixd(modelview);
+   glTranslatef(pos.x, pos.y, pos.z);
+-  if(rot) {
++  if(frame1.rot) {
+     glRotatef(180, 0, 1.0, 0);
+   }                           
+ 
+@@ -287,14 +255,30 @@
+   float t_1 = 1.0 - blend_time;
+   for(uint16_t m = 0; m &lt; data-&gt;mesh_count; ++m) {
+     const Mesh&amp; mesh = data-&gt;meshs[m];
+-    const MeshVertices&amp; vertices1 = frame1-&gt;meshs[m];
+-    const MeshVertices&amp; vertices2 = frame2-&gt;meshs[m];
++    const MeshVertices&amp; vertices1 = frame1.frame-&gt;meshs[m];
++    const MeshVertices&amp; vertices2 = frame2.frame-&gt;meshs[m];
+     
+     // blend between frame1 + frame2
+     float* verts = new float[mesh.vertex_count * 3];
+-    for(uint16_t v = 0; v &lt; mesh.vertex_count*3; ++v) {
+-      verts[v] 
+-        = vertices1.vertices[v] * t_1 + vertices2.vertices[v] * blend_time;
++    if(frame1.rot == frame2.rot) {
++      for(uint16_t v = 0; v &lt; mesh.vertex_count*3; ++v) {
++        verts[v] 
++          = vertices1.vertices[v] * t_1 + vertices2.vertices[v] * blend_time;
++      }
++    } else {
++      // need to manually rotate 180 degree here because frames have different
++      // rot values (=&gt; x=-x, y=y, z=-z)
++      for(uint16_t v = 0; v &lt; mesh.vertex_count; ++v) {
++        verts[v*3] 
++          = vertices1.vertices[v*3] * t_1 
++              - vertices2.vertices[v*3] * blend_time;
++        verts[v*3+1]
++          = vertices1.vertices[v*3+1] * t_1 
++              + vertices2.vertices[v*3+1] * blend_time;
++        verts[v*3+2]
++          = vertices1.vertices[v*3+2] * t_1
++              - vertices2.vertices[v*3+2] * blend_time;
++      }
+     }
+    
+     // draw mesh
+
+Modified: trunk/src/sprite3d/sprite3d.hpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d.hpp	2005-07-08 13:10:57 UTC (rev 561)
++++ trunk/src/sprite3d/sprite3d.hpp	2005-07-08 14:28:17 UTC (rev 562)
+@@ -104,19 +104,26 @@
+   Sprite3D (const Sprite3D&amp;);
+   Sprite3D&amp; operator= (const Sprite3D&amp;);
+ 
+-  void switch_next_action();
++  struct Frame {
++    const ActionFrame* frame;
++    float speed;
++    bool rot;
++  };
++
++  void set_next_frame();
+   void draw(CL_GraphicContext* gc, const Vector&amp; pos, const Matrix&amp; modelview);
+ 
+   const Sprite3DData* data;
+   const Action* current_action;
+-  float animation_time;
+-  float speed; 
++  int current_frame;
++  float speed;
++  bool reverse;
+   bool rot;
+   int last_frame;
+-  bool actions_switched;  
++  bool actions_switched;
+ 
+-  const ActionFrame* frame1;
+-  const ActionFrame* frame2;
++  Frame frame1;
++  Frame frame2;
+   float blend_time;
+   
+   const Action* next_action;
+
+Modified: trunk/src/windstille_main.cpp
+===================================================================
+--- trunk/src/windstille_main.cpp	2005-07-08 13:10:57 UTC (rev 561)
++++ trunk/src/windstille_main.cpp	2005-07-08 14:28:17 UTC (rev 562)
+@@ -45,7 +45,7 @@
+ CL_ResourceManager* resources;
+ 
+ WindstilleMain::WindstilleMain()
+-  : the_game(0)
++  : screen(0)
+ {
+   game_main_state = LOAD_MENU;
+ }
+@@ -207,7 +207,8 @@
+       {
+         std::string leveldir = dirname(levelfile);
+         PHYSFS_addToSearchPath(leveldir.c_str(), true);
+-        the_game = new GameSession(basename(levelfile));
++        delete screen;
++        screen = new GameSession(basename(levelfile));
+         game_main_state = RUN_GAME;
+       }
+       
+@@ -408,28 +409,25 @@
+   switch (game_main_state)
+     {
+     case RUN_GAME:
+-      the_game-&gt;display();
++      screen-&gt;display();
+       break;
+ 
+     case LOAD_MENU:
+-      if (the_game)
+-        delete the_game;
+-      the_game = new WindstilleMenu();
++      delete screen;
++      screen = new WindstilleMenu();
+       game_main_state = RUN_GAME;
+       break;
+ 
+     case LOAD_GAME_SESSION:
+-      if (the_game)
+-        delete the_game;
+-      the_game = new GameSession(&quot;levels/newformat2.wst&quot;);
++      delete screen;
++      screen = new GameSession(&quot;levels/newformat2.wst&quot;);
+       game_main_state = RUN_GAME;
+       break;
+ 
+     case QUIT_GAME:
+-      if (the_game)
+-        delete the_game;
++      delete screen;
++      screen = 0;
+       return false;
+-      break;
+     }
+   
+   return true;
+
+Modified: trunk/src/windstille_main.hpp
+===================================================================
+--- trunk/src/windstille_main.hpp	2005-07-08 13:10:57 UTC (rev 561)
++++ trunk/src/windstille_main.hpp	2005-07-08 14:28:17 UTC (rev 562)
+@@ -49,7 +49,7 @@
+   void deinit_modules();
+   bool game_main();
+ 
+-  Windstille::Screen* the_game;
++  Windstille::Screen* screen;
+ };
+ 
+ extern WindstilleMain main_app;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000215.html">[Windstille-commit] r561 - trunk/data/blender/yagor
+</A></li>
+	<LI>Next message: <A HREF="000217.html">[Windstille-commit] r563 - trunk/src/sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#216">[ date ]</a>
+              <a href="thread.html#216">[ thread ]</a>
+              <a href="subject.html#216">[ subject ]</a>
+              <a href="author.html#216">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

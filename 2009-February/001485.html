@@ -1,0 +1,571 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2488 - in trunk/windstille/src: app collision	engine hud math objects screen sprite3d util
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-February/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2488%20-%20in%20trunk/windstille/src%3A%20app%20collision%0A%09engine%20hud%20math%20objects%20screen%20sprite3d%20util&In-Reply-To=%3C200902122158.n1CLwbL2000677%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001484.html">
+   <LINK REL="Next"  HREF="001486.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2488 - in trunk/windstille/src: app collision	engine hud math objects screen sprite3d util</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2488%20-%20in%20trunk/windstille/src%3A%20app%20collision%0A%09engine%20hud%20math%20objects%20screen%20sprite3d%20util&In-Reply-To=%3C200902122158.n1CLwbL2000677%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2488 - in trunk/windstille/src: app collision	engine hud math objects screen sprite3d util">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Feb 12 22:58:37 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001484.html">[Windstille-commit] r2487 - trunk/windstille/src/app
+</A></li>
+        <LI>Next message: <A HREF="001486.html">[Windstille-commit] r2489 - trunk/windstille/src/screen
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1485">[ date ]</a>
+              <a href="thread.html#1485">[ thread ]</a>
+              <a href="subject.html#1485">[ subject ]</a>
+              <a href="author.html#1485">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-02-12 22:58:35 +0100 (Thu, 12 Feb 2009)
+New Revision: 2488
+
+Modified:
+   trunk/windstille/src/app/console.cpp
+   trunk/windstille/src/app/console.hpp
+   trunk/windstille/src/collision/collision_engine.cpp
+   trunk/windstille/src/collision/collision_engine.hpp
+   trunk/windstille/src/engine/entity.hpp
+   trunk/windstille/src/engine/sector.cpp
+   trunk/windstille/src/engine/sector.hpp
+   trunk/windstille/src/hud/controller_help_window.cpp
+   trunk/windstille/src/hud/controller_help_window.hpp
+   trunk/windstille/src/hud/conversation.cpp
+   trunk/windstille/src/math/size.hpp
+   trunk/windstille/src/objects/player.cpp
+   trunk/windstille/src/objects/player.hpp
+   trunk/windstille/src/screen/game_session.cpp
+   trunk/windstille/src/screen/game_session.hpp
+   trunk/windstille/src/screen/particle_viewer.cpp
+   trunk/windstille/src/screen/particle_viewer.hpp
+   trunk/windstille/src/sprite3d/sprite3d.cpp
+   trunk/windstille/src/util/sexpr_file_reader.cpp
+Log:
+Some more auto_ptr's and memleak fixes, also made -Wall a little happier
+
+Modified: trunk/windstille/src/app/console.cpp
+===================================================================
+--- trunk/windstille/src/app/console.cpp	2009-02-12 21:12:47 UTC (rev 2487)
++++ trunk/windstille/src/app/console.cpp	2009-02-12 21:58:35 UTC (rev 2488)
+@@ -528,6 +528,10 @@
+ {
+ }
+ 
++Console::~Console()
++{
++}
++
+ void
+ Console::activate()
+ {
+
+Modified: trunk/windstille/src/app/console.hpp
+===================================================================
+--- trunk/windstille/src/app/console.hpp	2009-02-12 21:12:47 UTC (rev 2487)
++++ trunk/windstille/src/app/console.hpp	2009-02-12 21:58:35 UTC (rev 2488)
+@@ -19,6 +19,7 @@
+ #ifndef HEADER_WINDSTILLE_CONSOLE_HPP
+ #define HEADER_WINDSTILLE_CONSOLE_HPP
+ 
++#include &lt;memory&gt;
+ #include &lt;vector&gt;
+ #include &lt;sstream&gt;
+ 
+@@ -28,6 +29,7 @@
+ {
+ public:
+   Console();
++  ~Console();
+ 
+   void draw();
+   void update(float delta);
+@@ -42,11 +44,12 @@
+   
+   /** execute the given string */
+   void execute(const std::string&amp; str);
++
+ private:
+   Console (const Console&amp;);
+   Console&amp; operator= (const Console&amp;);
+ 
+-  ConsoleImpl* impl;
++  std::auto_ptr&lt;ConsoleImpl&gt; impl;
+ };
+ 
+ extern Console console;
+
+Modified: trunk/windstille/src/collision/collision_engine.cpp
+===================================================================
+--- trunk/windstille/src/collision/collision_engine.cpp	2009-02-12 21:12:47 UTC (rev 2487)
++++ trunk/windstille/src/collision/collision_engine.cpp	2009-02-12 21:58:35 UTC (rev 2488)
+@@ -35,6 +35,9 @@
+ 
+ CollisionEngine::~CollisionEngine()
+ {
++  for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
++      delete *i;
++  objects.clear();
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/collision/collision_engine.hpp
+===================================================================
+--- trunk/windstille/src/collision/collision_engine.hpp	2009-02-12 21:12:47 UTC (rev 2487)
++++ trunk/windstille/src/collision/collision_engine.hpp	2009-02-12 21:58:35 UTC (rev 2488)
+@@ -47,6 +47,7 @@
+       position were the ray collides with the tilemap FIXME: Should be
+       extended to handle objects as well */
+   Vector2f raycast(const Vector2f&amp; pos, float angle);
++
+ private:
+   void unstuck(CollisionObject&amp; a, CollisionObject&amp; b, float delta);
+   CollisionData collide(CollisionObject&amp; a, CollisionObject&amp; b, float delta);
+
+Modified: trunk/windstille/src/engine/entity.hpp
+===================================================================
+--- trunk/windstille/src/engine/entity.hpp	2009-02-12 21:12:47 UTC (rev 2487)
++++ trunk/windstille/src/engine/entity.hpp	2009-02-12 21:58:35 UTC (rev 2488)
+@@ -42,6 +42,7 @@
+   std::string use_verb;
+   
+   Entity* parent;
++
+ public:
+   Entity();
+   virtual ~Entity();
+
+Modified: trunk/windstille/src/engine/sector.cpp
+===================================================================
+--- trunk/windstille/src/engine/sector.cpp	2009-02-12 21:12:47 UTC (rev 2487)
++++ trunk/windstille/src/engine/sector.cpp	2009-02-12 21:58:35 UTC (rev 2488)
+@@ -66,8 +66,8 @@
+       &quot;}&quot;, &quot;&quot;);
+   
+   if (debug) std::cout &lt;&lt; &quot;Creating new Sector&quot; &lt;&lt; std::endl;
+-  collision_engine = new CollisionEngine();
+-  navigation_graph = new NavigationGraph();
++  collision_engine = std::auto_ptr&lt;CollisionEngine&gt;(new CollisionEngine());
++  navigation_graph = std::auto_ptr&lt;NavigationGraph&gt;(new NavigationGraph());
+ 
+   current_ = this;
+   interactive_tilemap = 0;
+@@ -94,9 +94,6 @@
+     (*i)-&gt;unref();
+   for(Objects::iterator i = new_objects.begin(); i != new_objects.end(); ++i)
+     (*i)-&gt;unref();
+-
+-  delete navigation_graph;
+-  delete collision_engine;
+ }
+ 
+ void
+@@ -140,12 +137,14 @@
+ Sector::add_object(FileReader&amp; reader)
+ {
+   if(reader.get_name() == &quot;tilemap&quot;) {
+-    TileMap* tilemap = new TileMap(reader);
+-    add(tilemap);
++    std::auto_ptr&lt;TileMap&gt; tilemap(new TileMap(reader));
++
+     if (tilemap-&gt;get_name() == &quot;interactive&quot;)
+-      interactive_tilemap = tilemap;
++      interactive_tilemap = tilemap.get();
+     else if (tilemap-&gt;get_name() == &quot;interactivebackground&quot;)
+-      interactivebackground_tilemap = tilemap;
++      interactivebackground_tilemap = tilemap.get();
++
++    add(tilemap.release());
+   } else if(reader.get_name() == &quot;background&quot;) {
+     // TODO
+   } else if (reader.get_name() == &quot;background-gradient&quot;) {
+@@ -278,7 +277,7 @@
+ 
+   // remove object from table
+   sq_pushstring(v, object-&gt;get_name().c_str(), object-&gt;get_name().size());
+-  if(SQ_FAILED(sq_deleteslot(v, -2, SQFalse) &lt; 0)) {
++  if(SQ_FAILED(sq_deleteslot(v, -2, SQFalse))) {
+     std::ostringstream msg;
+     msg &lt;&lt; &quot;Couldn't remove squirrel object for '&quot; &lt;&lt; object-&gt;get_name()
+         &lt;&lt; &quot;'&quot;;
+
+Modified: trunk/windstille/src/engine/sector.hpp
+===================================================================
+--- trunk/windstille/src/engine/sector.hpp	2009-02-12 21:12:47 UTC (rev 2487)
++++ trunk/windstille/src/engine/sector.hpp	2009-02-12 21:58:35 UTC (rev 2488)
+@@ -19,6 +19,7 @@
+ #ifndef HEADER_WINDSTILLE_SECTOR_HPP
+ #define HEADER_WINDSTILLE_SECTOR_HPP
+ 
++#include &lt;memory&gt;
+ #include &lt;string&gt;
+ #include &lt;vector&gt;
+ #include &quot;display/color.hpp&quot;
+@@ -59,8 +60,8 @@
+   TileMap* interactive_tilemap;
+   TileMap* interactivebackground_tilemap;
+ 
+-  CollisionEngine* collision_engine;
+-  NavigationGraph* navigation_graph;
++  std::auto_ptr&lt;CollisionEngine&gt; collision_engine;
++  std::auto_ptr&lt;NavigationGraph&gt; navigation_graph;
+ 
+   Player* player;
+ 
+@@ -99,7 +100,7 @@
+   void add(GameObject*);
+   void add_object(FileReader&amp; reader);
+ 
+-  CollisionEngine* get_collision_engine() const { return collision_engine; }
++  CollisionEngine* get_collision_engine() const { return collision_engine.get(); }
+ 
+   GameObject* get_object(const std::string&amp; name) const;
+ 
+
+Modified: trunk/windstille/src/hud/controller_help_window.cpp
+===================================================================
+--- trunk/windstille/src/hud/controller_help_window.cpp	2009-02-12 21:12:47 UTC (rev 2487)
++++ trunk/windstille/src/hud/controller_help_window.cpp	2009-02-12 21:58:35 UTC (rev 2488)
+@@ -16,6 +16,7 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
++#include &lt;memory&gt;
+ #include &quot;input/input_manager.hpp&quot;
+ #include &quot;display/display.hpp&quot;
+ #include &quot;display/text_area.hpp&quot;
+@@ -27,7 +28,7 @@
+ class ControllerHelpWindowImpl
+ {
+ public:
+-  TextArea* text_area;
++  std::auto_ptr&lt;TextArea&gt; text_area;
+   bool active;
+ };
+ 
+@@ -39,9 +40,9 @@
+   int height = 120;
+   
+   impl-&gt;active = false;
+-  impl-&gt;text_area = new TextArea(Rect(Point(Display::get_width() - width - 16,
+-                                            Display::get_height() - height - 16),
+-                                      Size(width, height)), false);
++  impl-&gt;text_area = std::auto_ptr&lt;TextArea&gt;(new TextArea(Rect(Point(Display::get_width() - width - 16,
++                                                                    Display::get_height() - height - 16),
++                                                              Size(width, height)), false));
+   impl-&gt;text_area-&gt;set_font(Fonts::ttffont);
+   impl-&gt;text_area-&gt;set_text(&quot;Control Help\n&quot;
+                             &quot;------------\n&quot;
+
+Modified: trunk/windstille/src/hud/controller_help_window.hpp
+===================================================================
+--- trunk/windstille/src/hud/controller_help_window.hpp	2009-02-12 21:12:47 UTC (rev 2487)
++++ trunk/windstille/src/hud/controller_help_window.hpp	2009-02-12 21:58:35 UTC (rev 2488)
+@@ -28,7 +28,7 @@
+ class ControllerHelpWindow : public Screen
+ {
+ public:
+-  ControllerHelpWindow();
++  ControllerHelpWindow(); 
+ 
+   void draw();
+   void update(float delta, const Controller&amp; controller);
+
+Modified: trunk/windstille/src/hud/conversation.cpp
+===================================================================
+--- trunk/windstille/src/hud/conversation.cpp	2009-02-12 21:12:47 UTC (rev 2487)
++++ trunk/windstille/src/hud/conversation.cpp	2009-02-12 21:58:35 UTC (rev 2488)
+@@ -70,7 +70,7 @@
+ 
+   float segment = 360.0f / choices.size();
+ 
+-  for(int i = 0; i &lt; choices.size(); ++i)
++  for(int i = 0; i &lt; (int)choices.size(); ++i)
+     { // FIXME:
+       Vector2f offset(0.0f, 1.0f);
+       offset = offset.rotate(math::deg2rad(segment*i) - M_PI/2);
+
+Modified: trunk/windstille/src/math/size.hpp
+===================================================================
+--- trunk/windstille/src/math/size.hpp	2009-02-12 21:12:47 UTC (rev 2487)
++++ trunk/windstille/src/math/size.hpp	2009-02-12 21:58:35 UTC (rev 2488)
+@@ -50,7 +50,8 @@
+ 	//param width: Initial width of size structure.
+ 	//param height: Initial height of size structure.
+ 	//param size: Size structure to construct this one from.
+-	Size() { return; }
++	Size() 
++        : width(0), height(0) { }
+ 
+ 	Size(int width, int height)
+ 	: width(width), height(height) { }
+
+Modified: trunk/windstille/src/objects/player.cpp
+===================================================================
+--- trunk/windstille/src/objects/player.cpp	2009-02-12 21:12:47 UTC (rev 2487)
++++ trunk/windstille/src/objects/player.cpp	2009-02-12 21:58:35 UTC (rev 2488)
+@@ -51,7 +51,6 @@
+   flashlighthighlight(&quot;images/flashlighthighlight.sprite&quot;),
+   state(STAND)
+ {
+-  //laser_pointer = new LaserPointer();
+   sprite = Sprite3D(&quot;models/characters/jane/jane.wsprite&quot;);
+   pos.x = 320;
+   pos.y = 200;
+@@ -77,13 +76,12 @@
+   z_pos = 100.0f;
+ 
+   contact = 0;
+-  weapon = new Pistol();
+-  laser_pointer = ((Pistol*) weapon)-&gt;laser_pointer;
++  weapon = std::auto_ptr&lt;Weapon&gt;(new Pistol());
++  laser_pointer = ((Pistol*)weapon.get())-&gt;laser_pointer;
+ }
+ 
+ Player::~Player()
+ {
+-  //delete laser_pointer;
+ }
+ 
+ void
+@@ -246,8 +244,8 @@
+         Point p(int(pos.x)/32, (int(pos.y)/32 + 1));
+         unsigned int col = tilemap-&gt;get_pixel(p.x, p.y);
+ 
+-        if ((col &amp; TILE_STAIRS) &amp;&amp; (get_direction() == WEST &amp;&amp; (col &amp; TILE_LEFT) ||
+-                                    get_direction() == EAST &amp;&amp; (col &amp; TILE_RIGHT)))
++        if ((col &amp; TILE_STAIRS) &amp;&amp; ((get_direction() == WEST &amp;&amp; (col &amp; TILE_LEFT)) ||
++                                    (get_direction() == EAST &amp;&amp; (col &amp; TILE_RIGHT))))
+           {
+             delete contact;
+             contact = new StairContact(tilemap, p);
+@@ -272,8 +270,8 @@
+         Point p(int(pos.x)/32 + ((get_direction() == WEST) ? -1 : +1), (int(pos.y)/32));
+         unsigned int col = tilemap-&gt;get_pixel(p.x, p.y);
+ 
+-        if ((col &amp; TILE_STAIRS) &amp;&amp; (get_direction() == EAST &amp;&amp; (col &amp; TILE_LEFT) ||
+-                                    get_direction() == WEST &amp;&amp; (col &amp; TILE_RIGHT)))
++        if ((col &amp; TILE_STAIRS) &amp;&amp; ((get_direction() == EAST &amp;&amp; (col &amp; TILE_LEFT)) ||
++                                    (get_direction() == WEST &amp;&amp; (col &amp; TILE_RIGHT))))
+           {
+             delete contact;
+             contact = new StairContact(tilemap, p);
+@@ -405,8 +403,8 @@
+     return;
+   }
+ 
+-  if(get_direction() == WEST &amp;&amp; controller.get_axis_state(X_AXIS) &gt; 0.5f
+-     || get_direction() == EAST &amp;&amp; controller.get_axis_state(X_AXIS) &lt; -0.5f) {
++  if ((get_direction() == WEST &amp;&amp; controller.get_axis_state(X_AXIS) &gt; 0.5f) ||
++      (get_direction() == EAST &amp;&amp; controller.get_axis_state(X_AXIS) &lt; -0.5f)) {
+     leave_walk();
+     set_turnaround();
+     return;
+@@ -494,8 +492,8 @@
+       set_walk(WEST);
+     }
+   } 
+-  if(sprite.get_rot() &amp;&amp; controller.get_axis_state(X_AXIS) &gt; 0.5f
+-     || !sprite.get_rot() &amp;&amp; controller.get_axis_state(X_AXIS) &lt; -0.5f) {
++  if((sprite.get_rot() &amp;&amp; controller.get_axis_state(X_AXIS) &gt; 0.5f) ||
++     (!sprite.get_rot() &amp;&amp; controller.get_axis_state(X_AXIS) &lt; -0.5f)) {
+     sprite.set_speed(-1.0);
+     sprite.set_next_action(&quot;Walk&quot;);
+     state = WALK;
+
+Modified: trunk/windstille/src/objects/player.hpp
+===================================================================
+--- trunk/windstille/src/objects/player.hpp	2009-02-12 21:12:47 UTC (rev 2487)
++++ trunk/windstille/src/objects/player.hpp	2009-02-12 21:58:35 UTC (rev 2488)
+@@ -55,7 +55,7 @@
+ 
+   LaserPointer* laser_pointer;
+   Contact* contact;
+-  Weapon* weapon;
++  std::auto_ptr&lt;Weapon&gt; weapon;
+ 
+ public:
+   enum State
+
+Modified: trunk/windstille/src/screen/game_session.cpp
+===================================================================
+--- trunk/windstille/src/screen/game_session.cpp	2009-02-12 21:12:47 UTC (rev 2487)
++++ trunk/windstille/src/screen/game_session.cpp	2009-02-12 21:58:35 UTC (rev 2488)
+@@ -65,7 +65,7 @@
+ 
+   float fadeout_value;
+   float fade_time;
+-  Sector* sector;
++  std::auto_ptr&lt;Sector&gt; sector;
+   View    view;
+ 
+   std::string filename;
+@@ -98,7 +98,6 @@
+   Screen* current_gui;
+ 
+   GameSessionImpl() {
+-    sector         = 0;
+     current_gui    = 0;
+     cutscene_mode  = false;
+     cutscene_value = 0.0f;
+@@ -108,7 +107,6 @@
+     fade_time      = 1.0f;
+   }
+   ~GameSessionImpl() {
+-    delete sector;
+   }
+ 
+   void draw();
+@@ -306,10 +304,9 @@
+ void
+ GameSession::set_sector(const std::string&amp; )
+ {
+-  delete impl-&gt;sector;
+-  impl-&gt;sector = new Sector(impl-&gt;filename);
++  impl-&gt;sector = std::auto_ptr&lt;Sector&gt;(new Sector(impl-&gt;filename));
+  
+-  GameObject::set_world(impl-&gt;sector);
++  GameObject::set_world(impl-&gt;sector.get());
+ 
+   //FIXME: does the TestObject class still need to exist?
+   //sector-&gt;add(new TestObject());
+
+Modified: trunk/windstille/src/screen/game_session.hpp
+===================================================================
+--- trunk/windstille/src/screen/game_session.hpp	2009-02-12 21:12:47 UTC (rev 2487)
++++ trunk/windstille/src/screen/game_session.hpp	2009-02-12 21:58:35 UTC (rev 2488)
+@@ -48,8 +48,8 @@
+ public:
+   static GameSession* current() { return current_; } 
+ 
+-  GameSession (const std::string&amp; arg_filename);
+-  ~GameSession ();
++  GameSession(const std::string&amp; arg_filename);
++  virtual ~GameSession();
+ 
+   View* get_view();
+ 
+
+Modified: trunk/windstille/src/screen/particle_viewer.cpp
+===================================================================
+--- trunk/windstille/src/screen/particle_viewer.cpp	2009-02-12 21:12:47 UTC (rev 2487)
++++ trunk/windstille/src/screen/particle_viewer.cpp	2009-02-12 21:58:35 UTC (rev 2488)
+@@ -97,16 +97,28 @@
+ 
+ ParticleViewer::~ParticleViewer()
+ {
++  for(Systems::iterator i = systems.begin(); i != systems.end(); ++i)
++    delete *i;
++  systems.clear();
++
++  for(ParticleSystemGUIs::iterator i = guis.begin(); i != guis.end(); ++i)
++    delete *i;
++  guis.clear();
+ }
+ 
+ void
+ ParticleViewer::load(const std::string&amp; filename)
+ {
+   std::cout &lt;&lt; &quot;ParticleViewer: loading &quot; &lt;&lt; filename &lt;&lt; std::endl;
+-  
++
++  // Cleanup
+   for(Systems::iterator i = systems.begin(); i != systems.end(); ++i)
+     delete *i;
+   systems.clear();
++
++  for(ParticleSystemGUIs::iterator i = guis.begin(); i != guis.end(); ++i)
++    delete *i;
++  guis.clear();
+   
+   FileReader root_reader = FileReader::parse(filename);
+   if(root_reader.get_name() != &quot;particle-systems&quot;) {
+
+Modified: trunk/windstille/src/screen/particle_viewer.hpp
+===================================================================
+--- trunk/windstille/src/screen/particle_viewer.hpp	2009-02-12 21:12:47 UTC (rev 2487)
++++ trunk/windstille/src/screen/particle_viewer.hpp	2009-02-12 21:58:35 UTC (rev 2488)
+@@ -48,6 +48,7 @@
+ 
+   typedef std::vector&lt;ParticleSystemGUI*&gt; ParticleSystemGUIs;
+   ParticleSystemGUIs guis;
++
+ public:
+   ParticleViewer();
+   ~ParticleViewer();
+
+Modified: trunk/windstille/src/sprite3d/sprite3d.cpp
+===================================================================
+--- trunk/windstille/src/sprite3d/sprite3d.cpp	2009-02-12 21:12:47 UTC (rev 2487)
++++ trunk/windstille/src/sprite3d/sprite3d.cpp	2009-02-12 21:58:35 UTC (rev 2488)
+@@ -167,8 +167,8 @@
+ void
+ Sprite3D::set_speed(float speed)
+ {
+-  if(speed &lt; 0 &amp;&amp; frame1.speed &gt;= 0
+-      || speed &gt;= 0 &amp;&amp; frame1.speed &lt; 0) {
++  if((speed &lt; 0 &amp;&amp; frame1.speed &gt;= 0) ||
++     (speed &gt;= 0 &amp;&amp; frame1.speed &lt; 0)) {
+     blend_time = 1.0 - blend_time;
+     std::swap(frame1, frame2);
+   }
+
+Modified: trunk/windstille/src/util/sexpr_file_reader.cpp
+===================================================================
+--- trunk/windstille/src/util/sexpr_file_reader.cpp	2009-02-12 21:12:47 UTC (rev 2487)
++++ trunk/windstille/src/util/sexpr_file_reader.cpp	2009-02-12 21:58:35 UTC (rev 2488)
+@@ -33,9 +33,8 @@
+   /** Pointer to the top-most lisp element, only here for purpose of
+       being able to delete it */
+   const lisp::Lisp* root;
+-
+-  bool  delete_sexpr;
+   const lisp::Lisp* sexpr;
++  bool  delete_sexpr;
+ 
+   SExprFileReaderImpl(const lisp::Lisp* root_, const lisp::Lisp* sexpr_)
+     : root(root_),
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001484.html">[Windstille-commit] r2487 - trunk/windstille/src/app
+</A></li>
+	<LI>Next message: <A HREF="001486.html">[Windstille-commit] r2489 - trunk/windstille/src/screen
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1485">[ date ]</a>
+              <a href="thread.html#1485">[ thread ]</a>
+              <a href="subject.html#1485">[ subject ]</a>
+              <a href="author.html#1485">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

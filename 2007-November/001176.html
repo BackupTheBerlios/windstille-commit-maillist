@@ -1,0 +1,248 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1526 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1526%20-%20trunk/griv&In-Reply-To=%3C200711121215.lACCFWb8021086%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001175.html">
+   <LINK REL="Next"  HREF="001177.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1526 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1526%20-%20trunk/griv&In-Reply-To=%3C200711121215.lACCFWb8021086%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1526 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Nov 12 13:15:32 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001175.html">[Windstille-commit] r1525 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001177.html">[Windstille-commit] r1527 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1176">[ date ]</a>
+              <a href="thread.html#1176">[ thread ]</a>
+              <a href="subject.html#1176">[ subject ]</a>
+              <a href="author.html#1176">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-12 13:15:31 +0100 (Mon, 12 Nov 2007)
+New Revision: 1526
+
+Added:
+   trunk/griv/REAME
+Modified:
+   trunk/griv/griv.cpp
+   trunk/griv/thumbnail.py
+Log:
+- added HOME handling
+
+Added: trunk/griv/REAME
+===================================================================
+--- trunk/griv/REAME	2007-11-12 03:31:54 UTC (rev 1525)
++++ trunk/griv/REAME	2007-11-12 12:15:31 UTC (rev 1526)
+@@ -0,0 +1,17 @@
++griv 
++=====
++
++griv is a image viewer that allows you to directly zoom into thumbnails.
++
++Usage:
++======
++
++To use it, first you have to generate thumbnails by calling:
++
++./thumbnail.py [PATHNAME]...
++
++Once done, you can view any collectino of files in that directory:
++
++./griv [PATHNAME]...
++
++# EOF #
+
+Modified: trunk/griv/griv.cpp
+===================================================================
+--- trunk/griv/griv.cpp	2007-11-12 03:31:54 UTC (rev 1525)
++++ trunk/griv/griv.cpp	2007-11-12 12:15:31 UTC (rev 1526)
+@@ -16,6 +16,7 @@
+ SDL_Surface* screen = 0;
+ int x_offset = 0;
+ int y_offset = 0;
++std::string config_home;
+ 
+ bool is_directory(const std::string&amp; pathname)
+ {
+@@ -100,7 +101,7 @@
+         if (surface == 0 || res != this-&gt;res)
+           {
+             std::ostringstream out;
+-            out &lt;&lt; &quot;/home/ingo/.griv/&quot; &lt;&lt; res &lt;&lt; &quot;/&quot; &lt;&lt; uid &lt;&lt; &quot;.jpg&quot;;
++            out &lt;&lt; config_home &lt;&lt; &quot;/.griv/&quot; &lt;&lt; res &lt;&lt; &quot;/&quot; &lt;&lt; uid &lt;&lt; &quot;.jpg&quot;;
+             surface = IMG_Load(out.str().c_str());
+             //std::cout &lt;&lt; &quot;Loading: &quot; &lt;&lt; out.str() &lt;&lt; std::endl;
+             this-&gt;res = res;
+@@ -194,6 +195,17 @@
+ 
+ int main(int argc, char** argv)
+ {
++  char* home;
++  if ((home = getenv(&quot;HOME&quot;)))
++    {
++      config_home = home;
++    }
++  else
++    {
++      std::cout &lt;&lt; &quot;Couldn't get HOME environment variable&quot; &lt;&lt; std::endl;
++      return 0;
++    }
++
+   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK) != 0) {
+     std::cout &lt;&lt; &quot;Unable to initialize SDL: &quot; &lt;&lt; SDL_GetError() &lt;&lt; std::endl;
+     exit(1);
+@@ -310,7 +322,8 @@
+ 
+       if (workspace.res != old_res ||
+           old_x_offset != x_offset ||
+-          old_y_offset != y_offset)
++          old_y_offset != y_offset
++          )
+         {
+           SDL_FillRect(screen, NULL, SDL_MapRGB(screen-&gt;format, 0, 0, 0));
+           workspace.draw();
+@@ -322,7 +335,7 @@
+         }
+       else
+         {
+-          SDL_Delay(20);
++          SDL_Delay(5);
+         }
+     }
+ 
+
+Modified: trunk/griv/thumbnail.py
+===================================================================
+--- trunk/griv/thumbnail.py	2007-11-12 03:31:54 UTC (rev 1525)
++++ trunk/griv/thumbnail.py	2007-11-12 12:15:31 UTC (rev 1526)
+@@ -6,8 +6,29 @@
+ import md5
+ import Image
+ from stat import *
++from glob import fnmatch
+ import dircache
+ 
++image_exts = [&quot;.jpg&quot;, &quot;.png&quot;, &quot;.JPG&quot;, &quot;.JPEG&quot;, &quot;.PNG&quot;]
++
++config_home = os.getenv(&quot;HOME&quot;)
++
++if not config_home:
++    print &quot;Couldn't find $HOME environment variable&quot;
++    exit()
++else:
++    for res in [2048, 1024, 512, 256, 128, 64, 32, 16]:
++        dir = config_home + &quot;/.griv/%d&quot; % res
++        if not os.access(dir, os.F_OK):
++            os.mkdir(dir)
++            print &quot;Created&quot;, dir
++
++def has_extension(filename, extensions):
++    for ext in extensions:
++        if filename.endswith(ext):
++            return True
++    return False
++
+ def md5sum(filename):
+     f = open(filename)
+     m = md5.new()
+@@ -24,38 +45,40 @@
+         mtime = os.stat(filename)[ST_MTIME]
+         xattr.setxattr(filename, &quot;user.griv.md5&quot;, md5)
+         xattr.setxattr(filename, &quot;user.griv.mtime&quot;, &quot;%d&quot; % mtime)
+-        xattr.setxattr(filename, &quot;user.griv.filter&quot;, &quot;BICUBIC&quot;)
++        xattr.setxattr(filename, &quot;user.griv.filter&quot;, &quot;repeated-antialias&quot;)
+         
+     return md5
+ 
+-def genthumb(orig_filename, guid, img, res):
+-    filename = &quot;/home/ingo/.griv/%d/%s.jpg&quot; % (res, guid)
+-    if not os.path.exists(filename):
+-        if res &lt; img.size[0] or res &lt; img.size[1]:
+-            if (img.size[0] &gt; img.size[1]):
+-                size = (res, res * img.size[1] / img.size[0])
+-            else:
+-                size = (res * img.size[0] / img.size[1], res)
++def genthumb(orig_filename, guid, img):
++    global config_home
++    for res in [2048, 1024, 512, 256, 128, 64, 32, 16]:
++        filename = config_home + &quot;/.griv/%d/%s.jpg&quot; % (res, guid)
++        if not os.path.exists(filename):
++            if res &lt; img.size[0] or res &lt; img.size[1]:
++                if (img.size[0] &gt; img.size[1]):
++                    size = (res, res * img.size[1] / img.size[0])
++                else:
++                    size = (res * img.size[0] / img.size[1], res)
+ 
+-            new_img = img.resize(size, Image.BICUBIC) #ANTIALIAS)
+-            new_img.save(filename, &quot;JPEG&quot;, quality = 75)
++                img = img.resize(size, Image.ANTIALIAS) # BICUBIC) #
++                img.save(filename, &quot;JPEG&quot;, quality = 75)
+ 
+-            print &quot;%s %4d %s =&gt; %s&quot; % (guid, res, orig_filename, filename)
++                print &quot;%s %4d %s =&gt; %s&quot; % (guid, res, orig_filename, filename)
+ 
+ def process_file(pathname):
+     if os.path.isdir(pathname): 
+         for i in [os.path.join(pathname, name) for name in os.listdir(pathname)]:
+             process_file(i)        
+-    else:
++    elif has_extension(pathname, image_exts):
+         try:
+             md5 = get_md5(pathname)
+-
+             orig_img = Image.open(pathname)
+-            for res in [16, 32, 64, 128, 256, 512, 1024, 2048]:
+-                genthumb(pathname, md5, orig_img, res)
++            genthumb(pathname, md5, orig_img)
+ 
+         except IOError, err:
+-            print &quot;Image Error:&quot;, err
++            print &quot;Image Error:&quot;, pathname, err
++    else:
++        pass # ignore non-image files
+ 
+ def main(args):
+     for pathname in args:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001175.html">[Windstille-commit] r1525 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001177.html">[Windstille-commit] r1527 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1176">[ date ]</a>
+              <a href="thread.html#1176">[ thread ]</a>
+              <a href="subject.html#1176">[ subject ]</a>
+              <a href="author.html#1176">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

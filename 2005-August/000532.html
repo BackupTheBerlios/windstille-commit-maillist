@@ -1,0 +1,182 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r879 - trunk/src/sprite3d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r879%20-%20trunk/src/sprite3d&In-Reply-To=%3C200508012013.j71KDQup019113%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000531.html">
+   <LINK REL="Next"  HREF="000533.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r879 - trunk/src/sprite3d</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r879%20-%20trunk/src/sprite3d&In-Reply-To=%3C200508012013.j71KDQup019113%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r879 - trunk/src/sprite3d">grumbel at berlios.de
+       </A><BR>
+    <I>Mon Aug  1 22:13:26 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000531.html">[Windstille-commit] r878 - in trunk: data/images data/levels src src/display src/scripting
+</A></li>
+        <LI>Next message: <A HREF="000533.html">[Windstille-commit] r880 - trunk/src/sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#532">[ date ]</a>
+              <a href="thread.html#532">[ thread ]</a>
+              <a href="subject.html#532">[ subject ]</a>
+              <a href="author.html#532">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-08-01 22:13:19 +0200 (Mon, 01 Aug 2005)
+New Revision: 879
+
+Modified:
+   trunk/src/sprite3d/sprite3d.cpp
+   trunk/src/sprite3d/sprite3d.hpp
+Log:
+- added blend-func to sprite3d
+
+Modified: trunk/src/sprite3d/sprite3d.cpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d.cpp	2005-08-01 19:30:42 UTC (rev 878)
++++ trunk/src/sprite3d/sprite3d.cpp	2005-08-01 20:13:19 UTC (rev 879)
+@@ -53,20 +53,9 @@
+   next_frame.action  = 0;
+   next_action.action = 0;
+   blend_time = 0.0;
+-}
+ 
+-Sprite3D::Sprite3D(const Data* data)
+-  : data(data), actions_switched(false)
+-{
+-  frame1.action = &amp;data-&gt;actions[0];
+-  frame1.frame = 0;
+-  frame1.rot   = false;
+-  frame1.speed = 1.0;
+-  frame2       = frame1;
+-  abort_at_frame.action = 0;
+-  next_frame.action  = 0;
+-  next_action.action = 0;
+-  blend_time = 0.0;
++  blend_sfactor = GL_ONE;
++  blend_sfactor = GL_ZERO;
+ }
+ 
+ Sprite3D::~Sprite3D()
+@@ -356,10 +345,19 @@
+     glRotatef(180, 0, 1.0, 0);
+   } 
+ 
+-  glClear(GL_DEPTH_BUFFER_BIT);
+-  glEnable(GL_DEPTH_TEST);
+   glEnable(GL_TEXTURE_2D);
+ 
++  if (blend_sfactor != GL_ONE || blend_sfactor != GL_ZERO)
++    {
++      glEnable(GL_BLEND);
++      glBlendFunc(blend_sfactor, blend_dfactor);
++    }
++  else
++    {
++      glClear(GL_DEPTH_BUFFER_BIT);
++      glEnable(GL_DEPTH_TEST);
++    }
++
+   glEnableClientState(GL_VERTEX_ARRAY);
+   glEnableClientState(GL_NORMAL_ARRAY);
+   glEnableClientState(GL_TEXTURE_COORD_ARRAY);  
+@@ -379,7 +377,7 @@
+     glBindTexture(GL_TEXTURE_2D, mesh.texture.get_handle());
+     
+     // blend between frame1 + frame2
+-    float* verts = new float[mesh.vertex_count * 3];
++    float verts[mesh.vertex_count * 3];
+     if(frame1.rot == frame2.rot) {
+       for(uint16_t v = 0; v &lt; mesh.vertex_count*3; ++v) {
+         verts[v] 
+@@ -407,7 +405,6 @@
+     glTexCoordPointer(2, GL_FLOAT, 0, mesh.tex_coords);
+     glDrawElements(GL_TRIANGLES, mesh.triangle_count * 3, GL_UNSIGNED_SHORT,
+         mesh.vertex_indices);
+-    delete[] verts;
+   }
+ 
+   assert_gl(&quot;rendering 3d sprite&quot;);      
+@@ -421,4 +418,11 @@
+   return data != 0;
+ }
+ 
++void
++Sprite3D::set_blend_func(GLenum sfactor, GLenum dfactor)
++{
++  blend_sfactor = sfactor;
++  blend_dfactor = dfactor;
++}
++
+ /* EOF */
+
+Modified: trunk/src/sprite3d/sprite3d.hpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d.hpp	2005-08-01 19:30:42 UTC (rev 878)
++++ trunk/src/sprite3d/sprite3d.hpp	2005-08-01 20:13:19 UTC (rev 879)
+@@ -47,7 +47,6 @@
+ 
+   Sprite3D();
+   Sprite3D(const std::string&amp; filename);
+-  Sprite3D(const sprite3d::Data* data);
+   ~Sprite3D();
+ 
+   /**
+@@ -108,6 +107,8 @@
+ 
+   /** true if the Sprite3D is valid and usable, false if not */
+   bool is_valid() const;
++
++  void set_blend_func(GLenum sfactor, GLenum dfactor);
+   
+ private:  
+   friend class Sprite3DDrawingRequest;
+@@ -138,6 +139,9 @@
+   Frame next_frame;
+   Frame next_action;
+   Frame abort_at_frame;
++
++  GLenum blend_sfactor;
++  GLenum blend_dfactor;
+ };
+ 
+ #endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000531.html">[Windstille-commit] r878 - in trunk: data/images data/levels src src/display src/scripting
+</A></li>
+	<LI>Next message: <A HREF="000533.html">[Windstille-commit] r880 - trunk/src/sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#532">[ date ]</a>
+              <a href="thread.html#532">[ thread ]</a>
+              <a href="subject.html#532">[ subject ]</a>
+              <a href="author.html#532">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

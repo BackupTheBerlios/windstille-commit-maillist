@@ -1,0 +1,715 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r810 - in trunk: data/levels src src/scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r810%20-%20in%20trunk%3A%20data/levels%20src%20src/scripting&In-Reply-To=%3C200507271552.j6RFqcXi007475%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000462.html">
+   <LINK REL="Next"  HREF="000464.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r810 - in trunk: data/levels src src/scripting</H1>
+    <B>James Gregory at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r810%20-%20in%20trunk%3A%20data/levels%20src%20src/scripting&In-Reply-To=%3C200507271552.j6RFqcXi007475%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r810 - in trunk: data/levels src src/scripting">jamesgregory at berlios.de
+       </A><BR>
+    <I>Wed Jul 27 17:52:38 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000462.html">[Windstille-commit] r809 - trunk/src/badguy
+</A></li>
+        <LI>Next message: <A HREF="000464.html">[Windstille-commit] r811 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#463">[ date ]</a>
+              <a href="thread.html#463">[ thread ]</a>
+              <a href="subject.html#463">[ subject ]</a>
+              <a href="author.html#463">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: jamesgregory
+Date: 2005-07-27 17:52:31 +0200 (Wed, 27 Jul 2005)
+New Revision: 810
+
+Removed:
+   trunk/src/flashing_sign.cpp
+   trunk/src/flashing_sign.hpp
+Modified:
+   trunk/data/levels/newformat2.nut
+   trunk/data/levels/newformat2.wst
+   trunk/src/Jamfile
+   trunk/src/scripting/game_objects.cpp
+   trunk/src/scripting/game_objects.hpp
+   trunk/src/scripting/spawn_object.hpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/scripting/wrapper.hpp
+   trunk/src/sector.cpp
+   trunk/src/useable_object.cpp
+   trunk/src/useable_object.hpp
+Log:
+Replace FlashingSign with more generic PictureEntity, which should provide scriptable movement and maybe other stuff as well as flashing
+
+Modified: trunk/data/levels/newformat2.nut
+===================================================================
+--- trunk/data/levels/newformat2.nut	2005-07-27 15:50:20 UTC (rev 809)
++++ trunk/data/levels/newformat2.nut	2005-07-27 15:52:31 UTC (rev 810)
+@@ -8,6 +8,6 @@
+        &quot;We will start with &lt;small&gt;climbing&lt;/small&gt;. See the &lt;i&gt;block&lt;/i&gt; in front &quot; +
+        &quot;of you? Press &lt;b&gt;Right&lt;/b&gt; and &lt;b&gt;Jump&lt;/b&gt; to hang on the ledge.&quot;);
+ 
+-Block0Sign.enable();
++Block0Sign.show(true);
+ 
+ /* EOF */
+
+Modified: trunk/data/levels/newformat2.wst
+===================================================================
+--- trunk/data/levels/newformat2.wst	2005-07-27 15:50:20 UTC (rev 809)
++++ trunk/data/levels/newformat2.wst	2005-07-27 15:52:31 UTC (rev 810)
+@@ -10,12 +10,12 @@
+     (pos 300 650)
+   )
+   (objects
+-    (flashing-sign
++    (picture-entity
+       (name &quot;Block0Sign&quot;)
+       (pos 550 370)
+       (flashspeed 0.7)
+       (sprite &quot;images/arrow.sprite&quot;)
+-      (enabled #f)
++      (visible #f)
+     )
+ 
+     ;; Water
+@@ -72,10 +72,6 @@
+       (name &quot;spider2&quot;)
+       (pos 550 550)
+     )
+-    (spider_mine
+-      (name &quot;spider1&quot;)
+-      (pos 500 831)
+-    )
+     (hedgehog
+       (name &quot;hedgehog1&quot;)
+       (pos 1100 550)
+
+Modified: trunk/src/Jamfile
+===================================================================
+--- trunk/src/Jamfile	2005-07-27 15:50:20 UTC (rev 809)
++++ trunk/src/Jamfile	2005-07-27 15:52:31 UTC (rev 810)
+@@ -50,8 +50,6 @@
+         ttf_font.cpp
+         ttf_font.hpp
+         field.hpp
+-        flashing_sign.hpp
+-        flashing_sign.cpp
+         fonts.cpp
+         fonts.hpp
+         gameconfig.hpp
+@@ -67,6 +65,8 @@
+         math.hpp
+         nightvision.cpp
+         nightvision.hpp
++        picture_entity.cpp
++        picture_entity.hpp
+         player.cpp
+         player.hpp
+         random.cpp
+
+Deleted: trunk/src/flashing_sign.cpp
+===================================================================
+--- trunk/src/flashing_sign.cpp	2005-07-27 15:50:20 UTC (rev 809)
++++ trunk/src/flashing_sign.cpp	2005-07-27 15:52:31 UTC (rev 810)
+@@ -1,75 +0,0 @@
+-#include &lt;config.h&gt;
+-
+-#include &quot;flashing_sign.hpp&quot;
+-
+-#include &lt;math.h&gt;
+-#include &quot;lisp/properties.hpp&quot;
+-#include &quot;windstille_getters.hpp&quot;
+-#include &quot;timer.hpp&quot;
+-#include &quot;globals.hpp&quot;
+-#include &quot;sprite2d/manager.hpp&quot;
+-
+-FlashingSign::FlashingSign(const lisp::Lisp* lisp)
+-  : pos(0, 0), enabled(false)
+-{
+-  std::string spritename;
+-  flashspeed = 5;
+-
+-  lisp::Properties props(lisp);
+-  props.get(&quot;sprite&quot;, spritename);
+-  props.get(&quot;pos&quot;, pos);
+-  props.get(&quot;flashspeed&quot;, flashspeed);
+-  props.get(&quot;name&quot;, name);
+-  props.get(&quot;enabled&quot;, enabled);
+-  props.print_unused_warnings(&quot;flahing-sign&quot;);
+-
+-  if(spritename == &quot;&quot;)
+-    throw std::runtime_error(&quot;No sprite name specified in FlashingSign&quot;);
+-  
+-  sprite = sprite2d_manager-&gt;create(spritename);
+-  flashdelta = game_time;
+-}
+-
+-FlashingSign::~FlashingSign()
+-{
+-  delete sprite;
+-}
+-
+-void
+-FlashingSign::draw(SceneContext&amp; sc)
+-{
+-  if(!enabled)
+-    return;
+-  
+-  float time = game_time - flashdelta;
+-  
+-  if(static_cast&lt;int&gt;(time/flashspeed) % 2 == 0) {
+-    float alpha = fmodf(time, flashspeed) / flashspeed;
+-    // fade on
+-    sprite-&gt;set_alpha(alpha);
+-  } else {
+-    float alpha = 1.0 - (fmodf(time, flashspeed) / flashspeed);
+-    // fade off
+-    sprite-&gt;set_alpha(alpha);
+-  }
+-  sprite-&gt;draw(sc, pos, 10.0f);
+-}
+-
+-void
+-FlashingSign::update(float elapsed_time)
+-{
+-  sprite-&gt;update(elapsed_time);
+-}
+-
+-void
+-FlashingSign::enable()
+-{
+-  enabled = true;
+-  flashdelta = game_time;
+-}
+-
+-void
+-FlashingSign::disable()
+-{
+-  enabled = false;
+-}
+
+Deleted: trunk/src/flashing_sign.hpp
+===================================================================
+--- trunk/src/flashing_sign.hpp	2005-07-27 15:50:20 UTC (rev 809)
++++ trunk/src/flashing_sign.hpp	2005-07-27 15:52:31 UTC (rev 810)
+@@ -1,31 +0,0 @@
+-#ifndef __FLASHING_SIGN_HPP__
+-#define __FLASHING_SIGN_HPP__
+-
+-#include &quot;game_object.hpp&quot;
+-#include &quot;lisp/lisp.hpp&quot;
+-#include &quot;math/vector.hpp&quot;
+-#include &quot;sprite2d/sprite.hpp&quot;
+-
+-class FlashingSign : public GameObject
+-{
+-private:
+-  sprite2d::Sprite* sprite;
+-  Vector pos;
+-
+-  bool enabled;
+-  float flashspeed;
+-  float flashdelta;
+-
+-public:
+-  FlashingSign(const lisp::Lisp* lisp);
+-  virtual ~FlashingSign();
+-
+-  virtual void draw(SceneContext&amp; sc);
+-  virtual void update(float elapsed_time);
+-
+-  void enable();
+-  void disable();
+-};
+-
+-#endif
+-
+
+Modified: trunk/src/scripting/game_objects.cpp
+===================================================================
+--- trunk/src/scripting/game_objects.cpp	2005-07-27 15:50:20 UTC (rev 809)
++++ trunk/src/scripting/game_objects.cpp	2005-07-27 15:52:31 UTC (rev 810)
+@@ -17,18 +17,6 @@
+ }
+ 
+ void
+-FlashingSign::enable()
+-{
+-  obj()-&gt;enable();
+-}
+-
+-void
+-FlashingSign::disable()
+-{
+-  obj()-&gt;disable();
+-}
+-
+-void
+ TestObject::set_sprite(const std::string&amp; filename)
+ {
+   obj()-&gt;set_sprite(filename);
+@@ -64,5 +52,17 @@
+   obj()-&gt;stop_listening();
+ }
+ 
++void
++PictureEntity::move_to(float x, float y, float speed)
++{
++  obj()-&gt;move_to(x, y, speed);
+ }
+ 
++void
++PictureEntity::show(bool visible)
++{
++  obj()-&gt;show(visible);
++}
++
++}
++
+
+Modified: trunk/src/scripting/game_objects.hpp
+===================================================================
+--- trunk/src/scripting/game_objects.hpp	2005-07-27 15:50:20 UTC (rev 809)
++++ trunk/src/scripting/game_objects.hpp	2005-07-27 15:52:31 UTC (rev 810)
+@@ -3,15 +3,15 @@
+ 
+ #ifndef SCRIPTING_API
+ #include &quot;game_object.hpp&quot;
+-#include &quot;flashing_sign.hpp&quot;
+ #include &quot;test_object.hpp&quot;
+ #include &quot;player.hpp&quot;
++#include &quot;picture_entity.hpp&quot;
+ #include &quot;ref.hpp&quot;
+ 
+ typedef GameObject _GameObject;
+-typedef FlashingSign _FlashingSign;
+ typedef TestObject _TestObject;
+ typedef Player _Player;
++typedef PictureEntity _PictureEntity;
+ #endif
+ 
+ namespace Scripting
+@@ -36,27 +36,6 @@
+   void remove();
+ };
+ 
+-class FlashingSign : public GameObject
+-{
+-#ifndef SCRIPTING_API
+-public:
+-  FlashingSign(_FlashingSign* _object)
+-    : GameObject(_object)
+-  {}
+-  virtual ~FlashingSign()
+-  {}  
+-
+-  _FlashingSign* obj() const
+-  {
+-    return reinterpret_cast&lt;_FlashingSign*&gt; (object.get());
+-  }
+-#endif
+-
+-public:
+-  void enable();
+-  void disable();
+-};
+-
+ class TestObject : public GameObject
+ {
+ #ifndef SCRIPTING_API
+@@ -100,6 +79,27 @@
+   void start_listening();
+   void stop_listening();
+ };
++
++class PictureEntity : public GameObject
++{
++#ifndef SCRIPTING_API
++public:
++  PictureEntity(_PictureEntity* _object)
++    : GameObject(_object)
++  {}
++  virtual ~PictureEntity()
++  {}
++
++  _PictureEntity* obj() const
++  {
++    return reinterpret_cast&lt;_PictureEntity*&gt; (object.get());
++  }
++#endif
++
++public:
++  void move_to(float x, float y, float speed);
++  void show(bool visible);
++};
+  
+ }
+ 
+
+Modified: trunk/src/scripting/spawn_object.hpp
+===================================================================
+--- trunk/src/scripting/spawn_object.hpp	2005-07-27 15:50:20 UTC (rev 809)
++++ trunk/src/scripting/spawn_object.hpp	2005-07-27 15:52:31 UTC (rev 810)
+@@ -13,7 +13,7 @@
+  *    name:    string with name of object
+  *    table:   table that is parsed to get object properties
+  *
+- * Example: spawn_object(&quot;FlashingSign&quot;, { name=&quot;blup&quot;, x = 2.0, y = 5.0, sprite=&quot;arrows/red&quot; });
++ * Example: spawn_object(&quot;PictureEntity&quot;, { name=&quot;blup&quot;, x = 2.0, y = 5.0, sprite=&quot;arrows/red&quot; });
+  */
+ int spawn_object(HSQUIRRELVM v) __custom;
+ 
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2005-07-27 15:50:20 UTC (rev 809)
++++ trunk/src/scripting/wrapper.cpp	2005-07-27 15:52:31 UTC (rev 810)
+@@ -64,54 +64,6 @@
+   return 0;
+ }
+ 
+-static int FlashingSign_release_hook(SQUserPointer ptr, int )
+-{
+-  Scripting::FlashingSign* _this = reinterpret_cast&lt;Scripting::FlashingSign*&gt; (ptr);
+-  delete _this;
+-  return 0;
+-}
+-
+-void create_squirrel_instance(HSQUIRRELVM v, Scripting::FlashingSign* object, bool setup_releasehook)
+-{
+-  sq_pushstring(v, &quot;FlashingSign&quot;, -1);
+-  if(sq_get(v, -2) &lt; 0) {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't resolved squirrel type 'FlashingSign'&quot;;
+-    throw SquirrelError(v, msg.str());
+-  }
+-
+-  if(sq_createinstance(v, -1) &lt; 0 || sq_setinstanceup(v, -1, object) &lt; 0) {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't setup squirrel instance for object of type 'FlashingSign'&quot;;
+-    throw SquirrelError(v, msg.str());
+-  }
+-  sq_remove(v, -2);
+-
+-  if(setup_releasehook) {
+-    sq_setreleasehook(v, -1, FlashingSign_release_hook);
+-  }
+-}
+-
+-static int FlashingSign_enable_wrapper(HSQUIRRELVM v)
+-{
+-  Scripting::FlashingSign* _this;
+-  sq_getinstanceup(v, 1, (SQUserPointer*) &amp;_this, 0);
+-  
+-  _this-&gt;enable();
+-  
+-  return 0;
+-}
+-
+-static int FlashingSign_disable_wrapper(HSQUIRRELVM v)
+-{
+-  Scripting::FlashingSign* _this;
+-  sq_getinstanceup(v, 1, (SQUserPointer*) &amp;_this, 0);
+-  
+-  _this-&gt;disable();
+-  
+-  return 0;
+-}
+-
+ static int TestObject_release_hook(SQUserPointer ptr, int )
+ {
+   Scripting::TestObject* _this = reinterpret_cast&lt;Scripting::TestObject*&gt; (ptr);
+@@ -238,6 +190,62 @@
+   return 0;
+ }
+ 
++static int PictureEntity_release_hook(SQUserPointer ptr, int )
++{
++  Scripting::PictureEntity* _this = reinterpret_cast&lt;Scripting::PictureEntity*&gt; (ptr);
++  delete _this;
++  return 0;
++}
++
++void create_squirrel_instance(HSQUIRRELVM v, Scripting::PictureEntity* object, bool setup_releasehook)
++{
++  sq_pushstring(v, &quot;PictureEntity&quot;, -1);
++  if(sq_get(v, -2) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't resolved squirrel type 'PictureEntity'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  if(sq_createinstance(v, -1) &lt; 0 || sq_setinstanceup(v, -1, object) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't setup squirrel instance for object of type 'PictureEntity'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++  sq_remove(v, -2);
++
++  if(setup_releasehook) {
++    sq_setreleasehook(v, -1, PictureEntity_release_hook);
++  }
++}
++
++static int PictureEntity_move_to_wrapper(HSQUIRRELVM v)
++{
++  Scripting::PictureEntity* _this;
++  sq_getinstanceup(v, 1, (SQUserPointer*) &amp;_this, 0);
++  float arg0;
++  sq_getfloat(v, 2, &amp;arg0);
++  float arg1;
++  sq_getfloat(v, 3, &amp;arg1);
++  float arg2;
++  sq_getfloat(v, 4, &amp;arg2);
++  
++  _this-&gt;move_to(arg0, arg1, arg2);
++  
++  return 0;
++}
++
++static int PictureEntity_show_wrapper(HSQUIRRELVM v)
++{
++  Scripting::PictureEntity* _this;
++  sq_getinstanceup(v, 1, (SQUserPointer*) &amp;_this, 0);
++  SQBool arg0;
++  sq_getbool(v, 2, &amp;arg0);
++  
++  _this-&gt;show(arg0);
++  
++  return 0;
++}
++
+ static int set_sector_wrapper(HSQUIRRELVM v)
+ {
+   const char* arg0;
+@@ -774,37 +782,6 @@
+     throw SquirrelError(v, msg.str());
+   }
+ 
+-  // Register class FlashingSign
+-  sq_pushstring(v, &quot;FlashingSign&quot;, -1);
+-  sq_pushstring(v, &quot;GameObject&quot;, -1);
+-  sq_get(v, -3);
+-  if(sq_newclass(v, SQTrue) &lt; 0) {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't create new class 'FlashingSign'&quot;;
+-    throw SquirrelError(v, msg.str());
+-  }
+-  sq_pushstring(v, &quot;enable&quot;, -1);
+-  sq_newclosure(v, &amp;FlashingSign_enable_wrapper, 0);
+-  if(sq_createslot(v, -3) &lt; 0) {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't register function'enable'&quot;;
+-    throw SquirrelError(v, msg.str());
+-  }
+-
+-  sq_pushstring(v, &quot;disable&quot;, -1);
+-  sq_newclosure(v, &amp;FlashingSign_disable_wrapper, 0);
+-  if(sq_createslot(v, -3) &lt; 0) {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't register function'disable'&quot;;
+-    throw SquirrelError(v, msg.str());
+-  }
+-
+-  if(sq_createslot(v, -3) &lt; 0) {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't register class'FlashingSign'&quot;;
+-    throw SquirrelError(v, msg.str());
+-  }
+-
+   // Register class TestObject
+   sq_pushstring(v, &quot;TestObject&quot;, -1);
+   sq_pushstring(v, &quot;GameObject&quot;, -1);
+@@ -883,6 +860,37 @@
+     throw SquirrelError(v, msg.str());
+   }
+ 
++  // Register class PictureEntity
++  sq_pushstring(v, &quot;PictureEntity&quot;, -1);
++  sq_pushstring(v, &quot;GameObject&quot;, -1);
++  sq_get(v, -3);
++  if(sq_newclass(v, SQTrue) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't create new class 'PictureEntity'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++  sq_pushstring(v, &quot;move_to&quot;, -1);
++  sq_newclosure(v, &amp;PictureEntity_move_to_wrapper, 0);
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'move_to'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  sq_pushstring(v, &quot;show&quot;, -1);
++  sq_newclosure(v, &amp;PictureEntity_show_wrapper, 0);
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'show'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register class'PictureEntity'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
+   sq_pop(v, 1);
+ }
+ 
+
+Modified: trunk/src/scripting/wrapper.hpp
+===================================================================
+--- trunk/src/scripting/wrapper.hpp	2005-07-27 15:50:20 UTC (rev 809)
++++ trunk/src/scripting/wrapper.hpp	2005-07-27 15:52:31 UTC (rev 810)
+@@ -15,9 +15,9 @@
+ void register_windstille_wrapper(HSQUIRRELVM v);
+ 
+ void create_squirrel_instance(HSQUIRRELVM v, Scripting::GameObject* object, bool setup_releasehook = false);
+-void create_squirrel_instance(HSQUIRRELVM v, Scripting::FlashingSign* object, bool setup_releasehook = false);
+ void create_squirrel_instance(HSQUIRRELVM v, Scripting::TestObject* object, bool setup_releasehook = false);
+ void create_squirrel_instance(HSQUIRRELVM v, Scripting::Player* object, bool setup_releasehook = false);
++void create_squirrel_instance(HSQUIRRELVM v, Scripting::PictureEntity* object, bool setup_releasehook = false);
+ 
+ }
+ 
+
+Modified: trunk/src/sector.cpp
+===================================================================
+--- trunk/src/sector.cpp	2005-07-27 15:50:20 UTC (rev 809)
++++ trunk/src/sector.cpp	2005-07-27 15:52:31 UTC (rev 810)
+@@ -29,7 +29,6 @@
+ #include &quot;game_object.hpp&quot;
+ #include &quot;player.hpp&quot;
+ #include &quot;trigger.hpp&quot;
+-#include &quot;flashing_sign.hpp&quot;
+ #include &quot;test_object.hpp&quot;
+ #include &quot;sector.hpp&quot;
+ #include &quot;spawnpoint.hpp&quot;
+@@ -45,6 +44,7 @@
+ #include &quot;badguy/spider_mine.hpp&quot;
+ #include &quot;box.hpp&quot;
+ #include &quot;useable_object.hpp&quot;
++#include &quot;picture_entity.hpp&quot;
+ 
+ Sector* Sector::current_ = 0;
+ 
+@@ -141,8 +141,6 @@
+     add_entity(new Box(lisp));
+   } else if(name == &quot;elevator&quot;) {
+     add_entity(new Elevator(lisp));
+-  } else if(name == &quot;flashing-sign&quot;) {
+-    add(new FlashingSign(lisp));
+   } else if(name == &quot;character&quot;) {    
+     add(new Character(lisp));
+   } else if(name == &quot;spider_mine&quot;) {
+@@ -157,6 +155,8 @@
+     add(new ParticleSystem(lisp));
+   } else if(name == &quot;useable-object&quot;) {    
+     add(new UseableObject(lisp));
++  } else if(name == &quot;picture-entity&quot;) {    
++    add(new PictureEntity(lisp));
+   } else {
+     std::cout &lt;&lt; &quot;Skipping unknown Object: &quot; &lt;&lt; name &lt;&lt; &quot;\n&quot;;
+   }
+@@ -286,9 +286,9 @@
+   // FIXME: Grumbel: I don't consider this brute-force exposing a good
+   // idea, should be up to the scripter if we ones to keep a refrence
+   // to an object or not
+-  FlashingSign* sign = dynamic_cast&lt;FlashingSign*&gt; (object);
+-  if(sign) {
+-    script_manager-&gt;expose_object(new Scripting::FlashingSign(sign),
++  PictureEntity* picture = dynamic_cast&lt;PictureEntity*&gt; (object);
++  if(picture) {
++    script_manager-&gt;expose_object(new Scripting::PictureEntity(picture),
+                                   object-&gt;get_name(), true);
+     return;
+   }
+
+Modified: trunk/src/useable_object.cpp
+===================================================================
+--- trunk/src/useable_object.cpp	2005-07-27 15:50:20 UTC (rev 809)
++++ trunk/src/useable_object.cpp	2005-07-27 15:52:31 UTC (rev 810)
+@@ -27,10 +27,9 @@
+   : highlight(&quot;vrdoor/highlight&quot;, resources),
+     color(&quot;vrdoor/color&quot;, resources)
+ {
+-  using namespace lisp;
+   set_useable(true);
+ 
+-  Properties props(lisp);
++  lisp::Properties props(lisp);
+   props.get(&quot;pos&quot;, pos);
+   props.get(&quot;script&quot;, use_script);
+   props.print_unused_warnings(&quot;usableobject&quot;);
+@@ -49,11 +48,4 @@
+ {
+ }
+ 
+-void
+-UseableObject::collision(const CollisionData&amp; data, CollisionObject&amp; other)
+-{
+-  (void) data;
+-  (void) other;
+-}
+-
+ /* EOF */
+
+Modified: trunk/src/useable_object.hpp
+===================================================================
+--- trunk/src/useable_object.hpp	2005-07-27 15:50:20 UTC (rev 809)
++++ trunk/src/useable_object.hpp	2005-07-27 15:52:31 UTC (rev 810)
+@@ -39,10 +39,6 @@
+   void draw (SceneContext&amp; sc);
+   void update (float);
+   void use() {script_manager-&gt;run_script(use_script, &quot;UseableItem&quot;);}
+-  
+-  void collision(const CollisionData&amp; data, CollisionObject&amp; other);
+-  bool unstuck() const {return true;}
+-  bool unstuck_movable() const {return true;}
+ };
+ 
+ #endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000462.html">[Windstille-commit] r809 - trunk/src/badguy
+</A></li>
+	<LI>Next message: <A HREF="000464.html">[Windstille-commit] r811 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#463">[ date ]</a>
+              <a href="thread.html#463">[ thread ]</a>
+              <a href="subject.html#463">[ subject ]</a>
+              <a href="author.html#463">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

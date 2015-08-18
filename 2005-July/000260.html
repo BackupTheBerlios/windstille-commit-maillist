@@ -1,0 +1,1446 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r607 - in trunk: contrib data/3dsprites data/blender/grenade data/scripts docs src src/lisp src/scripting src/sprite3d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r607%20-%20in%20trunk%3A%20contrib%20data/3dsprites%20data/blender/grenade%20data/scripts%20docs%20src%20src/lisp%20src/scripting%20src/sprite3d&In-Reply-To=%3C200507130129.j6D1ToaU014533%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000259.html">
+   <LINK REL="Next"  HREF="000261.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r607 - in trunk: contrib data/3dsprites data/blender/grenade data/scripts docs src src/lisp src/scripting src/sprite3d</H1>
+    <B>Matthias Braun at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r607%20-%20in%20trunk%3A%20contrib%20data/3dsprites%20data/blender/grenade%20data/scripts%20docs%20src%20src/lisp%20src/scripting%20src/sprite3d&In-Reply-To=%3C200507130129.j6D1ToaU014533%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r607 - in trunk: contrib data/3dsprites data/blender/grenade data/scripts docs src src/lisp src/scripting src/sprite3d">matzebraun at berlios.de
+       </A><BR>
+    <I>Wed Jul 13 03:29:50 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000259.html">[Windstille-commit] r606 - in trunk: data/levels src
+</A></li>
+        <LI>Next message: <A HREF="000261.html">[Windstille-commit] r608 - trunk/src/lisp
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#260">[ date ]</a>
+              <a href="thread.html#260">[ thread ]</a>
+              <a href="subject.html#260">[ subject ]</a>
+              <a href="author.html#260">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: matzebraun
+Date: 2005-07-13 03:29:05 +0200 (Wed, 13 Jul 2005)
+New Revision: 607
+
+Added:
+   trunk/data/3dsprites/grenade.wsprite
+   trunk/data/3dsprites/grenadetexture.png
+   trunk/src/scripting/spawn_object.cpp
+   trunk/src/scripting/spawn_object.hpp
+Modified:
+   trunk/contrib/windstille_export.py
+   trunk/data/3dsprites/heroken.wsprite
+   trunk/data/blender/grenade/grenade.blend
+   trunk/data/scripts/init_script_vars.nut
+   trunk/docs/wsprite_fileformat.txt
+   trunk/src/box.cpp
+   trunk/src/game_session.cpp
+   trunk/src/lisp/lisp.cpp
+   trunk/src/lisp/lisp.hpp
+   trunk/src/player.cpp
+   trunk/src/player.hpp
+   trunk/src/script_manager.cpp
+   trunk/src/script_manager.hpp
+   trunk/src/scripting/game_objects.cpp
+   trunk/src/scripting/game_objects.hpp
+   trunk/src/scripting/interface.hpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/scripting/wrapper.interface.hpp
+   trunk/src/sector.cpp
+   trunk/src/sector.hpp
+   trunk/src/sprite3d/sprite3d.cpp
+   trunk/src/sprite3d/sprite3d.hpp
+   trunk/src/sprite3d/sprite3d_data.cpp
+   trunk/src/sprite3d/sprite3d_data.hpp
+   trunk/src/test_object.cpp
+   trunk/src/test_object.hpp
+   trunk/src/tile_factory.cpp
+   trunk/src/trigger.cpp
+   trunk/src/util.cpp
+Log:
+- Animated grenade
+- Add possibility to miniswig to have custom wrapper functions
+- Add new spawn_object function that takes an object name and a table that is
+  transformed to a lisp object
+- other bugfixes, little refactorings
+- start working on exporting bone positions to 3dsprites, that can be used to
+  attach objects (so that you can take the grenade into your hand)
+
+
+
+Modified: trunk/contrib/windstille_export.py
+===================================================================
+--- trunk/contrib/windstille_export.py	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/contrib/windstille_export.py	2005-07-13 01:29:05 UTC (rev 607)
+@@ -33,6 +33,7 @@
+ # See windstille/docs/models.txt for more details
+ 
+ import struct, shlex
++import os.path
+ import Blender
+ from Blender import NMesh
+ from Blender import Window
+@@ -44,11 +45,11 @@
+ DEFAULT_SPEED = 1.0
+ SPEED_MULTIPLIER = 9.8
+ # DO NOT change this
+-FORMAT_VERSION = 1
++FORMAT_VERSION = 2
+ 
+ # config entry (first_frame, last_frame, speed, samplerate, markers[])
+ #  a marker is (name, frame)
+-def parse_config(text):
++def parse_actionconfig(text):
+   lex = shlex.shlex(text)
+   lex.wordchars += &quot;.&quot;
+   def expect_string():
+@@ -116,29 +117,83 @@
+ 
+   return actionconfig
+ 
++def parse_config(text):
++  lex = shlex.shlex(text)
++  lex.wordchars += &quot;.&quot;
++  def expect_string():
++    res = lex.get_token()
++    if res == lex.eof:
++      raise Exception, &quot;Expected string, got EOF&quot;
++    return res
++
++  def expect_int():
++    res = lex.get_token()
++    if res == lex.eof:
++      raise Exception, &quot;Expected in, got EOF&quot;
++    return int(res)
++                                                    
++  def expect_float():
++    res = lex.get_token()
++    if res == lex.eof:
++      raise Exception, &quot;Expected float, got EOF&quot;
++    return float(res)
++
++  bones = []
++  while True:
++    token = lex.get_token()
++    if token == lex.eof:
++      break
++    elif token == &quot;ExportBone&quot;:
++      bones.append(expect_string())
++    elif token == &quot;DefaultSpeed&quot;:
++      global DEFAULT_SPEED
++      DEFAULT_SPEED = expect_float()
++    elif token == &quot;SpeedMultiplier&quot;:
++      global SPEED_MULTIPLIER
++      SPEED_MULTIPLIER = expect_float()
++    elif token == &quot;Zoom&quot;:
++      global ZOOM
++      ZOOM = expect_float()
++    elif token == &quot;DefaultSamplerate&quot;:
++      global DEFAULT_SAMPLERATE
++      DEFAULT_SAMPLERATE = expect_int()
++    else:
++      raise Exception, &quot;Unexpected token '%s'&quot; % token
++  return bones
++
++# return contents of a text in the blender scene
++def get_text(textname):
++  try:
++    textobj = Blender.Text.Get(textname)
++  except:                                                         
++    print &quot;WARNING: Text '%s' not found&quot; % textname
++    return &quot;&quot;
++
++  lines = textobj.asLines()
++  text = &quot;&quot;
++  for line in lines:
++    text += line + &quot;\n&quot;
++  return text
++
+ def export(filename):
+   scene = Blender.Scene.getCurrent()
+   layers = scene.Layers
+ 
+-  # Search for config text
+-  actionconfig = {}
++  # parse exportconfig
++  bone_names = []
+   try:
+-    textobj = Blender.Text.Get(&quot;actionconfig&quot;)
+-  except:  
+-    print &quot;WARNING: No actionconfig text found!&quot;
+-    textobj = 0
++    bone_names = parse_config(get_text(&quot;exportconfig&quot;))
++  except Exception, message:
++    raise Exception, &quot;Parse Error in exportconfig:&quot; + str(message)
+ 
++  # parse actionconfig
++  actionconfig = {}
+   try:
+-    if textobj != 0:
+-      lines = textobj.asLines()
+-      text = &quot;&quot;
+-      for line in lines:
+-        text += line + &quot;\n&quot;
+-      actionconfig = parse_config(text)
+-  except Exception, message:  
+-    print &quot;WARNING: Parse Error in actionconfig:&quot; + str(message)
+-  
+-  # file header
++    actionconfig = parse_actionconfig(get_text(&quot;actionconfig&quot;))
++  except Exception, message:
++    raise Exception, &quot;Parse Error in actionconfig:&quot; + str(message)
++ 
++  # compose list of meshs to export
+   meshes = []
+   for obj in Blender.Object.Get():
+     data = obj.getData()
+@@ -149,6 +204,7 @@
+       continue
+     meshes.append(obj)
+ 
++  # search for armature object
+   armatures = Blender.Armature.Get()
+   if len(armatures) != 1:
+     raise Exception, &quot;Need to have exactly 1 armature in the scene&quot;
+@@ -159,16 +215,32 @@
+     if obj.getType() == &quot;Armature&quot;:
+       print &quot;found&quot;
+       armatureobj = obj
++      armature = obj.getData()
+       break
+   if armatureobj == 0:
+     raise Exception, &quot;Couldn't find armature object...&quot;
+ 
++  # compose list of bones to export
++  bones = []
++  for name in bone_names:
++    found = False
++    for bone in armature.getBones():
++      if bone.getName() == name:
++        bones.append(bone)
++        found = True
++        break
++    if not found:
++      raise Exception, &quot;No bone '%s' defined in armature&quot; % name
++
++  # compose list of actions to export
+   actions = []
+   for action in Blender.Armature.NLA.GetActions().iteritems():
+     actions.append(action[1])
+ 
++  # write file header
+   file = open(filename, &quot;wb&quot;)
+-  file.write(struct.pack(&quot;=4sHHH&quot;, &quot;W3DS&quot;, FORMAT_VERSION, len(meshes), len(actions)))
++  file.write(struct.pack(&quot;=4sHHHH&quot;, &quot;W3DS&quot;, FORMAT_VERSION, \
++        len(meshes), len(bones), len(actions)))
+   objvertmaps = {}
+ 
+   # Mesh Headers + Data
+@@ -183,6 +255,7 @@
+       continue
+       
+     texture_filename = texture.filename
++    texture_filename = os.path.basename(texture_filename)
+     vertexmap = []
+     uvs = []
+     def mapvertex(index, u, v):
+@@ -232,6 +305,11 @@
+ 
+     objvertmaps[obj.getName()] = vertexmap
+ 
++  # Bone Headers
++  for bone in bones:
++    file.write(struct.pack(&quot;=64s&quot;, bone.getName()))
++
++  # Action Headers + actions
+   actionnum = 0
+   for action in actions:
+     # enable action
+@@ -263,7 +341,9 @@
+     for i in range(first_frame, last_frame+1, samplerate):
+       resultframes += 1
+     progress = 1.0/float(len(actions)) * actionnum
+-    
++
++    print &quot;Exporting Action %s (%d frames)&quot; \
++            % (action.getName(), resultframes)
+     Window.DrawProgressBar(progress, &quot;Exporting Action %s (%d frames)&quot; \
+             % (action.getName(), resultframes))
+     actionnum += 1
+@@ -282,12 +362,13 @@
+     frs = 0
+     for frame in range(first_frame, last_frame+1, samplerate):
+       frs += 1
+-      Blender.Set(&quot;curframe&quot;, float(frame))
+-      for obj in Blender.Object.Get():
+-        data = obj.getData()
+-        if (type(data) is not Blender.Types.NMeshType) or not data.faces:                 continue
+-        if (obj.Layers &amp; layers) == 0:
+-          continue
++      Blender.Set(&quot;curframe&quot;, int(frame))
++      #for obj in Blender.Object.Get():
++      #  data = obj.getData()
++      #  if (type(data) is not Blender.Types.NMeshType) or not data.faces:                 continue
++      #  if (obj.Layers &amp; layers) == 0:
++      #    continue
++      for obj in meshes:
+         data = Blender.NMesh.GetRawFromObject(obj.getName())
+         vertexmap = objvertmaps[obj.getName()]
+         m = obj.getMatrix()
+@@ -302,11 +383,14 @@
+           t[1] *= ZOOM
+           t[2] *= ZOOM
+           file.write(struct.pack(&quot;=fff&quot;, t[1], -t[2], t[0]))
+-    # debug check...
+-    if frs != resultframes:
+-      raise Exception, &quot;resultframe calculation went wrong f: %d L: %d R: %d, calced %d got %d&quot; \
+-              % (first_frame, last_frame, samplerate, resultframes, frs)
+ 
++      # bone positions
++      for bone in bones:
++        loc = bone.getLoc()
++        file.write(struct.pack(&quot;=fff&quot;, loc[0], loc[1], loc[2]))
++        quat = bone.getQuat()
++        file.write(struct.pack(&quot;=ffff&quot;, quat.w, quat.x, quat.y, quat.z))
++      
+ def fs_callback(filename):
+   export(filename)
+ 
+@@ -315,4 +399,3 @@
+     defaultname = defaultname[0:len(defaultname) - len(&quot;.blend&quot;)] + &quot;.wsprite&quot;
+ Window.FileSelector(fs_callback, &quot;Windstille Export&quot;, defaultname)
+ 
+-# EOF #
+
+Added: trunk/data/3dsprites/grenade.wsprite
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/3dsprites/grenade.wsprite
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/3dsprites/grenadetexture.png
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/3dsprites/grenadetexture.png
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Modified: trunk/data/3dsprites/heroken.wsprite
+===================================================================
+(Binary files differ)
+
+Modified: trunk/data/blender/grenade/grenade.blend
+===================================================================
+(Binary files differ)
+
+Modified: trunk/data/scripts/init_script_vars.nut
+===================================================================
+--- trunk/data/scripts/init_script_vars.nut	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/data/scripts/init_script_vars.nut	2005-07-13 01:29:05 UTC (rev 607)
+@@ -1 +1,12 @@
+-like_frank &lt;- true;
+\ No newline at end of file
++like_frank &lt;- true;
++
++/* Some debugging/testing stuff */
++function testo(spritename)
++{
++  spawn_object(&quot;test-object&quot;, {
++      name=&quot;Test&quot;,
++      x = 435,
++      y = 709,
++      sprite = spritename
++      });
++}
+
+Modified: trunk/docs/wsprite_fileformat.txt
+===================================================================
+--- trunk/docs/wsprite_fileformat.txt	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/docs/wsprite_fileformat.txt	2005-07-13 01:29:05 UTC (rev 607)
+@@ -1,7 +1,8 @@
+ Header
+ char magic[4] (= W3DS)
+-uint16_t format_version      (= 1 at the moment)
++uint16_t format_version      (= 2 at the moment)
+ uint16_t mesh_count
++uint16_t bone_count
+ uint16_t action_count
+ 
+ Mesh Header
+@@ -14,6 +15,9 @@
+ float normal[3] per triangle
+ float texcoord[2] per vertex
+ 
++Bone Header
++char name[64]
++
+ Action Header
+ char name[64]
+ float speed
+@@ -29,4 +33,7 @@
+   for all meshes:
+     for all vertices:
+       float x, y, z
++  for all bones:
++    float locX, locY, locZ
++    float rotW, rotX, rotY, rotZ (it's a quaternion)
+ 
+
+Modified: trunk/src/box.cpp
+===================================================================
+--- trunk/src/box.cpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/box.cpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -41,7 +41,7 @@
+       name = iter.value().get_string();
+     } else {
+       std::cerr &lt;&lt; &quot;Skipping unknown attribute '&quot; 
+-                &lt;&lt; iter.item() &lt;&lt; &quot;' in FlashingSign\n&quot;;
++                &lt;&lt; iter.item() &lt;&lt; &quot;' in Box\n&quot;;
+     }
+   }
+ 
+
+Modified: trunk/src/game_session.cpp
+===================================================================
+--- trunk/src/game_session.cpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/game_session.cpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -270,7 +270,7 @@
+       world-&gt;add(psystem2);
+       world-&gt;add(psystem);
+       
+-      script_manager-&gt;run_script(&quot;scripts/init_script_vars.nut&quot;, &quot;init_script_vars&quot;, true);
++      script_manager-&gt;run_script_file(&quot;scripts/init_script_vars.nut&quot;);
+     }
+ 
+   //world-&gt;add(new TestObject());
+
+Modified: trunk/src/lisp/lisp.cpp
+===================================================================
+--- trunk/src/lisp/lisp.cpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/lisp/lisp.cpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -29,6 +29,14 @@
+ {
+ }
+ 
++Lisp::Lisp(LispType newtype, const std::string&amp; str)
++  : type(newtype)
++{
++  assert(newtype == TYPE_SYMBOL || type == TYPE_STRING);
++  v.string = new char[str.size()+1];
++  memcpy(v.string, str.c_str(), str.size()+1);
++}
++
+ Lisp::~Lisp()
+ {
+   if(type == TYPE_SYMBOL || type == TYPE_STRING)
+
+Modified: trunk/src/lisp/lisp.hpp
+===================================================================
+--- trunk/src/lisp/lisp.hpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/lisp/lisp.hpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -32,8 +32,6 @@
+ class Lisp
+ {
+ public:
+-  ~Lisp();
+-    
+   enum LispType {
+     TYPE_CONS,
+     TYPE_SYMBOL,
+@@ -43,6 +41,10 @@
+     TYPE_BOOLEAN
+   };
+ 
++  Lisp(LispType newtype);
++  Lisp(LispType newtype, const std::string&amp; value);  
++  ~Lisp();                                             
++
+   LispType get_type() const
+   { return type; } 
+ 
+@@ -168,6 +170,20 @@
+   // for debugging/error messages
+   void print(std::ostream&amp; out, int indent = 0) const;
+ 
++  union
++  {
++    struct
++    {
++      Lisp* car;
++      Lisp* cdr;
++    } cons;
++
++    char* string;
++    int integer;
++    bool boolean;
++    float real;
++  } v;
++
+ private:
+   bool get(std::string&amp; val) const
+   { 
+@@ -214,23 +230,7 @@
+     return true;
+   }
+  
+-  friend class Parser;
+-  Lisp(LispType newtype);
+-
+   LispType type;
+-  union
+-  {
+-    struct
+-    {
+-      Lisp* car;
+-      Lisp* cdr;
+-    } cons;
+-
+-    char* string;
+-    int integer;
+-    bool boolean;
+-    float real;
+-  } v;
+ };
+ 
+ } // end of namespace lisp
+
+Modified: trunk/src/player.cpp
+===================================================================
+--- trunk/src/player.cpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/player.cpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -43,6 +43,8 @@
+ {
+   name = &quot;Player&quot;;
+   sprite = sprite3d_manager-&gt;create(&quot;3dsprites/heroken.wsprite&quot;);
++  //grenade = sprite3d_manager-&gt;create(&quot;3dsprites/grenade.wsprite&quot;);
++  grenade = 0;
+   light.set_blend_func(blend_src_alpha, blend_one);
+ 
+   jumping = false;
+@@ -56,6 +58,7 @@
+ Player::~Player()
+ {
+   delete sprite;
++  delete grenade;
+ }
+ 
+ void
+
+Modified: trunk/src/player.hpp
+===================================================================
+--- trunk/src/player.hpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/player.hpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -43,6 +43,7 @@
+  
+   CL_Sprite light;
+   Sprite3D* sprite;
++  Sprite3D* grenade;
+ 
+   bool jumping;
+   bool bomb_placed;
+
+Modified: trunk/src/script_manager.cpp
+===================================================================
+--- trunk/src/script_manager.cpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/script_manager.cpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -77,19 +77,18 @@
+ }
+ 
+ int
++ScriptManager::run_script_file(const std::string&amp; filename)
++{
++  IFileStream in(filename);
++  return run_script(in, filename);
++}
++
++int
+ ScriptManager::run_script(const std::string&amp; the_string,
+-    const std::string&amp; sourcename, bool is_filename)
++    const std::string&amp; sourcename)
+ {
+-  if (is_filename)
+-    {
+-      IFileStream in(the_string);
+-      return run_script(in, sourcename);
+-    }
+-  else
+-    {
+-      std::istringstream stream(the_string);
+-      return run_script(stream, sourcename);
+-    }
++  std::istringstream stream(the_string);
++  return run_script(stream, sourcename);
+ }
+ 
+ int
+
+Modified: trunk/src/script_manager.hpp
+===================================================================
+--- trunk/src/script_manager.hpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/script_manager.hpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -17,8 +17,8 @@
+ 
+   void update();
+ 
+-  int run_script(const std::string&amp; the_string, const std::string&amp; sourcename,
+-                  bool is_file_name = false);
++  int run_script_file(const std::string&amp; filename);
++  int run_script(const std::string&amp; string, const std::string&amp; sourcename);
+   int run_script(std::istream&amp; in, const std::string&amp; sourcename);
+ 
+   template&lt;typename T&gt;
+
+Modified: trunk/src/scripting/game_objects.cpp
+===================================================================
+--- trunk/src/scripting/game_objects.cpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/scripting/game_objects.cpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -11,6 +11,12 @@
+ }
+ 
+ void
++GameObject::remove()
++{
++  object-&gt;remove();
++}
++
++void
+ FlashingSign::enable()
+ {
+   obj()-&gt;enable();
+
+Modified: trunk/src/scripting/game_objects.hpp
+===================================================================
+--- trunk/src/scripting/game_objects.hpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/scripting/game_objects.hpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -33,6 +33,7 @@
+   
+ public:
+   const std::string&amp; get_name() const;
++  void remove();
+ };
+ 
+ class FlashingSign : public GameObject
+
+Modified: trunk/src/scripting/interface.hpp
+===================================================================
+--- trunk/src/scripting/interface.hpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/scripting/interface.hpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -17,7 +17,7 @@
+ 
+ void play_sound(const std::string&amp; soundfile);
+ 
+-// alignment constants
++// dialog alignment constants
+ static const int VCENTER = 0x00;
+ static const int LEFT    = 0x01;
+ static const int RIGHT   = 0x02;
+
+Added: trunk/src/scripting/spawn_object.cpp
+===================================================================
+--- trunk/src/scripting/spawn_object.cpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/scripting/spawn_object.cpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -0,0 +1,114 @@
++#include &quot;wrapper.interface.hpp&quot;
++#include &quot;spawn_object.hpp&quot;
++
++#include &lt;iostream&gt;
++#include &quot;lisp/lisp.hpp&quot;
++#include &quot;wrapper_util.hpp&quot;
++#include &quot;sector.hpp&quot;
++
++namespace Scripting
++{
++
++using namespace lisp;
++
++lisp::Lisp* table_to_lisp(HSQUIRRELVM v, int table_idx)
++{
++  using namespace lisp;
++  Lisp* lisp = 0;
++
++  // offset because of sq_pushnull
++  if(table_idx &lt; 0)
++    table_idx--;
++
++  // iterate table
++  Lisp* cur = 0;
++  sq_pushnull(v);
++  while(SQ_SUCCEEDED(sq_next(v, table_idx))) {
++    if(cur == 0) {
++      lisp = new Lisp(Lisp::TYPE_CONS);
++      cur = lisp;
++    } else {
++      cur-&gt;v.cons.cdr = new Lisp(Lisp::TYPE_CONS);
++      cur = cur-&gt;v.cons.cdr;
++    }
++    
++    // key is -2, value -1 now
++    if(sq_gettype(v, -2) != OT_STRING) {
++      std::cerr &lt;&lt; &quot;Table contains a non string key\n&quot;;
++      continue;
++    }
++    const char* key;
++    sq_getstring(v, -2, &amp;key);
++
++    Lisp* val = 0;
++    switch(sq_gettype(v, -1)) {
++      case OT_INTEGER:
++        val = new Lisp(Lisp::TYPE_INTEGER);
++        sq_getinteger(v, -1, &amp;val-&gt;v.integer);
++        break;
++      case OT_FLOAT:
++        val = new Lisp(Lisp::TYPE_REAL);
++        sq_getfloat(v, -1, &amp;val-&gt;v.real);
++        break;
++      case OT_STRING:
++        const char* str;
++        sq_getstring(v, -1, &amp;str);
++        val = new Lisp(Lisp::TYPE_STRING, str);
++        break;
++      case OT_TABLE:
++        val = table_to_lisp(v, -1);
++        break;
++      case OT_ARRAY:
++        // TODO...
++      default:
++        std::cerr &lt;&lt; &quot;Unsupported value type in table\n&quot;;
++        break;
++    }
++    if(val == 0)
++      continue;
++
++    Lisp* node = new Lisp(Lisp::TYPE_CONS);
++    cur-&gt;v.cons.car = node;
++
++    node-&gt;v.cons.car = new Lisp(Lisp::TYPE_SYMBOL, key);
++    if(val-&gt;get_type() == Lisp::TYPE_CONS) {
++      node-&gt;v.cons.cdr = val;
++    } else {
++      node-&gt;v.cons.cdr = new Lisp(Lisp::TYPE_CONS);
++      node-&gt;v.cons.cdr-&gt;v.cons.car = val;
++      node-&gt;v.cons.cdr-&gt;v.cons.cdr = 0;
++    }
++    
++    // pop table key and value
++    sq_pop(v, 2);
++  }
++  if(cur != 0)
++    cur-&gt;v.cons.cdr = 0;
++  // pop iterator
++  sq_pop(v, 1);
++
++  return lisp;
++}
++
++int spawn_object(HSQUIRRELVM v)
++{
++  const char* objname;
++  sq_getstring(v, 2, &amp;objname);
++
++  lisp::Lisp* lisp = table_to_lisp(v, 3);
++  if(lisp == 0) {
++    // TODO throw squirrel exception...
++    std::cerr &lt;&lt; &quot;Invalid or empty table specified for spawn_object\n&quot;;
++    return 0;
++  }
++  try {
++    Sector::current()-&gt;add_object(objname, lisp);
++  } catch(std::exception&amp; e) {
++    std::cerr &lt;&lt; &quot;Error parsing object in spawn_object: &quot; &lt;&lt; e.what()
++      &lt;&lt; &quot;\n&quot;;
++  }
++
++  return 0;
++}
++
++}
+
+Added: trunk/src/scripting/spawn_object.hpp
+===================================================================
+--- trunk/src/scripting/spawn_object.hpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/scripting/spawn_object.hpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -0,0 +1,23 @@
++#ifndef __SPAWN_OBJECT_HPP__
++#define __SPAWN_OBJECT_HPP__
++
++#ifndef SCRIPTING_API
++#include &lt;squirrel.h&gt;
++#endif
++
++namespace Scripting
++{
++
++/**
++ * Spawn object. Parameters:
++ *    name:    string with name of object
++ *    table:   table that is parsed to get object properties
++ *
++ * Example: spawn_object(&quot;FlashingSign&quot;, { name=&quot;blup&quot;, x = 2.0, y = 5.0, sprite=&quot;arrows/red&quot; });
++ */
++int spawn_object(HSQUIRRELVM v) __custom;
++
++}
++
++#endif
++
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/scripting/wrapper.cpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -42,6 +42,7 @@
+     sq_setreleasehook(v, -1, GameObject_release_hook);
+   }
+ }
++
+ static int GameObject_get_name_wrapper(HSQUIRRELVM v)
+ {
+   Scripting::GameObject* _this;
+@@ -53,6 +54,16 @@
+   return 1;
+ }
+ 
++static int GameObject_remove_wrapper(HSQUIRRELVM v)
++{
++  Scripting::GameObject* _this;
++  sq_getinstanceup(v, 1, (SQUserPointer*) &amp;_this, 0);
++  
++  _this-&gt;remove();
++  
++  return 0;
++}
++
+ static int FlashingSign_release_hook(SQUserPointer ptr, int )
+ {
+   Scripting::FlashingSign* _this = reinterpret_cast&lt;Scripting::FlashingSign*&gt; (ptr);
+@@ -80,6 +91,7 @@
+     sq_setreleasehook(v, -1, FlashingSign_release_hook);
+   }
+ }
++
+ static int FlashingSign_enable_wrapper(HSQUIRRELVM v)
+ {
+   Scripting::FlashingSign* _this;
+@@ -127,6 +139,7 @@
+     sq_setreleasehook(v, -1, TestObject_release_hook);
+   }
+ }
++
+ static int TestObject_set_sprite_wrapper(HSQUIRRELVM v)
+ {
+   Scripting::TestObject* _this;
+@@ -204,6 +217,7 @@
+     sq_setreleasehook(v, -1, Player_release_hook);
+   }
+ }
++
+ static int Player_start_listening_wrapper(HSQUIRRELVM v)
+ {
+   Scripting::Player* _this;
+@@ -356,6 +370,11 @@
+   return sq_suspendvm(v);
+ }
+ 
++static int spawn_object_wrapper(HSQUIRRELVM v)
++{
++  return Scripting::spawn_object(v);
++}
++
+ void register_windstille_wrapper(HSQUIRRELVM v)
+ {
+   sq_pushroottable(v);
+@@ -511,6 +530,14 @@
+     throw SquirrelError(v, msg.str());
+   }
+ 
++  sq_pushstring(v, &quot;spawn_object&quot;, -1);
++  sq_newclosure(v, &amp;spawn_object_wrapper, 0);
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'spawn_object'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
+   // Register class GameObject
+   sq_pushstring(v, &quot;GameObject&quot;, -1);
+   if(sq_newclass(v, SQFalse) &lt; 0) {
+@@ -526,8 +553,16 @@
+     throw SquirrelError(v, msg.str());
+   }
+ 
++  sq_pushstring(v, &quot;remove&quot;, -1);
++  sq_newclosure(v, &amp;GameObject_remove_wrapper, 0);
+   if(sq_createslot(v, -3) &lt; 0) {
+     std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'remove'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
+     msg &lt;&lt; &quot;Couldn't register class'GameObject'&quot;;
+     throw SquirrelError(v, msg.str());
+   }
+
+Modified: trunk/src/scripting/wrapper.interface.hpp
+===================================================================
+--- trunk/src/scripting/wrapper.interface.hpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/scripting/wrapper.interface.hpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -1,6 +1,8 @@
+ #ifndef SCRIPTING_API
++#define __custom
+ #define __suspend
+ #endif
+ 
+ #include &quot;interface.hpp&quot;
++#include &quot;spawn_object.hpp&quot;
+ #include &quot;game_objects.hpp&quot;
+
+Modified: trunk/src/sector.cpp
+===================================================================
+--- trunk/src/sector.cpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/sector.cpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -36,6 +36,7 @@
+ #include &quot;sound/sound_manager.hpp&quot;
+ #include &quot;script_manager.hpp&quot;
+ #include &quot;collision/collision_engine.hpp&quot;
++#include &quot;test_object.hpp&quot;
+ #include &quot;character.hpp&quot;
+ #include &quot;box.hpp&quot;
+ #include &quot;door.hpp&quot;
+@@ -106,7 +107,7 @@
+     } else if(iter.item() == &quot;objects&quot;) {
+       lisp::ListIterator oiter(iter.lisp());
+       while(oiter.next()) {
+-        parse_object(oiter.item(), oiter.lisp());
++        add_object(oiter.item(), oiter.lisp());
+       }
+     } else {
+       std::cerr &lt;&lt; &quot;Skipping unknown tag '&quot; &lt;&lt; iter.item() &lt;&lt; &quot;' in sector\n&quot;;
+@@ -115,7 +116,7 @@
+ }
+ 
+ void
+-Sector::parse_object(const std::string&amp; name, const lisp::Lisp* lisp)
++Sector::add_object(const std::string&amp; name, const lisp::Lisp* lisp)
+ {
+   if(name == &quot;tilemap&quot;) {
+     TileMap* tilemap = new TileMap(lisp);
+@@ -132,6 +133,8 @@
+     add(new FlashingSign(lisp));
+   } else if(name == &quot;character&quot;) {    
+     add(new Character(lisp));
++  } else if(name == &quot;test-object&quot;) {
++    add(new TestObject(lisp));
+   } else if(name == &quot;door&quot;) {    
+     add(new Door(lisp));
+   } else {
+
+Modified: trunk/src/sector.hpp
+===================================================================
+--- trunk/src/sector.hpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/sector.hpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -61,7 +61,6 @@
+   Player* player;
+ 
+   void parse_file(const std::string&amp; filename);
+-  void parse_object(const std::string&amp; name, const lisp::Lisp* lisp);
+ 
+   static Sector* current_;
+ 
+@@ -93,6 +92,7 @@
+ 
+   void add(GameObject*);
+   void add_entity(Entity *);
++  void add_object(const std::string&amp; name, const lisp::Lisp* lisp);
+ 
+   GameObject* get_object(const std::string&amp; name) const;
+ 
+
+Modified: trunk/src/sprite3d/sprite3d.cpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d.cpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/sprite3d/sprite3d.cpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -43,10 +43,13 @@
+   abort_at_frame.action = 0;
+   next_frame.action = 0;
+   next_action.action = 0;
++
++  bone_positions = new BonePosition[data-&gt;bone_count];
+ }
+ 
+ Sprite3D::~Sprite3D()
+ {
++  delete[] bone_positions;
+ }
+ 
+ void
+@@ -164,6 +167,79 @@
+   return frame1.rot;
+ }
+ 
++BoneID
++Sprite3D::get_bone_id(const std::string&amp; name) const
++{
++  return data-&gt;get_bone_id(name); 
++}
++
++static inline void set_matrix_from_quat(Matrix&amp; m, float w,
++    float x, float y, float z)
++{
++  //row1
++  m.matrix[0] = 1.0f - 2*y*y - 2*z*z;
++  m.matrix[4] = 2*x*y - 2*w*z;
++  m.matrix[8] = 2*x*z + 2*w*y;
++  m.matrix[12] = 0.0f;
++
++  //row2
++  m.matrix[1] = 2*x*y + 2*w*z;
++  m.matrix[5] = 1.0f - 2*x*x - 2*z*z;
++  m.matrix[9] = 2*y*z - 2*w*x;
++  m.matrix[13] = 0.0f;
++
++  //row3
++  m.matrix[2] = 2*x*z - 2*w*y;
++  m.matrix[6] = 2*y*z + 2*w*x;
++  m.matrix[10] = 1.0f - 2*x*x - 2*y*y;
++  m.matrix[14] = 0.0f;
++
++  //row4
++  m.matrix[3] = 0.0f;
++  m.matrix[7] = 0.0f;
++  m.matrix[11] = 0.0f;
++  m.matrix[15] = 1.0f;
++}
++
++Matrix
++Sprite3D::get_bone_matrix(BoneID id) const
++{
++  float t_1 = 1.0 - blend_time;
++  const BonePosition&amp; bone1 = frame1.action-&gt;frames[frame1.frame].bones[id];
++  const BonePosition&amp; bone2 = frame2.action-&gt;frames[frame2.frame].bones[id];
++
++  float pos[3];
++  float quat[4];
++  if(frame1.rot) {
++    pos[0] = -bone1.pos[0] * t_1;
++    pos[1] = bone1.pos[1] * t_1;
++    pos[2] = -bone1.pos[2] * t_1;   
++  } else {
++    for(int i = 0; i &lt; 3; ++i)
++      pos[i] = bone1.pos[i] * t_1;
++    for(int i = 0; i &lt; 4; ++i)
++      quat[i] = bone1.quat[i] * t_1;
++  }
++  if(frame2.rot) {
++    pos[0] += -bone2.pos[0] * blend_time;
++    pos[1] += bone2.pos[1] * blend_time;
++    pos[2] += -bone2.pos[2] * blend_time;
++  } else {
++    for(int i = 0; i &lt; 3; ++i)
++      pos[i] += bone2.pos[i] * blend_time;
++    for(int i = 0; i &lt; 4; ++i)
++      quat[i] += bone2.quat[i] * blend_time;
++  }
++
++  Matrix m;
++  set_matrix_from_quat(m, quat[0], quat[1], quat[2], quat[3]);
++  m.matrix[3] += pos[0];
++  m.matrix[7] += pos[1];
++  m.matrix[11] += pos[2];
++
++  return m;
++}
++
+ class Sprite3DDrawingRequest : public DrawingRequest
+ {
+ private:
+
+Modified: trunk/src/sprite3d/sprite3d.hpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d.hpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/sprite3d/sprite3d.hpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -29,9 +29,12 @@
+ class Sprite3DData;
+ struct Action;
+ struct ActionFrame;
++struct BonePosition;
+ 
++typedef uint16_t BoneID;
++
+ /**
+- * This class is a 3d sprite. It's a set of textured meshed with different
++ * This class is a 3d sprite. It's a set of textured meshs with different
+  * animations (called actions) that are keyframe animated.
+  */
+ class Sprite3D
+@@ -91,6 +94,9 @@
+   void set_rot(bool rot = true);
+   bool get_rot() const;
+ 
++  BoneID get_bone_id(const std::string&amp; name) const;
++  Matrix get_bone_matrix(BoneID id) const;
++
+ private:
+   friend class Sprite3DDrawingRequest;
+   friend class Sprite3DManager;
+@@ -118,6 +124,8 @@
+   const Sprite3DData* data;
+   bool actions_switched;
+ 
++  BonePosition* bone_positions;
++
+   Frame frame1;
+   Frame frame2;
+   float blend_time;
+
+Modified: trunk/src/sprite3d/sprite3d_data.cpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d_data.cpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/sprite3d/sprite3d_data.cpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -7,7 +7,7 @@
+ #include &quot;util.hpp&quot;
+ #include &quot;globals.hpp&quot;
+ 
+-static const int FORMAT_VERSION = 1;
++static const int FORMAT_VERSION = 2;
+ 
+ static inline float read_float(PHYSFS_file* file)
+ {
+@@ -47,7 +47,8 @@
+ }
+ 
+ Sprite3DData::Sprite3DData(const std::string&amp; filename)
+-  : mesh_count(0), meshs(0), action_count(0), actions(0)
++  : mesh_count(0), meshs(0), bone_count(0), bones(0),
++  action_count(0), actions(0)
+ {
+   PHYSFS_file* file = PHYSFS_openRead(filename.c_str());
+   if(!file) {
+@@ -70,6 +71,7 @@
+     mesh_count = read_uint16_t(file);
+     if(mesh_count == 0)
+       throw std::runtime_error(&quot;Sprite contains no meshs&quot;);
++    bone_count = read_uint16_t(file);
+     action_count = read_uint16_t(file);
+     if(action_count == 0)
+       throw std::runtime_error(&quot;Sprite contains no actions&quot;);
+@@ -81,14 +83,14 @@
+ 
+       std::string texturename = read_string(file, 64);
+       texturename = dirname(filename) + basename(texturename);
+-      
+-      mesh.texture = CL_OpenGLSurface(datadir + texturename);
+       mesh.triangle_count = read_uint16_t(file);
+       mesh.vertex_count = read_uint16_t(file);
+ 
+       printf(&quot;Reading Mesh Tex %s Tri %u Vs %u.\n&quot;, texturename.c_str(),
+               mesh.triangle_count, mesh.vertex_count);
+ 
++      mesh.texture = CL_OpenGLSurface(datadir + texturename);
++
+       // read triangles
+       mesh.vertex_indices = new uint16_t[mesh.triangle_count * 3];
+       for(uint16_t v = 0; v &lt; mesh.triangle_count * 3; ++v) {
+@@ -106,6 +108,13 @@
+       }
+     }
+ 
++    // read bones
++    bones = new Bone[bone_count];
++    for(uint16_t b = 0; b &lt; bone_count; ++b) {
++      Bone&amp; bone = bones[b];
++      bone.name = read_string(file, 64);
++    }
++
+     // read actions
+     actions = new Action[action_count];
+     for(uint16_t i = 0; i &lt; action_count; ++i) {
+@@ -131,8 +140,8 @@
+       action.frames = new ActionFrame[action.frame_count];
+       for(uint16_t f = 0; f &lt; action.frame_count; ++f) {
+         ActionFrame&amp; frame = action.frames[f];
++        
+         frame.meshs = new MeshVertices[mesh_count];
+-
+         for(uint16_t m = 0; m &lt; mesh_count; ++m) {
+           MeshVertices&amp; mesh = frame.meshs[m];
+ 
+@@ -141,6 +150,15 @@
+             mesh.vertices[v] = read_float(file);
+           }
+         }
++
++        frame.bones = new BonePosition[bone_count];
++        for(uint16_t b = 0; b &lt; bone_count; ++b) {
++          BonePosition&amp; bone = frame.bones[b];
++          for(int i = 0; i &lt; 3; ++i)
++            bone.pos[i] = read_float(file);
++          for(int i = 0; i &lt; 4; ++i)
++            bone.quat[i] = read_float(file);
++        }
+       }
+     }
+   } catch(std::exception&amp; e) {
+@@ -171,6 +189,10 @@
+     delete[] meshs;
+     meshs = 0;
+   }
++  
++  delete[] bones;
++  bones = 0;
++
+   if(actions != 0) {
+     for(uint16_t a = 0; a &lt; action_count; ++a) {
+       Action&amp; action = actions[a];
+@@ -187,6 +209,7 @@
+           delete[] vertices.vertices;
+         }
+         delete[] frame.meshs;
++        delete[] frame.bones;
+       }
+       delete[] action.frames;
+     }
+@@ -221,3 +244,16 @@
+   throw std::runtime_error(msg.str());
+ }
+ 
++uint16_t
++Sprite3DData::get_bone_id(const std::string&amp; name) const
++{
++  for(uint16_t b = 0; b &lt; bone_count; ++b) {
++    if(bones[b].name == name)
++      return b;
++  }
++
++  std::ostringstream msg;
++  msg &lt;&lt; &quot;No bone with name '&quot; &lt;&lt; name &lt;&lt; &quot;' defined&quot;;
++  throw std::runtime_error(msg.str());
++}
++
+
+Modified: trunk/src/sprite3d/sprite3d_data.hpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d_data.hpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/sprite3d/sprite3d_data.hpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -22,6 +22,7 @@
+ #include &lt;ClanLib/GL/opengl_surface.h&gt;
+ 
+ struct Mesh;
++struct Bone;
+ struct MeshVertices;
+ struct ActionFrame;
+ struct Action;
+@@ -38,9 +39,12 @@
+ 
+   const Action&amp; get_action(const std::string&amp; name) const;
+   const Marker&amp; get_marker(const Action* action, const std::string&amp; name) const;
++  uint16_t get_bone_id(const std::string&amp; name) const;
+ 
+   uint16_t mesh_count;
+-  Mesh* meshs;            
++  Mesh* meshs;
++  uint16_t bone_count;
++  Bone* bones;
+   uint16_t action_count;
+   Action* actions;
+ 
+@@ -65,6 +69,11 @@
+   uint16_t vertex_count;
+ };
+ 
++struct Bone
++{
++  std::string name;
++};
++
+ struct MeshVertices
+ {
+   MeshVertices()
+@@ -73,12 +82,21 @@
+   float* vertices;
+ };
+ 
++struct BonePosition
++{
++  BonePosition()
++  { }
++  float pos[3]; // x, y, z
++  float quat[4]; // w, x, y, z
++};
++
+ struct ActionFrame
+ {
+   ActionFrame()
+-    : meshs(0)
++    : meshs(0), bones(0)
+   { }
+   MeshVertices* meshs;
++  BonePosition* bones;
+ };
+ 
+ struct Marker
+
+Modified: trunk/src/test_object.cpp
+===================================================================
+--- trunk/src/test_object.cpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/test_object.cpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -1,11 +1,33 @@
+ #include &quot;test_object.hpp&quot;
+ #include &quot;sprite3d/sprite3d_manager.hpp&quot;
++#include &quot;lisp/list_iterator.hpp&quot;
+ 
+-TestObject::TestObject()
++TestObject::TestObject(const lisp::Lisp* lisp)
+ {
+-  sprite = sprite3d_manager-&gt;create(&quot;3dsprites/heroken.wsprite&quot;);
+-  pos = Vector(12*32, 26*32, 100);
+-  name = &quot;TEST&quot;;
++  pos = Vector(0, 0, 100);
++  std::string spritename;
++
++  lisp::ListIterator iter(lisp);
++  while(iter.next()) {
++    if(iter.item() == &quot;sprite&quot;) {
++      spritename = iter.value().get_string();
++    } else if(iter.item() == &quot;x&quot;) {
++      pos.x = iter.value().get_float();
++    } else if(iter.item() == &quot;y&quot;) {
++      pos.y = iter.value().get_float();
++    } else if(iter.item() == &quot;z&quot;) {
++      pos.z = iter.value().get_float();
++    } else if(iter.item() == &quot;name&quot;) {
++      name = iter.value().get_string();
++    } else {
++      std::cerr &lt;&lt; &quot;Skipping unknown attribute '&quot; 
++                &lt;&lt; iter.item() &lt;&lt; &quot;' in Box\n&quot;;
++    }
++  }
++
++  if(spritename == &quot;&quot;)
++    throw std::runtime_error(&quot;No sprite name specified in Box&quot;);
++  sprite = sprite3d_manager-&gt;create(spritename);
+ }
+ 
+ TestObject::~TestObject()
+
+Modified: trunk/src/test_object.hpp
+===================================================================
+--- trunk/src/test_object.hpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/test_object.hpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -4,11 +4,12 @@
+ #include &quot;game_object.hpp&quot;
+ #include &quot;sprite3d/sprite3d.hpp&quot;
+ #include &quot;math/vector.hpp&quot;
++#include &quot;lisp/lisp.hpp&quot;
+ 
+ class TestObject : public GameObject
+ {
+ public:
+-  TestObject();
++  TestObject(const lisp::Lisp* lisp);
+   virtual ~TestObject();
+ 
+   void draw(SceneContext&amp; context);
+
+Modified: trunk/src/tile_factory.cpp
+===================================================================
+--- trunk/src/tile_factory.cpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/tile_factory.cpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -128,7 +128,7 @@
+             {
+               // ignore the given section of the image 
+             }
+-          else if (ids[i] &lt; tiles.size() &amp;&amp; tiles[ids[i]] != NULL)
++          else if (ids[i] &lt; (int) tiles.size() &amp;&amp; tiles[ids[i]] != NULL)
+             {
+               std::ostringstream os;
+               os &lt;&lt; ids[i];
+
+Modified: trunk/src/trigger.cpp
+===================================================================
+--- trunk/src/trigger.cpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/trigger.cpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -87,7 +87,6 @@
+   if(last_trigger == false) {
+     triggered = true;
+     try {
+-      //for(int i = 0; i &lt; 1000; ++i)
+       script_manager-&gt;run_script(script, &quot;TriggerObject&quot;);
+     } catch(std::exception&amp; e) {
+       std::cerr &lt;&lt; &quot;Couldn't run trigger-script: &quot; &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
+
+Modified: trunk/src/util.cpp
+===================================================================
+--- trunk/src/util.cpp	2005-07-13 01:05:38 UTC (rev 606)
++++ trunk/src/util.cpp	2005-07-13 01:29:05 UTC (rev 607)
+@@ -21,12 +21,13 @@
+ 
+ void file_to_string(const std::string&amp; filename, std::string&amp; str)
+ {
+-  std::ifstream in(filename.c_str());
+-  while (true)
+-    {
+-      char c = in.get();
+-      if (!in.good())
+-        break;
+-      str += c;
++  std::ifstream in(filename.c_str());
++  while (true)
++    {
++      char c = in.get();
++      if (!in.good())
++        break;
++      str += c;
+     }
+ }
++
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000259.html">[Windstille-commit] r606 - in trunk: data/levels src
+</A></li>
+	<LI>Next message: <A HREF="000261.html">[Windstille-commit] r608 - trunk/src/lisp
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#260">[ date ]</a>
+              <a href="thread.html#260">[ thread ]</a>
+              <a href="subject.html#260">[ subject ]</a>
+              <a href="author.html#260">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

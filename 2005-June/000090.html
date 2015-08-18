@@ -1,0 +1,164 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r433 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r433%20-%20trunk/src&In-Reply-To=%3C200506261329.j5QDTE94026203%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000089.html">
+   <LINK REL="Next"  HREF="000091.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r433 - trunk/src</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r433%20-%20trunk/src&In-Reply-To=%3C200506261329.j5QDTE94026203%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r433 - trunk/src">grumbel at sheep.berlios.de
+       </A><BR>
+    <I>Sun Jun 26 15:29:14 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000089.html">[Windstille-commit] r432 - trunk/data/blender/hero
+</A></li>
+        <LI>Next message: <A HREF="000091.html">[Windstille-commit] r434 - in trunk/src: . display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#90">[ date ]</a>
+              <a href="thread.html#90">[ thread ]</a>
+              <a href="subject.html#90">[ subject ]</a>
+              <a href="author.html#90">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-06-26 15:29:12 +0200 (Sun, 26 Jun 2005)
+New Revision: 433
+
+Modified:
+   trunk/src/game_session.cxx
+   trunk/src/particle_system.cxx
+Log:
+- fixed spark particles
+
+Modified: trunk/src/game_session.cxx
+===================================================================
+--- trunk/src/game_session.cxx	2005-06-26 04:40:00 UTC (rev 432)
++++ trunk/src/game_session.cxx	2005-06-26 13:29:12 UTC (rev 433)
+@@ -259,7 +259,7 @@
+       psystem2-&gt;set_pos(0,0);
+       psystem2-&gt;set_speed(300, 550);
+       psystem2-&gt;set_cone(-25-90, 25-90);
+-      psystem2-&gt;set_gravity(0, 20);
++      psystem2-&gt;set_gravity(0, 5);
+       psystem2-&gt;set_line_distribution(-50, 0, 50, 0);
+ 
+       ParticleSystem* psystem3 = new ParticleSystem();
+
+Modified: trunk/src/particle_system.cxx
+===================================================================
+--- trunk/src/particle_system.cxx	2005-06-26 04:40:00 UTC (rev 432)
++++ trunk/src/particle_system.cxx	2005-06-26 13:29:12 UTC (rev 433)
+@@ -26,6 +26,7 @@
+ class Randomizer 
+ {
+ public:
++  virtual ~Randomizer() {}
+   virtual void set_pos(Particle&amp; p) =0;
+ };
+ 
+@@ -122,25 +123,49 @@
+     }
+ }
+ 
++class SparkDrawerDrawingRequest : public DrawingRequest
++{
++private:
++  ParticleSystem&amp; psys;
++public:
++  SparkDrawerDrawingRequest(ParticleSystem&amp; psys_,
++                            const CL_Vector&amp; pos, const CL_Matrix4x4&amp; modelview = CL_Matrix4x4(true))
++    : DrawingRequest(pos, modelview),
++      psys(psys_)
++  {
++  }
++
++  virtual ~SparkDrawerDrawingRequest() {}
++  
++  void draw(CL_GraphicContext* gc) 
++  {
++    gc-&gt;push_modelview();
++    gc-&gt;add_modelview(modelview);
++
++    CL_OpenGLState state(gc);
++    state.set_active();
++    state.setup_2d();
++  
++    glEnable(GL_BLEND);
++    glBlendFunc( GL_SRC_ALPHA, GL_ONE );
++    glBegin(GL_LINES);
++    for(ParticleSystem::Particles::iterator i = psys.begin(); i != psys.end(); ++i)
++      {
++        glColor4f(1.0, 1.0, 0, 1.0f-psys.get_progress(i-&gt;t));
++        glVertex2f(i-&gt;x, i-&gt;y);
++        glColor4f(0, 0, 0, 0);
++        glVertex2f(i-&gt;x - i-&gt;v_x/10.0f, i-&gt;y - i-&gt;v_y/10.0f);
++      }
++    glEnd();  
++
++    gc-&gt;pop_modelview();
++  }
++};
++
+ void
+ SparkDrawer::draw(SceneContext&amp; sc, ParticleSystem&amp; psys) 
+ {
+-  CL_OpenGLState state(CL_Display::get_current_window()-&gt;get_gc());
+-  state.set_active();
+-  state.setup_2d();
+-  
+-  //glBlendMode(GL_SRC_ALPHA, GL_SRC_ALPHA_MINUS_ONE);
+-  glEnable(GL_BLEND);
+-  glBlendFunc( GL_SRC_ALPHA, GL_ONE );
+-  glBegin(GL_LINES);
+-  for(ParticleSystem::Particles::iterator i = psys.begin(); i != psys.end(); ++i)
+-    {
+-      glColor4f(1.0, 1.0, 0, 1.0f-psys.get_progress(i-&gt;t));
+-      glVertex2f(i-&gt;x, i-&gt;y);
+-      glColor4f(0, 0, 0, 0);
+-      glVertex2f(i-&gt;x - i-&gt;v_x/10.0f, i-&gt;y - i-&gt;v_y/10.0f);
+-    }
+-  glEnd();
++  sc.color().draw(new SparkDrawerDrawingRequest(psys, CL_Vector(0, 0, .5f), sc.color().get_modelview()));
+ }
+ 
+ ParticleSystem::ParticleSystem()
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000089.html">[Windstille-commit] r432 - trunk/data/blender/hero
+</A></li>
+	<LI>Next message: <A HREF="000091.html">[Windstille-commit] r434 - in trunk/src: . display
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#90">[ date ]</a>
+              <a href="thread.html#90">[ thread ]</a>
+              <a href="subject.html#90">[ subject ]</a>
+              <a href="author.html#90">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

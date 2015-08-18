@@ -1,0 +1,369 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2815 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2815%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200903300245.n2U2jcDL031455%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001811.html">
+   <LINK REL="Next"  HREF="001813.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2815 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2815%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200903300245.n2U2jcDL031455%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2815 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Mar 30 04:45:38 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001811.html">[Windstille-commit] r2814 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="001813.html">[Windstille-commit] r2816 - trunk/windstille
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1812">[ date ]</a>
+              <a href="thread.html#1812">[ thread ]</a>
+              <a href="subject.html#1812">[ subject ]</a>
+              <a href="author.html#1812">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-30 04:45:31 +0200 (Mon, 30 Mar 2009)
+New Revision: 2815
+
+Modified:
+   trunk/windstille/src/editor/decal_object_model.cpp
+   trunk/windstille/src/editor/layer_manager.cpp
+   trunk/windstille/src/editor/object_model.cpp
+   trunk/windstille/src/editor/object_model.hpp
+   trunk/windstille/src/editor/object_model_factory.hpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+Log:
+implemented load/save of parent, replaced FileReader::read with FileReader::get, fixed crash due to invalid path
+
+Modified: trunk/windstille/src/editor/decal_object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/decal_object_model.cpp	2009-03-30 02:36:30 UTC (rev 2814)
++++ trunk/windstille/src/editor/decal_object_model.cpp	2009-03-30 02:45:31 UTC (rev 2815)
+@@ -33,8 +33,8 @@
+   : ObjectModel(reader)
+ {
+   int map_type = 0;
+-  reader.read(&quot;path&quot;, path);
+-  reader.read(&quot;type&quot;, map_type);
++  reader.get(&quot;path&quot;, path);
++  reader.get(&quot;type&quot;, map_type);
+   type = (MapType)map_type;
+   surface = Surface(path);
+ }
+
+Modified: trunk/windstille/src/editor/layer_manager.cpp
+===================================================================
+--- trunk/windstille/src/editor/layer_manager.cpp	2009-03-30 02:36:30 UTC (rev 2814)
++++ trunk/windstille/src/editor/layer_manager.cpp	2009-03-30 02:45:31 UTC (rev 2815)
+@@ -60,7 +60,6 @@
+                     sigc::bind(sigc::mem_fun(*this, &amp;LayerManager::on_auto_lock), auto_lock));
+                     //sigc::bind(sigc::mem_fun(editor, &amp;EditorWindow::on_auto_lock), auto_lock));
+ 
+-
+   ui_manager-&gt;insert_action_group(action_group);
+ 
+   ui_manager-&gt;add_ui_from_string(&quot;&lt;ui&gt;&quot;
+
+Modified: trunk/windstille/src/editor/object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/object_model.cpp	2009-03-30 02:36:30 UTC (rev 2814)
++++ trunk/windstille/src/editor/object_model.cpp	2009-03-30 02:45:31 UTC (rev 2815)
+@@ -17,6 +17,7 @@
+ */
+ 
+ #include &lt;iostream&gt;
++#include &lt;sstream&gt;
+ 
+ #include &quot;editor_window.hpp&quot;
+ #include &quot;util/file_reader.hpp&quot;
+@@ -32,13 +33,11 @@
+ 
+ ObjectModel::ObjectModel(FileReader&amp; reader)
+ {
+-  std::string parent;
+-  reader.read(&quot;name&quot;, name);
++  reader.get(&quot;name&quot;, name);
+   reader.get(&quot;pos&quot;,  rel_pos);
+-  reader.read(&quot;parent&quot;,  parent);
+   
+   int layer_mask = 1;
+-  reader.read(&quot;layer&quot;, layer_mask);
++  reader.get(&quot;layer&quot;, layer_mask);
+   layers = Layers(layer_mask);
+ }
+ 
+@@ -46,14 +45,23 @@
+ {
+ }
+ 
++std::string
++ObjectModel::get_id() const
++{
++  std::ostringstream os;
++  os &lt;&lt; this;
++  return os.str();
++}
++
+ FileWriter&amp;
+ ObjectModel::write_member(FileWriter&amp; writer) const
+ {
+   ObjectModelHandle parent = parent_ptr.lock();
+ 
+   return writer
++    .write(&quot;id&quot;, get_id())
+     .write(&quot;pos&quot;, rel_pos)
+-    .write(&quot;parent&quot;, parent.get() ? parent-&gt;get_name() : &quot;&quot;)
++    .write(&quot;parent&quot;, parent.get() ? parent-&gt;get_id() : &quot;&quot;)
+     .write(&quot;layer&quot;, layers.get_mask());
+ }
+ 
+@@ -65,7 +73,7 @@
+ }
+ 
+ void
+-ObjectModel::set_parent(const ObjectModelHandle&amp; parent_)
++ObjectModel::set_parent(const ObjectModelHandle&amp; parent_, bool recalc_pos)
+ {
+   { // Remove the old parent
+     ObjectModelHandle parent = parent_ptr.lock();
+@@ -91,7 +99,7 @@
+     }
+ 
+   // Set new parent
+-  if (parent_.get())
++  if (parent_.get() &amp;&amp; recalc_pos)
+     {
+       rel_pos -= parent_-&gt;get_world_pos();
+     }
+
+Modified: trunk/windstille/src/editor/object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/object_model.hpp	2009-03-30 02:36:30 UTC (rev 2814)
++++ trunk/windstille/src/editor/object_model.hpp	2009-03-30 02:45:31 UTC (rev 2815)
+@@ -51,10 +51,11 @@
+   ObjectModel(const std::string&amp; name, const Vector2f&amp; pos);
+   virtual ~ObjectModel();
+   
+-  void set_parent(const ObjectModelHandle&amp; parent_);
++  void set_parent(const ObjectModelHandle&amp; parent_, bool recalc_pos = true);
+   ObjectModelHandle get_parent() const;
+ 
+   std::string get_name() const { return name; }
++  std::string get_id() const;
+ 
+   Vector2f get_world_pos() const;
+ 
+
+Modified: trunk/windstille/src/editor/object_model_factory.hpp
+===================================================================
+--- trunk/windstille/src/editor/object_model_factory.hpp	2009-03-30 02:36:30 UTC (rev 2814)
++++ trunk/windstille/src/editor/object_model_factory.hpp	2009-03-30 02:45:31 UTC (rev 2815)
+@@ -16,8 +16,8 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
+-#ifndef HEADER_OBJECT_MODEL_FACTOR_HPP
+-#define HEADER_OBJECT_MODEL_FACTOR_HPP
++#ifndef HEADER_WINDSTILLE_EDITOR_OBJECT_MODEL_FACTOR_HPP
++#define HEADER_WINDSTILLE_EDITOR_OBJECT_MODEL_FACTOR_HPP
+ 
+ #include &quot;object_model.hpp&quot;
+ 
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-03-30 02:36:30 UTC (rev 2814)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-03-30 02:45:31 UTC (rev 2815)
+@@ -58,7 +58,7 @@
+ {
+   Gtk::TreeStore::iterator it;
+ 
+-  if (path.empty())
++  if (!path)
+     it = layer_tree-&gt;append();
+   else
+     it = layer_tree-&gt;append(layer_tree-&gt;get_iter(path)-&gt;children());
+@@ -73,7 +73,7 @@
+ void
+ SectorModel::delete_layer(const Gtk::TreeModel::Path&amp; path)
+ {
+-  if (path.empty())
++  if (!path)
+     {
+       EditorWindow::current()-&gt;print(&quot;SectorModel::delete_layer(): invalid empty path&quot;);
+     }
+@@ -86,7 +86,7 @@
+ void
+ SectorModel::add(const ObjectModelHandle&amp; object, const Gtk::TreeModel::Path&amp; path)
+ {
+-  if (path.empty())
++  if (!path)
+     {
+       EditorWindow::current()-&gt;print(&quot;SectorModel::add(): invalid empty path&quot;);
+     }
+@@ -124,7 +124,7 @@
+ HardLayerHandle
+ SectorModel::get_layer(const Gtk::TreeModel::Path&amp; path) const
+ {
+-  if (!path.empty())
++  if (path)
+     {
+       Gtk::TreeModel::iterator it = layer_tree-&gt;get_iter(path);
+       if (it)
+@@ -268,7 +268,9 @@
+ }
+ 
+ void
+-SectorModel::load_layer(FileReader reader, const Gtk::TreeModel::Row* parent)
++SectorModel::load_layer(FileReader reader, const Gtk::TreeModel::Row* parent_row, 
++                        std::map&lt;std::string, ObjectModelHandle&gt;&amp; id_table,
++                        std::map&lt;ObjectModelHandle, std::string&gt;&amp; parent_table)
+ {
+   FileReader objects_reader;
+   FileReader layers_reader;
+@@ -277,11 +279,11 @@
+   bool visible = true;;
+   bool locked  = false;
+ 
+-  reader.read(&quot;name&quot;, name);
+-  reader.read(&quot;visible&quot;, visible);
+-  reader.read(&quot;locked&quot;, locked);
+-  reader.read(&quot;objects&quot;, objects_reader);
+-  reader.read(&quot;child-layers&quot;, layers_reader);
++  reader.get(&quot;name&quot;, name);
++  reader.get(&quot;visible&quot;, visible);
++  reader.get(&quot;locked&quot;, locked);
++  reader.get(&quot;objects&quot;, objects_reader);
++  reader.get(&quot;child-layers&quot;, layers_reader);
+ 
+   //std::cout &lt;&lt; &quot;loading layer: &quot; &lt;&lt; reader.get_name() &lt;&lt; &quot; &quot; &lt;&lt; name &lt;&lt; &quot; &quot; &lt;&lt; visible &lt;&lt; &quot; &quot; &lt;&lt; locked &lt;&lt; std::endl;
+ 
+@@ -290,11 +292,26 @@
+   const std::vector&lt;FileReader&gt;&amp; objects_sections = objects_reader.get_sections();
+   for(std::vector&lt;FileReader&gt;::const_iterator j = objects_sections.begin(); j != objects_sections.end(); ++j)
+     {
+-      layer-&gt;add(ObjectModelFactory::create(*j));
++      ObjectModelHandle obj = ObjectModelFactory::create(*j);
++
++      layer-&gt;add(obj);
++
++      std::string id_str;
++      if (j-&gt;read(&quot;id&quot;, id_str))
++        {
++          id_table[id_str] = obj;
++        }
++
++      std::string parent_str;
++      if (j-&gt;read(&quot;parent&quot;, parent_str))
++        {
++          if (!parent_str.empty())
++            parent_table[obj] = parent_str;
++        }
+     }
+ 
+   // Append the layer to the tree
+-  Gtk::TreeStore::iterator it = parent ? layer_tree-&gt;append(parent-&gt;children()) : it = layer_tree-&gt;append();
++  Gtk::TreeStore::iterator it = parent_row ? layer_tree-&gt;append(parent_row-&gt;children()) : it = layer_tree-&gt;append();
+ 
+   (*it)[LayerManagerColumns::instance().type_icon] = Gdk::Pixbuf::create_from_file(&quot;data/editor/type.png&quot;);
+   (*it)[LayerManagerColumns::instance().name]      = name;
+@@ -307,7 +324,7 @@
+   const std::vector&lt;FileReader&gt;&amp; layers_sections = layers_reader.get_sections();
+   for(std::vector&lt;FileReader&gt;::const_iterator j = layers_sections.begin(); j != layers_sections.end(); ++j)
+     {
+-      load_layer(*j, &amp;*it);
++      load_layer(*j, &amp;(*it), id_table, parent_table);
+     }
+ }
+ 
+@@ -323,6 +340,9 @@
+     }
+   else
+     {
++      std::map&lt;std::string, ObjectModelHandle&gt; id_table;
++      std::map&lt;ObjectModelHandle, std::string&gt; parent_table;
++
+       FileReader reader = FileReader::parse(stream, filename);
+       if (reader.get_name() == &quot;windstille-sector&quot;)
+         {
+@@ -331,9 +351,23 @@
+             {
+               if (i-&gt;get_name() == &quot;layer&quot;)
+                 {
+-                  load_layer(*i, 0);
++                  load_layer(*i, 0, id_table, parent_table);
+                 }
+             }
++          
++          // Set the parents properly
++          for(std::map&lt;ObjectModelHandle, std::string&gt;::iterator i = parent_table.begin(); i != parent_table.end(); ++i)
++            {
++              std::map&lt;std::string, ObjectModelHandle&gt;::iterator j = id_table.find(i-&gt;second);
++              if (j == id_table.end())
++                {
++                  std::cout &lt;&lt; &quot;Error: Couldn't resolve 'id': &quot; &lt;&lt; i-&gt;second &lt;&lt; std::endl;
++                }
++              else
++                {
++                  i-&gt;first-&gt;set_parent(j-&gt;second, false);
++                }
++            }
+         }
+     }
+ }
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-03-30 02:36:30 UTC (rev 2814)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-03-30 02:45:31 UTC (rev 2815)
+@@ -112,7 +112,9 @@
+   SnapData snap_object(const Rectf&amp; object, const std::set&lt;ObjectModelHandle&gt;&amp; ignore_objects) const;
+ 
+   void load(const std::string&amp; filename);
+-  void load_layer(FileReader filename, const Gtk::TreeModel::Row* parent);
++  void load_layer(FileReader filename, const Gtk::TreeModel::Row* parent, 
++                  std::map&lt;std::string, ObjectModelHandle&gt;&amp; id_table,
++                  std::map&lt;ObjectModelHandle, std::string&gt;&amp; parent_table);
+   void write(FileWriter&amp; writer) const;
+   void write(FileWriter&amp; writer, const Gtk::TreeRow&amp; row) const;
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001811.html">[Windstille-commit] r2814 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="001813.html">[Windstille-commit] r2816 - trunk/windstille
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1812">[ date ]</a>
+              <a href="thread.html#1812">[ thread ]</a>
+              <a href="subject.html#1812">[ subject ]</a>
+              <a href="author.html#1812">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,223 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r841 - in trunk: data/scripts src/scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r841%20-%20in%20trunk%3A%20data/scripts%20src/scripting&In-Reply-To=%3C200507281625.j6SGPJ8w029275%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000493.html">
+   <LINK REL="Next"  HREF="000495.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r841 - in trunk: data/scripts src/scripting</H1>
+    <B>Matthias Braun at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r841%20-%20in%20trunk%3A%20data/scripts%20src/scripting&In-Reply-To=%3C200507281625.j6SGPJ8w029275%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r841 - in trunk: data/scripts src/scripting">matzebraun at berlios.de
+       </A><BR>
+    <I>Thu Jul 28 18:25:19 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000493.html">[Windstille-commit] r840 - in trunk/src: . collision
+</A></li>
+        <LI>Next message: <A HREF="000495.html">[Windstille-commit] r842 - in trunk/src: collision scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#494">[ date ]</a>
+              <a href="thread.html#494">[ thread ]</a>
+              <a href="subject.html#494">[ subject ]</a>
+              <a href="author.html#494">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: matzebraun
+Date: 2005-07-28 18:25:18 +0200 (Thu, 28 Jul 2005)
+New Revision: 841
+
+Modified:
+   trunk/data/scripts/windstille.nut
+   trunk/src/scripting/spawn_object.cpp
+Log:
+some fixed and improvements from table2lisp code
+
+Modified: trunk/data/scripts/windstille.nut
+===================================================================
+--- trunk/data/scripts/windstille.nut	2005-07-28 15:37:10 UTC (rev 840)
++++ trunk/data/scripts/windstille.nut	2005-07-28 16:25:18 UTC (rev 841)
+@@ -46,9 +46,8 @@
+ function testo(spritename)
+ {
+   spawn_object(&quot;test-object&quot;, {
+-      name=&quot;Test&quot;,
+-      x = 435,
+-      y = 709,
++      name = &quot;Test&quot;,
++      pos = [435, 709],
+       sprite = spritename
+       });
+ }
+
+Modified: trunk/src/scripting/spawn_object.cpp
+===================================================================
+--- trunk/src/scripting/spawn_object.cpp	2005-07-28 15:37:10 UTC (rev 840)
++++ trunk/src/scripting/spawn_object.cpp	2005-07-28 16:25:18 UTC (rev 841)
+@@ -11,12 +11,48 @@
+ 
+ using namespace lisp;
+ 
+-lisp::Lisp* table_to_lisp(HSQUIRRELVM v, int table_idx,
+-                          std::vector&lt;lisp::Lisp*&gt;&amp; entries)
++void table_to_lisp(HSQUIRRELVM v, int table_idx, std::vector&lt;Lisp*&gt;&amp; entries);
++
++void sq_to_lisp(HSQUIRRELVM v, std::vector&lt;Lisp*&gt;&amp; entries)
+ {
+-  using namespace lisp;
+-  Lisp* lisp = 0;
++  switch(sq_gettype(v, -1)) {
++    case OT_INTEGER: {
++      int val;
++      sq_getinteger(v, -1, &amp;val);
++      entries.push_back(new Lisp(val));
++      break;
++    }
++    case OT_FLOAT: {
++      float val;
++      sq_getfloat(v, -1, &amp;val);
++      entries.push_back(new Lisp(val));
++      break;
++    }
++    case OT_STRING: {
++      const char* str;
++      sq_getstring(v, -1, &amp;str);
++      entries.push_back(new Lisp(Lisp::TYPE_STRING, str));
++      break;
++    }                                                    
++    case OT_BOOL: {
++      SQBool boolean;
++      sq_getbool(v, -1, &amp;boolean);
++      entries.push_back(new Lisp((bool) boolean));
++      break;
++    }
++    case OT_ARRAY:
++    case OT_TABLE: {
++      table_to_lisp(v, -1, entries);
++      break;
++    }
++    default:
++      std::cerr &lt;&lt; &quot;Unsupported value type in table\n&quot;;
++      break;
++  }
++}
+ 
++void table_to_lisp(HSQUIRRELVM v, int table_idx, std::vector&lt;Lisp*&gt;&amp; entries)
++{
+   // offset because of sq_pushnull
+   if(table_idx &lt; 0)
+     table_idx--;
+@@ -25,62 +61,28 @@
+   sq_pushnull(v);
+   while(SQ_SUCCEEDED(sq_next(v, table_idx))) {
+     // key is -2, value -1 now
+-    if(sq_gettype(v, -2) != OT_STRING) {
+-      std::cerr &lt;&lt; &quot;Table contains a non string key\n&quot;;
+-      continue;
+-    }
+-    const char* key;
+-    sq_getstring(v, -2, &amp;key);
++    if(sq_gettype(v, table_idx) == OT_TABLE) {
++      if(sq_gettype(v, -2) != OT_STRING) {
++        std::cerr &lt;&lt; &quot;Table contains a non string key\n&quot;;
++        continue;
++      }
+ 
+-    std::vector&lt;Lisp*&gt; childs;
+-    childs.push_back(new Lisp(Lisp::TYPE_SYMBOL, key));
++      const char* key;
++      sq_getstring(v, -2, &amp;key);
+ 
+-    Lisp* val = 0;
+-    switch(sq_gettype(v, -1)) {
+-      case OT_INTEGER: {
+-        int val;
+-        sq_getinteger(v, -1, &amp;val);
+-        childs.push_back(new Lisp(val));
+-        break;
+-      }
+-      case OT_FLOAT: {
+-        float val;
+-        sq_getfloat(v, -1, &amp;val);
+-        childs.push_back(new Lisp(val));
+-        break;
+-      }
+-      case OT_STRING: {
+-        const char* str;
+-        sq_getstring(v, -1, &amp;str);
+-        val = new Lisp(Lisp::TYPE_STRING, str);
+-        break;
+-      }
+-      case OT_BOOL: {
+-        SQBool boolean;
+-        sq_getbool(v, -1, &amp;boolean);
+-        val = new Lisp((bool) boolean);
+-        break;
+-      }
+-      case OT_TABLE: {
+-        table_to_lisp(v, -1, childs);
+-        break;
+-      }
+-      case OT_ARRAY:
+-        // TODO...
+-      default:
+-        std::cerr &lt;&lt; &quot;Unsupported value type in table\n&quot;;
+-        break;
++      std::vector&lt;Lisp*&gt; childs;
++      childs.push_back(new Lisp(Lisp::TYPE_SYMBOL, key));
++      sq_to_lisp(v, childs);
++      entries.push_back(new Lisp(childs));
++    } else {
++      sq_to_lisp(v, entries);
+     }
+-
++    
+     // pop table key and value
+     sq_pop(v, 2);
+-
+-    entries.push_back(new Lisp(childs));
+   }
+   // pop iterator
+   sq_pop(v, 1);
+-
+-  return lisp;
+ }
+ 
+ int spawn_object(HSQUIRRELVM v)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000493.html">[Windstille-commit] r840 - in trunk/src: . collision
+</A></li>
+	<LI>Next message: <A HREF="000495.html">[Windstille-commit] r842 - in trunk/src: collision scripting
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#494">[ date ]</a>
+              <a href="thread.html#494">[ thread ]</a>
+              <a href="subject.html#494">[ subject ]</a>
+              <a href="author.html#494">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

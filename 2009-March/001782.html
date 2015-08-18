@@ -1,0 +1,335 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2785 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2785%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200903271839.n2RIdbQ4024198%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001781.html">
+   <LINK REL="Next"  HREF="001783.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2785 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2785%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200903271839.n2RIdbQ4024198%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2785 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Mar 27 19:39:37 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001781.html">[Windstille-commit] r2784 -	trunk/windstille/data/sectors/trainstation
+</A></li>
+        <LI>Next message: <A HREF="001783.html">[Windstille-commit] r2786 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1782">[ date ]</a>
+              <a href="thread.html#1782">[ thread ]</a>
+              <a href="subject.html#1782">[ subject ]</a>
+              <a href="author.html#1782">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-27 19:39:36 +0100 (Fri, 27 Mar 2009)
+New Revision: 2785
+
+Modified:
+   trunk/windstille/src/editor/hard_layer.cpp
+   trunk/windstille/src/editor/hard_layer.hpp
+   trunk/windstille/src/editor/object_tree.cpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+Log:
+implemented some layer hierachy saving
+
+Modified: trunk/windstille/src/editor/hard_layer.cpp
+===================================================================
+--- trunk/windstille/src/editor/hard_layer.cpp	2009-03-27 17:39:27 UTC (rev 2784)
++++ trunk/windstille/src/editor/hard_layer.cpp	2009-03-27 18:39:36 UTC (rev 2785)
+@@ -18,9 +18,7 @@
+ 
+ #include &quot;hard_layer.hpp&quot;
+ 
+-HardLayer::HardLayer(const std::string&amp; name_)
+-  : name(name_),
+-    visible(true)
++HardLayer::HardLayer()
+ {
+ }
+ 
+@@ -28,10 +26,12 @@
+ {
+ }
+ 
+-void
++HardLayerHandle
+ HardLayer::add_layer()
+ {
+-  child_layers.push_back(HardLayerHandle(new HardLayer(&quot;Child layer&quot;)));
++  HardLayerHandle layer(new HardLayer());
++  child_layers.push_back(layer);
++  return layer;
+ }
+ 
+ void
+@@ -54,7 +54,6 @@
+       if (layers.match((*i)-&gt;get_layers()))
+         (*i)-&gt;draw(sc);
+     }
+-
+ }
+ 
+ void
+@@ -193,25 +192,10 @@
+ void
+ HardLayer::write(FileWriter&amp; writer) const
+ {
+-  writer.start_section(&quot;layer&quot;);
+-  writer.write(&quot;name&quot;,    name);
+-  writer.write(&quot;visible&quot;, visible);
+-
+-  writer.start_section(&quot;child-layers&quot;);
+-  for(HardLayers::const_iterator i = child_layers.begin(); i != child_layers.end(); ++i)
+-    {
+-      (*i)-&gt;write(writer);
+-    }
+-  writer.end_section();
+-
+-  writer.start_section(&quot;objects&quot;);
+   for(Objects::const_iterator i = objects.begin(); i != objects.end(); ++i)
+     {
+       (*i)-&gt;write(writer);
+     }
+-  writer.end_section();
+-
+-  writer.end_section();
+ }
+ 
+ HardLayerHandle
+
+Modified: trunk/windstille/src/editor/hard_layer.hpp
+===================================================================
+--- trunk/windstille/src/editor/hard_layer.hpp	2009-03-27 17:39:27 UTC (rev 2784)
++++ trunk/windstille/src/editor/hard_layer.hpp	2009-03-27 18:39:36 UTC (rev 2785)
+@@ -36,16 +36,14 @@
+   typedef std::list&lt;ObjectModelHandle&gt; Objects;
+   typedef std::list&lt;HardLayerHandle&gt;   HardLayers;
+ 
+-  std::string name;
+-  bool visible;
+   Objects objects;
+   HardLayers child_layers;
+ 
+ public:
+-  HardLayer(const std::string&amp; name);
++  HardLayer();
+   ~HardLayer();
+ 
+-  void add_layer();
++  HardLayerHandle add_layer();
+ 
+   void add(const ObjectModelHandle&amp; object);
+   void remove(const ObjectModelHandle&amp; object);
+
+Modified: trunk/windstille/src/editor/object_tree.cpp
+===================================================================
+--- trunk/windstille/src/editor/object_tree.cpp	2009-03-27 17:39:27 UTC (rev 2784)
++++ trunk/windstille/src/editor/object_tree.cpp	2009-03-27 18:39:36 UTC (rev 2785)
+@@ -62,15 +62,15 @@
+   
+   Gtk::Toolbar&amp; toolbar = dynamic_cast&lt;Gtk::Toolbar&amp;&gt;(*ui_manager-&gt;get_widget(&quot;/ToolBar&quot;));
+ 
+-  treeview.signal_cursor_changed().connect(sigc::mem_fun(*this, &amp;ObjectTree::on_cursor_changed));
+-  treeview.signal_columns_changed().connect(sigc::mem_fun(*this, &amp;ObjectTree::on_columns_changed));
++  //treeview.signal_cursor_changed().connect(sigc::mem_fun(*this, &amp;ObjectTree::on_cursor_changed));
++  //treeview.signal_columns_changed().connect(sigc::mem_fun(*this, &amp;ObjectTree::on_columns_changed));
+ 
+   toolbar.set_icon_size(Gtk::ICON_SIZE_MENU);
+ 
+   scrolled.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_ALWAYS);
+   scrolled.add(treeview);
+ 
+-  pack_start(label, Gtk::PACK_SHRINK);
++  pack_start(label,   Gtk::PACK_SHRINK);
+   pack_start(toolbar, Gtk::PACK_SHRINK);
+   add(scrolled);
+   //show_all();
+@@ -85,7 +85,7 @@
+ {
+   if (model)
+     {
+-      treeview.set_model(model-&gt;get_objects_tree());
++      treeview.set_model(model-&gt;get_layer_tree());
+       treeview.expand_all();
+       treeview.set_cursor(Gtk::TreeModel::Path(&quot;0&quot;));
+     }
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-03-27 17:39:27 UTC (rev 2784)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-03-27 18:39:36 UTC (rev 2785)
+@@ -32,38 +32,38 @@
+ 
+ SectorModel::SectorModel()
+ {  
+-  root_layer = HardLayerHandle(new HardLayer(&quot;HardLayer&quot;));
++  root_layer = HardLayerHandle(new HardLayer());
+ 
+-  objects_tree = Gtk::TreeStore::create(ObjectTreeColumns::instance());
++  layer_tree = Gtk::TreeStore::create(ObjectTreeColumns::instance());
+ 
+-  root_it = objects_tree-&gt;append();
++  root_it = layer_tree-&gt;append();
+   (*root_it)[ObjectTreeColumns::instance().type_icon] = Gdk::Pixbuf::create_from_file(&quot;data/editor/type.png&quot;);
+   (*root_it)[ObjectTreeColumns::instance().name]      = Glib::ustring(&quot;Scene&quot;);
+-  (*root_it)[ObjectTreeColumns::instance().visible]   = false;
++  (*root_it)[ObjectTreeColumns::instance().visible]   = true;
++  (*root_it)[ObjectTreeColumns::instance().layer]     = root_layer;
+ 
+-  objects_tree-&gt;signal_row_changed().connect(sigc::mem_fun(*this, &amp;SectorModel::on_row_changed));
+-  objects_tree-&gt;signal_row_deleted().connect(sigc::mem_fun(*this, &amp;SectorModel::on_row_deleted));
+-  objects_tree-&gt;signal_row_has_child_toggled().connect(sigc::mem_fun(*this, &amp;SectorModel::on_row_has_child_toggled));
+-  objects_tree-&gt;signal_row_inserted().connect(sigc::mem_fun(*this, &amp;SectorModel::on_row_inserted));
+-  objects_tree-&gt;signal_rows_reordered().connect(sigc::mem_fun(*this, &amp;SectorModel::on_rows_reordered));
++  layer_tree-&gt;signal_row_changed().connect(sigc::mem_fun(*this, &amp;SectorModel::on_row_changed));
++  layer_tree-&gt;signal_row_deleted().connect(sigc::mem_fun(*this, &amp;SectorModel::on_row_deleted));
++  layer_tree-&gt;signal_row_has_child_toggled().connect(sigc::mem_fun(*this, &amp;SectorModel::on_row_has_child_toggled));
++  layer_tree-&gt;signal_row_inserted().connect(sigc::mem_fun(*this, &amp;SectorModel::on_row_inserted));
++  layer_tree-&gt;signal_rows_reordered().connect(sigc::mem_fun(*this, &amp;SectorModel::on_rows_reordered));
+ }
+ 
+ void
+ SectorModel::add_layer(const std::string&amp; name, const Gtk::TreeModel::Path&amp; path)
+ {
+-  Gtk::TreeStore::iterator it = objects_tree-&gt;append(objects_tree-&gt;get_iter(path)-&gt;children());
++  Gtk::TreeStore::iterator it = layer_tree-&gt;append(layer_tree-&gt;get_iter(path)-&gt;children());
+ 
+   (*it)[ObjectTreeColumns::instance().type_icon] = Gdk::Pixbuf::create_from_file(&quot;data/editor/type.png&quot;);
+   (*it)[ObjectTreeColumns::instance().name]      = name;
+-  (*it)[ObjectTreeColumns::instance().visible]   = false; 
+-
+-  root_layer-&gt;add_layer();
++  (*it)[ObjectTreeColumns::instance().visible]   = true; 
++  (*it)[ObjectTreeColumns::instance().layer]     = root_layer-&gt;add_layer(); 
+ }
+ 
+ void
+ SectorModel::delete_layer(Gtk::TreeModel::Path&amp; path)
+ {
+-  objects_tree-&gt;erase(objects_tree-&gt;get_iter(path));
++  layer_tree-&gt;erase(layer_tree-&gt;get_iter(path));
+ }
+ 
+ void
+@@ -180,11 +180,32 @@
+   writer.write(&quot;ambient-color&quot;, Color());
+   writer.write(&quot;init-script&quot;, &quot;init.nut&quot;);
+ 
+-  root_layer-&gt;write(writer);
+- 
++  write(writer, *(layer_tree-&gt;children().begin()));
++
+   writer.end_section();
+   writer.write_raw(&quot;\n;; EOF ;;\n&quot;);
+ }
++
++void
++SectorModel::write(FileWriter&amp; writer, const Gtk::TreeRow&amp; row) const
++{
++  writer.start_section(&quot;layer&quot;);
++  writer.write(&quot;name&quot;,   (Glib::ustring)(row[ObjectTreeColumns::instance().name]));
++  writer.write(&quot;visible&quot;,          (bool)row[ObjectTreeColumns::instance().visible]);
++
++  writer.start_section(&quot;objects&quot;);
++  root_layer-&gt;write(writer);
++  writer.end_section();
++
++  writer.start_section(&quot;child-layers&quot;);
++  for(Gtk::TreeStore::Children::iterator i = row.children().begin(); i != row.children().end(); ++i)
++    {
++      write(writer, *i);
++    }
++  writer.end_section();
++
++  writer.end_section();
++}
+ 
+ void
+ SectorModel::on_row_changed(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter)
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-03-27 17:39:27 UTC (rev 2784)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-03-27 18:39:36 UTC (rev 2785)
+@@ -48,12 +48,14 @@
+   Gtk::TreeModelColumn&lt;Glib::RefPtr&lt;Gdk::Pixbuf&gt; &gt; type_icon;
+   Gtk::TreeModelColumn&lt;Glib::ustring&gt;              name;
+   Gtk::TreeModelColumn&lt;bool&gt;                       visible;
++  Gtk::TreeModelColumn&lt;HardLayerHandle&gt;            layer;
+ 
+ private:
+   ObjectTreeColumns() {
+     add(type_icon); 
+     add(name); 
+     add(visible); 
++    add(layer);
+   }
+ };
+ 
+@@ -61,7 +63,7 @@
+ {
+ private:
+   Gtk::TreeStore::iterator root_it;
+-  Glib::RefPtr&lt;Gtk::TreeStore&gt; objects_tree;
++  Glib::RefPtr&lt;Gtk::TreeStore&gt; layer_tree;
+   HardLayerHandle root_layer;
+   
+ public:
+@@ -80,7 +82,7 @@
+ 
+   // void select_objects(const Rectf&amp; rect, bool replace_old_selection = true) const;
+ 
+-  Glib::RefPtr&lt;Gtk::TreeStore&gt; get_objects_tree() { return objects_tree; }
++  Glib::RefPtr&lt;Gtk::TreeStore&gt; get_layer_tree() { return layer_tree; }
+ 
+   void on_row_changed(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter);
+   void on_row_deleted(const Gtk::TreeModel::Path&amp; path);
+@@ -100,6 +102,7 @@
+ 
+   void load(const std::string&amp; filename);
+   void write(FileWriter&amp; writer) const;
++  void write(FileWriter&amp; writer, const Gtk::TreeRow&amp; row) const;
+ 
+   //iterator begin() { return objects.begin(); }
+   //iterator end() { return objects.end(); }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001781.html">[Windstille-commit] r2784 -	trunk/windstille/data/sectors/trainstation
+</A></li>
+	<LI>Next message: <A HREF="001783.html">[Windstille-commit] r2786 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1782">[ date ]</a>
+              <a href="thread.html#1782">[ thread ]</a>
+              <a href="subject.html#1782">[ subject ]</a>
+              <a href="author.html#1782">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,991 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3265 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3265%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909261424.n8QEOdT8019250%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002261.html">
+   <LINK REL="Next"  HREF="002263.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3265 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3265%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909261424.n8QEOdT8019250%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3265 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Sep 26 16:24:39 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002261.html">[Windstille-commit] r3264 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="002263.html">[Windstille-commit] r3266 - in tags/windstille-0.2.0/src: . input
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2262">[ date ]</a>
+              <a href="thread.html#2262">[ thread ]</a>
+              <a href="subject.html#2262">[ subject ]</a>
+              <a href="author.html#2262">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-26 16:24:37 +0200 (Sat, 26 Sep 2009)
+New Revision: 3265
+
+Modified:
+   trunk/windstille/src/editor/animation_widget.cpp
+   trunk/windstille/src/editor/animation_widget.hpp
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/timeline.cpp
+   trunk/windstille/src/editor/timeline.hpp
+   trunk/windstille/src/editor/timeline_anim_object.hpp
+   trunk/windstille/src/editor/timeline_keyframe_object.hpp
+   trunk/windstille/src/editor/timeline_layer.cpp
+   trunk/windstille/src/editor/timeline_layer.hpp
+   trunk/windstille/src/editor/timeline_object.hpp
+   trunk/windstille/src/editor/timeline_sound_object.hpp
+   trunk/windstille/src/editor/timeline_widget.cpp
+   trunk/windstille/src/editor/timeline_widget.hpp
+Log:
+Added some basic drag&amp;drop to the TimelineWidget
+
+Modified: trunk/windstille/src/editor/animation_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/animation_widget.cpp	2009-09-26 14:12:43 UTC (rev 3264)
++++ trunk/windstille/src/editor/animation_widget.cpp	2009-09-26 14:24:37 UTC (rev 3265)
+@@ -21,61 +21,72 @@
+ #include &lt;boost/shared_ptr.hpp&gt;
+ 
+ #include &quot;editor/timeline_widget.hpp&quot;
+-#include &quot;editor/timeline.hpp&quot;
+ #include &quot;editor/timeline_object.hpp&quot;
+ #include &quot;editor/timeline_anim_object.hpp&quot;
+ #include &quot;editor/timeline_sound_object.hpp&quot;
+ #include &quot;editor/timeline_keyframe_object.hpp&quot;
+ 
+-class TimelineLayerColumns : public Gtk::TreeModel::ColumnRecord
+-{
+-public:
+-  Gtk::TreeModelColumn&lt;Glib::ustring&gt; m_name;
+-
+-public:
+-  TimelineLayerColumns() :
+-    m_name()
+-  {
+-    add(m_name);
+-  }
+-};
+-
+ AnimationWidget::AnimationWidget() :
+   hadjustment(50, 0, 100),
+   vadjustment(50, 0, 100),
+   hruler(),
++  scrolled(),
+   treeview(),
+   table(),
+   vscroll(vadjustment),
+-  hscroll(hadjustment)
++  hscroll(hadjustment),
++  m_timeline_widget(),
++  m_timeline_layer_widget(),
++  m_timeline()
+ {
+-  TimelineLayerColumns columns;
+-  treeview.set_headers_visible(false);
+-  //treeview.set_fixed_height_mode(true);
+-  treeview.set_grid_lines(Gtk::TREE_VIEW_GRID_LINES_BOTH);
+-  treeview.remove_all_columns();
+-  treeview.append_column_editable(&quot;Name&quot;, columns.m_name);
++  hruler.set_range(0, 100, 50, 100);
+ 
+-  Glib::RefPtr&lt;Gtk::ListStore&gt; liststore = Gtk::ListStore::create(columns);
++  table.attach(hruler, 1, 2, 0, 1, Gtk::FILL, Gtk::FILL);
+ 
+-  for(int i = 0; i &lt; 5; ++i)
+-  {
+-    Gtk::ListStore::iterator it = liststore-&gt;append();
+-    std::ostringstream str;
+-    str &lt;&lt; &quot;Hello World: &quot; &lt;&lt; i;
+-    (*it)[columns.m_name] = str.str();
+-  }
++  scrolled.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_NEVER);
++  scrolled.add(treeview);
+ 
+-  treeview.set_model(liststore);
+-  treeview.set_size_request(200, -1);
+-  treeview.set_reorderable();
+-   
++  m_timeline_layer_widget.set_size_request(140, -1);
++
++  table.attach(m_timeline_layer_widget, 0, 1, 1, 2, Gtk::FILL, Gtk::FILL);
++  table.attach(m_timeline_widget, 1, 2, 1, 2, Gtk::FILL|Gtk::EXPAND, Gtk::FILL|Gtk::EXPAND);
++  table.attach(hscroll, 1, 2, 2, 3, Gtk::FILL, Gtk::FILL);
++  table.attach(vscroll, 2, 3, 1, 2, Gtk::FILL, Gtk::FILL);
++
++  add(table);
++}
++
++void
++AnimationWidget::set_timeline(TimelineHandle timeline)
++{
++  m_timeline = timeline;
++  m_timeline_widget.set_timeline(timeline);
++  m_timeline_layer_widget.set_timeline(timeline);
++}
++
++#ifdef __TEST__
++
++#include &lt;gtkmm/main.h&gt;
++#include &lt;gtkmm/window.h&gt;
++#include &lt;gtkmm/liststore.h&gt;
++#include &lt;gtkmm/treeview.h&gt;
++#include &lt;gtkmm/box.h&gt;
++#include &lt;gtkmm/adjustment.h&gt;
++#include &lt;gtkmm/table.h&gt;
++#include &lt;gtkmm/ruler.h&gt;
++#include &lt;gtkmm/scrollbar.h&gt;
++
++int main(int argc, char** argv)
++{
++  Gtk::Main kit(argc, argv);
++
++  // create test timeline  
+   boost::shared_ptr&lt;Timeline&gt; timeline(new Timeline());
+ 
+-  TimelineLayerHandle layer1 = timeline-&gt;add_layer(&quot;Layer1&quot;);
+-  TimelineLayerHandle layer2 = timeline-&gt;add_layer(&quot;Layer2&quot;);
+-  TimelineLayerHandle layer3 = timeline-&gt;add_layer(&quot;Layer3&quot;);
+-  TimelineLayerHandle layer4 = timeline-&gt;add_layer(&quot;Layer4&quot;);
++  TimelineLayerHandle layer1 = timeline-&gt;add_layer(&quot;DoorLeft:pos&quot;);
++  TimelineLayerHandle layer2 = timeline-&gt;add_layer(&quot;DoorRight:pos&quot;);
++  TimelineLayerHandle layer3 = timeline-&gt;add_layer(&quot;AnimaitonLayer1&quot;);
++  TimelineLayerHandle layer4 = timeline-&gt;add_layer(&quot;SoundLayer2&quot;);
+ 
+   layer1-&gt;add_object(TimelineObjectHandle(new TimelineAnimObject(20.0f, 30.0f, &quot;anim1.anim&quot;)));
+   layer1-&gt;add_object(TimelineObjectHandle(new TimelineAnimObject(60.0f, 30.0f, &quot;anim2.anim&quot;)));
+@@ -91,20 +102,21 @@
+   layer3-&gt;add_object(TimelineObjectHandle(new TimelineSoundObject(10.0f, 10.0f, &quot;sound1.wav&quot;)));
+   layer3-&gt;add_object(TimelineObjectHandle(new TimelineSoundObject(30.0f, 40.0f, &quot;sound.wav&quot;)));
+ 
+-  TimelineWidget timeline_widget;
+-  timeline_widget.set_timeline(timeline);
++  // create the window
++  Gtk::Window win;
++  win.set_title(&quot;Timeline Test&quot;);
++  win.set_default_size(800, 400);
+ 
+-  hruler.set_range(0, 100, 50, 100);
++  AnimationWidget animation_widget;
++  animation_widget.set_timeline(timeline);
++  win.add(animation_widget);
++  win.show_all();
+ 
+-  table.attach(hruler, 1, 2, 0, 1, Gtk::FILL, Gtk::FILL);
++  Gtk::Main::run(win);
+ 
+-  table.attach(treeview, 0, 1, 1, 2, Gtk::FILL, Gtk::FILL);
+-  table.attach(timeline_widget, 1, 2, 1, 2, Gtk::FILL|Gtk::EXPAND, Gtk::FILL|Gtk::EXPAND);
+-  table.attach(hscroll, 1, 2, 2, 3, Gtk::FILL, Gtk::FILL);
+-  table.attach(vscroll, 2, 3, 1, 2, Gtk::FILL, Gtk::FILL);
+-  timeline_widget.show();
+-
+-  add(table);
++  return 0;
+ }
+ 
++#endif
++
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/animation_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/animation_widget.hpp	2009-09-26 14:12:43 UTC (rev 3264)
++++ trunk/windstille/src/editor/animation_widget.hpp	2009-09-26 14:24:37 UTC (rev 3265)
+@@ -29,7 +29,12 @@
+ #include &lt;gtkmm/table.h&gt;
+ #include &lt;gtkmm/treeview.h&gt;
+ #include &lt;gtkmm/window.h&gt;
++#include &lt;gtkmm/scrolledwindow.h&gt;
+ 
++#include &quot;editor/timeline.hpp&quot;
++#include &quot;editor/timeline_widget.hpp&quot;
++#include &quot;editor/timeline_layer_widget.hpp&quot;
++
+ class AnimationWidget : public Gtk::VBox
+ {
+ private:
+@@ -37,14 +42,21 @@
+   Gtk::Adjustment vadjustment;
+ 
+   Gtk::HRuler     hruler;
++  Gtk::ScrolledWindow scrolled;
+   Gtk::TreeView   treeview;
+   Gtk::Table      table;
+   Gtk::VScrollbar vscroll;
+   Gtk::HScrollbar hscroll;
++  TimelineWidget  m_timeline_widget;
++  TimelineLayerWidget  m_timeline_layer_widget;
+ 
++  TimelineHandle m_timeline;
++
+ public:
+   AnimationWidget();
+ 
++  void set_timeline(TimelineHandle timeline);
++
+ private:
+   AnimationWidget(const AnimationWidget&amp;);
+   AnimationWidget&amp; operator=(const AnimationWidget&amp;);
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-09-26 14:12:43 UTC (rev 3264)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-09-26 14:24:37 UTC (rev 3265)
+@@ -30,6 +30,7 @@
+ #include &lt;gtkmm/uimanager.h&gt;
+ #include &lt;gtkmm/toolbar.h&gt;
+ #include &lt;gtkmm/stock.h&gt;
++#include &lt;gtkmm/paned.h&gt;
+ #include &lt;gtkmm/separatortoolitem.h&gt;
+ 
+ #include &quot;display/scene_context.hpp&quot;
+@@ -45,6 +46,7 @@
+ #include &quot;editor/document.hpp&quot;
+ 
+ #include &quot;editor/timeline.hpp&quot;
++#include &quot;editor/animation_widget.hpp&quot;
+ #include &quot;editor/timeline_widget.hpp&quot;
+ #include &quot;editor/timeline_object.hpp&quot;
+ #include &quot;editor/timeline_anim_object.hpp&quot;
+@@ -456,42 +458,42 @@
+ EditorWindow::on_new()
+ {
+   // FIXME: We abuse the minimap as our root GLContext
++  Gtk::VPaned* paned = Gtk::manage(new Gtk::VPaned);
+   WindstilleWidget* wst = Gtk::manage(new WindstilleWidget(*this, glconfig, minimap_widget.get_gl_context()));
+-  if (0)
+-  {
+-    Gtk::VBox* n_vbox = Gtk::manage(new Gtk::VBox);
+-    n_vbox-&gt;add(*wst);
+-    {
+-      boost::shared_ptr&lt;Timeline&gt; timeline(new Timeline);
++  AnimationWidget* animation_widget = Gtk::manage(new AnimationWidget());
+ 
+-      TimelineLayerHandle layer1 = timeline-&gt;add_layer(&quot;Layer1&quot;);
+-      TimelineLayerHandle layer2 = timeline-&gt;add_layer(&quot;Layer2&quot;);
+-      TimelineLayerHandle layer3 = timeline-&gt;add_layer(&quot;Layer3&quot;);
+-      TimelineLayerHandle layer4 = timeline-&gt;add_layer(&quot;Layer4&quot;);
++  paned-&gt;pack1(*wst, Gtk::FILL|Gtk::EXPAND);
++  paned-&gt;pack2(*animation_widget, Gtk::FILL|Gtk::EXPAND);
++  paned-&gt;set_position(600);
+ 
+-      layer1-&gt;add_object(TimelineObjectHandle(new TimelineAnimObject(20.0f, 30.0f, &quot;anim1.anim&quot;)));
+-      layer1-&gt;add_object(TimelineObjectHandle(new TimelineAnimObject(60.0f, 30.0f, &quot;anim2.anim&quot;)));
++  { // FIXME: some random data for testing
++    boost::shared_ptr&lt;Timeline&gt; timeline(new Timeline);
+ 
+-      layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(8.0f)));
+-      layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(10.0f)));
+-      layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(11.0f)));
+-      layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(15.0f)));
+-      layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(20.0f)));
+-      layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(35.0f)));
+-      layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(40.0f)));
++    TimelineLayerHandle layer1 = timeline-&gt;add_layer(&quot;Layer1&quot;);
++    TimelineLayerHandle layer2 = timeline-&gt;add_layer(&quot;Layer2&quot;);
++    TimelineLayerHandle layer3 = timeline-&gt;add_layer(&quot;Layer3&quot;);
++    TimelineLayerHandle layer4 = timeline-&gt;add_layer(&quot;Layer4&quot;);
+ 
+-      layer3-&gt;add_object(TimelineObjectHandle(new TimelineSoundObject(10.0f, 10.0f, &quot;sound1.wav&quot;)));
+-      layer3-&gt;add_object(TimelineObjectHandle(new TimelineSoundObject(30.0f, 40.0f, &quot;sound.wav&quot;)));
++    layer1-&gt;add_object(TimelineObjectHandle(new TimelineAnimObject(20.0f, 30.0f, &quot;anim1.anim&quot;)));
++    layer1-&gt;add_object(TimelineObjectHandle(new TimelineAnimObject(60.0f, 30.0f, &quot;anim2.anim&quot;)));
+ 
+-      TimelineWidget* timeline_widget = Gtk::manage(new TimelineWidget());
+-      timeline_widget-&gt;set_timeline(timeline);
+-      n_vbox-&gt;add(*timeline_widget);
+-    }
++    layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(8.0f)));
++    layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(10.0f)));
++    layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(11.0f)));
++    layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(15.0f)));
++    layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(20.0f)));
++    layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(35.0f)));
++    layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(40.0f)));
++
++    layer3-&gt;add_object(TimelineObjectHandle(new TimelineSoundObject(10.0f, 10.0f, &quot;sound1.wav&quot;)));
++    layer3-&gt;add_object(TimelineObjectHandle(new TimelineSoundObject(30.0f, 40.0f, &quot;sound.wav&quot;)));
++
++    animation_widget-&gt;set_timeline(timeline);
+   }
+ 
+   Glib::ustring title = Glib::ustring::compose(&quot;Unsaved Sector %1&quot;, notebook.get_n_pages()+1);
+-  int new_page = notebook.append_page(*wst, title);
+-  wst-&gt;show();
++  int new_page = notebook.append_page(*paned, title);
++  paned-&gt;show_all();
+   notebook.set_current_page(new_page);
+ 
+   layer_manager.set_model(&amp;wst-&gt;get_document().get_sector_model());
+@@ -836,7 +838,14 @@
+   }
+   else
+   {
+-    return dynamic_cast&lt;WindstilleWidget*&gt;(notebook.get_nth_page(page));
++    if (Gtk::VPaned* paned = dynamic_cast&lt;Gtk::VPaned*&gt;(notebook.get_nth_page(page)))
++    {
++      return dynamic_cast&lt;WindstilleWidget*&gt;(paned-&gt;get_child1());
++    }
++    else
++    {
++      return 0;
++    }
+   }
+ }
+ 
+
+Modified: trunk/windstille/src/editor/timeline.cpp
+===================================================================
+--- trunk/windstille/src/editor/timeline.cpp	2009-09-26 14:12:43 UTC (rev 3264)
++++ trunk/windstille/src/editor/timeline.cpp	2009-09-26 14:24:37 UTC (rev 3265)
+@@ -26,6 +26,20 @@
+ }
+ 
+ TimelineLayerHandle
++Timeline::get_layer(int n) const
++{
++  if (!m_layers.empty() &amp;&amp;
++      n &gt;= 0 &amp;&amp; n &lt; static_cast&lt;int&gt;(m_layers.size()))
++  {
++    return m_layers[n];
++  }
++  else
++  {
++    return TimelineLayerHandle();
++  }
++}
++
++TimelineLayerHandle
+ Timeline::add_layer(const std::string&amp; name)
+ {
+   m_layers.push_back(TimelineLayerHandle(new TimelineLayer(name)));
+
+Modified: trunk/windstille/src/editor/timeline.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline.hpp	2009-09-26 14:12:43 UTC (rev 3264)
++++ trunk/windstille/src/editor/timeline.hpp	2009-09-26 14:24:37 UTC (rev 3265)
+@@ -44,10 +44,8 @@
+   const_iterator end()   const { return m_layers.end();   }
+ 
+   int size() const { return static_cast&lt;int&gt;(m_layers.size()); }
+-
+-  TimelineObjectHandle get_object(const Vector2f&amp; pos) const;
+-  TimelineLayerHandle  get_layer(const Vector2f&amp; pos) const;
+-
++  
++  TimelineLayerHandle get_layer(int n) const;
+   TimelineLayerHandle add_layer(const std::string&amp; name);
+ 
+ private:
+@@ -55,6 +53,8 @@
+   Timeline&amp; operator=(const Timeline&amp;);
+ };
+ 
++typedef boost::shared_ptr&lt;Timeline&gt; TimelineHandle;
++
+ #endif
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/timeline_anim_object.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_anim_object.hpp	2009-09-26 14:12:43 UTC (rev 3264)
++++ trunk/windstille/src/editor/timeline_anim_object.hpp	2009-09-26 14:24:37 UTC (rev 3265)
+@@ -38,6 +38,7 @@
+   {}
+ 
+   float get_pos()   const { return m_pos; }
++  void  set_pos(float pos) { m_pos = pos; }
+   float get_width() const { return m_width; }
+   std::string get_name() const { return m_name; }
+ 
+
+Modified: trunk/windstille/src/editor/timeline_keyframe_object.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_keyframe_object.hpp	2009-09-26 14:12:43 UTC (rev 3264)
++++ trunk/windstille/src/editor/timeline_keyframe_object.hpp	2009-09-26 14:24:37 UTC (rev 3265)
+@@ -31,6 +31,7 @@
+     m_pos(pos)
+   {}
+ 
++  void  set_pos(float pos) { m_pos = pos; }
+   float get_pos()   const { return m_pos; }
+   float get_width() const { return 1.0f; }
+ 
+
+Modified: trunk/windstille/src/editor/timeline_layer.cpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_layer.cpp	2009-09-26 14:12:43 UTC (rev 3264)
++++ trunk/windstille/src/editor/timeline_layer.cpp	2009-09-26 14:24:37 UTC (rev 3265)
+@@ -16,8 +16,10 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
+-#include &quot;timeline_layer.hpp&quot;
++#include &quot;editor/timeline_layer.hpp&quot;
+ 
++#include &lt;assert.h&gt;
++
+ TimelineLayer::TimelineLayer(const std::string&amp; name)
+   : m_name(name),
+     m_objects()
+@@ -33,7 +35,35 @@
+ TimelineObjectHandle
+ TimelineLayer::get_object(float pos) const
+ {
++  for(const_iterator i = begin(); i != end(); ++i)
++  {
++    if (pos &gt;= (*i)-&gt;get_pos() &amp;&amp;
++        pos &lt;  (*i)-&gt;get_pos() + (*i)-&gt;get_width())
++    {
++      return *i;
++    }
++  }
++
+   return TimelineObjectHandle();
+ }
+ 
++TimelineLayer::Objects
++TimelineLayer::get_objects(float selection_start, float selection_end) const
++{
++  assert(selection_start &lt;= selection_end);
++
++  Objects objects;
++
++  for(const_iterator i = begin(); i != end(); ++i)
++  {
++    if (selection_start &lt;= (*i)-&gt;get_pos() &amp;&amp;
++        selection_end   &gt;  (*i)-&gt;get_pos() + (*i)-&gt;get_width())
++    {
++      objects.push_back(*i);
++    }
++  }
++
++  return objects;
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/timeline_layer.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_layer.hpp	2009-09-26 14:12:43 UTC (rev 3264)
++++ trunk/windstille/src/editor/timeline_layer.hpp	2009-09-26 14:24:37 UTC (rev 3265)
+@@ -47,8 +47,11 @@
+ 
+   void add_object(TimelineObjectHandle object);
+ 
++  Objects get_objects(float start, float end) const;
+   TimelineObjectHandle get_object(float pos) const;
+ 
++  std::string get_name() const { return m_name; }
++
+ private:
+   TimelineLayer(const TimelineLayer&amp;);
+   TimelineLayer&amp; operator=(const TimelineLayer&amp;);
+
+Modified: trunk/windstille/src/editor/timeline_object.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_object.hpp	2009-09-26 14:12:43 UTC (rev 3264)
++++ trunk/windstille/src/editor/timeline_object.hpp	2009-09-26 14:24:37 UTC (rev 3265)
+@@ -30,6 +30,7 @@
+ 
+   virtual float get_pos() const =0;
+   virtual float get_width() const =0;
++  virtual void  set_pos(float pos) =0;
+ 
+ private:
+   TimelineObject(const TimelineObject&amp;);
+
+Modified: trunk/windstille/src/editor/timeline_sound_object.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_sound_object.hpp	2009-09-26 14:12:43 UTC (rev 3264)
++++ trunk/windstille/src/editor/timeline_sound_object.hpp	2009-09-26 14:24:37 UTC (rev 3265)
+@@ -36,6 +36,7 @@
+   {}
+ 
+   float get_pos()   const { return m_pos; }
++  void  set_pos(float pos) { m_pos = pos; }
+   float get_width() const { return m_width; }
+   std::string get_name() const { return m_name; }
+ 
+
+Modified: trunk/windstille/src/editor/timeline_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_widget.cpp	2009-09-26 14:12:43 UTC (rev 3264)
++++ trunk/windstille/src/editor/timeline_widget.cpp	2009-09-26 14:24:37 UTC (rev 3265)
+@@ -31,7 +31,7 @@
+ TimelineWidget::TimelineWidget() :
+   m_timeline(),
+   m_selection(),
+-  is_mouse_down(false),
++  m_mode(kNoMode),
+   down_pos(),
+   move_pos()
+ {
+@@ -53,9 +53,41 @@
+ {
+   if (ev-&gt;button == 1)
+   {
+-    is_mouse_down = true;
+     down_pos.x = static_cast&lt;float&gt;(ev-&gt;x);
+     down_pos.y = static_cast&lt;float&gt;(ev-&gt;y);
++    move_pos.x = static_cast&lt;float&gt;(ev-&gt;x);
++    move_pos.y = static_cast&lt;float&gt;(ev-&gt;y);
++
++    TimelineLayerHandle layer = m_timeline-&gt;get_layer(static_cast&lt;int&gt;(ev-&gt;y / 32));
++    if (layer)
++    {
++      TimelineObjectHandle obj = layer-&gt;get_object(static_cast&lt;float&gt;(ev-&gt;x / 8));
++      if (obj)
++      {
++        m_mode = kDragMode;
++
++        if (m_selection.find(obj) == m_selection.end())
++        {
++          if (!(ev-&gt;state &amp; GDK_SHIFT_MASK))
++            m_selection.clear();
++
++          m_selection.insert(obj);
++        }
++        else
++        {
++          if (ev-&gt;state &amp; GDK_SHIFT_MASK)
++          {
++            m_selection.erase(m_selection.find(obj));
++          }
++        }
++      }
++      else
++        m_mode = kSelectMode;
++    }
++    else
++    {
++      m_mode = kSelectMode;
++    }
+   }
+   return false;
+ }
+@@ -65,7 +97,28 @@
+ {
+   if (ev-&gt;button == 1)
+   {
+-    is_mouse_down = false;
++    if (m_mode == kSelectMode)
++    {
++      m_mode = kNoMode;
++
++      Rectf selection(down_pos, Vector2f(static_cast&lt;float&gt;(ev-&gt;x), static_cast&lt;float&gt;(ev-&gt;y)));
++      selection.normalize();
++
++      if (!(ev-&gt;state &amp; GDK_SHIFT_MASK))
++        m_selection.clear();
++
++      add_to_selection(selection);
++    }
++    else if (m_mode == kDragMode)
++    {
++      m_mode = kNoMode;
++      for (std::set&lt;TimelineObjectHandle&gt;::iterator i = m_selection.begin(); 
++           i != m_selection.end(); ++i)
++      {
++        (*i)-&gt;set_pos((*i)-&gt;get_pos() + (move_pos.x - down_pos.x)/8);
++      }
++    }
++
+     queue_draw();
+   }
+   return false;
+@@ -74,15 +127,35 @@
+ bool
+ TimelineWidget::mouse_move(GdkEventMotion* ev)
+ {
+-  if (is_mouse_down)
++  if (m_mode == kSelectMode)
+   {
+     move_pos.x = static_cast&lt;float&gt;(ev-&gt;x);
+     move_pos.y = static_cast&lt;float&gt;(ev-&gt;y);
+     queue_draw();
+   }
++  else if (m_mode == kDragMode)
++  {
++    move_pos.x = static_cast&lt;float&gt;(ev-&gt;x);
++    move_pos.y = static_cast&lt;float&gt;(ev-&gt;y);
++
++    queue_draw();
++  }
+   return false;
+ }
+ 
++void
++TimelineWidget::add_to_selection(const Rectf&amp; selection)
++{
++  Timeline::iterator start = m_timeline-&gt;begin() + std::max(0, std::min(m_timeline-&gt;size(), static_cast&lt;int&gt;((selection.top+16)    / 32)));
++  Timeline::iterator end   = m_timeline-&gt;begin() + std::max(0, std::min(m_timeline-&gt;size(), static_cast&lt;int&gt;((selection.bottom+16) / 32)));
++
++  for(Timeline::iterator i = start; i != end; ++i)
++  {
++    const TimelineLayer::Objects&amp; objects = (*i)-&gt;get_objects(selection.left / 8.0f, selection.right / 8.0f);
++    m_selection.insert(objects.begin(), objects.end());
++  }
++}
++
+ bool
+ TimelineWidget::on_expose_event(GdkEventExpose* ev)
+ {
+@@ -92,17 +165,15 @@
+ 
+     Cairo::RefPtr&lt;Cairo::Context&gt; cr = window-&gt;create_cairo_context();
+ 
+-    //std::cout &lt;&lt; &quot;on_expose_event: &quot; &lt;&lt; allocation.get_width() &lt;&lt; &quot;x&quot; &lt;&lt; allocation.get_height() &lt;&lt; std::endl;
+-
+-    if (1) // pixel perfect drawing
+-      cr-&gt;translate(0.5, 0.5);
+-
+     // clip to the area indicated by the expose event so that we only redraw
+     // the portion of the window that needs to be redrawn
+     cr-&gt;rectangle(ev-&gt;area.x,     ev-&gt;area.y,
+                   ev-&gt;area.width, ev-&gt;area.height);
+     cr-&gt;clip();
+ 
++    if (1) // pixel perfect drawing
++      cr-&gt;translate(0.5, 0.5);
++
+     draw_timeline(cr);
+ 
+     cr-&gt;set_line_width(0.5);
+@@ -120,7 +191,7 @@
+ TimelineWidget::draw_select_rectangle(Cairo::RefPtr&lt;Cairo::Context&gt; cr)
+ {
+   // Select rectangle
+-  if (is_mouse_down)
++  if (m_mode == kSelectMode)
+   {
+     //Rectf rect(down_pos, move_pos - down_pos);
+     //rect.normalize();
+@@ -216,20 +287,42 @@
+ 
+   for(TimelineLayer::iterator i = layer-&gt;begin(); i != layer-&gt;end(); ++i)
+   {
++    bool in_selection = m_selection.find(*i) != m_selection.end();
++
+     if (boost::shared_ptr&lt;TimelineKeyframeObject&gt; keyframe =
+         boost::dynamic_pointer_cast&lt;TimelineKeyframeObject&gt;(*i))
+     {
+-      cr-&gt;set_source_rgb(0.5, 0.75, 0.0);
++      cr-&gt;save();
++        
++      if (in_selection)
++      {
++        cr-&gt;set_source_rgb(0.75, 1.0, 0.0);
++        if (m_mode == kDragMode)
++          cr-&gt;translate(move_pos.x - down_pos.x, 0.0);
++      }
++      else
++      {
++        cr-&gt;set_source_rgb(0.5, 0.75, 0.0);
++      }
++      
+       cr-&gt;rectangle(keyframe-&gt;get_pos()*8, 4, 8, 24);
+       cr-&gt;fill();
+ 
+-      cr-&gt;set_source_rgb(0, 0, 0);
++      if (in_selection)
++        cr-&gt;set_source_rgb(0.25, 0.25, 0.25);
++      else
++        cr-&gt;set_source_rgb(0, 0, 0);
++
+       cr-&gt;rectangle(keyframe-&gt;get_pos()*8, 4, 8, 24);
+-      cr-&gt;stroke();     
++      cr-&gt;stroke();  
++      
++      cr-&gt;restore();
+     }
+     else if (boost::shared_ptr&lt;TimelineAnimObject&gt; anim =
+              boost::dynamic_pointer_cast&lt;TimelineAnimObject&gt;(*i))
+     {
++      cr-&gt;save();
++
+       Cairo::TextExtents extents;
+ 
+       cr-&gt;select_font_face (&quot;Sans&quot;, Cairo::FONT_SLANT_NORMAL, Cairo::FONT_WEIGHT_NORMAL);
+@@ -246,12 +339,30 @@
+                   &lt;&lt; extents.y_advance &lt;&lt; &quot; &quot;
+                   &lt;&lt; std::endl;
+ 
+-      cr-&gt;set_source_rgb(0.0, 0.5, 0.75);
++      if (in_selection)
++      {
++        cr-&gt;set_source_rgb(0.0, 0.75, 1.0);
++        if (m_mode == kDragMode)
++          cr-&gt;translate(move_pos.x - down_pos.x, 0.0);
++      }
++      else
++      {
++        cr-&gt;set_source_rgb(0.0, 0.5, 0.75);
++      }
++
+       cr-&gt;rectangle(anim-&gt;get_pos()*8,  4,
+                     anim-&gt;get_width()*8, 24);
+       cr-&gt;fill();
+ 
+-      cr-&gt;set_source_rgb(0, 0, 0);
++      if (in_selection)
++      {
++        cr-&gt;set_source_rgb(0.25, 0.25, 0.25);
++      }
++      else
++      {
++        cr-&gt;set_source_rgb(0, 0, 0);
++      }
++
+       cr-&gt;rectangle(anim-&gt;get_pos()*8, 4,
+                     anim-&gt;get_width()*8, 24);
+       cr-&gt;stroke();
+@@ -260,13 +371,17 @@
+       cr-&gt;move_to((anim-&gt;get_pos() + anim-&gt;get_width()/2)*8 - extents.width/2, 
+                   20);
+       cr-&gt;show_text(anim-&gt;get_name());
++
++      cr-&gt;restore();
+     }
+     else if (boost::shared_ptr&lt;TimelineSoundObject&gt; sound =
+              boost::dynamic_pointer_cast&lt;TimelineSoundObject&gt;(*i))
+     {
++      cr-&gt;save();
++
+       Cairo::TextExtents extents;
+ 
+-      cr-&gt;select_font_face (&quot;Sans&quot;, Cairo::FONT_SLANT_NORMAL, Cairo::FONT_WEIGHT_NORMAL);
++      cr-&gt;select_font_face(&quot;Sans&quot;, Cairo::FONT_SLANT_NORMAL, Cairo::FONT_WEIGHT_NORMAL);
+       cr-&gt;set_font_size(12);
+ 
+       cr-&gt;get_text_extents(sound-&gt;get_name(), extents);
+@@ -280,7 +395,17 @@
+                   &lt;&lt; extents.y_advance &lt;&lt; &quot; &quot;
+                   &lt;&lt; std::endl;
+ 
+-      cr-&gt;set_source_rgb(0.75, 0.0, 0.5);
++      if (in_selection)
++      {
++        if (m_mode == kDragMode)
++          cr-&gt;translate(move_pos.x - down_pos.x, 0.0);
++        cr-&gt;set_source_rgb(1.0, 0.0, 0.75);
++      }
++      else
++      {
++        cr-&gt;set_source_rgb(0.75, 0.0, 0.5);
++      }
++
+       cr-&gt;rectangle(sound-&gt;get_pos()*8,  4,
+                     sound-&gt;get_width()*8, 24);
+       cr-&gt;fill();
+@@ -294,6 +419,8 @@
+       cr-&gt;move_to((sound-&gt;get_pos() + sound-&gt;get_width()/2)*8 - extents.width/2, 
+                   20);
+       cr-&gt;show_text(sound-&gt;get_name());
++
++      cr-&gt;restore();
+     }
+   }
+   
+@@ -306,114 +433,4 @@
+   m_timeline = timeline;
+ }
+ 
+-#ifdef __TEST__
+-
+-#include &lt;gtkmm/main.h&gt;
+-#include &lt;gtkmm/window.h&gt;
+-#include &lt;gtkmm/liststore.h&gt;
+-#include &lt;gtkmm/treeview.h&gt;
+-#include &lt;gtkmm/box.h&gt;
+-#include &lt;gtkmm/adjustment.h&gt;
+-#include &lt;gtkmm/table.h&gt;
+-#include &lt;gtkmm/ruler.h&gt;
+-#include &lt;gtkmm/scrollbar.h&gt;
+-
+-class TimelineLayerColumns : public Gtk::TreeModel::ColumnRecord
+-{
+-public:
+-  Gtk::TreeModelColumn&lt;Glib::ustring&gt; m_name;
+-
+-public:
+-  TimelineLayerColumns() :
+-    m_name()
+-  {
+-    add(m_name);
+-  }
+-};
+-
+-int main(int argc, char** argv)
+-{
+-  Gtk::Main kit(argc, argv);
+-
+-  Gtk::Window win;
+-  win.set_title(&quot;Timeline Test&quot;);
+-  win.set_default_size(800, 400);
+-
+-  TimelineLayerColumns columns;
+-  Gtk::HRuler hruler;
+-  Gtk::TreeView treeview;
+-  treeview.set_headers_visible(false);
+-  //treeview.set_fixed_height_mode(true);
+-  treeview.set_grid_lines(Gtk::TREE_VIEW_GRID_LINES_BOTH);
+-  treeview.remove_all_columns();
+-  treeview.append_column_editable(&quot;Name&quot;, columns.m_name);
+-
+-  Glib::RefPtr&lt;Gtk::ListStore&gt; liststore = Gtk::ListStore::create(columns);
+-
+-  for(int i = 0; i &lt; 5; ++i)
+-  {
+-    Gtk::ListStore::iterator it = liststore-&gt;append();
+-    std::ostringstream str;
+-    str &lt;&lt; &quot;Hello World: &quot; &lt;&lt; i;
+-    (*it)[columns.m_name] = str.str();
+-  }
+-
+-  treeview.set_model(liststore);
+-  treeview.set_size_request(200, -1);
+-  treeview.set_reorderable();
+-
+-  Gtk::Table table;
+-
+-  //table.set_size_request(800, 400);
+-
+-  Gtk::Adjustment hadjustment(50, 0, 100);
+-  Gtk::Adjustment vadjustment(50, 0, 100);
+-
+-  Gtk::VScrollbar vscroll(vadjustment);
+-  Gtk::HScrollbar hscroll(hadjustment);
+-   
+-  boost::shared_ptr&lt;Timeline&gt; timeline(new Timeline());
+-
+-  TimelineLayerHandle layer1 = timeline-&gt;add_layer(&quot;Layer1&quot;);
+-  TimelineLayerHandle layer2 = timeline-&gt;add_layer(&quot;Layer2&quot;);
+-  TimelineLayerHandle layer3 = timeline-&gt;add_layer(&quot;Layer3&quot;);
+-  TimelineLayerHandle layer4 = timeline-&gt;add_layer(&quot;Layer4&quot;);
+-
+-  layer1-&gt;add_object(TimelineObjectHandle(new TimelineAnimObject(20.0f, 30.0f, &quot;anim1.anim&quot;)));
+-  layer1-&gt;add_object(TimelineObjectHandle(new TimelineAnimObject(60.0f, 30.0f, &quot;anim2.anim&quot;)));
+-
+-  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(8.0f)));
+-  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(10.0f)));
+-  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(11.0f)));
+-  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(15.0f)));
+-  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(20.0f)));
+-  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(35.0f)));
+-  layer2-&gt;add_object(TimelineObjectHandle(new TimelineKeyframeObject(40.0f)));
+-
+-  layer3-&gt;add_object(TimelineObjectHandle(new TimelineSoundObject(10.0f, 10.0f, &quot;sound1.wav&quot;)));
+-  layer3-&gt;add_object(TimelineObjectHandle(new TimelineSoundObject(30.0f, 40.0f, &quot;sound.wav&quot;)));
+-
+-  TimelineWidget timeline_widget;
+-  timeline_widget.set_timeline(timeline);
+-
+-  hruler.set_range(0, 100, 50, 100);
+-
+-  table.attach(hruler, 1, 2, 0, 1, Gtk::FILL, Gtk::FILL);
+-
+-  table.attach(treeview, 0, 1, 1, 2, Gtk::FILL, Gtk::FILL);
+-  table.attach(timeline_widget, 1, 2, 1, 2, Gtk::FILL|Gtk::EXPAND, Gtk::FILL|Gtk::EXPAND);
+-  table.attach(hscroll, 1, 2, 2, 3, Gtk::FILL, Gtk::FILL);
+-  table.attach(vscroll, 2, 3, 1, 2, Gtk::FILL, Gtk::FILL);
+-  timeline_widget.show();
+-
+-  win.add(table);
+-  win.show_all();
+-
+-  Gtk::Main::run(win);
+-
+-  return 0;
+-}
+-
+-#endif
+-
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/timeline_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_widget.hpp	2009-09-26 14:12:43 UTC (rev 3264)
++++ trunk/windstille/src/editor/timeline_widget.hpp	2009-09-26 14:24:37 UTC (rev 3265)
+@@ -23,10 +23,12 @@
+ #include &lt;boost/shared_ptr.hpp&gt;
+ #include &lt;set&gt;
+ 
++#include &quot;editor/timeline.hpp&quot;
+ #include &quot;editor/timeline_layer.hpp&quot;
+ #include &quot;math/vector2f.hpp&quot;
+ 
+ class Timeline;
++class Rectf;
+ 
+ class TimelineWidget : public Gtk::DrawingArea
+ {
+@@ -34,7 +36,7 @@
+   boost::shared_ptr&lt;Timeline&gt; m_timeline;
+   std::set&lt;TimelineObjectHandle&gt; m_selection;
+ 
+-  bool     is_mouse_down;
++  enum { kNoMode, kSelectMode, kDragMode } m_mode;
+   Vector2f down_pos;
+   Vector2f move_pos;
+ 
+@@ -42,7 +44,7 @@
+   TimelineWidget();
+   ~TimelineWidget();
+ 
+-  void set_timeline(boost::shared_ptr&lt;Timeline&gt; timeline);
++  void set_timeline(TimelineHandle timeline);
+ 
+   bool mouse_down(GdkEventButton* ev);
+   bool mouse_up(GdkEventButton* ev);
+@@ -58,6 +60,7 @@
+   void draw_timeline(Cairo::RefPtr&lt;Cairo::Context&gt; cr);
+   void draw_timeline_layer(Cairo::RefPtr&lt;Cairo::Context&gt; cr,
+                            TimelineLayerHandle layer);
++  void add_to_selection(const Rectf&amp; selection);
+ 
+ private:
+   TimelineWidget(const TimelineWidget&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002261.html">[Windstille-commit] r3264 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="002263.html">[Windstille-commit] r3266 - in tags/windstille-0.2.0/src: . input
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2262">[ date ]</a>
+              <a href="thread.html#2262">[ thread ]</a>
+              <a href="subject.html#2262">[ subject ]</a>
+              <a href="author.html#2262">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

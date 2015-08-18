@@ -1,0 +1,631 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1529 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1529%20-%20trunk/griv&In-Reply-To=%3C200711122044.lACKiD5a028601%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001178.html">
+   <LINK REL="Next"  HREF="001180.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1529 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1529%20-%20trunk/griv&In-Reply-To=%3C200711122044.lACKiD5a028601%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1529 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Nov 12 21:44:13 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001178.html">[Windstille-commit] r1528 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001180.html">[Windstille-commit] r1530 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1179">[ date ]</a>
+              <a href="thread.html#1179">[ thread ]</a>
+              <a href="subject.html#1179">[ subject ]</a>
+              <a href="author.html#1179">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-12 21:44:11 +0100 (Mon, 12 Nov 2007)
+New Revision: 1529
+
+Added:
+   trunk/griv/filesystem.cpp
+   trunk/griv/filesystem.hpp
+   trunk/griv/image.cpp
+   trunk/griv/workspace.hpp
+Modified:
+   trunk/griv/SConstruct
+   trunk/griv/griv.cpp
+   trunk/griv/griv.hpp
+   trunk/griv/image.hpp
+Log:
+- splitted code in a few more files
+
+Modified: trunk/griv/SConstruct
+===================================================================
+--- trunk/griv/SConstruct	2007-11-12 20:25:52 UTC (rev 1528)
++++ trunk/griv/SConstruct	2007-11-12 20:44:11 UTC (rev 1529)
+@@ -3,6 +3,6 @@
+ env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O0&quot;], LIBS=['SDL_image'])
+ env.ParseConfig(&quot;sdl-config --libs --cflags&quot;)
+ 
+-env.Program('griv', ['griv.cpp', 'loader.cpp'])
++env.Program('griv', ['griv.cpp', 'loader.cpp', 'image.cpp', 'filesystem.cpp'])
+ 
+ # EOF #
+
+Added: trunk/griv/filesystem.cpp
+===================================================================
+--- trunk/griv/filesystem.cpp	2007-11-12 20:25:52 UTC (rev 1528)
++++ trunk/griv/filesystem.cpp	2007-11-12 20:44:11 UTC (rev 1529)
+@@ -0,0 +1,87 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &lt;stdexcept&gt;
++#include &lt;iostream&gt;
++#include &lt;dirent.h&gt;
++#include &lt;sys/stat.h&gt;
++#include &lt;sys/types.h&gt;
++#include &lt;unistd.h&gt;
++#include &lt;attr/xattr.h&gt;
++
++#include &quot;filesystem.hpp&quot;
++
++bool is_directory(const std::string&amp; pathname)
++{
++  struct stat buf;
++  stat(pathname.c_str(), &amp;buf);
++  return S_ISDIR(buf.st_mode);
++}
++
++std::vector&lt;std::string&gt;
++open_directory(const std::string&amp; pathname)
++{
++  std::vector&lt;std::string&gt; dir_list;
++
++  DIR* dp    = 0;
++  dirent* de = 0;
++
++  dp = ::opendir(pathname.c_str());
++
++  if (dp == 0)
++    {
++      std::cout &lt;&lt; &quot;System: Couldn't open: &quot; &lt;&lt; pathname &lt;&lt; std::endl;
++    }
++  else
++    {
++      while ((de = ::readdir(dp)) != 0)
++        {
++          if (strcmp(de-&gt;d_name, &quot;.&quot;)  != 0 &amp;&amp;
++              strcmp(de-&gt;d_name, &quot;..&quot;) != 0)
++            dir_list.push_back(pathname + &quot;/&quot; + de-&gt;d_name);
++        }
++
++      closedir(dp);
++    }
++
++  return dir_list;
++}
++
++std::string getxattr(const std::string&amp; pathname)
++{
++  char buf[2048];
++  int len;
++  if ((len = getxattr (pathname.c_str(), &quot;user.griv.md5&quot;, buf, 2048)) &lt; 0)
++    {
++      if (errno == ENOATTR)
++        return &quot;&quot;;
++      else
++        throw std::runtime_error(&quot;Couldn't get xattr for &quot; + pathname);
++    }
++
++  return std::string(buf, len);
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/filesystem.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/filesystem.hpp
+===================================================================
+--- trunk/griv/filesystem.hpp	2007-11-12 20:25:52 UTC (rev 1528)
++++ trunk/griv/filesystem.hpp	2007-11-12 20:44:11 UTC (rev 1529)
+@@ -0,0 +1,38 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_FILESYSTEM_HPP
++#define HEADER_FILESYSTEM_HPP
++
++#include &lt;string&gt;
++#include &lt;vector&gt;
++
++bool is_directory(const std::string&amp; pathname);
++std::vector&lt;std::string&gt; open_directory(const std::string&amp; pathname);
++std::string getxattr(const std::string&amp; pathname);
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/filesystem.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/griv/griv.cpp
+===================================================================
+--- trunk/griv/griv.cpp	2007-11-12 20:25:52 UTC (rev 1528)
++++ trunk/griv/griv.cpp	2007-11-12 20:44:11 UTC (rev 1529)
+@@ -1,18 +1,13 @@
+-#include &lt;dirent.h&gt;
+-#include &lt;sys/stat.h&gt;
+-#include &lt;sys/types.h&gt;
+-#include &lt;sys/types.h&gt;
+-#include &lt;unistd.h&gt;
+ #include &lt;vector&gt;
+ #include &lt;math.h&gt;
+ #include &lt;sstream&gt;
+ #include &lt;sys/types.h&gt;
+-#include &lt;attr/xattr.h&gt;
+ #include &lt;stdexcept&gt;
+ #include &lt;iostream&gt;
+ #include &quot;SDL.h&quot;
+ #include &quot;SDL_image.h&quot;
+ 
++#include &quot;workspace.hpp&quot;
+ #include &quot;loader.hpp&quot;
+ #include &quot;image.hpp&quot;
+ 
+@@ -22,130 +17,6 @@
+ std::string config_home;
+ bool force_redraw = false;
+ 
+-bool is_directory(const std::string&amp; pathname)
+-{
+-  struct stat buf;
+-  stat(pathname.c_str(), &amp;buf);
+-  return S_ISDIR(buf.st_mode);
+-}
+-
+-std::vector&lt;std::string&gt;
+-open_directory(const std::string&amp; pathname)
+-{
+-  std::vector&lt;std::string&gt; dir_list;
+-
+-  DIR* dp    = 0;
+-  dirent* de = 0;
+-
+-  dp = ::opendir(pathname.c_str());
+-
+-  if (dp == 0)
+-    {
+-      std::cout &lt;&lt; &quot;System: Couldn't open: &quot; &lt;&lt; pathname &lt;&lt; std::endl;
+-    }
+-  else
+-    {
+-      while ((de = ::readdir(dp)) != 0)
+-        {
+-          if (strcmp(de-&gt;d_name, &quot;.&quot;)  != 0 &amp;&amp;
+-              strcmp(de-&gt;d_name, &quot;..&quot;) != 0)
+-            dir_list.push_back(pathname + &quot;/&quot; + de-&gt;d_name);
+-        }
+-
+-      closedir(dp);
+-    }
+-
+-  return dir_list;
+-}
+-
+-std::string getxattr(const std::string&amp; pathname)
+-{
+-  char buf[2048];
+-  int len;
+-  if ((len = getxattr (pathname.c_str(), &quot;user.griv.md5&quot;, buf, 2048)) &lt; 0)
+-    {
+-      if (errno == ENOATTR)
+-        return &quot;&quot;;
+-      else
+-        throw std::runtime_error(&quot;Couldn't get xattr for &quot; + pathname);
+-    }
+-
+-  return std::string(buf, len);
+-}
+-
+-class Workspace
+-{
+-public:
+-  std::vector&lt;Image&gt; images;
+-  int res;
+-  
+-public:
+-  Workspace()
+-  {
+-    res = 16;
+-  }
+-
+-  void draw()
+-  {
+-    int w = int(sqrt(4 * images.size() / 3));
+-    for(int i = 0; i &lt; int(images.size()); ++i)
+-      {
+-        images[i].draw((i % w) * res + x_offset + screen-&gt;w/2,
+-                       (i / w) * res + y_offset + screen-&gt;h/2,
+-                       res);
+-      }
+-  }
+-
+-  void add(const std::string&amp; filename)
+-  {
+-    // if directory, do recursion
+-    if (is_directory(filename))
+-      {
+-        std::vector&lt;std::string&gt; dir_list = open_directory(filename);
+-        for(std::vector&lt;std::string&gt;::iterator i = dir_list.begin(); i != dir_list.end(); ++i)
+-          {
+-            add(*i);
+-          }
+-      }
+-    else
+-      {
+-        std::string md5 = getxattr(filename);
+-        if (!md5.empty())
+-          {
+-            images.push_back(Image(md5));
+-          }
+-        else
+-          {
+-            std::cout &lt;&lt; &quot;Ignoring: &quot; &lt;&lt; filename &lt;&lt; std::endl;
+-          }
+-      }
+-  }
+-
+-  void zoom_in()
+-  {
+-    res *= 2;
+-    if (res &gt; 2048)
+-      res = 2048;
+-    else
+-      { //300,200 ~ 212, 134 ~ 64, 0
+-        x_offset *= 2;
+-        y_offset *= 2;
+-      }
+-  }
+-
+-  void zoom_out()
+-  {
+-    res /= 2;
+-    if (res &lt; 16)
+-      res = 16;
+-    else
+-      {
+-        x_offset /= 2;
+-        y_offset /= 2;
+-      }
+-  }
+-};
+-
+ int main(int argc, char** argv)
+ {
+   char* home;
+@@ -188,6 +59,8 @@
+ 
+   SDL_EnableUNICODE(1);
+ 
++  Image::init();
++
+   Workspace workspace;
+ 
+   for(int i = 1; i &lt; argc; ++i)
+
+Modified: trunk/griv/griv.hpp
+===================================================================
+--- trunk/griv/griv.hpp	2007-11-12 20:25:52 UTC (rev 1528)
++++ trunk/griv/griv.hpp	2007-11-12 20:44:11 UTC (rev 1529)
+@@ -29,6 +29,8 @@
+ #include &lt;SDL.h&gt;
+ #include &lt;string&gt;
+ 
++extern int x_offset;
++extern int y_offset;
+ extern SDL_Surface* screen;
+ extern std::string config_home;
+ 
+
+Added: trunk/griv/image.cpp
+===================================================================
+--- trunk/griv/image.cpp	2007-11-12 20:25:52 UTC (rev 1528)
++++ trunk/griv/image.cpp	2007-11-12 20:44:11 UTC (rev 1529)
+@@ -0,0 +1,49 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &quot;SDL_image.h&quot;
++#include &quot;image.hpp&quot;
++
++SDL_Surface* Image::loading_16;
++SDL_Surface* Image::loading_32;
++SDL_Surface* Image::loading_64;
++SDL_Surface* Image::loading_128;
++SDL_Surface* Image::loading_256;
++SDL_Surface* Image::loading_512;
++SDL_Surface* Image::loading_1024;
++
++void 
++Image::init()
++{
++  loading_1024 = IMG_Load(&quot;loading_1024.jpg&quot;);
++  loading_512  = IMG_Load(&quot;loading_512.jpg&quot;);
++  loading_256  = IMG_Load(&quot;loading_256.jpg&quot;);
++  loading_128  = IMG_Load(&quot;loading_128.jpg&quot;);
++  loading_64   = IMG_Load(&quot;loading_64.jpg&quot;);
++  loading_32   = IMG_Load(&quot;loading_32.jpg&quot;);
++  loading_16   = IMG_Load(&quot;loading_16.jpg&quot;);
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/image.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/griv/image.hpp
+===================================================================
+--- trunk/griv/image.hpp	2007-11-12 20:25:52 UTC (rev 1528)
++++ trunk/griv/image.hpp	2007-11-12 20:44:11 UTC (rev 1529)
+@@ -33,6 +33,16 @@
+ class Image
+ {
+ public:
++  static SDL_Surface* loading_16;
++  static SDL_Surface* loading_32;
++  static SDL_Surface* loading_64;
++  static SDL_Surface* loading_128;
++  static SDL_Surface* loading_256;
++  static SDL_Surface* loading_512;
++  static SDL_Surface* loading_1024;
++
++  static void init();
++
+   std::string uid;
+   SDL_Surface* surface;
+   int res;
+
+Added: trunk/griv/workspace.hpp
+===================================================================
+--- trunk/griv/workspace.hpp	2007-11-12 20:25:52 UTC (rev 1528)
++++ trunk/griv/workspace.hpp	2007-11-12 20:44:11 UTC (rev 1529)
+@@ -0,0 +1,109 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_WORKSPACE_HPP
++#define HEADER_WORKSPACE_HPP
++
++#include &lt;vector&gt;
++#include &quot;filesystem.hpp&quot;
++#include &quot;griv.hpp&quot;
++#include &quot;image.hpp&quot;
++
++class Workspace
++{
++public:
++  std::vector&lt;Image&gt; images;
++  int res;
++  
++public:
++  Workspace()
++  {
++    res = 16;
++  }
++
++  void draw()
++  {
++    int w = int(sqrt(4 * images.size() / 3));
++    for(int i = 0; i &lt; int(images.size()); ++i)
++      {
++        images[i].draw((i % w) * res + x_offset + screen-&gt;w/2,
++                       (i / w) * res + y_offset + screen-&gt;h/2,
++                       res);
++      }
++  }
++
++  void add(const std::string&amp; filename)
++  {
++    // if directory, do recursion
++    if (is_directory(filename))
++      {
++        std::vector&lt;std::string&gt; dir_list = open_directory(filename);
++        for(std::vector&lt;std::string&gt;::iterator i = dir_list.begin(); i != dir_list.end(); ++i)
++          {
++            add(*i);
++          }
++      }
++    else
++      {
++        std::string md5 = getxattr(filename);
++        if (!md5.empty())
++          {
++            images.push_back(Image(md5));
++          }
++        else
++          {
++            std::cout &lt;&lt; &quot;Ignoring: &quot; &lt;&lt; filename &lt;&lt; std::endl;
++          }
++      }
++  }
++
++  void zoom_in()
++  {
++    res *= 2;
++    if (res &gt; 1024)
++      res = 1024;
++    else
++      { //300,200 ~ 212, 134 ~ 64, 0
++        x_offset *= 2;
++        y_offset *= 2;
++      }
++  }
++
++  void zoom_out()
++  {
++    res /= 2;
++    if (res &lt; 16)
++      res = 16;
++    else
++      {
++        x_offset /= 2;
++        y_offset /= 2;
++      }
++  }
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/workspace.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001178.html">[Windstille-commit] r1528 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001180.html">[Windstille-commit] r1530 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1179">[ date ]</a>
+              <a href="thread.html#1179">[ thread ]</a>
+              <a href="subject.html#1179">[ subject ]</a>
+              <a href="author.html#1179">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

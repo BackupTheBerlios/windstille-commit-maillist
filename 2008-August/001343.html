@@ -1,0 +1,412 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2346 - trunk/griv/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2346%20-%20trunk/griv/src&In-Reply-To=%3C200808202300.m7KN0KUQ004210%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001342.html">
+   <LINK REL="Next"  HREF="001344.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2346 - trunk/griv/src</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2346%20-%20trunk/griv/src&In-Reply-To=%3C200808202300.m7KN0KUQ004210%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2346 - trunk/griv/src">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Aug 21 01:00:21 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001342.html">[Windstille-commit] r2345 - in trunk/griv: . src
+</A></li>
+        <LI>Next message: <A HREF="001344.html">[Windstille-commit] r2347 - in trunk/griv: . src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1343">[ date ]</a>
+              <a href="thread.html#1343">[ thread ]</a>
+              <a href="subject.html#1343">[ subject ]</a>
+              <a href="author.html#1343">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-21 01:00:18 +0200 (Thu, 21 Aug 2008)
+New Revision: 2346
+
+Modified:
+   trunk/griv/src/griv.cpp
+   trunk/griv/src/griv.hpp
+   trunk/griv/src/image.cpp
+   trunk/griv/src/jpeg.cpp
+   trunk/griv/src/jpeg.hpp
+   trunk/griv/src/software_surface.cpp
+   trunk/griv/src/software_surface.hpp
+   trunk/griv/src/tile_generator.cpp
+   trunk/griv/src/tile_generator.hpp
+Log:
+Added some code to generate quick thumbnails
+
+Modified: trunk/griv/src/griv.cpp
+===================================================================
+--- trunk/griv/src/griv.cpp	2008-08-20 21:58:58 UTC (rev 2345)
++++ trunk/griv/src/griv.cpp	2008-08-20 23:00:18 UTC (rev 2346)
+@@ -81,7 +81,7 @@
+   for(std::vector&lt;std::string&gt;::const_iterator i = filenames.begin(); i != filenames.end(); ++i, ++num)
+     {
+       std::cout &lt;&lt; *i &lt;&lt; std::endl;
+-      SoftwareSurface surface = JPEG::load(*i, 8);
++      SoftwareSurface surface = JPEG::load_from_file(*i, 8);
+ 
+       std::ostringstream out;
+       out &lt;&lt; &quot;/tmp/out-&quot; &lt;&lt; num &lt;&lt; &quot;.jpg&quot;;
+@@ -129,7 +129,8 @@
+ }
+ 
+ void
+-Griv::generate_tiles(const std::string&amp; database, const std::vector&lt;std::string&gt;&amp; filenames)
++Griv::thumbgen(const std::string&amp; database, 
++               const std::vector&lt;std::string&gt;&amp; filenames)
+ {
+   SQLiteConnection db(database);
+ 
+@@ -149,6 +150,35 @@
+       else
+         {
+           // Generate Image Tiles
++          std::cout &lt;&lt; &quot;Generating tiles... &quot; &lt;&lt; filenames[i]  &lt;&lt; std::endl;         
++          tile_generator.generate_quick(entry,
++                                        boost::bind(&amp;TileDatabase::store_tile, &amp;tile_db, _1));
++        }
++    }
++}
++
++void
++Griv::generate_tiles(const std::string&amp; database, 
++                     const std::vector&lt;std::string&gt;&amp; filenames)
++{
++  SQLiteConnection db(database);
++
++  FileDatabase file_db(&amp;db);
++  TileDatabase tile_db(&amp;db);
++
++  TileGenerator tile_generator;
++
++  for(std::vector&lt;std::string&gt;::size_type i = 0; i &lt; filenames.size(); ++i)
++    {
++      FileEntry entry;
++      std::cout &lt;&lt; &quot;Getting file entry...&quot; &lt;&lt; std::endl;
++      if (!file_db.get_file_entry(filenames[i], &amp;entry))
++        {
++          std::cout &lt;&lt; &quot;Couldn't find entry for &quot; &lt;&lt; filenames[i] &lt;&lt; std::endl;
++        }
++      else
++        {
++          // Generate Image Tiles
+           std::cout &lt;&lt; &quot;Generating tiles... &quot; &lt;&lt; filenames[i]  &lt;&lt; std::endl;
+           SoftwareSurface surface = SoftwareSurface::from_file(filenames[i]);
+           
+@@ -204,15 +234,17 @@
+ void
+ Griv::print_usage()
+ {
+-      std::cout &lt;&lt; &quot;Usage: griv view    [OPTIONS]... [FILES]...\n&quot;
+-                &lt;&lt; &quot;       griv prepare [OPTIONS]... [FILES]...\n&quot;
+-                &lt;&lt; &quot;       griv check   [OPTIONS]...\n&quot;
+-                &lt;&lt; &quot;       griv list    [OPTIONS]...\n&quot;
+-                &lt;&lt; &quot;       griv cleanup [OPTIONS]...\n&quot;
++      std::cout &lt;&lt; &quot;Usage: griv view     [OPTIONS]... [FILES]...\n&quot;
++                &lt;&lt; &quot;       griv prepare  [OPTIONS]... [FILES]...\n&quot;
++                &lt;&lt; &quot;       griv thumbgen [OPTIONS]... [FILES]...\n&quot;
++                &lt;&lt; &quot;       griv check    [OPTIONS]...\n&quot;
++                &lt;&lt; &quot;       griv list     [OPTIONS]...\n&quot;
++                &lt;&lt; &quot;       griv cleanup  [OPTIONS]...\n&quot;
+                 &lt;&lt; &quot;\n&quot;
+                 &lt;&lt; &quot;Commands:\n&quot;
+                 &lt;&lt; &quot;  view      Display the given files\n&quot;
+-                &lt;&lt; &quot;  prepare   Generate thumbnails for all given images, makes view command faster\n&quot;
++                &lt;&lt; &quot;  prepare   Generate all thumbnail tiles for all given images, makes view command faster\n&quot;
++                &lt;&lt; &quot;  thumbgen  Generate only small thumbnails for all given images\n&quot;
+                 &lt;&lt; &quot;  list      Lists all files in the database\n&quot;
+                 &lt;&lt; &quot;  check     Checks the database for consistency\n&quot;
+                 &lt;&lt; &quot;  cleanup   Runs garbage collection on the database\n&quot;
+@@ -308,6 +340,10 @@
+         {
+           generate_tiles(database, filenames);
+         }
++      else if (strcmp(argv[1], &quot;thumbgen&quot;) == 0)
++        {
++          thumbgen(database, filenames);
++        }
+       else
+         {
+           print_usage();
+
+Modified: trunk/griv/src/griv.hpp
+===================================================================
+--- trunk/griv/src/griv.hpp	2008-08-20 21:58:58 UTC (rev 2345)
++++ trunk/griv/src/griv.hpp	2008-08-20 23:00:18 UTC (rev 2346)
+@@ -36,6 +36,8 @@
+   void cleanup(const std::string&amp; database);
+   void check(const std::string&amp; database);
+   void list(const std::string&amp; database);
++  void thumbgen(const std::string&amp; database, 
++                const std::vector&lt;std::string&gt;&amp; filenames);
+   void generate_tiles(const std::string&amp; database, 
+                       const std::vector&lt;std::string&gt;&amp; filenames);
+   void view(const std::string&amp; database, 
+
+Modified: trunk/griv/src/image.cpp
+===================================================================
+--- trunk/griv/src/image.cpp	2008-08-20 21:58:58 UTC (rev 2345)
++++ trunk/griv/src/image.cpp	2008-08-20 23:00:18 UTC (rev 2346)
+@@ -208,8 +208,9 @@
+               goto retry;
+             }
+           else
+-            {
++            {         
+               // give up, no lower resolution found
++              // FIXME: Draw placeholder instead
+             }
+         }
+     }
+
+Modified: trunk/griv/src/jpeg.cpp
+===================================================================
+--- trunk/griv/src/jpeg.cpp	2008-08-20 21:58:58 UTC (rev 2345)
++++ trunk/griv/src/jpeg.cpp	2008-08-20 23:00:18 UTC (rev 2346)
+@@ -73,7 +73,7 @@
+ }
+ 
+ SoftwareSurface
+-JPEG::load(const std::string&amp; filename, int scale)
++JPEG::load_from_file(const std::string&amp; filename, int scale)
+ {
+   //std::cout &lt;&lt; &quot;-- JPEG::load(&quot; &lt;&lt; filename &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
+ 
+@@ -110,20 +110,20 @@
+ 
+   jpeg_start_decompress(&amp;cinfo);
+ 
+-  SoftwareSurface surface(Size(cinfo.image_width  / scale, 
+-                               cinfo.image_height / scale));
++  SoftwareSurface surface(Size(cinfo.output_width,
++                               cinfo.output_height));
+   
+   if (cinfo.output_components == 3)
+     { // RGB Image
+-      JSAMPLE* scanlines[cinfo.image_height];
++      JSAMPLE* scanlines[cinfo.output_height];
+ 
+-      for(JDIMENSION y = 0; y &lt; cinfo.image_height; ++y)
++      for(JDIMENSION y = 0; y &lt; cinfo.output_height; ++y)
+         scanlines[y] = surface.get_row_data(y);
+ 
+       while (cinfo.output_scanline &lt; cinfo.output_height) 
+         {
+           jpeg_read_scanlines(&amp;cinfo, &amp;scanlines[cinfo.output_scanline], 
+-                              cinfo.image_height - cinfo.output_scanline);
++                              cinfo.output_height - cinfo.output_scanline);
+         }
+     }
+   else if (cinfo.output_components == 1)
+@@ -147,7 +147,7 @@
+ }
+ 
+ SoftwareSurface
+-JPEG::load(uint8_t* mem, int len)
++JPEG::load_from_mem(uint8_t* mem, int len)
+ {
+   //std::cout &lt;&lt; &quot;JPEG::load(&quot; &lt;&lt; static_cast&lt;void*&gt;(mem) &lt;&lt; &quot;, &quot; &lt;&lt; len &lt;&lt; &quot;)&quot; &lt;&lt; std::endl;
+   
+
+Modified: trunk/griv/src/jpeg.hpp
+===================================================================
+--- trunk/griv/src/jpeg.hpp	2008-08-20 21:58:58 UTC (rev 2345)
++++ trunk/griv/src/jpeg.hpp	2008-08-20 23:00:18 UTC (rev 2346)
+@@ -37,8 +37,8 @@
+ public:
+   static void get_size(const std::string&amp; filename, Size&amp; size);
+ 
+-  static SoftwareSurface load(const std::string&amp; filename, int scale = 1);
+-  static SoftwareSurface load(uint8_t* mem, int len);
++  static SoftwareSurface load_from_file(const std::string&amp; filename, int scale = 1);
++  static SoftwareSurface load_from_mem(uint8_t* mem, int len);
+ 
+   static void save(const SoftwareSurface&amp; surface, int quality, const std::string&amp; filename);
+   static Blob save(const SoftwareSurface&amp; surface, int quality);
+
+Modified: trunk/griv/src/software_surface.cpp
+===================================================================
+--- trunk/griv/src/software_surface.cpp	2008-08-20 21:58:58 UTC (rev 2345)
++++ trunk/griv/src/software_surface.cpp	2008-08-20 23:00:18 UTC (rev 2346)
+@@ -92,6 +92,12 @@
+ }
+ 
+ SoftwareSurface
++SoftwareSurface::halve() const
++{
++  return scale(Size(get_width()/2, get_height()/2));
++}
++
++SoftwareSurface
+ SoftwareSurface::scale(const Size&amp; size) const
+ {
+   SoftwareSurface surface(size);
+@@ -173,13 +179,13 @@
+ SoftwareSurface
+ SoftwareSurface::from_file(const std::string&amp; filename)
+ {
+-  return JPEG::load(filename);
++  return JPEG::load_from_file(filename);
+ }
+ 
+ SoftwareSurface
+ SoftwareSurface::from_data(const Blob&amp; blob)
+ {
+-  return JPEG::load(blob.get_data(), blob.size());
++  return JPEG::load_from_mem(blob.get_data(), blob.size());
+ }
+ 
+ uint8_t*
+
+Modified: trunk/griv/src/software_surface.hpp
+===================================================================
+--- trunk/griv/src/software_surface.hpp	2008-08-20 21:58:58 UTC (rev 2345)
++++ trunk/griv/src/software_surface.hpp	2008-08-20 23:00:18 UTC (rev 2346)
+@@ -47,6 +47,7 @@
+   int get_height() const;
+   int get_pitch()  const;
+ 
++  SoftwareSurface halve() const;
+   SoftwareSurface scale(const Size&amp; size) const;
+   SoftwareSurface crop(const Rect&amp; rect) const;
+ 
+
+Modified: trunk/griv/src/tile_generator.cpp
+===================================================================
+--- trunk/griv/src/tile_generator.cpp	2008-08-20 21:58:58 UTC (rev 2345)
++++ trunk/griv/src/tile_generator.cpp	2008-08-20 23:00:18 UTC (rev 2346)
+@@ -26,6 +26,8 @@
+ #include &lt;iostream&gt;
+ #include &quot;math/size.hpp&quot;
+ #include &quot;math/rect.hpp&quot;
++#include &quot;jpeg.hpp&quot;
++#include &quot;file_database.hpp&quot;
+ #include &quot;tile_database.hpp&quot;
+ #include &quot;tile_generator.hpp&quot;
+ 
+@@ -82,5 +84,58 @@
+ {
+   generate_all(fileid, SoftwareSurface::from_file(filename), callback);
+ }
++
++void
++TileGenerator::generate_quick(const FileEntry&amp; entry,
++                              const boost::function&lt;void (Tile)&gt;&amp; callback)
++{
++  // Find scale at which the image fits on one tile
++  int width  = entry.size.width;
++  int height = entry.size.height;
++  int scale  = 0;
++  while (width  / Math::pow2(scale) &gt; 256 || 
++         height / Math::pow2(scale) &gt; 256)
++    scale += 1;
++
++  //std::cout &lt;&lt; &quot;Loading with scale: 2^&quot; &lt;&lt; scale &lt;&lt; &quot; = &quot; &lt;&lt; Math::pow2(scale) &lt;&lt; &quot; &quot; &lt;&lt; entry.size &lt;&lt; std::endl;
++
++  // Load the largest scale at which the image fits on a single tile 
++  SoftwareSurface surface = JPEG::load_from_file(entry.filename, Math::pow2(scale));
++
++  // The result of JPEG::load_from_file might be larger then the requested size, so scale it down
++  // FIXME: We should not throw this data away, now that we already have loaded it! Instead we should crop it
++  if (surface.get_width()  &gt; 256 ||
++      surface.get_height() &gt; 256)
++    {
++      surface = surface.scale(Size(width  / Math::pow2(scale),
++                                   height / Math::pow2(scale)));
++    }
++
++  //std::cout &lt;&lt; &quot; =&gt; &quot; &lt;&lt; surface.get_size() &lt;&lt; std::endl;
++
++  while (true)
++    {
++      //std::cout &lt;&lt; scale &lt;&lt; &quot; size: &quot; &lt;&lt; surface.get_size() &lt;&lt; std::endl;
++
++      Tile tile;
++      tile.fileid  = entry.fileid;
++      tile.scale   = scale;
++      tile.x       = 0;
++      tile.y       = 0;
++      tile.surface = surface;
++          
++      callback(tile);
++
++      // FIXME: Might barf if width/height get == 0
++      if (surface.get_width()  &lt; 32 &amp;&amp;
++          surface.get_height() &lt; 32)
++        {
++          break;
++        }
++
++      surface = surface.halve();
++      scale += 1;
++    }
++}
+ 
+ /* EOF */
+
+Modified: trunk/griv/src/tile_generator.hpp
+===================================================================
+--- trunk/griv/src/tile_generator.hpp	2008-08-20 21:58:58 UTC (rev 2345)
++++ trunk/griv/src/tile_generator.hpp	2008-08-20 23:00:18 UTC (rev 2346)
+@@ -31,6 +31,8 @@
+ #include &quot;software_surface.hpp&quot;
+ #include &quot;tile_database.hpp&quot;
+ 
++class FileEntry;
++
+ class TileGenerator
+ {
+ private:
+@@ -47,6 +49,9 @@
+   void generate_all(int fileid, const std::string&amp; filename,
+                     const boost::function&lt;void (Tile)&gt;&amp; callback);
+ 
++  void generate_quick(const FileEntry&amp; entry,
++                      const boost::function&lt;void (Tile)&gt;&amp; callback);
++
+ private:
+   TileGenerator (const TileGenerator&amp;);
+   TileGenerator&amp; operator= (const TileGenerator&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001342.html">[Windstille-commit] r2345 - in trunk/griv: . src
+</A></li>
+	<LI>Next message: <A HREF="001344.html">[Windstille-commit] r2347 - in trunk/griv: . src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1343">[ date ]</a>
+              <a href="thread.html#1343">[ thread ]</a>
+              <a href="subject.html#1343">[ subject ]</a>
+              <a href="author.html#1343">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

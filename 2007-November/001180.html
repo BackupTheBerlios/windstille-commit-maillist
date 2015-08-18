@@ -1,0 +1,504 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1530 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1530%20-%20trunk/griv&In-Reply-To=%3C200711122209.lACM98Yu007333%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001179.html">
+   <LINK REL="Next"  HREF="001181.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1530 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1530%20-%20trunk/griv&In-Reply-To=%3C200711122209.lACM98Yu007333%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1530 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Nov 12 23:09:08 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001179.html">[Windstille-commit] r1529 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001181.html">[Windstille-commit] r1531 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1180">[ date ]</a>
+              <a href="thread.html#1180">[ thread ]</a>
+              <a href="subject.html#1180">[ subject ]</a>
+              <a href="author.html#1180">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-12 23:09:07 +0100 (Mon, 12 Nov 2007)
+New Revision: 1530
+
+Modified:
+   trunk/griv/SConstruct
+   trunk/griv/griv.cpp
+   trunk/griv/griv.hpp
+   trunk/griv/image.cpp
+   trunk/griv/image.hpp
+   trunk/griv/loader.cpp
+   trunk/griv/loader.hpp
+   trunk/griv/loading_128.jpg
+   trunk/griv/workspace.hpp
+Log:
+- added multithread support
+
+Modified: trunk/griv/SConstruct
+===================================================================
+--- trunk/griv/SConstruct	2007-11-12 20:44:11 UTC (rev 1529)
++++ trunk/griv/SConstruct	2007-11-12 22:09:07 UTC (rev 1530)
+@@ -1,6 +1,6 @@
+ # -*- python -*-
+ 
+-env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O0&quot;], LIBS=['SDL_image'])
++env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O0&quot;, &quot;-g&quot;], LIBS=['SDL_image'])
+ env.ParseConfig(&quot;sdl-config --libs --cflags&quot;)
+ 
+ env.Program('griv', ['griv.cpp', 'loader.cpp', 'image.cpp', 'filesystem.cpp'])
+
+Modified: trunk/griv/griv.cpp
+===================================================================
+--- trunk/griv/griv.cpp	2007-11-12 20:44:11 UTC (rev 1529)
++++ trunk/griv/griv.cpp	2007-11-12 22:09:07 UTC (rev 1530)
+@@ -15,7 +15,7 @@
+ int x_offset = 0;
+ int y_offset = 0;
+ std::string config_home;
+-bool force_redraw = false;
++bool force_redraw = true;
+ 
+ int main(int argc, char** argv)
+ {
+@@ -72,6 +72,8 @@
+   int old_res = -1;
+   int old_x_offset = -1;
+   int old_y_offset = -1;
++  Uint32 next_redraw = 0;
++  loader.launch_thread();
+   while(true)
+     {
+       SDL_Event event;
+@@ -93,6 +95,10 @@
+                   {
+                     exit(1);
+                   }
++                else if (event.key.keysym.sym == SDLK_RETURN)
++                  {
++                    loader.process_job();
++                  }
+                 else if (event.key.keysym.sym == SDLK_F11)
+                   {
+                     if (flags &amp; SDL_FULLSCREEN)
+@@ -131,8 +137,9 @@
+                   {
+                     if (event.button.state == SDL_PRESSED)
+                       {
+-                        std::cout &lt;&lt; &quot;zoom out&quot; &lt;&lt; std::endl;
++                        //std::cout &lt;&lt; &quot;zoom out&quot; &lt;&lt; std::endl;
+                         workspace.zoom_out();
++                        loader.clear();
+                       }
+                   }
+                 else if (event.button.button == 1 ||
+@@ -140,8 +147,9 @@
+                   {
+                     if (event.button.state == SDL_PRESSED)
+                       {
+-                        std::cout &lt;&lt; &quot;zoom in&quot; &lt;&lt; std::endl;
++                        //std::cout &lt;&lt; &quot;zoom in&quot; &lt;&lt; std::endl;
+                         workspace.zoom_in();
++                        loader.clear();
+                       }
+                   }
+                 else if (event.button.button == 2)
+@@ -155,8 +163,9 @@
+       if (workspace.res != old_res ||
+           old_x_offset != x_offset ||
+           old_y_offset != y_offset ||
+-          force_redraw)
++          (force_redraw &amp;&amp; (next_redraw &lt; SDL_GetTicks() || loader.empty())))
+         {
++          force_redraw = false;
+           SDL_FillRect(screen, NULL, SDL_MapRGB(screen-&gt;format, 0, 0, 0));
+           workspace.draw();
+           SDL_Flip(screen);
+@@ -164,7 +173,7 @@
+           old_res = workspace.res;
+           old_x_offset = x_offset;
+           old_y_offset = y_offset;
+-          force_redraw = false;
++          next_redraw = SDL_GetTicks() + 500;
+         }
+       else
+         {
+
+Modified: trunk/griv/griv.hpp
+===================================================================
+--- trunk/griv/griv.hpp	2007-11-12 20:44:11 UTC (rev 1529)
++++ trunk/griv/griv.hpp	2007-11-12 22:09:07 UTC (rev 1530)
+@@ -33,6 +33,7 @@
+ extern int y_offset;
+ extern SDL_Surface* screen;
+ extern std::string config_home;
++extern bool force_redraw;
+ 
+ #endif
+ 
+
+Modified: trunk/griv/image.cpp
+===================================================================
+--- trunk/griv/image.cpp	2007-11-12 20:44:11 UTC (rev 1529)
++++ trunk/griv/image.cpp	2007-11-12 22:09:07 UTC (rev 1530)
+@@ -23,6 +23,7 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;iostream&gt;
+ #include &quot;SDL_image.h&quot;
+ #include &quot;image.hpp&quot;
+ 
+@@ -37,6 +38,8 @@
+ void 
+ Image::init()
+ {
++  std::cout &lt;&lt; &quot;Image&quot; &lt;&lt; std::endl;
++
+   loading_1024 = IMG_Load(&quot;loading_1024.jpg&quot;);
+   loading_512  = IMG_Load(&quot;loading_512.jpg&quot;);
+   loading_256  = IMG_Load(&quot;loading_256.jpg&quot;);
+
+Modified: trunk/griv/image.hpp
+===================================================================
+--- trunk/griv/image.hpp	2007-11-12 20:44:11 UTC (rev 1529)
++++ trunk/griv/image.hpp	2007-11-12 22:09:07 UTC (rev 1530)
+@@ -43,23 +43,51 @@
+ 
+   static void init();
+ 
++  static SDL_Surface* placeholder(int res)
++  {
++    if (res == 16)
++      return loading_16;
++    else if (res == 32)
++      return loading_32;
++    else if (res == 64)
++      return loading_64;
++    else if (res == 128)
++      return loading_128;
++    else if (res == 256)
++      return loading_256;
++    else if (res == 512)
++      return loading_512;
++    else if (res == 1024)
++      return loading_1024;
++    else 
++      return loading_1024;
++  }
++
+   std::string uid;
+   SDL_Surface* surface;
+   int res;
++  bool image_requested;
+   
+   Image(const std::string&amp; uid) 
+     : uid(uid),
+       surface(0),
+-      res(0)
++      res(0),
++      image_requested(false)
+   {
+   }
+ 
+   void receive(SDL_Surface* new_surface)
+   {
+-    if (surface)
+-      SDL_FreeSurface(surface);    
++    if (new_surface)
++      {
++        if (surface)
++          SDL_FreeSurface(surface);    
+     
+-    surface = new_surface;
++        //std::cout &lt;&lt; &quot;Image recieved: &quot; &lt;&lt; new_surface &lt;&lt; std::endl;
++        surface = new_surface;
++        force_redraw = true;
++      }
++    image_requested = false;
+   }
+ 
+   void draw(int x, int y, int res)
+@@ -68,8 +96,8 @@
+         y &gt; screen-&gt;h ||
+         x &lt; -res || 
+         y &lt; -res)
+-      {
+-        if (0)
++      { // Image out of screen
++        if (res &gt;= 512)
+           if (surface)
+             {
+               SDL_FreeSurface(surface);
+@@ -77,26 +105,23 @@
+             }
+       }
+     else
+-      {
+-        if (surface == 0 || res != this-&gt;res)
+-          {
+-            std::ostringstream out;
+-            out &lt;&lt; config_home &lt;&lt; &quot;/.griv/&quot; &lt;&lt; res &lt;&lt; &quot;/&quot; &lt;&lt; uid &lt;&lt; &quot;.jpg&quot;;
+-            loader.request(out.str(), this);
+-            //surface = IMG_Load(out.str().c_str());
+-            //std::cout &lt;&lt; &quot;Loading: &quot; &lt;&lt; out.str() &lt;&lt; std::endl;
+-            this-&gt;res = res;
+-          }
++      { // image on screen
++        if (!image_requested)
++          if (surface == 0 || res != this-&gt;res)
++            {
++              //std::cout &lt;&lt; &quot;Requesting&quot; &lt;&lt; std::endl;
++              loader.request(uid, res, this);
++              image_requested = true;
++              this-&gt;res = res;
++            }
+ 
+-        if (surface != 0)
+-          {
+-            SDL_Rect dstrect;
+-
+-            dstrect.x = x;
+-            dstrect.y = y;
+-
+-            SDL_BlitSurface(surface, NULL, screen, &amp;dstrect);
+-          }
++        SDL_Rect dstrect;
++        dstrect.x = x;
++        dstrect.y = y;
++        if (surface)
++          SDL_BlitSurface(surface, NULL, screen, &amp;dstrect);
++        else if (image_requested)
++          SDL_BlitSurface(placeholder(res), NULL, screen, &amp;dstrect);        
+       }
+   }
+ };
+
+Modified: trunk/griv/loader.cpp
+===================================================================
+--- trunk/griv/loader.cpp	2007-11-12 20:44:11 UTC (rev 1529)
++++ trunk/griv/loader.cpp	2007-11-12 22:09:07 UTC (rev 1530)
+@@ -23,6 +23,7 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &lt;iostream&gt;
+ #include &quot;SDL_image.h&quot;
+ #include &quot;image.hpp&quot;
+ #include &quot;loader.hpp&quot;
+@@ -31,17 +32,78 @@
+ 
+ Loader::Loader()
+ {
++  mutex  = SDL_CreateMutex();
++  thread = 0;
+ }
+ 
+ Loader::~Loader()
+ {
++  SDL_DestroyMutex(mutex);
+ }
+ 
++int
++Loader::thread_func(void*)
++{
++  while(1)
++    {
++      loader.process_job();
++
++      if (loader.empty())
++        SDL_Delay(100);
++    }
++  return 0;
++}
++
+ void
+-Loader::request(const std::string&amp; filename, Image* receiver)
++Loader::launch_thread()
+ {
+-  SDL_Surface* surface = IMG_Load(filename.c_str());
+-  receiver-&gt;receive(surface);
++  thread = SDL_CreateThread(&amp;Loader::thread_func, 0);
+ }
+ 
++void
++Loader::request(const std::string&amp; uid, int res, Image* receiver)
++{
++  std::ostringstream out;
++  out &lt;&lt; config_home &lt;&lt; &quot;/.griv/&quot; &lt;&lt; res &lt;&lt; &quot;/&quot; &lt;&lt; uid &lt;&lt; &quot;.jpg&quot;;
++
++  SDL_LockMutex(mutex);
++  jobs.push_back(Job(out.str(), receiver));
++  SDL_UnlockMutex(mutex);
++}
++
++void
++Loader::process_job()
++{ // Thread this
++  SDL_LockMutex(mutex);
++  if (!jobs.empty())
++    {
++      // Lock
++      Job job = jobs.back();
++      jobs.pop_back();
++      // Unlock
++
++      //std::cout &lt;&lt; &quot;Loading: &quot; &lt;&lt; job.filename &lt;&lt; std::endl;
++      SDL_Surface* img = IMG_Load(job.filename.c_str());
++      job.image-&gt;receive(img);
++    }
++  SDL_UnlockMutex(mutex);
++}
++
++void
++Loader::clear()
++{
++  SDL_LockMutex(mutex);
++  for(Jobs::iterator i = jobs.begin(); i != jobs.end(); ++i)
++      (*i).image-&gt;receive(0);
++
++  jobs.clear();
++  SDL_UnlockMutex(mutex);
++}
++
++bool
++Loader::empty()
++{
++  return jobs.empty();
++}
++
+ /* EOF */
+
+Modified: trunk/griv/loader.hpp
+===================================================================
+--- trunk/griv/loader.hpp	2007-11-12 20:44:11 UTC (rev 1529)
++++ trunk/griv/loader.hpp	2007-11-12 22:09:07 UTC (rev 1530)
+@@ -26,19 +26,44 @@
+ #ifndef HEADER_LOADER_HPP
+ #define HEADER_LOADER_HPP
+ 
++#include &quot;SDL.h&quot;
++#include &quot;SDL_thread.h&quot;
++
+ #include &lt;string&gt;
++#include &lt;vector&gt;
+ 
+ class Image;
+ 
++struct Job
++{
++  std::string filename;
++  Image* image;
++
++  Job(const std::string&amp; filename, Image* image)
++    : filename(filename), image(image)
++  {}
++};
++
+ /** */
+ class Loader
+ {
+ private:
++  typedef std::vector&lt;Job&gt; Jobs;
++  Jobs jobs;
++  SDL_mutex* mutex;
++  SDL_Thread* thread;
+ public:
++  static int thread_func(void*);
++
+   Loader();
+   ~Loader();
+ 
+-  void request(const std::string&amp; filename, Image* receiver);
++  void launch_thread();
++
++  void request(const std::string&amp; uid, int res, Image* receiver);
++  void process_job();
++  void clear();
++  bool empty();
+ private:
+   Loader (const Loader&amp;);
+   Loader&amp; operator= (const Loader&amp;);
+
+Modified: trunk/griv/loading_128.jpg
+===================================================================
+(Binary files differ)
+
+Modified: trunk/griv/workspace.hpp
+===================================================================
+--- trunk/griv/workspace.hpp	2007-11-12 20:44:11 UTC (rev 1529)
++++ trunk/griv/workspace.hpp	2007-11-12 22:09:07 UTC (rev 1530)
+@@ -31,6 +31,15 @@
+ #include &quot;griv.hpp&quot;
+ #include &quot;image.hpp&quot;
+ 
++inline bool has_suffix(const std::string&amp; str, const std::string&amp; suffix)
++{
++  if (str.length() &gt;= suffix.length())
++    return str.compare(str.length() - suffix.length(), suffix.length(), suffix) == 0;
++  else
++    return false;
++}
++
++
+ class Workspace
+ {
+ public:
+@@ -59,13 +68,14 @@
+     // if directory, do recursion
+     if (is_directory(filename))
+       {
++        std::cout &lt;&lt; '.' &lt;&lt; std::flush;
+         std::vector&lt;std::string&gt; dir_list = open_directory(filename);
+         for(std::vector&lt;std::string&gt;::iterator i = dir_list.begin(); i != dir_list.end(); ++i)
+           {
+             add(*i);
+           }
+       }
+-    else
++    else if (has_suffix(filename, &quot;.jpg&quot;))
+       {
+         std::string md5 = getxattr(filename);
+         if (!md5.empty())
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001179.html">[Windstille-commit] r1529 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001181.html">[Windstille-commit] r1531 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1180">[ date ]</a>
+              <a href="thread.html#1180">[ thread ]</a>
+              <a href="subject.html#1180">[ subject ]</a>
+              <a href="author.html#1180">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

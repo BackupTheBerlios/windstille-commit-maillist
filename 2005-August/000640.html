@@ -1,0 +1,301 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r987 - in trunk: data/images src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r987%20-%20in%20trunk%3A%20data/images%20src&In-Reply-To=%3C200508192107.j7JL7NqR010514%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000639.html">
+   <LINK REL="Next"  HREF="000641.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r987 - in trunk: data/images src</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r987%20-%20in%20trunk%3A%20data/images%20src&In-Reply-To=%3C200508192107.j7JL7NqR010514%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r987 - in trunk: data/images src">grumbel at berlios.de
+       </A><BR>
+    <I>Fri Aug 19 23:07:23 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000639.html">[Windstille-commit] r986 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000641.html">[Windstille-commit] r988 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#640">[ date ]</a>
+              <a href="thread.html#640">[ thread ]</a>
+              <a href="subject.html#640">[ subject ]</a>
+              <a href="author.html#640">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-08-19 23:07:21 +0200 (Fri, 19 Aug 2005)
+New Revision: 987
+
+Added:
+   trunk/data/images/laserpointer.png
+   trunk/data/images/laserpointer.sprite
+Modified:
+   trunk/src/laser_pointer.cpp
+   trunk/src/laser_pointer.hpp
+   trunk/src/player.cpp
+   trunk/src/tile_map.cpp
+Log:
+- fixed raycasting a bit, but not much
+
+Added: trunk/data/images/laserpointer.png
+===================================================================
+(Binary files differ)
+
+
+Property changes on: trunk/data/images/laserpointer.png
+___________________________________________________________________
+Name: svn:mime-type
+   + application/octet-stream
+
+Added: trunk/data/images/laserpointer.sprite
+===================================================================
+--- trunk/data/images/laserpointer.sprite	2005-08-19 13:53:37 UTC (rev 986)
++++ trunk/data/images/laserpointer.sprite	2005-08-19 21:07:21 UTC (rev 987)
+@@ -0,0 +1,7 @@
++(sprite
++  (action
++    (name &quot;default&quot;)
++    (images &quot;laserpointer.png&quot;)
++    (offset -7 -7)
++  )
++)
+
+Modified: trunk/src/laser_pointer.cpp
+===================================================================
+--- trunk/src/laser_pointer.cpp	2005-08-19 13:53:37 UTC (rev 986)
++++ trunk/src/laser_pointer.cpp	2005-08-19 21:07:21 UTC (rev 987)
+@@ -27,11 +27,13 @@
+ #include &quot;player.hpp&quot;
+ #include &quot;collision/collision_engine.hpp&quot;
+ #include &quot;sector.hpp&quot;
++#include &quot;tile_map.hpp&quot;
+ #include &quot;laser_pointer.hpp&quot;
+ 
+ LaserPointer::LaserPointer()
+ {
+   noise = Texture(&quot;images/noise2.png&quot;);
++  laserpointer = Sprite(&quot;images/laserpointer.sprite&quot;);
+   noise.set_wrap(GL_REPEAT);
+   noise.set_filter(GL_LINEAR);
+   
+@@ -42,16 +44,74 @@
+ {
+ }
+ 
++static float find_max(float pos, float v)
++{
++  if (v == 0) 
++    return 0;
++  else if (v &lt; 0)
++    return fmodf(fmodf(fabsf(pos), TILE_SIZE) + TILE_SIZE, TILE_SIZE)/fabsf(v);
++  else // if (v &gt; 0)
++    return fmodf(fmodf(pos, TILE_SIZE) + TILE_SIZE, TILE_SIZE)/v;
++}
++
+ void
+ LaserPointer::draw(SceneContext&amp; sc)
+ {
++  TileMap* tilemap = Sector::current()-&gt;get_tilemap();
+   Vector pos = Player::current()-&gt;get_pos();
+   pos.y -= 80;
+-  Vector target = Sector::current()-&gt;get_collision_engine()-&gt;raycast(pos, angle);
++  Vector target; // = Sector::current()-&gt;get_collision_engine()-&gt;raycast(pos, angle);
+ 
++  // Ray position in Tile units
++  int x = static_cast&lt;int&gt;(pos.x / TILE_SIZE);
++  int y = static_cast&lt;int&gt;(pos.y / TILE_SIZE);
++
++  Vector direction(cos(angle) * 100.0f, sin(angle) * 100.0f);
++
++  int step_x = (direction.x &gt; 0) ? 1 : -1;
++  int step_y = (direction.y &gt; 0) ? 1 : -1;
++
++  float tMaxX = find_max(pos.x, direction.x);
++  float tMaxY = find_max(pos.y, direction.y);
++
++  float tDeltaX = (direction.x == 0) ? 0 : fabsf(TILE_SIZE / direction.x);
++  float tDeltaY = (direction.y == 0) ? 0 : fabsf(TILE_SIZE / direction.y);
++
++  float t = 0;
++
++  while(x &gt;= 0 &amp;&amp; x &lt; tilemap-&gt;get_width() &amp;&amp;
++        y &gt;= 0 &amp;&amp; y &lt; tilemap-&gt;get_height())
++    {
++      sc.color().fill_rect(Rectf(Vector(x * TILE_SIZE, y * TILE_SIZE), Size(TILE_SIZE, TILE_SIZE)), 
++                           Color(1.0, 1.0, 1.0, 0.5), 500);
++
++      if (tilemap-&gt;get_pixel(x, y))
++        {
++            //return Vector(x * TILE_SIZE, y * TILE_SIZE);
++          goto done;
++        }
++
++      // move one tile
++      if (tMaxX &lt; tMaxY)
++        {
++          t = tMaxX;
++          tMaxX += tDeltaX;
++          x = x + step_x;
++        }
++      else 
++        {
++          t = tMaxY;
++          tMaxY += tDeltaY;
++          y = y + step_y;
++        }
++    }
++  
++ done:
++  target = pos + Vector(t * direction.x, t * direction.y);
++  
+   VertexArrayDrawingRequest* array = new VertexArrayDrawingRequest(Vector(0,0), 10000,
+                                                                    sc.highlight().get_modelview());
+-  array-&gt;set_mode(GL_LINE_STRIP);
++  array-&gt;set_mode(GL_LINES);
+   array-&gt;set_texture(noise);
+   array-&gt;set_blend_func(GL_SRC_ALPHA, GL_ONE);
+ 
+@@ -63,7 +123,19 @@
+   array-&gt;texcoord(target.x/400.0f, progress);
+   array-&gt;vertex(target.x, target.y);
+ 
++
++  array-&gt;color(Color(1.0f, 1.0f, 0.0f, 1.0f));
++  array-&gt;texcoord(pos.x/400.0f, progress);
++  array-&gt;vertex(pos.x, pos.y);
++
++  array-&gt;color(Color(1.0f, 1.0f, 0.0f, 1.0f));
++  array-&gt;texcoord(target.x/400.0f, progress);
++  array-&gt;vertex(pos.x + cos(angle) * 100.0f, pos.y + sin(angle) * 100.0f);
++
++
+   sc.highlight().draw(array);
++  laserpointer.set_blend_func(GL_SRC_ALPHA, GL_ONE);
++  sc.highlight().draw(laserpointer, target);
+ }
+ 
+ void
+
+Modified: trunk/src/laser_pointer.hpp
+===================================================================
+--- trunk/src/laser_pointer.hpp	2005-08-19 13:53:37 UTC (rev 986)
++++ trunk/src/laser_pointer.hpp	2005-08-19 21:07:21 UTC (rev 987)
+@@ -33,6 +33,7 @@
+ {
+ private:
+   Texture noise;
++  Sprite  laserpointer;
+   float   progress;
+   float   angle;
+ 
+
+Modified: trunk/src/player.cpp
+===================================================================
+--- trunk/src/player.cpp	2005-08-19 13:53:37 UTC (rev 986)
++++ trunk/src/player.cpp	2005-08-19 21:07:21 UTC (rev 987)
+@@ -119,10 +119,7 @@
+ {
+   controller = InputManager::get_controller();
+ 
+-  if (controller.get_axis_state(Y_AXIS) &lt; 0)
+-    laser_pointer-&gt;set_angle(laser_pointer-&gt;get_angle() - 1.0 * delta);
+-  else if (controller.get_axis_state(Y_AXIS) &gt; 0)
+-    laser_pointer-&gt;set_angle(laser_pointer-&gt;get_angle() + 1.0 * delta);
++  laser_pointer-&gt;set_angle(laser_pointer-&gt;get_angle() + controller.get_axis_state(Y_AXIS) * delta);
+ 
+   if (GameSession::current()-&gt;is_active())
+     {
+
+Modified: trunk/src/tile_map.cpp
+===================================================================
+--- trunk/src/tile_map.cpp	2005-08-19 13:53:37 UTC (rev 986)
++++ trunk/src/tile_map.cpp	2005-08-19 21:07:21 UTC (rev 987)
+@@ -167,13 +167,22 @@
+       return 0;
+     }
+ 
+-
+-  if (field (x_pos, y_pos))
++  if (field(x_pos, y_pos))
+     return field(x_pos, y_pos)-&gt;get_colmap();
+   else
+     return 0;
+ }
+ 
++static float find_max(float pos, float tilesize, float v)
++{
++  if (v == 0) 
++    return 0;
++  else if (v &lt; 0)
++    return fmodf(fabs(pos), tilesize)/fabsf(v);
++  else // if (v &gt; 0)
++    return fmodf(pos, tilesize)/v;
++}
++
+ Vector
+ TileMap::raycast(const Vector&amp; pos, float angle)
+ {
+@@ -181,13 +190,13 @@
+   int x = static_cast&lt;int&gt;(pos.x / TILE_SIZE);
+   int y = static_cast&lt;int&gt;(pos.y / TILE_SIZE);
+ 
+-  Vector direction(cos(angle), sin(angle));
++  Vector direction(cos(angle) * 100.0f, sin(angle) * 100.0f);
+ 
+   int step_x = (direction.x &gt; 0) ? 1 : -1;
+   int step_y = (direction.y &gt; 0) ? 1 : -1;
+ 
+-  float tMaxX = (direction.x == 0) ? 0 : fmodf(pos.x, TILE_SIZE)/direction.x;
+-  float tMaxY = (direction.y == 0) ? 0 : fmodf(pos.y, TILE_SIZE)/direction.y;
++  float tMaxX = find_max(pos.x, TILE_SIZE, direction.x);
++  float tMaxY = find_max(pos.y, TILE_SIZE, direction.y);
+ 
+   float tDeltaX = (direction.x == 0) ? 0 : (TILE_SIZE / direction.x);
+   float tDeltaY = (direction.y == 0) ? 0 : (TILE_SIZE / direction.y);
+@@ -205,7 +214,7 @@
+         }
+ 
+       // move one tile
+-      if (tMaxX &lt; tMaxY) 
++      if (tMaxX &lt; tMaxY)
+         {
+           t = tMaxX;
+           tMaxX += tDeltaX;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000639.html">[Windstille-commit] r986 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000641.html">[Windstille-commit] r988 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#640">[ date ]</a>
+              <a href="thread.html#640">[ thread ]</a>
+              <a href="subject.html#640">[ subject ]</a>
+              <a href="author.html#640">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

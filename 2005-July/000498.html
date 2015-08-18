@@ -1,0 +1,1242 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r845 - in trunk: docs src src/display src/glutil src/lisp src/math src/scripting src/sprite3d tools
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r845%20-%20in%20trunk%3A%20docs%20src%20src/display%20src/glutil%20src/lisp%20src/math%20src/scripting%20src/sprite3d%20tools&In-Reply-To=%3C200507290916.j6T9GKOG010399%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000497.html">
+   <LINK REL="Next"  HREF="000499.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r845 - in trunk: docs src src/display src/glutil src/lisp src/math src/scripting src/sprite3d tools</H1>
+    <B>Matthias Braun at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r845%20-%20in%20trunk%3A%20docs%20src%20src/display%20src/glutil%20src/lisp%20src/math%20src/scripting%20src/sprite3d%20tools&In-Reply-To=%3C200507290916.j6T9GKOG010399%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r845 - in trunk: docs src src/display src/glutil src/lisp src/math src/scripting src/sprite3d tools">matzebraun at berlios.de
+       </A><BR>
+    <I>Fri Jul 29 11:16:20 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000497.html">[Windstille-commit] r844 - in trunk: data/levels src src/particles src/scripting
+</A></li>
+        <LI>Next message: <A HREF="000499.html">[Windstille-commit] r846 - trunk/src/sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#498">[ date ]</a>
+              <a href="thread.html#498">[ thread ]</a>
+              <a href="subject.html#498">[ subject ]</a>
+              <a href="author.html#498">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: matzebraun
+Date: 2005-07-29 11:16:19 +0200 (Fri, 29 Jul 2005)
+New Revision: 845
+
+Modified:
+   trunk/docs/wsprite_fileformat.txt
+   trunk/src/box.cpp
+   trunk/src/display/drawing_context.cpp
+   trunk/src/display/drawing_request.hpp
+   trunk/src/display/vertex_array_drawing_request.cpp
+   trunk/src/glutil/texture.cpp
+   trunk/src/lisp/getters.hpp
+   trunk/src/math/matrix.cpp
+   trunk/src/math/matrix.hpp
+   trunk/src/player.cpp
+   trunk/src/scripting/game_objects.cpp
+   trunk/src/scripting/game_objects.hpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/scripting/wrapper.hpp
+   trunk/src/sprite3d/data.cpp
+   trunk/src/sprite3d/data.hpp
+   trunk/src/sprite3d/sprite.cpp
+   trunk/src/sprite3d/sprite.hpp
+   trunk/src/test_object.cpp
+   trunk/src/test_object.hpp
+   trunk/tools/windstille_export.py
+Log:
+Removed pos field from DrawingRequest, position is already encoded in the
+modelview matrix.
+
+
+
+Modified: trunk/docs/wsprite_fileformat.txt
+===================================================================
+--- trunk/docs/wsprite_fileformat.txt	2005-07-28 21:51:33 UTC (rev 844)
++++ trunk/docs/wsprite_fileformat.txt	2005-07-29 09:16:19 UTC (rev 845)
+@@ -1,8 +1,8 @@
+ Header
+ char magic[4] (= W3DS)
+-uint16_t format_version      (= 2 at the moment)
++uint16_t format_version      (=2 at the moment)
+ uint16_t mesh_count
+-uint16_t bone_count
++uint16_t attachement_point_count
+ uint16_t action_count
+ 
+ Mesh Header
+@@ -15,7 +15,7 @@
+ float normal[3] per triangle
+ float texcoord[2] per vertex
+ 
+-Bone Header
++Attachement Point Header
+ char name[64]
+ 
+ Action Header
+@@ -33,7 +33,7 @@
+   for all meshes:
+     for all vertices:
+       float x, y, z
+-  for all bones:
++  for all attachement points:
+     float locX, locY, locZ
+     float rotW, rotX, rotY, rotZ (it's a quaternion)
+ 
+
+Modified: trunk/src/box.cpp
+===================================================================
+--- trunk/src/box.cpp	2005-07-28 21:51:33 UTC (rev 844)
++++ trunk/src/box.cpp	2005-07-29 09:16:19 UTC (rev 845)
+@@ -62,6 +62,7 @@
+ 
+ Box::~Box()
+ {
++  Sector::current()-&gt;get_collision_engine()-&gt;remove(colobj);
+ }
+ 
+ void 
+
+Modified: trunk/src/display/drawing_context.cpp
+===================================================================
+--- trunk/src/display/drawing_context.cpp	2005-07-28 21:51:33 UTC (rev 844)
++++ trunk/src/display/drawing_context.cpp	2005-07-29 09:16:19 UTC (rev 845)
+@@ -32,7 +32,8 @@
+ 
+ struct DrawingRequestsSorter
+ {
+-  bool operator()(DrawingRequest* a, DrawingRequest* b) {
++  bool operator() (const DrawingRequest* a, const DrawingRequest* b) const
++  {
+     return a-&gt;get_z_pos() &lt; b-&gt;get_z_pos();
+   }
+ };
+@@ -75,8 +76,7 @@
+ 
+     gc-&gt;push_modelview();
+     gc-&gt;add_modelview(modelview.matrix);
+-    sprite.draw(static_cast&lt;int&gt;(pos.x),
+-                static_cast&lt;int&gt;(pos.y), gc);
++    sprite.draw(0, 0, gc);
+     gc-&gt;pop_modelview();
+   }
+ };
+@@ -98,8 +98,7 @@
+     // FIXME: frequent push/pops might be slow
+     gc-&gt;push_modelview();
+     gc-&gt;add_modelview(modelview.matrix);
+-    sprite.draw(static_cast&lt;int&gt;(pos.x),
+-                static_cast&lt;int&gt;(pos.y), gc);
++    sprite.draw(0, 0, gc);
+     gc-&gt;pop_modelview();
+   }
+ };
+@@ -119,7 +118,7 @@
+     gc-&gt;push_modelview();
+     gc-&gt;add_modelview(modelview.matrix);
+     Fonts::dialog_h.set_alignment(origin_center);
+-    Fonts::dialog_h.draw(int(pos.x), int(pos.y), text);
++    Fonts::dialog_h.draw(0, 0, text);
+     gc-&gt;pop_modelview();
+   }
+ };
+@@ -153,9 +152,9 @@
+     glEnable(GL_BLEND);
+     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+ 
++    glMatrixMode(GL_MODELVIEW);
+     glPushMatrix();
+-    glMultMatrixd(modelview.matrix);
+-    glTranslatef(pos.x, pos.y, 0);
++    glMultMatrixf(modelview.matrix);
+     glScalef(surface.get_width(), surface.get_height(), 1.0);
+ 
+     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+@@ -221,15 +220,13 @@
+ 
+ void
+ DrawingContext::draw(const CL_Surface&amp;   sprite,  float x, float y, float z)
+-{ // FIXME: This should get flattend down to a simple texture draw
+-  // command for easier sorting after texture-id/alpha
++{ 
+   draw(new CLSurfaceDrawingRequest(sprite, Vector(x, y), z, modelview_stack.back()));
+ }
+ 
+ void
+ DrawingContext::draw(const CL_Sprite&amp;   sprite,  float x, float y, float z)
+-{ // FIXME: This should get flattend down to a simple texture draw
+-  // command for easier sorting after texture-id/alpha
++{
+   draw(new SpriteDrawingRequest(sprite, Vector(x, y), z, modelview_stack.back()));
+ }
+ 
+
+Modified: trunk/src/display/drawing_request.hpp
+===================================================================
+--- trunk/src/display/drawing_request.hpp	2005-07-28 21:51:33 UTC (rev 844)
++++ trunk/src/display/drawing_request.hpp	2005-07-29 09:16:19 UTC (rev 845)
+@@ -30,23 +30,35 @@
+ class DrawingRequest
+ {
+ protected:
+-  Vector pos;
+   float  z_pos;
+   Matrix modelview;
+ 
+ public:
+-  DrawingRequest(const Vector&amp; pos_, float z_pos = 0,  const Matrix&amp; modelview_ = Matrix::identity())
+-    : pos(pos_), z_pos(z_pos), modelview(modelview_)
++  DrawingRequest(const Vector&amp; pos, float z_pos = 0,  const Matrix&amp; modelview_ = Matrix::identity())
++    : z_pos(z_pos), modelview(modelview_)
++  {
++    modelview[12] += pos.x;
++    modelview[13] += pos.y;
++  }
++  DrawingRequest(const Matrix&amp; modelview, float z_pos = 0)
++    : z_pos(z_pos), modelview(modelview)
+   {}
+-  virtual ~DrawingRequest() {}
++  virtual ~DrawingRequest() 
++  {}
+   
+   virtual void draw(CL_GraphicContext* gc) = 0;
+   
+   /** Returns the position at which the request should be drawn */
+   float get_z_pos() const { return z_pos; }
+ 
+-  Matrix get_modelview() const
++  const Matrix&amp; get_modelview() const
+   { return modelview; }
++
++  Vector get_pos() const
++  {
++    return Vector(modelview[12], modelview[13]);
++  }
++
+ private:
+   DrawingRequest (const DrawingRequest&amp;);
+   DrawingRequest&amp; operator= (const DrawingRequest&amp;);
+
+Modified: trunk/src/display/vertex_array_drawing_request.cpp
+===================================================================
+--- trunk/src/display/vertex_array_drawing_request.cpp	2005-07-28 21:51:33 UTC (rev 844)
++++ trunk/src/display/vertex_array_drawing_request.cpp	2005-07-29 09:16:19 UTC (rev 845)
+@@ -56,8 +56,9 @@
+   state.set_active();
+   state.setup_2d();
+ 
++  glMatrixMode(GL_MODELVIEW);
+   glPushMatrix();
+-  glMultMatrixd(modelview.matrix);
++  glMultMatrixf(modelview.matrix);
+ 
+   if (!colors.empty())
+     {
+@@ -108,9 +109,9 @@
+ void
+ VertexArrayDrawingRequest::vertex(float x, float y, float z)
+ {
+-  vertices.push_back(x + pos.x);
+-  vertices.push_back(y + pos.y);
+-  vertices.push_back(z + z_pos);
++  vertices.push_back(x);
++  vertices.push_back(y);
++  vertices.push_back(z);
+ }
+ 
+ void
+
+Modified: trunk/src/glutil/texture.cpp
+===================================================================
+--- trunk/src/glutil/texture.cpp	2005-07-28 21:51:33 UTC (rev 844)
++++ trunk/src/glutil/texture.cpp	2005-07-29 09:16:19 UTC (rev 845)
+@@ -154,7 +154,6 @@
+   glTexSubImage2D(GL_TEXTURE_2D, 0, x, y,
+                   image-&gt;w, image-&gt;h, GL_RGBA, GL_UNSIGNED_BYTE,
+                   image-&gt;pixels);
+-
+ }
+ 
+ void 
+
+Modified: trunk/src/lisp/getters.hpp
+===================================================================
+--- trunk/src/lisp/getters.hpp	2005-07-28 21:51:33 UTC (rev 844)
++++ trunk/src/lisp/getters.hpp	2005-07-29 09:16:19 UTC (rev 845)
+@@ -25,7 +25,10 @@
+ 
+ template&lt;typename T&gt;
+ static inline bool property_get(const Lisp* lisp, T&amp; val)
+-{
++{  
++  if(lisp-&gt;get_list_size() != 2)
++    return false;
++  
+   const Lisp* el = lisp-&gt;get_list_elem(1);
+   return get(el, val);
+ }
+
+Modified: trunk/src/math/matrix.cpp
+===================================================================
+--- trunk/src/math/matrix.cpp	2005-07-28 21:51:33 UTC (rev 844)
++++ trunk/src/math/matrix.cpp	2005-07-29 09:16:19 UTC (rev 845)
+@@ -36,7 +36,7 @@
+ 
+ Matrix::Matrix()
+ {
+-	memset(matrix, 0, sizeof(double[16]));
++	memset(matrix, 0, sizeof(float[16]));
+ }
+ 
+ Matrix
+@@ -58,32 +58,26 @@
+ 		matrix[i] = copy.matrix[i];
+ }
+ 
+-Matrix::Matrix(double *init_matrix)
++Matrix::Matrix(const float *init_matrix)
+ {
+ 	for (int i=0; i&lt;16; i++)
+ 		matrix[i] = init_matrix[i];
+ }
+ 
+-Matrix::Matrix(float *init_matrix)
+-{
+-	for (int i=0; i&lt;16; i++)
+-		matrix[i] = (double) init_matrix[i];
+-}
+-
+ /////////////////////////////////////////////////////////////////////////////
+ // Matrix attributes:
+ 
+-double Matrix::get_origin_x() const
++float Matrix::get_origin_x() const
+ {
+ 	return matrix[12];
+ }
+ 
+-double Matrix::get_origin_y() const
++float Matrix::get_origin_y() const
+ {
+ 	return matrix[13];
+ }
+ 
+-double Matrix::get_origin_z() const
++float Matrix::get_origin_z() const
+ {
+ 	return matrix[14];
+ }
+
+Modified: trunk/src/math/matrix.hpp
+===================================================================
+--- trunk/src/math/matrix.hpp	2005-07-28 21:51:33 UTC (rev 844)
++++ trunk/src/math/matrix.hpp	2005-07-29 09:16:19 UTC (rev 845)
+@@ -30,7 +30,6 @@
+ #ifndef HEADER_MATH_MATRIX_HPP
+ #define HEADER_MATH_MATRIX_HPP
+ 
+-#include &lt;ClanLib/Core/Math/matrix4x4.h&gt;
+ #include &lt;iosfwd&gt;
+ 
+ //: 4x4 Matrix.
+@@ -43,37 +42,35 @@
+ 
+ 	Matrix(const Matrix &amp;copy);
+ 
+-	Matrix(double *matrix);
++	Matrix(const float *matrix);
+ 
+-	Matrix(float *matrix);
+-
+ 	/** Returns identity matrix */
+ 	static Matrix identity();
+ 
+ //! Attributes:
+ public:
+-	double matrix[16];
++	float matrix[16];
+ 
+ 	//: Operator that returns the matrix cell at the given index.
+-	double &amp;operator[](int i) { return matrix[i]; }
++	float &amp;operator[](int i) { return matrix[i]; }
+ 
+ 	//: Operator that returns the matrix cell at the given index.
+-	const double &amp;operator[](int i) const { return matrix[i]; }
++	const float &amp;operator[](int i) const { return matrix[i]; }
+ 
+ 	//: Operator that returns the matrix cell at the given index.
+-	double &amp;operator[](unsigned int i) { return matrix[i]; }
++	float &amp;operator[](unsigned int i) { return matrix[i]; }
+ 
+ 	//: Operator that returns the matrix cell at the given index.
+-	const double &amp;operator[](unsigned int i) const { return matrix[i]; }
++	const float &amp;operator[](unsigned int i) const { return matrix[i]; }
+ 
+ 	//: Returns the x coordinate for the point (0,0,0) multiplied with this matrix.
+-	double get_origin_x() const;
++	float get_origin_x() const;
+ 
+ 	//: Returns the y coordinate for the point (0,0,0) multiplied with this matrix.
+-	double get_origin_y() const;
++	float get_origin_y() const;
+ 
+ 	//: Returns the z coordinate for the point (0,0,0) multiplied with this matrix.
+-	double get_origin_z() const;
++	float get_origin_z() const;
+ 
+ //! Operations:
+ public:
+
+Modified: trunk/src/player.cpp
+===================================================================
+--- trunk/src/player.cpp	2005-07-28 21:51:33 UTC (rev 844)
++++ trunk/src/player.cpp	2005-07-29 09:16:19 UTC (rev 845)
+@@ -39,10 +39,11 @@
+ 
+ Player::Player () :
+   light(&quot;light&quot;, resources),
+-  sprite (&quot;3dsprites/heroken.wsprite&quot;),
++  //sprite (&quot;3dsprites/heroken.wsprite&quot;),
+   grenade(&quot;3dsprites/grenade.wsprite&quot;),
+   state(STAND)
+ {
++  sprite = sprite3d::Sprite(&quot;3dsprites/heroken.wsprite&quot;);
+   pos.x = 320;
+   pos.y = 200;
+   name = &quot;player&quot;;
+
+Modified: trunk/src/scripting/game_objects.cpp
+===================================================================
+--- trunk/src/scripting/game_objects.cpp	2005-07-28 21:51:33 UTC (rev 844)
++++ trunk/src/scripting/game_objects.cpp	2005-07-29 09:16:19 UTC (rev 845)
+@@ -64,6 +64,13 @@
+ }
+ 
+ void
++TestObject::attach(const std::string&amp; spritename,
++		           const std::string&amp; attachement_point)
++{
++  obj()-&gt;attach(spritename, attachement_point);
++}
++
++void
+ Player::start_listening()
+ {
+   obj()-&gt;start_listening();
+
+Modified: trunk/src/scripting/game_objects.hpp
+===================================================================
+--- trunk/src/scripting/game_objects.hpp	2005-07-28 21:51:33 UTC (rev 844)
++++ trunk/src/scripting/game_objects.hpp	2005-07-29 09:16:19 UTC (rev 845)
+@@ -60,6 +60,8 @@
+   void set_action(const std::string&amp; action);
+   void set_pos(float x, float y);
+   void set_vflip(bool vflip);
++  void attach(const std::string&amp; spritename,
++		      const std::string&amp; attachement_point);
+ };
+ 
+ class Player : public GameObject
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2005-07-28 21:51:33 UTC (rev 844)
++++ trunk/src/scripting/wrapper.cpp	2005-07-29 09:16:19 UTC (rev 845)
+@@ -1,6 +1,6 @@
+ /**
+  * WARNING: This file is automatically generated from:
+- *  'scripting/wrapper.interface.hpp'
++ *  'src/scripting/wrapper.interface.hpp'
+  * DO NOT CHANGE
+  */
+ #include &lt;config.h&gt;
+@@ -166,6 +166,20 @@
+   return 0;
+ }
+ 
++static int TestObject_attach_wrapper(HSQUIRRELVM v)
++{
++  Scripting::TestObject* _this;
++  sq_getinstanceup(v, 1, (SQUserPointer*) &amp;_this, 0);
++  const char* arg0;
++  sq_getstring(v, 2, &amp;arg0);
++  const char* arg1;
++  sq_getstring(v, 3, &amp;arg1);
++  
++  _this-&gt;attach(arg0, arg1);
++  
++  return 0;
++}
++
+ static int Player_release_hook(SQUserPointer ptr, int )
+ {
+   Scripting::Player* _this = reinterpret_cast&lt;Scripting::Player*&gt; (ptr);
+@@ -845,8 +859,16 @@
+     throw SquirrelError(v, msg.str());
+   }
+ 
++  sq_pushstring(v, &quot;attach&quot;, -1);
++  sq_newclosure(v, &amp;TestObject_attach_wrapper, 0);
+   if(sq_createslot(v, -3) &lt; 0) {
+     std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'attach'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  if(sq_createslot(v, -3) &lt; 0) {
++    std::ostringstream msg;
+     msg &lt;&lt; &quot;Couldn't register class'TestObject'&quot;;
+     throw SquirrelError(v, msg.str());
+   }
+
+Modified: trunk/src/scripting/wrapper.hpp
+===================================================================
+--- trunk/src/scripting/wrapper.hpp	2005-07-28 21:51:33 UTC (rev 844)
++++ trunk/src/scripting/wrapper.hpp	2005-07-29 09:16:19 UTC (rev 845)
+@@ -1,6 +1,6 @@
+ /**
+  * WARNING: This file is automatically generated from:
+- *  'scripting/wrapper.interface.hpp'
++ *  'src/scripting/wrapper.interface.hpp'
+  * DO NOT CHANGE
+  */
+ #ifndef __windstille_WRAPPER_H__
+
+Modified: trunk/src/sprite3d/data.cpp
+===================================================================
+--- trunk/src/sprite3d/data.cpp	2005-07-28 21:51:33 UTC (rev 844)
++++ trunk/src/sprite3d/data.cpp	2005-07-29 09:16:19 UTC (rev 845)
+@@ -54,8 +54,8 @@
+ }
+ 
+ Data::Data(const std::string&amp; filename)
+-  : mesh_count(0), meshs(0), bone_count(0), bones(0),
+-  action_count(0), actions(0)
++  : mesh_count(0), meshs(0), attachement_point_count(0), 
++  attachement_points(0), action_count(0), actions(0)
+ {
+   PHYSFS_file* file = PHYSFS_openRead(filename.c_str());
+   if(!file) {
+@@ -78,7 +78,7 @@
+     mesh_count = read_uint16_t(file);
+     if(mesh_count == 0)
+       throw std::runtime_error(&quot;Sprite contains no meshs&quot;);
+-    bone_count = read_uint16_t(file);
++    attachement_point_count = read_uint16_t(file);
+     action_count = read_uint16_t(file);
+     if(action_count == 0)
+       throw std::runtime_error(&quot;Sprite contains no actions&quot;);
+@@ -112,11 +112,11 @@
+       }
+     }
+ 
+-    // read bones
+-    bones = new Bone[bone_count];
+-    for(uint16_t b = 0; b &lt; bone_count; ++b) {
+-      Bone&amp; bone = bones[b];
+-      bone.name = read_string(file, 64);
++    // read attachement points
++    attachement_points = new AttachementPoint[attachement_point_count];
++    for(uint16_t a = 0; a &lt; attachement_point_count; ++a) {
++      AttachementPoint&amp; point = attachement_points[a];
++      point.name = read_string(file, 64);
+     }
+ 
+     // read actions
+@@ -152,13 +152,14 @@
+           }
+         }
+ 
+-        frame.bones = new BonePosition[bone_count];
+-        for(uint16_t b = 0; b &lt; bone_count; ++b) {
+-          BonePosition&amp; bone = frame.bones[b];
++        frame.attachement_points 
++          = new AttachementPointPosition[attachement_point_count];
++        for(uint16_t a = 0; a &lt; attachement_point_count; ++a) {
++          AttachementPointPosition&amp; point = frame.attachement_points[a];
+           for(int i = 0; i &lt; 3; ++i)
+-            bone.pos[i] = read_float(file);
++            point.pos[i] = read_float(file);
+           for(int i = 0; i &lt; 4; ++i)
+-            bone.quat[i] = read_float(file);
++            point.quat[i] = read_float(file);
+         }
+       }
+     }
+@@ -191,8 +192,8 @@
+     meshs = 0;
+   }
+   
+-  delete[] bones;
+-  bones = 0;
++  delete[] attachement_points;
++  attachement_points = 0;
+ 
+   if(actions != 0) {
+     for(uint16_t a = 0; a &lt; action_count; ++a) {
+@@ -210,7 +211,7 @@
+           delete[] vertices.vertices;
+         }
+         delete[] frame.meshs;
+-        delete[] frame.bones;
++        delete[] frame.attachement_points;
+       }
+       delete[] action.frames;
+     }
+@@ -246,15 +247,15 @@
+ }
+ 
+ uint16_t
+-Data::get_bone_id(const std::string&amp; name) const
++Data::get_attachement_point_id(const std::string&amp; name) const
+ {
+-  for(uint16_t b = 0; b &lt; bone_count; ++b) {
+-    if(bones[b].name == name)
+-      return b;
++  for(uint16_t a = 0; a &lt; attachement_point_count; ++a) {
++    if(attachement_points[a].name == name)
++      return a;
+   }
+ 
+   std::ostringstream msg;
+-  msg &lt;&lt; &quot;No bone with name '&quot; &lt;&lt; name &lt;&lt; &quot;' defined&quot;;
++  msg &lt;&lt; &quot;No Attachement Point with name '&quot; &lt;&lt; name &lt;&lt; &quot;' defined&quot;;
+   throw std::runtime_error(msg.str());
+ }
+ 
+
+Modified: trunk/src/sprite3d/data.hpp
+===================================================================
+--- trunk/src/sprite3d/data.hpp	2005-07-28 21:51:33 UTC (rev 844)
++++ trunk/src/sprite3d/data.hpp	2005-07-29 09:16:19 UTC (rev 845)
+@@ -28,7 +28,7 @@
+ {
+ 
+ struct Mesh;
+-struct Bone;
++struct AttachementPoint;
+ struct MeshVertices;
+ struct ActionFrame;
+ struct Action;
+@@ -45,12 +45,12 @@
+ 
+   const Action&amp; get_action(const std::string&amp; name) const;
+   const Marker&amp; get_marker(const Action* action, const std::string&amp; name) const;
+-  uint16_t get_bone_id(const std::string&amp; name) const;
++  uint16_t get_attachement_point_id(const std::string&amp; name) const;
+ 
+   uint16_t mesh_count;
+   Mesh* meshs;
+-  uint16_t bone_count;
+-  Bone* bones;
++  uint16_t attachement_point_count;
++  AttachementPoint* attachement_points;
+   uint16_t action_count;
+   Action* actions;
+ 
+@@ -73,7 +73,7 @@
+   uint16_t vertex_count;
+ };
+ 
+-struct Bone
++struct AttachementPoint
+ {
+   std::string name;
+ };
+@@ -86,10 +86,8 @@
+   float* vertices;
+ };
+ 
+-struct BonePosition
++struct AttachementPointPosition
+ {
+-  BonePosition()
+-  { }
+   float pos[3]; // x, y, z
+   float quat[4]; // w, x, y, z
+ };
+@@ -97,10 +95,10 @@
+ struct ActionFrame
+ {
+   ActionFrame()
+-    : meshs(0), bones(0)
++    : meshs(0), attachement_points(0)
+   { }
+   MeshVertices* meshs;
+-  BonePosition* bones;
++  AttachementPointPosition* attachement_points;
+ };
+ 
+ struct Marker
+
+Modified: trunk/src/sprite3d/sprite.cpp
+===================================================================
+--- trunk/src/sprite3d/sprite.cpp	2005-07-28 21:51:33 UTC (rev 844)
++++ trunk/src/sprite3d/sprite.cpp	2005-07-29 09:16:19 UTC (rev 845)
+@@ -54,8 +54,6 @@
+   next_frame.action  = 0;
+   next_action.action = 0;
+   blend_time = 0.0;
+-
+-  bone_positions.resize(data-&gt;bone_count);
+ }
+ 
+ Sprite::Sprite(const Data* data)
+@@ -70,8 +68,6 @@
+   next_frame.action  = 0;
+   next_action.action = 0;
+   blend_time = 0.0;
+-
+-  bone_positions.resize(data-&gt;bone_count);
+ }
+ 
+ Sprite::~Sprite()
+@@ -193,10 +189,10 @@
+   return frame1.rot;
+ }
+ 
+-BoneID
+-Sprite::get_bone_id(const std::string&amp; name) const
++PointID
++Sprite::get_attachement_point_id(const std::string&amp; name) const
+ {
+-  return data-&gt;get_bone_id(name); 
++  return data-&gt;get_attachement_point_id(name); 
+ }
+ 
+ static inline void set_matrix_from_quat(Matrix&amp; m, float w,
+@@ -228,33 +224,35 @@
+ }
+ 
+ Matrix
+-Sprite::get_bone_matrix(BoneID id) const
++Sprite::get_attachement_point_matrix(PointID id) const
+ {
+   float t_1 = 1.0 - blend_time;
+-  const BonePosition&amp; bone1 = frame1.action-&gt;frames[frame1.frame].bones[id];
+-  const BonePosition&amp; bone2 = frame2.action-&gt;frames[frame2.frame].bones[id];
++  const AttachementPointPosition&amp; point1 
++	  = frame1.action-&gt;frames[frame1.frame].attachement_points[id];
++  const AttachementPointPosition&amp; point2 
++	  = frame2.action-&gt;frames[frame2.frame].attachement_points[id];
+ 
+   float pos[3];
+   float quat[4];
+   if(frame1.rot) {
+-    pos[0] = -bone1.pos[0] * t_1;
+-    pos[1] = bone1.pos[1] * t_1;
+-    pos[2] = -bone1.pos[2] * t_1;   
++    pos[0] = -point1.pos[0] * t_1;
++    pos[1] = point1.pos[1] * t_1;
++    pos[2] = -point1.pos[2] * t_1;   
+   } else {
+     for(int i = 0; i &lt; 3; ++i)
+-      pos[i] = bone1.pos[i] * t_1;
++      pos[i] = point1.pos[i] * t_1;
+     for(int i = 0; i &lt; 4; ++i)
+-      quat[i] = bone1.quat[i] * t_1;
++      quat[i] = point1.quat[i] * t_1;
+   }
+   if(frame2.rot) {
+-    pos[0] += -bone2.pos[0] * blend_time;
+-    pos[1] += bone2.pos[1] * blend_time;
+-    pos[2] += -bone2.pos[2] * blend_time;
++    pos[0] += -point2.pos[0] * blend_time;
++    pos[1] += point2.pos[1] * blend_time;
++    pos[2] += -point2.pos[2] * blend_time;
+   } else {
+     for(int i = 0; i &lt; 3; ++i)
+-      pos[i] += bone2.pos[i] * blend_time;
++      pos[i] += point2.pos[i] * blend_time;
+     for(int i = 0; i &lt; 4; ++i)
+-      quat[i] += bone2.quat[i] * blend_time;
++      quat[i] += point2.quat[i] * blend_time;
+   }
+ 
+   Matrix m      = Matrix::identity();
+@@ -262,24 +260,26 @@
+   m.matrix[7]  += pos[1];
+   m.matrix[11] += pos[2];
+ 
++  printf(&quot;Pos: %f %f %f\n&quot;, pos[0], pos[1], pos[2]);
++  
+   return m;
+ }
+ 
+ class SpriteDrawingRequest : public DrawingRequest
+ {
+ private:
+-  Sprite sprite;
++  const Sprite* sprite;
+ 
+ public:
+-  SpriteDrawingRequest(Sprite sprite, const Vector&amp; pos, float z_pos,
+-                       const Matrix&amp; modelview)
+-      : DrawingRequest(pos, z_pos, modelview), sprite(sprite)
++  SpriteDrawingRequest(const Sprite* sprite,
++                       const Matrix&amp; modelview, float z_pos)
++      : DrawingRequest(modelview, z_pos), sprite(sprite)
+   {
+   }
+ 
+   void draw(CL_GraphicContext* gc)
+   {
+-    sprite.draw(gc, pos, modelview);
++    sprite-&gt;draw(gc, modelview);
+   }
+ };
+ 
+@@ -334,35 +334,40 @@
+ }
+ 
+ void
+-Sprite::draw(SceneContext&amp; sc, const Vector&amp; pos, float z_pos)
++Sprite::draw(SceneContext&amp; sc, const Vector&amp; pos, float z_pos) const
+ {
+-  sc.color().draw(
+-    new SpriteDrawingRequest(*this, pos, z_pos, sc.color().get_modelview()));
++  Matrix matrix = sc.color().get_modelview();
++  matrix[13] += pos.x;
++  matrix[14] += pos.y;
++  sc.color().draw(new SpriteDrawingRequest(this, matrix, z_pos));
+ }
+ 
+ void
+-Sprite::draw(SceneContext&amp; sc, const Matrix&amp; matrix)
++Sprite::draw(SceneContext&amp; sc, const Matrix&amp; matrix, float z_pos) const
+ {
++#if 0
+   Matrix mmatrix 
+     = matrix.multiply(sc.color().get_modelview());
+-  sc.color().draw(
+-    new SpriteDrawingRequest(*this, Vector(0, 0), 0, mmatrix));
++#else
++  Matrix mmatrix
++    = sc.color().get_modelview().multiply(matrix);
++#endif
++  sc.color().draw(new SpriteDrawingRequest(this, mmatrix, z_pos));
+ }
+ 
+ void
+-Sprite::draw(CL_GraphicContext* gc, const Vector&amp; pos,
+-               const Matrix&amp; modelview)
++Sprite::draw(CL_GraphicContext* gc, const Matrix&amp; modelview) const
+ {
+   CL_OpenGLState state(gc);
+   state.set_active();
+   state.setup_2d();
+ 
++  glMatrixMode(GL_MODELVIEW);
+   glPushMatrix();
+-  glMultMatrixd(modelview.matrix);
+-  glTranslatef(pos.x, pos.y, 0);
++  glMultMatrixf(modelview.matrix);
+   if(frame1.rot) {
+     glRotatef(180, 0, 1.0, 0);
+-  }
++  } 
+ 
+   glClear(GL_DEPTH_BUFFER_BIT);
+   glEnable(GL_DEPTH_TEST);
+@@ -423,7 +428,8 @@
+   glPopMatrix();
+ }
+ 
+-Sprite::operator bool() const
++bool
++Sprite::is_valid() const
+ {
+   return data != 0;
+ }
+
+Modified: trunk/src/sprite3d/sprite.hpp
+===================================================================
+--- trunk/src/sprite3d/sprite.hpp	2005-07-28 21:51:33 UTC (rev 844)
++++ trunk/src/sprite3d/sprite.hpp	2005-07-29 09:16:19 UTC (rev 845)
+@@ -34,9 +34,8 @@
+ class Data;
+ struct Action;
+ struct ActionFrame;
+-struct BonePosition;
+ 
+-typedef uint16_t BoneID;
++typedef uint16_t PointID;
+ 
+ /**
+  * This class is a 3d sprite. It's a set of textured meshs with different
+@@ -54,8 +53,8 @@
+    * You should call this every frame
+    */
+   void update(float elapsed_time);
+-  void draw(SceneContext&amp; sc, const Vector&amp; pos, float z_pos);
+-  void draw(SceneContext&amp; sc, const Matrix&amp; matrix);
++  void draw(SceneContext&amp; sc, const Vector&amp; pos, float z_pos) const;
++  void draw(SceneContext&amp; sc, const Matrix&amp; matrix, float z_pos) const;
+   
+   /**
+    * Changes action (after the currently shown animation frame)
+@@ -103,14 +102,16 @@
+   void set_rot(bool rot = true);
+   bool get_rot() const;
+ 
+-  BoneID get_bone_id(const std::string&amp; name) const;
+-  Matrix get_bone_matrix(BoneID id) const;
++  PointID get_attachement_point_id(const std::string&amp; name) const;
++  Matrix get_attachement_point_matrix(PointID id) const;
+ 
+-  void draw(CL_GraphicContext* gc, const Vector&amp; pos, const Matrix&amp; modelview);
+-
+   /** true if the Sprite is valid and usable, false if not */
+-  operator bool() const;
++  bool is_valid() const;
++  
+ private:  
++  friend class SpriteDrawingRequest;
++  void draw(CL_GraphicContext* gc, const Matrix&amp; modelview) const;
++  
+   struct Frame {
+     const Action* action;
+     int   frame;
+@@ -129,8 +130,6 @@
+   const Data* data;
+   bool actions_switched;
+ 
+-  std::vector&lt;BonePosition&gt; bone_positions;
+-
+   Frame frame1;
+   Frame frame2;
+   float blend_time;
+
+Modified: trunk/src/test_object.cpp
+===================================================================
+--- trunk/src/test_object.cpp	2005-07-28 21:51:33 UTC (rev 844)
++++ trunk/src/test_object.cpp	2005-07-29 09:16:19 UTC (rev 845)
+@@ -30,12 +30,21 @@
+ TestObject::draw(SceneContext&amp; context)
+ {
+   sprite.draw(context, pos, 100);
++  for(std::vector&lt;AttachedSprite&gt;::iterator i = attached_sprites.begin();
++      i != attached_sprites.end(); ++i) {
++    Matrix mat = sprite.get_attachement_point_matrix(i-&gt;attachpoint);
++    i-&gt;sprite.draw(context, mat, 100);
++  }                                                                        
+ }
+ 
+ void
+ TestObject::update(float elapsed_time)
+ {
+   sprite.update(elapsed_time);
++  for(std::vector&lt;AttachedSprite&gt;::iterator i = attached_sprites.begin();
++      i != attached_sprites.end(); ++i) {
++    i-&gt;sprite.update(elapsed_time);
++  }
+ }
+ 
+ void
+@@ -72,3 +81,13 @@
+   sprite.set_rot(vflip);
+ }
+ 
++void
++TestObject::attach(const std::string&amp; spritename,
++                   const std::string&amp; attachement_point)
++{
++  AttachedSprite asprite;
++  asprite.sprite = sprite3d::Sprite(spritename);
++  asprite.attachpoint = sprite.get_attachement_point_id(attachement_point);
++  attached_sprites.push_back(asprite);
++}
++
+
+Modified: trunk/src/test_object.hpp
+===================================================================
+--- trunk/src/test_object.hpp	2005-07-28 21:51:33 UTC (rev 844)
++++ trunk/src/test_object.hpp	2005-07-29 09:16:19 UTC (rev 845)
+@@ -1,6 +1,7 @@
+ #ifndef __TEST_OBJECT_HPP__
+ #define __TEST_OBJECT_HPP__
+ 
++#include &lt;vector&gt;
+ #include &quot;game_object.hpp&quot;
+ #include &quot;sprite3d/sprite.hpp&quot;
+ #include &quot;math/vector.hpp&quot;
+@@ -19,9 +20,16 @@
+   void set_action(const std::string&amp; action);
+   void set_vflip(bool vflip);
+   void set_pos(const Vector&amp; pos);
++  void attach(const std::string&amp; spritename,
++		      const std::string&amp; attachement_point);
+ 
+ private:
+   sprite3d::Sprite sprite;
++  struct AttachedSprite {
++    sprite3d::Sprite sprite;
++	sprite3d::PointID attachpoint;
++  };
++  std::vector&lt;AttachedSprite&gt; attached_sprites;
+   Vector pos;
+ };
+ 
+
+Modified: trunk/tools/windstille_export.py
+===================================================================
+--- trunk/tools/windstille_export.py	2005-07-28 21:51:33 UTC (rev 844)
++++ trunk/tools/windstille_export.py	2005-07-29 09:16:19 UTC (rev 845)
+@@ -97,6 +97,10 @@
+ 
+   actionconfig = {}
+   while True:
++    token = lex.get_token()
++    if token == lex.eof:
++      break
++    lex.push_token(token)
+     action_name = expect_string()
+     first_frame = expect_int()
+     expect_dash()
+@@ -128,10 +132,6 @@
+     actionconfig[action_name] = \
+         (first_frame, last_frame, speed, samplerate, markers)
+     print &quot;Config: %s - %s&quot; % (action_name, str(actionconfig[action_name]))
+-    token = lex.get_token()
+-    if token == lex.eof:
+-      break
+-    lex.push_token(token)
+ 
+   return actionconfig
+ 
+@@ -156,13 +156,10 @@
+       raise Exception, &quot;Expected float, got EOF&quot;
+     return float(res)
+ 
+-  bones = []
+   while True:
+     token = lex.get_token()
+     if token == lex.eof:
+       break
+-    elif token == &quot;ExportBone&quot;:
+-      bones.append(expect_string())
+     elif token == &quot;DefaultSpeed&quot;:
+       global DEFAULT_SPEED
+       DEFAULT_SPEED = expect_float()
+@@ -177,7 +174,6 @@
+       DEFAULT_SAMPLERATE = expect_int()
+     else:
+       raise Exception, &quot;Unexpected token '%s'&quot; % token
+-  return bones
+ 
+ # return contents of a text in the blender scene
+ def get_text(textname):
+@@ -198,9 +194,8 @@
+   layers = scene.Layers
+ 
+   # parse exportconfig
+-  bone_names = []
+   try:
+-    bone_names = parse_config(get_text(&quot;exportconfig&quot;))
++    parse_config(get_text(&quot;exportconfig&quot;))
+   except Exception, message:
+     raise Exception, &quot;Parse Error in exportconfig:&quot; + str(message)
+ 
+@@ -220,12 +215,16 @@
+     if (obj.Layers &amp; layers) == 0:
+       print &quot;Skipping \&quot;%s\&quot; because it is on different layer&quot; % obj.getName()
+       continue
++    texture = data.faces[0].image
++    if not texture:
++      print &quot;Skipping Mesh %s: no texture&quot; % obj.getName()
++      continue
+     meshes.append(obj)
+ 
+   # search for armature object
+   armatures = Blender.Armature.Get()
+-  if len(armatures) != 1:
+-    raise Exception, &quot;Need to have exactly 1 armature in the scene&quot;
++  if len(armatures) &gt; 1:
++    raise Exception, &quot;Need to have at most 1 armature in the scene&quot;
+ 
+   armatureobj = 0
+   for obj in Blender.Object.Get():
+@@ -235,30 +234,28 @@
+       armatureobj = obj
+       armature = obj.getData()
+       break
+-  if armatureobj == 0:
+-    raise Exception, &quot;Couldn't find armature object...&quot;
+ 
+-  # compose list of bones to export
+-  bones = []
+-  for name in bone_names:
+-    found = False
+-    for bone in armature.getBones():
+-      if bone.getName() == name:
+-        bones.append(bone)
+-        found = True
+-        break
+-    if not found:
+-      raise Exception, &quot;No bone '%s' defined in armature&quot; % name
+-
++  # compose list of objects for attachement points
++  attachement_objects = []
++  for obj in Blender.Object.Get():
++    if obj.getType() != 'Empty':
++      continue
++    if not obj.getName().startswith(&quot;A:&quot;):
++      continue;
++    attachement_objects.append(obj)
++  
+   # compose list of actions to export
+   actions = []
+-  for action in Blender.Armature.NLA.GetActions().iteritems():
+-    actions.append(action[1])
++  if armatureobj == 0:
++    actions.append(&quot;Default&quot;)
++  else:
++    for action in Blender.Armature.NLA.GetActions().iteritems():
++      actions.append(action[1])
+ 
+   # write file header
+   file = open(filename, &quot;wb&quot;)
+   file.write(struct.pack(&quot;=4sHHHH&quot;, &quot;W3DS&quot;, FORMAT_VERSION, \
+-        len(meshes), len(bones), len(actions)))
++        len(meshes), len(attachement_objects), len(actions)))
+   objvertmaps = {}
+ 
+   # Mesh Headers + Data
+@@ -268,10 +265,6 @@
+     print &quot;Exporting Mesh %s&quot; % obj.getName()
+ 
+     texture = data.faces[0].image
+-    if not texture:
+-      print &quot;Skipping Mesh %s: no texture&quot; % obj.getName()
+-      continue
+-      
+     texture_filename = texture.filename
+     texture_filename = os.path.basename(texture_filename)
+     vertexmap = []
+@@ -323,13 +316,45 @@
+ 
+     objvertmaps[obj.getName()] = vertexmap
+ 
+-  # Bone Headers
+-  for bone in bones:
+-    file.write(struct.pack(&quot;=64s&quot;, bone.getName()))
++  # Attachement Point Headers
++  for obj in attachement_objects:
++    file.write(struct.pack(&quot;=64s&quot;, obj.getName()[2:]))
+ 
+   # Action Headers + actions
++  def save_frame():
++    for obj in meshes:
++      data = Blender.NMesh.GetRawFromObject(obj.getName())
++      vertexmap = objvertmaps[obj.getName()]
++      m = obj.getMatrix()
++      # action/frame/mesh/vertices
++      for nv in vertexmap:
++        v = data.verts[nv]
++        t = [0, 0, 0]
++        t[0] = m[0][0]*v[0] + m[1][0]*v[1] + m[2][0]*v[2] + m[3][0]
++        t[1] = m[0][1]*v[0] + m[1][1]*v[1] + m[2][1]*v[2] + m[3][1]        
++        t[2] = m[0][2]*v[0] + m[1][2]*v[1] + m[2][2]*v[2] + m[3][2]
++        t[0] *= ZOOM
++        t[1] *= ZOOM
++        t[2] *= ZOOM
++        file.write(struct.pack(&quot;=fff&quot;, t[1], -t[2], t[0]))
++
++    # attachement points
++    for obj in attachement_objects:
++      m = obj.matrixWorld
++      loc = (m[3][0] * ZOOM, m[3][1] * ZOOM, m[3][2] * ZOOM)
++      file.write(struct.pack(&quot;=fff&quot;, loc[0], loc[1], loc[2]))
++      quat = matrix2quaternion(m)
++      file.write(struct.pack(&quot;=ffff&quot;, quat[0], quat[1], quat[2], quat[3]))
++    
+   actionnum = 0
+   for action in actions:
++    # special case, no armature+animations
++    if armatureobj == 0:
++      file.write(struct.pack(&quot;=64sfHH&quot;, &quot;Default&quot;, \
++                 DEFAULT_SPEED * SPEED_MULTIPLIER, 0, 1))
++      save_frame()
++      break
++  
+     # enable action
+     action.setActive(armatureobj)
+  
+@@ -381,34 +406,7 @@
+     for frame in range(first_frame, last_frame+1, samplerate):
+       frs += 1
+       Blender.Set(&quot;curframe&quot;, int(frame))
+-      #for obj in Blender.Object.Get():
+-      #  data = obj.getData()
+-      #  if (type(data) is not Blender.Types.NMeshType) or not data.faces:                 continue
+-      #  if (obj.Layers &amp; layers) == 0:
+-      #    continue
+-      for obj in meshes:
+-        data = Blender.NMesh.GetRawFromObject(obj.getName())
+-        vertexmap = objvertmaps[obj.getName()]
+-        m = obj.getMatrix()
+-        # action/frame/mesh/vertices
+-        for nv in vertexmap:
+-          v = data.verts[nv]
+-          t = [0, 0, 0]
+-          t[0] = m[0][0]*v[0] + m[1][0]*v[1] + m[2][0]*v[2] + m[3][0]
+-          t[1] = m[0][1]*v[0] + m[1][1]*v[1] + m[2][1]*v[2] + m[3][1]        
+-          t[2] = m[0][2]*v[0] + m[1][2]*v[1] + m[2][2]*v[2] + m[3][2]
+-          t[0] *= ZOOM
+-          t[1] *= ZOOM
+-          t[2] *= ZOOM
+-          file.write(struct.pack(&quot;=fff&quot;, t[1], -t[2], t[0]))
+-
+-      # bone positions
+-      for bone in bones:
+-        bonemat = bone.getRestMatrix('worldspace')
+-        loc = (m[3][0], m[3][1], m[3][2])
+-        file.write(struct.pack(&quot;=fff&quot;, loc[0], loc[1], loc[2]))
+-        quat = matrix2quaternion(bonemat)
+-        file.write(struct.pack(&quot;=ffff&quot;, quat[0], quat[1], quat[2], quat[3]))
++      save_frame
+       
+ def fs_callback(filename):
+   export(filename)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000497.html">[Windstille-commit] r844 - in trunk: data/levels src src/particles src/scripting
+</A></li>
+	<LI>Next message: <A HREF="000499.html">[Windstille-commit] r846 - trunk/src/sprite3d
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#498">[ date ]</a>
+              <a href="thread.html#498">[ thread ]</a>
+              <a href="subject.html#498">[ subject ]</a>
+              <a href="author.html#498">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

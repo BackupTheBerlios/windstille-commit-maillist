@@ -1,0 +1,4012 @@
+From grumbel at mail.berlios.de  Thu Oct  1 03:06:29 2009
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Thu, 1 Oct 2009 03:06:29 +0200
+Subject: [Windstille-commit] r3281 - in trunk/windstille/src: display editor
+	particles scenegraph
+Message-ID: <200910010106.n9116TfZ023460@sheep.berlios.de>
+
+Author: grumbel
+Date: 2009-10-01 03:06:24 +0200 (Thu, 01 Oct 2009)
+New Revision: 3281
+
+Added:
+   trunk/windstille/src/scenegraph/drawable_group.cpp
+   trunk/windstille/src/scenegraph/drawable_group.hpp
+Modified:
+   trunk/windstille/src/display/basic_compositor_impl.cpp
+   trunk/windstille/src/display/drawing_context.cpp
+   trunk/windstille/src/display/framebuffer_compositor_impl.cpp
+   trunk/windstille/src/editor/animation_widget.cpp
+   trunk/windstille/src/editor/animation_widget.hpp
+   trunk/windstille/src/editor/decal_object_model.cpp
+   trunk/windstille/src/editor/decal_object_model.hpp
+   trunk/windstille/src/editor/navgraph_edge_object_model.cpp
+   trunk/windstille/src/editor/navgraph_edge_object_model.hpp
+   trunk/windstille/src/editor/navgraph_node_object_model.cpp
+   trunk/windstille/src/editor/navgraph_node_object_model.hpp
+   trunk/windstille/src/editor/object_model.hpp
+   trunk/windstille/src/editor/particle_system_object_model.hpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+   trunk/windstille/src/editor/sprite_object_model.hpp
+   trunk/windstille/src/editor/timeline_keyframe_object.hpp
+   trunk/windstille/src/editor/timeline_object_layer.hpp
+   trunk/windstille/src/editor/timeline_widget.cpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/particles/deform_drawer.cpp
+   trunk/windstille/src/particles/spark_drawer.cpp
+   trunk/windstille/src/particles/surface_drawer.cpp
+   trunk/windstille/src/scenegraph/control_drawable.hpp
+   trunk/windstille/src/scenegraph/drawable.hpp
+   trunk/windstille/src/scenegraph/fill_screen_drawable.hpp
+   trunk/windstille/src/scenegraph/fill_screen_pattern_drawable.hpp
+   trunk/windstille/src/scenegraph/gradient_drawable.cpp
+   trunk/windstille/src/scenegraph/gradient_drawable.hpp
+   trunk/windstille/src/scenegraph/navigation_graph_drawable.hpp
+   trunk/windstille/src/scenegraph/particle_system_drawable.cpp
+   trunk/windstille/src/scenegraph/particle_system_drawable.hpp
+   trunk/windstille/src/scenegraph/scene_graph.cpp
+   trunk/windstille/src/scenegraph/scene_graph.hpp
+   trunk/windstille/src/scenegraph/shockwave_drawable.hpp
+   trunk/windstille/src/scenegraph/sprite3d_drawable.hpp
+   trunk/windstille/src/scenegraph/surface_drawable.hpp
+   trunk/windstille/src/scenegraph/surface_quad_drawable.hpp
+   trunk/windstille/src/scenegraph/text_drawable.hpp
+   trunk/windstille/src/scenegraph/vertex_array_drawable.cpp
+   trunk/windstille/src/scenegraph/vertex_array_drawable.hpp
+Log:
+Added DrawableGroup, replaced SceneGraph with it in a few places
+
+Modified: trunk/windstille/src/display/basic_compositor_impl.cpp
+===================================================================
+--- trunk/windstille/src/display/basic_compositor_impl.cpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/display/basic_compositor_impl.cpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -61,7 +61,7 @@
+       glPushMatrix();
+       glScalef(1.0f / LIGHTMAP_DIV, 1.0f / LIGHTMAP_DIV, 1.0f);
+       glMultMatrixf(gc_state.get_matrix().matrix);
+-      sg->draw(SceneContext::LIGHTMAP);
++      sg->render(SceneContext::LIGHTMAP);
+       glPopMatrix();
+     }
+ 
+@@ -93,7 +93,7 @@
+     {
+       glPushMatrix();
+       glMultMatrixf(gc_state.get_matrix().matrix);
+-      sg->draw(SceneContext::COLORMAP);
++      sg->render(SceneContext::COLORMAP);
+       glPopMatrix();
+     }
+   }
+@@ -133,7 +133,7 @@
+     {
+       glPushMatrix();
+       glMultMatrixf(gc_state.get_matrix().matrix);
+-      sg->draw(SceneContext::HIGHLIGHTMAP);
++      sg->render(SceneContext::HIGHLIGHTMAP);
+       glPopMatrix();
+     }
+   }
+@@ -146,7 +146,7 @@
+     {
+       glPushMatrix();
+       glMultMatrixf(gc_state.get_matrix().matrix);
+-      sg->draw(SceneContext::CONTROLMAP);
++      sg->render(SceneContext::CONTROLMAP);
+       glPopMatrix();
+     }
+   }
+
+Modified: trunk/windstille/src/display/drawing_context.cpp
+===================================================================
+--- trunk/windstille/src/display/drawing_context.cpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/display/drawing_context.cpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -66,7 +66,7 @@
+   
+   for(Drawables::iterator i = drawingrequests.begin(); i != drawingrequests.end(); ++i)
+     {
+-      (*i)->draw();
++      (*i)->render(~0u);
+     }
+ }
+ 
+
+Modified: trunk/windstille/src/display/framebuffer_compositor_impl.cpp
+===================================================================
+--- trunk/windstille/src/display/framebuffer_compositor_impl.cpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/display/framebuffer_compositor_impl.cpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -82,7 +82,7 @@
+     {
+       glPushMatrix();
+       glMultMatrixf(gc_state.get_matrix().matrix);
+-      sg->draw(SceneContext::LIGHTMAP);
++      sg->render(SceneContext::LIGHTMAP);
+       glPopMatrix();
+     }
+ 
+@@ -106,7 +106,7 @@
+       {
+         glPushMatrix();
+         glMultMatrixf(gc_state.get_matrix().matrix);
+-        sg->draw(SceneContext::COLORMAP);
++        sg->render(SceneContext::COLORMAP);
+         glPopMatrix();
+       }
+     }
+@@ -124,7 +124,7 @@
+       {
+         glPushMatrix();
+         glMultMatrixf(gc_state.get_matrix().matrix);
+-        sg->draw(SceneContext::HIGHLIGHTMAP);
++        sg->render(SceneContext::HIGHLIGHTMAP);
+         glPopMatrix();
+       }
+     }
+@@ -137,7 +137,7 @@
+       {
+         glPushMatrix();
+         glMultMatrixf(gc_state.get_matrix().matrix);
+-        sg->draw(SceneContext::CONTROLMAP);
++        sg->render(SceneContext::CONTROLMAP);
+         glPopMatrix();
+       }
+     }
+
+Modified: trunk/windstille/src/editor/animation_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/animation_widget.cpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/editor/animation_widget.cpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -25,6 +25,7 @@
+ #include <boost/shared_ptr.hpp>
+ 
+ #include "editor/editor_window.hpp"
++#include "editor/windstille_widget.hpp"
+ #include "editor/timeline_widget.hpp"
+ #include "editor/timeline_object.hpp"
+ #include "editor/timeline_anim_object.hpp"
+@@ -154,7 +155,8 @@
+ {
+   m_anim_pos += 0.5f;
+   m_timeline->apply(m_anim_pos);
+-  EditorWindow::current()->queue_draw();
++  if (WindstilleWidget* wst = EditorWindow::current()->get_windstille_widget())
++    wst->queue_draw();
+   return true;
+ }
+ 
+@@ -166,4 +168,10 @@
+   m_timeline_layer_widget.set_timeline(timeline);
+ }
+ 
++void
++AnimationWidget::on_export()
++{
++  
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/animation_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/animation_widget.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/editor/animation_widget.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -64,8 +64,9 @@
+   void set_timeline(TimelineHandle timeline);
+   TimelineWidget& get_timeline_widget() { return m_timeline_widget; }
+   void on_play();
++  void on_export();
+   bool on_timeout();
+-
++  
+ private:
+   AnimationWidget(const AnimationWidget&);
+   AnimationWidget& operator=(const AnimationWidget&);
+
+Modified: trunk/windstille/src/editor/decal_object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/decal_object_model.cpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/editor/decal_object_model.cpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -28,7 +28,7 @@
+ #include "editor/decal_rotate_control_point.hpp"
+ #include "editor/decal_scale_control_point.hpp"
+ #include "editor/sector_model.hpp"
+-#include "scenegraph/scene_graph.hpp"
++#include "scenegraph/drawable_group.hpp"
+ #include "scenegraph/surface_drawable.hpp"
+ #include "util/file_reader.hpp"
+ 
+@@ -267,7 +267,7 @@
+ }
+ 
+ void
+-DecalObjectModel::add_to_scenegraph(SceneGraph& sg)
++DecalObjectModel::add_to_scenegraph(DrawableGroup& sg)
+ {
+   if (!m_drawable)
+   {
+
+Modified: trunk/windstille/src/editor/decal_object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/decal_object_model.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/editor/decal_object_model.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -84,7 +84,7 @@
+ 
+   void add_control_points(std::vector<ControlPointHandle>& control_points);
+ 
+-  void add_to_scenegraph(SceneGraph& sg);
++  void add_to_scenegraph(DrawableGroup& sg);
+   void sync();
+ 
+   void set_world_pos(const Vector2f& p);
+
+Modified: trunk/windstille/src/editor/navgraph_edge_object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_edge_object_model.cpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/editor/navgraph_edge_object_model.cpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -21,6 +21,7 @@
+ #include "editor/navgraph_node_object_model.hpp"
+ #include "editor/sector_model.hpp"
+ #include "scenegraph/scene_graph.hpp"
++#include "scenegraph/drawable_group.hpp"
+ #include "scenegraph/vertex_array_drawable.hpp"
+ 
+ NavGraphEdgeObjectModel::NavGraphEdgeObjectModel(boost::shared_ptr<NavGraphNodeObjectModel> lhs,
+@@ -62,7 +63,7 @@
+ }
+ 
+ void
+-NavGraphEdgeObjectModel::add_to_scenegraph(SceneGraph& sg)
++NavGraphEdgeObjectModel::add_to_scenegraph(DrawableGroup& sg)
+ {
+   m_drawable.reset(new VertexArrayDrawable(Vector2f(), 0.0f, Matrix::identity()));
+   update(0.0f);
+
+Modified: trunk/windstille/src/editor/navgraph_edge_object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_edge_object_model.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/editor/navgraph_edge_object_model.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -37,7 +37,7 @@
+                           boost::shared_ptr<NavGraphNodeObjectModel> rhs);
+   virtual ~NavGraphEdgeObjectModel();
+ 
+-  void add_to_scenegraph(SceneGraph& sg);
++  void add_to_scenegraph(DrawableGroup& sg);
+   void update(float delta);
+ 
+   Rectf get_bounding_box() const;
+
+Modified: trunk/windstille/src/editor/navgraph_node_object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_node_object_model.cpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/editor/navgraph_node_object_model.cpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -20,7 +20,7 @@
+ 
+ #include "editor/sector_model.hpp"
+ #include "scenegraph/vertex_array_drawable.hpp"
+-#include "scenegraph/scene_graph.hpp"
++#include "scenegraph/drawable_group.hpp"
+ #include "navigation/node.hpp"
+ #include "editor/constants.hpp"
+ 
+@@ -41,7 +41,7 @@
+ }
+ 
+ void
+-NavGraphNodeObjectModel::add_to_scenegraph(SceneGraph& sg)
++NavGraphNodeObjectModel::add_to_scenegraph(DrawableGroup& sg)
+ {
+   if (!m_drawable)
+     m_drawable.reset(new VertexArrayDrawable(Vector2f(), 0.0f, Matrix::identity()));
+
+Modified: trunk/windstille/src/editor/navgraph_node_object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_node_object_model.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/editor/navgraph_node_object_model.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -37,7 +37,7 @@
+   NavGraphNodeObjectModel(const Vector2f& pos);
+   ~NavGraphNodeObjectModel();
+ 
+-  void add_to_scenegraph(SceneGraph& sg);
++  void add_to_scenegraph(DrawableGroup& sg);
+   void set_rel_pos(const Vector2f& rel_pos_);
+   void sync_drawable();
+   
+
+Modified: trunk/windstille/src/editor/object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/object_model.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/editor/object_model.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -32,7 +32,7 @@
+ class FileReader;
+ class SceneContext;
+ class SectorModel;
+-class SceneGraph;
++class DrawableGroup;
+ class Vector2f;
+ 
+ typedef boost::shared_ptr<ObjectModel> ObjectModelHandle;
+@@ -105,7 +105,7 @@
+ 
+   /** This lets the object add things to the SceneGraph or do other
+       things needed to make it properly visible in the SectorModel */
+-  virtual void add_to_scenegraph(SceneGraph& sg) =0;
++  virtual void add_to_scenegraph(DrawableGroup& sg) =0;
+ };
+ 
+ #endif
+
+Modified: trunk/windstille/src/editor/particle_system_object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/particle_system_object_model.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/editor/particle_system_object_model.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -41,7 +41,7 @@
+ 
+   void write(FileWriter& writer) const;
+ 
+-  void add_to_scenegraph(SceneGraph& sg) {}
++  void add_to_scenegraph(DrawableGroup& sg) {}
+ 
+ private:
+   ParticleSystemObjectModel(const ParticleSystemObjectModel&);
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -36,7 +36,7 @@
+ #include "editor/timeline.hpp"
+ #include "editor/windstille_widget.hpp"
+ #include "navigation/node.hpp"
+-#include "scenegraph/scene_graph.hpp"
++#include "scenegraph/drawable_group.hpp"
+ #include "util/file_reader.hpp"
+ 
+ LayerManagerColumns* LayerManagerColumns::instance_ = 0;
+@@ -431,7 +431,7 @@
+ }
+ 
+ void
+-SectorModel::rebuild_scene_graph(SceneGraph& sg)
++SectorModel::rebuild_scene_graph(DrawableGroup& sg)
+ {
+   // FIXME: should make a queue_rebuild_scene_graph() to limit the number of rebuilds per frame to 1
+   sg.clear();
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -101,7 +101,7 @@
+ 
+   void delete_navgraph_edges(NavGraphNodeObjectModel& node);
+ 
+-  void rebuild_scene_graph(SceneGraph& sg);
++  void rebuild_scene_graph(DrawableGroup& sg);
+ 
+ private:
+   void register_callbacks();
+
+Modified: trunk/windstille/src/editor/sprite_object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sprite_object_model.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/editor/sprite_object_model.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -39,7 +39,7 @@
+   ObjectModelHandle clone() const;
+   void write(FileWriter& writer) const;
+ 
+-  void add_to_scenegraph(SceneGraph& sg) {}
++  void add_to_scenegraph(DrawableGroup& sg) {}
+ };
+ 
+ #endif
+
+Modified: trunk/windstille/src/editor/timeline_keyframe_object.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_keyframe_object.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/editor/timeline_keyframe_object.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -56,6 +56,7 @@
+ 
+   const C& get_data() const { return m_data; }
+   void     set_data(const C& data) { m_data = data; }
++
+   void write(FileWriter& writer) const 
+   {
+     writer.start_section("keyframe");
+@@ -64,6 +65,15 @@
+     writer.end_section();
+   }
+ 
++  C blend(const TimelineKeyframeDataObject<C>& rhs, float pos)
++  {
++    float rel_pos = pos - get_pos();
++    float range   = rhs.get_pos() - m_pos;
++    float alpha   = rel_pos / range;
++
++    return ((1.0f - alpha) * get_data()) + (alpha * rhs.get_data());
++  }
++
+ private:
+   TimelineKeyframeDataObject(const TimelineKeyframeDataObject&);
+   TimelineKeyframeDataObject& operator=(const TimelineKeyframeDataObject&);
+
+Modified: trunk/windstille/src/editor/timeline_object_layer.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_object_layer.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/editor/timeline_object_layer.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -144,14 +144,7 @@
+         {
+           //std::cout << "POS: " << pos << " " << lhs->get_pos() << " " << rhs->get_pos() << std::endl;
+           //std::cout << size() << " " << lhs->get_data() << " " << rhs->get_data() << std::endl;
+-
+-          float rel_pos = pos - lhs->get_pos();
+-          float range   = rhs->get_pos() - lhs->get_pos();
+-          float alpha   = rel_pos / range;
+-
+-          //std::cout << range << " " << rel_pos << " " << alpha <<   std::endl;
+-
+-          return ((1.0f - alpha) * lhs->get_data()) + (alpha * rhs->get_data());
++          return lhs->blend(*rhs, pos);
+         }
+       }
+       else if (rhs)
+
+Modified: trunk/windstille/src/editor/timeline_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_widget.cpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/editor/timeline_widget.cpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -23,6 +23,7 @@
+ 
+ #include "math/rect.hpp"
+ #include "editor/editor_window.hpp"
++#include "editor/windstille_widget.hpp"
+ #include "editor/timeline.hpp"
+ #include "editor/timeline_layer.hpp"
+ #include "editor/timeline_object.hpp"
+@@ -497,7 +498,8 @@
+ {
+   m_cursor_pos = p; 
+   m_timeline->apply(p);
+-  EditorWindow::current()->queue_draw();
++  if (WindstilleWidget* wst = EditorWindow::current()->get_windstille_widget())
++    wst->queue_draw();
+ }
+ 
+ float
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -252,7 +252,7 @@
+   if (true || m_rebuild_scene_graph) // FIXME: always rebuild for now, optimize later
+   {
+     m_rebuild_scene_graph = false;
+-    m_document->get_sector_model().rebuild_scene_graph(*m_scene_graph);
++    m_document->get_sector_model().rebuild_scene_graph(*m_scene_graph->get_root());
+   }
+ 
+   if (sc.get())
+
+Modified: trunk/windstille/src/particles/deform_drawer.cpp
+===================================================================
+--- trunk/windstille/src/particles/deform_drawer.cpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/particles/deform_drawer.cpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -43,7 +43,7 @@
+   
+   virtual ~DeformDrawerRequest() {}
+   
+-  void draw()
++  void render(unsigned int mask)
+   {
+ #if 0
+     Display::push_framebuffer(framebuffer);
+
+Modified: trunk/windstille/src/particles/spark_drawer.cpp
+===================================================================
+--- trunk/windstille/src/particles/spark_drawer.cpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/particles/spark_drawer.cpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -82,7 +82,7 @@
+         }
+     }
+ 
+-  buffer->draw();
++  buffer->render(~0u);
+ }
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/particles/surface_drawer.cpp
+===================================================================
+--- trunk/windstille/src/particles/surface_drawer.cpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/particles/surface_drawer.cpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -160,7 +160,7 @@
+         }
+     }
+ 
+-  buffer->draw();
++  buffer->render(~0u);
+ }
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/scenegraph/control_drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/control_drawable.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/scenegraph/control_drawable.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -35,7 +35,7 @@
+ 
+   virtual ~ControlDrawable() {}
+ 
+-  void draw()
++  void render(unsigned int mask)
+   {
+     glPushMatrix();
+ 
+
+Modified: trunk/windstille/src/scenegraph/drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/drawable.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/scenegraph/drawable.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -46,7 +46,7 @@
+    * ie. it is the place where you can access the screen with raw
+    * OpenGL methods. 
+    */
+-  virtual void draw() = 0;
++  virtual void render(unsigned int mask) = 0;
+   
+   /** Returns the position at which the request should be drawn */
+   float get_z_pos() const { return z_pos; }
+
+Added: trunk/windstille/src/scenegraph/drawable_group.cpp
+===================================================================
+--- trunk/windstille/src/scenegraph/drawable_group.cpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/scenegraph/drawable_group.cpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -0,0 +1,56 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke <grumbel at gmx.de>
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see <http://www.gnu.org/licenses/>.
++*/
++
++#include "scenegraph/drawable_group.hpp"
++
++#include "scenegraph/drawable.hpp"
++
++DrawableGroup::DrawableGroup()
++  : m_drawables()
++{
++}
++
++void
++DrawableGroup::add_drawable(boost::shared_ptr<Drawable> drawable)
++{
++  m_drawables.push_back(drawable);
++}
++
++void
++DrawableGroup::remove_drawable(boost::shared_ptr<Drawable> drawable)
++{
++  m_drawables.erase(std::remove(m_drawables.begin(), m_drawables.end(), drawable), m_drawables.end());
++}
++  
++void
++DrawableGroup::clear()
++{
++  m_drawables.clear();
++}
++
++void
++DrawableGroup::render(unsigned int mask)
++{
++  for(Drawables::iterator i = m_drawables.begin(); i != m_drawables.end(); ++i)
++  {
++    if ((*i)->get_render_mask() & mask)
++      (*i)->render(mask);
++  }
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/scenegraph/drawable_group.cpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/scenegraph/drawable_group.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/drawable_group.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/scenegraph/drawable_group.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -0,0 +1,51 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke <grumbel at gmx.de>
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see <http://www.gnu.org/licenses/>.
++*/
++
++#ifndef HEADER_WINDSTILLE_DRAWABLE_GROUP_HPP
++#define HEADER_WINDSTILLE_DRAWABLE_GROUP_HPP
++
++#include <boost/shared_ptr.hpp>
++#include <vector>
++
++class Drawable;
++class Texture;
++
++class DrawableGroup
++{
++private:
++  typedef std::vector<boost::shared_ptr<Drawable> > Drawables;
++  Drawables m_drawables;
++
++public:
++  DrawableGroup();
++
++  void add_drawable(boost::shared_ptr<Drawable> drawable);
++  void remove_drawable(boost::shared_ptr<Drawable> drawable);
++  
++  void clear();
++
++  void render(unsigned int mask);
++
++private:
++  DrawableGroup(const DrawableGroup&);
++  DrawableGroup& operator=(const DrawableGroup&);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/scenegraph/drawable_group.hpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/windstille/src/scenegraph/fill_screen_drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/fill_screen_drawable.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/scenegraph/fill_screen_drawable.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -31,7 +31,7 @@
+   }
+   virtual ~FillScreenDrawable() {}
+ 
+-  void draw()
++  void render(unsigned int mask)
+   {
+     glClearColor(color.r, color.g, color.b, color.a);
+     glClear(GL_COLOR_BUFFER_BIT);
+
+Modified: trunk/windstille/src/scenegraph/fill_screen_pattern_drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/fill_screen_pattern_drawable.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/scenegraph/fill_screen_pattern_drawable.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -42,7 +42,7 @@
+     m_offset = offset;
+   }
+ 
+-  void draw() 
++  void render(unsigned int mask) 
+   {
+     OpenGLState state;
+     state.enable(GL_BLEND);
+
+Modified: trunk/windstille/src/scenegraph/gradient_drawable.cpp
+===================================================================
+--- trunk/windstille/src/scenegraph/gradient_drawable.cpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/scenegraph/gradient_drawable.cpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -69,11 +69,11 @@
+ }
+ 
+ void
+-GradientDrawable::draw()
++GradientDrawable::render(unsigned int mask)
+ {
+   glPushMatrix();
+   glLoadIdentity();
+-  array->draw();
++  array->render(mask);
+   glPopMatrix();
+ }
+ 
+
+Modified: trunk/windstille/src/scenegraph/gradient_drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/gradient_drawable.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/scenegraph/gradient_drawable.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -32,7 +32,7 @@
+ public:
+   GradientDrawable(const std::vector<float>& colors);
+   
+-  void draw();
++  void render(unsigned int mask);
+ 
+ private:
+   GradientDrawable(const GradientDrawable&);
+
+Modified: trunk/windstille/src/scenegraph/navigation_graph_drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/navigation_graph_drawable.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/scenegraph/navigation_graph_drawable.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -38,7 +38,7 @@
+     set_render_mask(SceneContext::CONTROLMAP);
+   }
+ 
+-  void draw()
++  void render(unsigned int mask)
+   {
+     glLineWidth(4.0f);
+     m_navgraph->draw();
+
+Modified: trunk/windstille/src/scenegraph/particle_system_drawable.cpp
+===================================================================
+--- trunk/windstille/src/scenegraph/particle_system_drawable.cpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/scenegraph/particle_system_drawable.cpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -28,7 +28,7 @@
+ }
+ 
+ void
+-ParticleSystemDrawable::draw()
++ParticleSystemDrawable::render(unsigned int mask)
+ {
+   m_particle_system.draw();
+ }
+
+Modified: trunk/windstille/src/scenegraph/particle_system_drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/particle_system_drawable.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/scenegraph/particle_system_drawable.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -31,7 +31,7 @@
+ public:
+   ParticleSystemDrawable(const ParticleSystem& particle_system);
+ 
+-  void draw();
++  void render(unsigned int mask);
+ 
+ private:
+   ParticleSystemDrawable(const ParticleSystemDrawable&);
+
+Modified: trunk/windstille/src/scenegraph/scene_graph.cpp
+===================================================================
+--- trunk/windstille/src/scenegraph/scene_graph.cpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/scenegraph/scene_graph.cpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -19,40 +19,35 @@
+ #include "scenegraph/scene_graph.hpp"
+ 
+ #include "scenegraph/drawable.hpp"
++#include "scenegraph/drawable_group.hpp"
+ 
+ SceneGraph::SceneGraph()
+-  : m_drawables()
++  : m_drawables(new DrawableGroup())
+ {
+ }
+ 
+ void
+ SceneGraph::add_drawable(boost::shared_ptr<Drawable> drawable)
+ {
+-  m_drawables.push_back(drawable);
++  m_drawables->add_drawable(drawable);
+ }
+ 
+ void
+ SceneGraph::remove_drawable(boost::shared_ptr<Drawable> drawable)
+ {
+-  Drawables::iterator i = std::find(m_drawables.begin(), m_drawables.end(), drawable);
+-  if (i != m_drawables.end())
+-    m_drawables.erase(i);
++  m_drawables->remove_drawable(drawable);
+ }
+ 
+ void
+-SceneGraph::clear()
++SceneGraph::render(unsigned int mask)
+ {
+-  m_drawables.clear();
++  m_drawables->render(mask); 
+ }
+ 
+ void
+-SceneGraph::draw(unsigned int mask)
++SceneGraph::clear()
+ {
+-  for(Drawables::iterator i = m_drawables.begin(); i != m_drawables.end(); ++i)
+-  {
+-    if ((*i)->get_render_mask() & mask)
+-      (*i)->draw();
+-  }
++  m_drawables->clear();
+ }
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/scenegraph/scene_graph.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/scene_graph.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/scenegraph/scene_graph.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -23,24 +23,26 @@
+ #include <vector>
+ 
+ class Drawable;
++class DrawableGroup;
+ class Texture;
+ 
+ class SceneGraph
+ {
+ private:
+-  typedef std::vector<boost::shared_ptr<Drawable> > Drawables;
+-  Drawables m_drawables;
++  boost::shared_ptr<DrawableGroup> m_drawables;
+ 
+ public:
+   SceneGraph();
+ 
++  boost::shared_ptr<DrawableGroup> get_root() { return m_drawables; }
++
+   void add_drawable(boost::shared_ptr<Drawable> drawable);
+   void remove_drawable(boost::shared_ptr<Drawable> drawable);
+-  
++
++  void render(unsigned int mask);
++
+   void clear();
+ 
+-  void draw(unsigned int mask);
+-
+ private:
+   SceneGraph(const SceneGraph&);
+   SceneGraph& operator=(const SceneGraph&);
+
+Modified: trunk/windstille/src/scenegraph/shockwave_drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/shockwave_drawable.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/scenegraph/shockwave_drawable.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -121,7 +121,7 @@
+   }
+ #endif
+ 
+-  void draw()
++  void render(unsigned int mask)
+   {
+ #if 0
+     glPushMatrix();
+
+Modified: trunk/windstille/src/scenegraph/sprite3d_drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/sprite3d_drawable.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/scenegraph/sprite3d_drawable.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -36,7 +36,7 @@
+       m_scale(1.0f)
+   {}
+ 
+-  void draw()
++  void render(unsigned int mask)
+   {
+     Matrix matrix = modelview;
+     matrix = matrix.translate(pos.x, pos.y, z_pos);
+
+Modified: trunk/windstille/src/scenegraph/surface_drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/surface_drawable.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/scenegraph/surface_drawable.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -43,7 +43,7 @@
+   Surface get_surface() const { return surface; }
+   SurfaceDrawingParameters& get_params() { return params; }
+ 
+-  void draw()
++  void render(unsigned int mask)
+   {
+     glPushMatrix();
+     glMultMatrixf(modelview.matrix);
+
+Modified: trunk/windstille/src/scenegraph/surface_quad_drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/surface_quad_drawable.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/scenegraph/surface_quad_drawable.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -44,7 +44,7 @@
+ 
+   DrawingParameters& get_params() { return m_params; }
+ 
+-  void draw() 
++  void render(unsigned int mask) 
+   {
+     OpenGLState state;
+     state.enable(GL_BLEND);
+
+Modified: trunk/windstille/src/scenegraph/text_drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/text_drawable.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/scenegraph/text_drawable.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -30,7 +30,7 @@
+   {}
+   virtual ~TextDrawable() {}
+ 
+-  void draw() {
++  void render(unsigned int mask) {
+     glPushMatrix();
+     glMultMatrixf(modelview.matrix);
+     Fonts::current()->ttffont->draw(pos, text);
+
+Modified: trunk/windstille/src/scenegraph/vertex_array_drawable.cpp
+===================================================================
+--- trunk/windstille/src/scenegraph/vertex_array_drawable.cpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/scenegraph/vertex_array_drawable.cpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -47,13 +47,13 @@
+ }
+ 
+ void
+-VertexArrayDrawable::draw()
++VertexArrayDrawable::render(unsigned int mask)
+ {
+-  draw(0, num_vertices());
++  render(0, num_vertices());
+ }
+ 
+ void
+-VertexArrayDrawable::draw(int start, int end)
++VertexArrayDrawable::render(int start, int end)
+ {
+   assert(!vertices.empty());
+   assert(texcoords.empty() || int(texcoords.size()/2) == num_vertices());
+
+Modified: trunk/windstille/src/scenegraph/vertex_array_drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/vertex_array_drawable.hpp	2009-09-29 22:46:33 UTC (rev 3280)
++++ trunk/windstille/src/scenegraph/vertex_array_drawable.hpp	2009-10-01 01:06:24 UTC (rev 3281)
+@@ -24,7 +24,6 @@
+ #include "display/color.hpp"
+ #include "scenegraph/drawable.hpp"
+ 
+-/** */
+ class VertexArrayDrawable : public Drawable
+ {
+ private:
+@@ -41,8 +40,8 @@
+ public:
+   VertexArrayDrawable(const Vector2f& pos_, float z_pos_, const Matrix& modelview_);
+ 
+-  void draw();
+-  void draw(int start, int end);
++  void render(unsigned int mask);
++  void render(int start, int end);
+ 
+   void vertex(float x, float y, float z = 0.0f);
+   void vertex(const Vector2f& vec, float z = 0.0f);
+
+
+
+From grumbel at mail.berlios.de  Thu Oct  1 03:09:29 2009
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Thu, 1 Oct 2009 03:09:29 +0200
+Subject: [Windstille-commit] r3282 - in trunk/windstille/src: editor
+	scenegraph
+Message-ID: <200910010109.n9119TXH023915@sheep.berlios.de>
+
+Author: grumbel
+Date: 2009-10-01 03:09:29 +0200 (Thu, 01 Oct 2009)
+New Revision: 3282
+
+Modified:
+   trunk/windstille/src/editor/animation_widget.hpp
+   trunk/windstille/src/editor/timeline_anim_object.hpp
+   trunk/windstille/src/editor/timeline_commands.hpp
+   trunk/windstille/src/editor/timeline_handles.hpp
+   trunk/windstille/src/editor/timeline_keyframe_object.hpp
+   trunk/windstille/src/editor/timeline_layer.hpp
+   trunk/windstille/src/editor/timeline_object.hpp
+   trunk/windstille/src/editor/timeline_object_layer.hpp
+   trunk/windstille/src/editor/timeline_properties.hpp
+   trunk/windstille/src/editor/timeline_sound_object.hpp
+   trunk/windstille/src/scenegraph/drawable_group.hpp
+Log:
+Include guard fixups
+
+Modified: trunk/windstille/src/editor/animation_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/animation_widget.hpp	2009-10-01 01:06:24 UTC (rev 3281)
++++ trunk/windstille/src/editor/animation_widget.hpp	2009-10-01 01:09:29 UTC (rev 3282)
+@@ -16,8 +16,8 @@
+ **  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-#ifndef HEADER_WINDSTILLE_ANIMATION_WIDGET_HPP
+-#define HEADER_WINDSTILLE_ANIMATION_WIDGET_HPP
++#ifndef HEADER_WINDSTILLE_EDITOR_ANIMATION_WIDGET_HPP
++#define HEADER_WINDSTILLE_EDITOR_ANIMATION_WIDGET_HPP
+ 
+ #include <gtkmm/adjustment.h>
+ #include <gtkmm/box.h>
+
+Modified: trunk/windstille/src/editor/timeline_anim_object.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_anim_object.hpp	2009-10-01 01:06:24 UTC (rev 3281)
++++ trunk/windstille/src/editor/timeline_anim_object.hpp	2009-10-01 01:09:29 UTC (rev 3282)
+@@ -16,8 +16,8 @@
+ **  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-#ifndef HEADER_WINDSTILLE_TIMELINE_ANIM_OBJECT_HPP
+-#define HEADER_WINDSTILLE_TIMELINE_ANIM_OBJECT_HPP
++#ifndef HEADER_WINDSTILLE_EDITOR_TIMELINE_ANIM_OBJECT_HPP
++#define HEADER_WINDSTILLE_EDITOR_TIMELINE_ANIM_OBJECT_HPP
+ 
+ #include <string>
+ 
+
+Modified: trunk/windstille/src/editor/timeline_commands.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_commands.hpp	2009-10-01 01:06:24 UTC (rev 3281)
++++ trunk/windstille/src/editor/timeline_commands.hpp	2009-10-01 01:09:29 UTC (rev 3282)
+@@ -16,8 +16,8 @@
+ **  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-#ifndef HEADER_WINDSTILLE_TIMELINE_COMMANDS_HPP
+-#define HEADER_WINDSTILLE_TIMELINE_COMMANDS_HPP
++#ifndef HEADER_WINDSTILLE_EDITOR_TIMELINE_COMMANDS_HPP
++#define HEADER_WINDSTILLE_EDITOR_TIMELINE_COMMANDS_HPP
+ 
+ #include <boost/function.hpp>
+ 
+
+Modified: trunk/windstille/src/editor/timeline_handles.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_handles.hpp	2009-10-01 01:06:24 UTC (rev 3281)
++++ trunk/windstille/src/editor/timeline_handles.hpp	2009-10-01 01:09:29 UTC (rev 3282)
+@@ -16,8 +16,8 @@
+ **  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-#ifndef HEADER_WINDSTILLE_TIMELINE_HANDLES_HPP
+-#define HEADER_WINDSTILLE_TIMELINE_HANDLES_HPP
++#ifndef HEADER_WINDSTILLE_EDITOR_TIMELINE_HANDLES_HPP
++#define HEADER_WINDSTILLE_EDITOR_TIMELINE_HANDLES_HPP
+ 
+ #include <boost/shared_ptr.hpp>
+ 
+
+Modified: trunk/windstille/src/editor/timeline_keyframe_object.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_keyframe_object.hpp	2009-10-01 01:06:24 UTC (rev 3281)
++++ trunk/windstille/src/editor/timeline_keyframe_object.hpp	2009-10-01 01:09:29 UTC (rev 3282)
+@@ -16,8 +16,8 @@
+ **  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-#ifndef HEADER_WINDSTILLE_TIMELINE_KEYFRAME_OBJECT_HPP
+-#define HEADER_WINDSTILLE_TIMELINE_KEYFRAME_OBJECT_HPP
++#ifndef HEADER_WINDSTILLE_EDITOR_TIMELINE_KEYFRAME_OBJECT_HPP
++#define HEADER_WINDSTILLE_EDITOR_TIMELINE_KEYFRAME_OBJECT_HPP
+ 
+ #include "editor/timeline_object.hpp"
+ 
+
+Modified: trunk/windstille/src/editor/timeline_layer.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_layer.hpp	2009-10-01 01:06:24 UTC (rev 3281)
++++ trunk/windstille/src/editor/timeline_layer.hpp	2009-10-01 01:09:29 UTC (rev 3282)
+@@ -16,8 +16,8 @@
+ **  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-#ifndef HEADER_WINDSTILLE_TIMELINE_LAYER_HPP
+-#define HEADER_WINDSTILLE_TIMELINE_LAYER_HPP
++#ifndef HEADER_WINDSTILLE_EDITOR_TIMELINE_LAYER_HPP
++#define HEADER_WINDSTILLE_EDITOR_TIMELINE_LAYER_HPP
+ 
+ #include <vector>
+ #include <string>
+
+Modified: trunk/windstille/src/editor/timeline_object.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_object.hpp	2009-10-01 01:06:24 UTC (rev 3281)
++++ trunk/windstille/src/editor/timeline_object.hpp	2009-10-01 01:09:29 UTC (rev 3282)
+@@ -16,8 +16,8 @@
+ **  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-#ifndef HEADER_WINDSTILLE_TIMELINE_OBJECT_HPP
+-#define HEADER_WINDSTILLE_TIMELINE_OBJECT_HPP
++#ifndef HEADER_WINDSTILLE_EDITOR_TIMELINE_OBJECT_HPP
++#define HEADER_WINDSTILLE_EDITOR_TIMELINE_OBJECT_HPP
+ 
+ #include <boost/shared_ptr.hpp>
+ 
+
+Modified: trunk/windstille/src/editor/timeline_object_layer.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_object_layer.hpp	2009-10-01 01:06:24 UTC (rev 3281)
++++ trunk/windstille/src/editor/timeline_object_layer.hpp	2009-10-01 01:09:29 UTC (rev 3282)
+@@ -16,8 +16,8 @@
+ **  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-#ifndef HEADER_WINDSTILLE_TIMELINE_OBJECT_LAYER_HPP
+-#define HEADER_WINDSTILLE_TIMELINE_OBJECT_LAYER_HPP
++#ifndef HEADER_WINDSTILLE_EDITOR_TIMELINE_OBJECT_LAYER_HPP
++#define HEADER_WINDSTILLE_EDITOR_TIMELINE_OBJECT_LAYER_HPP
+ 
+ #include <boost/shared_ptr.hpp>
+ #include <iostream>
+
+Modified: trunk/windstille/src/editor/timeline_properties.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_properties.hpp	2009-10-01 01:06:24 UTC (rev 3281)
++++ trunk/windstille/src/editor/timeline_properties.hpp	2009-10-01 01:09:29 UTC (rev 3282)
+@@ -16,8 +16,8 @@
+ **  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-#ifndef HEADER_WINDSTILLE_TIMELINE_PROPERTIES_HPP
+-#define HEADER_WINDSTILLE_TIMELINE_PROPERTIES_HPP
++#ifndef HEADER_WINDSTILLE_EDITOR_TIMELINE_PROPERTIES_HPP
++#define HEADER_WINDSTILLE_EDITOR_TIMELINE_PROPERTIES_HPP
+ 
+ enum TimelineProperty
+ {
+
+Modified: trunk/windstille/src/editor/timeline_sound_object.hpp
+===================================================================
+--- trunk/windstille/src/editor/timeline_sound_object.hpp	2009-10-01 01:06:24 UTC (rev 3281)
++++ trunk/windstille/src/editor/timeline_sound_object.hpp	2009-10-01 01:09:29 UTC (rev 3282)
+@@ -16,8 +16,8 @@
+ **  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-#ifndef HEADER_WINDSTILLE_TIMELINE_SOUND_OBJECT_HPP
+-#define HEADER_WINDSTILLE_TIMELINE_SOUND_OBJECT_HPP
++#ifndef HEADER_WINDSTILLE_EDITOR_TIMELINE_SOUND_OBJECT_HPP
++#define HEADER_WINDSTILLE_EDITOR_TIMELINE_SOUND_OBJECT_HPP
+ 
+ #include "editor/timeline_object.hpp"
+ 
+
+Modified: trunk/windstille/src/scenegraph/drawable_group.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/drawable_group.hpp	2009-10-01 01:06:24 UTC (rev 3281)
++++ trunk/windstille/src/scenegraph/drawable_group.hpp	2009-10-01 01:09:29 UTC (rev 3282)
+@@ -16,8 +16,8 @@
+ **  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
+-#ifndef HEADER_WINDSTILLE_DRAWABLE_GROUP_HPP
+-#define HEADER_WINDSTILLE_DRAWABLE_GROUP_HPP
++#ifndef HEADER_WINDSTILLE_SCENEGRAPH_DRAWABLE_GROUP_HPP
++#define HEADER_WINDSTILLE_SCENEGRAPH_DRAWABLE_GROUP_HPP
+ 
+ #include <boost/shared_ptr.hpp>
+ #include <vector>
+
+
+
+From grumbel at mail.berlios.de  Thu Oct  1 03:38:48 2009
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Thu, 1 Oct 2009 03:38:48 +0200
+Subject: [Windstille-commit] r3283 - in trunk/windstille/src: editor
+	scenegraph
+Message-ID: <200910010138.n911cmA0027418@sheep.berlios.de>
+
+Author: grumbel
+Date: 2009-10-01 03:38:47 +0200 (Thu, 01 Oct 2009)
+New Revision: 3283
+
+Modified:
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/scenegraph/drawable_group.cpp
+   trunk/windstille/src/scenegraph/drawable_group.hpp
+Log:
+Use DrawableGroups for layers
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-10-01 01:09:29 UTC (rev 3282)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-10-01 01:38:47 UTC (rev 3283)
+@@ -441,13 +441,17 @@
+   {
+     if (*layer)
+     {
++      boost::shared_ptr<DrawableGroup> group(new DrawableGroup);
++
+       for(Layer::const_iterator obj = (*layer)->begin(); obj != (*layer)->end(); ++obj)
+       {
+         if ((*layer)->is_visible())
+         {
+-          (*obj)->add_to_scenegraph(sg);
++          (*obj)->add_to_scenegraph(*group);
+         }
+       }
++
++      sg.add_drawable(group);
+     }
+   }
+ 
+
+Modified: trunk/windstille/src/scenegraph/drawable_group.cpp
+===================================================================
+--- trunk/windstille/src/scenegraph/drawable_group.cpp	2009-10-01 01:09:29 UTC (rev 3282)
++++ trunk/windstille/src/scenegraph/drawable_group.cpp	2009-10-01 01:38:47 UTC (rev 3283)
+@@ -21,7 +21,8 @@
+ #include "scenegraph/drawable.hpp"
+ 
+ DrawableGroup::DrawableGroup()
+-  : m_drawables()
++  : Drawable(Vector2f(), 0.0f, Matrix::identity()),
++    m_drawables()
+ {
+ }
+ 
+
+Modified: trunk/windstille/src/scenegraph/drawable_group.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/drawable_group.hpp	2009-10-01 01:09:29 UTC (rev 3282)
++++ trunk/windstille/src/scenegraph/drawable_group.hpp	2009-10-01 01:38:47 UTC (rev 3283)
+@@ -22,10 +22,11 @@
+ #include <boost/shared_ptr.hpp>
+ #include <vector>
+ 
+-class Drawable;
++#include "scenegraph/drawable.hpp"
++
+ class Texture;
+ 
+-class DrawableGroup
++class DrawableGroup : public Drawable
+ {
+ private:
+   typedef std::vector<boost::shared_ptr<Drawable> > Drawables;
+
+
+
+From grumbel at mail.berlios.de  Thu Oct  1 03:41:41 2009
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Thu, 1 Oct 2009 03:41:41 +0200
+Subject: [Windstille-commit] r3284 - trunk/windstille
+Message-ID: <200910010141.n911ffYQ027675@sheep.berlios.de>
+
+Author: grumbel
+Date: 2009-10-01 03:41:40 +0200 (Thu, 01 Oct 2009)
+New Revision: 3284
+
+Modified:
+   trunk/windstille/TODO
+Log:
+TODO updates
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-10-01 01:38:47 UTC (rev 3283)
++++ trunk/windstille/TODO	2009-10-01 01:41:40 UTC (rev 3284)
+@@ -10,9 +10,132 @@
+ in the context of the whole game or if a potential performance
+ enhanchment, actually enhanchmes anything at all.
+ 
++Timeline
++========
++
++* turn play button into a toggle button
++
++* animation export:
++ 
++  - exported animation doesn't need layers, but layers could still be
++    useful for later editing
++
++  - might not need a navgraph
++
++  - needs all objects
++
++  - what happens with the animation before the start and after the
++    end? does it persist or disappear?
++
++  - exported animation must be almost complete SectorModels
++
++  - recursive animation is needed, i.e. animation that contains other
++    animations
++
++  - exported animation basically is a full SectorModel, there is no
++    easy way around that
++
++  - could share a SectorModel shared_ptr between two tabs, thus
++    editing animation in one, previewing in another, would need a way
++    to handle change events
++
++* need a way to edit keyframes instead of just inserting new ones
++
++* implement load of timeline
++
++* using UI manager doesn't work when toolbar is  on the Notepad
++
++* add ability to scale selections
++
++* add ability to set FPS
++
++* some timelines, such as Vector2f stuff could be visualized by graphics in the scene
++
++* add snappping to frame borders (i.e. no float, but just well defined int positions)
++
++* make snapping optional, add a button for it
++
++* add scrolling (middle button and scrollbars)
++
++* add overlap-avoidance
++
++Animation Subsystem
++===================
++
++* animation objects bundle the pointers to objects along with
++  curves that describe changes to those objects
++
++* curves can manipulate all kinds of properties of an object, such as:
++
++  - rotation
++  - position
++  - color
++  - ...
++
++* curves can also used to start or stop an object, for example a curve
++  for a movie-object might have actions such as:
++
++  - start
++  - stop
++  - reset
++  - set_pos()
++
++  That can be placed on a curve
++
++* there is no global timeline, timelines are local to an animation object
++
++* animation objects can be recursive, i.e. an animation object might
++  start other animation objects
++
++* there are two core types of animation objects:
++
++  - prefab animations that are saved to their own files and only
++    linked into the scene, they provide their own objects
++
++  - plain animations that are part of the main scene, they can
++    manipulate any object in the scene
++
++* two animation objects can access the same objects for animation, but
++  not at the same time as that would cause glitching (i.e. you might
++  have a door-open.anim and a door-close.anim)
++
++* ignore tweens for now and implement the basics first
++
++* implement load/save for timeline
++
++* make timeline proper part of Document and SectorModel
++
++High Priority
++=============
++
++* add a GenericObjectModel to the editor that just stores all the
++  information in the FileReader and writes it out again, use it for
++  all objects whose type isn't known by the editor
++
++  * implement a way to clone a FileReader, keep it and pass it to FileWriter
++  
++  * simply implement a way to serialize a FileReader to string and
++    write that out with FileWriter
++
++* enhance the ObjectSelector to allow different object types (particle
++  systems, highlight, light, etc)
++
++* implement objects properties in a generic fashion:
++
++  GenericDialogBox::add_int(const std::string& name, const boost::function<void (int)>& callback);
++  GenericDialogBox::add_enum(const std::string& name, const boost::function<void (int)>& callback);
++  GenericDialogBox::add_string(const std::string& name, const boost::function<void (int)>& callback);
++
++  * apply changes instantly
++  * use the Undo/Redo system
++
+ Editor Restructuring
+ ====================
+ 
++* 'delete layer' should set the layer selection to something valid
++
++* add a toggleable safe-area overlay that shows how much fits on a screen
++
+ * SceneGraph needs to be updated while drag&drop is in progress
+ 
+ * delete/remove/erase naming is a bit mixed up in a few places
+@@ -29,11 +152,9 @@
+ 
+ * add special drawing for different edge types (i.e. draw stairs for stair type edges)
+ 
+-* add grid snapping to navgraph
++* snapping for navgraph is limited to moving the object, should also
++  work when creating the nodes in the first place
+ 
+-* moving a NavGraphNodeModel snaps the bounding box to the grid, while
+-  it should snap the center point
+-
+ * horizontal/vertical navgraph edges are near impossible to select
+   (bounding box is just 1px height)
+ 
+@@ -53,39 +174,7 @@
+ #3  0x08174a22 in WindstilleWidget::mouse_up (this=0x8f8e5a0, ev=0x8f878a0) at src/editor/windstille_widget.cpp:372
+ #4  0x08177788 in sigc::bound_mem_functor1<bool, WindstilleWidget, _GdkEventButton*>::operator() (this=0x902fc34, _A_a1=@0xbff04664) at /usr/include/sigc++-2.0/sigc++/functors/mem_fun.h:1851
+ #5  0x081772bf in sigc::adaptor_functor<sigc::bound_mem_functor1<bool, WindstilleWidget, _GdkEventButton*> >::operator()<_GdkEventButton* const&> (this=0x902fc30, _A_arg1=@0xbff04664)
+-
+-* add a GenericObjectModel to the editor that just stores all the
+-  information in the FileReader and writes it out again, use it for
+-  all objects whose type isn't known by the editor
+ 
+-SceneGraph/Compositor
+-=====================
+-
+-* could make use of occlusion query, to hide highlight sources when
+-  they are covered:
+-
+-  * http://www.opengl.org/registry/specs/ARB/occlusion_query.txt
+-  * http://developer.download.nvidia.com/SDK/9.5/Samples/DEMOS/OpenGL/occlusion_query.zip
+-
+-  Have to figure if this would work with alpha textures:
+-
+-  * void glAlphaFunc(GLenum func, GLclampf ref);
+-
+-* add support for multipass rendering with shader scripts (to simulate
+-  glass and things like that)
+-
+-* play around with post-processing effects:
+-
+-  * bloom
+-
+-  * vignetting
+-
+-  * motion blur
+-
+-  * film grain
+-
+-  * lense flare
+-
+ Overview
+ ========
+ 
+@@ -137,6 +226,40 @@
+ 
+ * Sound stuff still uses PhysFS, should be switched to std::ifstream
+ 
++SceneGraph/Compositor
++=====================
++
++* could make use of occlusion query, to hide highlight sources when
++  they are covered:
++
++  * http://www.opengl.org/registry/specs/ARB/occlusion_query.txt
++  * http://developer.download.nvidia.com/SDK/9.5/Samples/DEMOS/OpenGL/occlusion_query.zip
++
++  Have to figure if this would work with alpha textures:
++
++  * void glAlphaFunc(GLenum func, GLclampf ref);
++
++* add support for multipass rendering with shader scripts (to simulate
++  glass and things like that)
++
++* play around with post-processing effects:
++
++  * bloom
++
++  * vignetting
++
++  * motion blur
++
++  * film grain
++
++  * lense flare
++
++* add a glScissor()/Display::push/pop_cliprect() Node
++
++* add a stencil node:
++
++  * StencilDrawable(DrawableHandle stencil, DrawableHandle child);
++
+ SceneGraph
+ ==========
+ 
+@@ -149,7 +272,8 @@
+   (128px = 1meter instead of 64px), figure out which to use before
+   doing the final conversion
+ 
+-* might have some advantage to place stuff in a QuadTree, when you have a complex level
++* might have some advantage to place stuff in a QuadTree, when you
++  have a complex level
+ 
+ * SceneGraph could be used to promte certain states to children such
+   as: color, alpha, visibility (would be mainly useful for the editor
+@@ -172,6 +296,8 @@
+ Navigation Graph
+ ================
+ 
++* add raycasting
++
+ * NavigationGraph needs hooks into scripting, so that things can be
+   triggered when a character passes over a specific trigger node or
+   things like that.
+@@ -441,6 +567,16 @@
+ 
+ * replace lisp::Writer with custom FileWriter (used in config)
+ 
++* add (maybe) a LispWriter::start_section(name, bool compact) to create:
++
++  (object (name "aeu") (...))
++
++  instead of
++
++  (object
++    (name "aeu")
++    (...))
++
+ * make FileReader work more like lisp::Writer, i.e. less
+   const/functional, keeping the current cursor position. Main issue
+   with the current FileReader is the way sections are handled, which
+@@ -521,7 +657,7 @@
+ * scrap inventory and redesign it
+ 
+ * join Player and Character somewhat or derive one from the other, so
+-  that one can have scripted people running and jumping around
++  that one can have scripted people running and jumping around (see Doll)
+ 
+ * add support for empty sectors (sectors without a player character,
+   for use in intro.wst and similar cutscenes)
+@@ -734,26 +870,25 @@
+ Editor
+ ======
+ 
++* add a NextLayer, PrevLayer keyboard shortcuts
++
++* add AutoVisible button to Layer dialog
++
++* make the game runnable from within the editor (reusing image cache and other stuff)
++
+ * Fix screenshot support (very crashy/buggy on different screensizes and stuff (padding error?))
+ 
+-* unify delete/remove/erase a bit
++* unify delete/remove/erase naming a bit
+ 
++  * STL convention: erase for iterators, remove for value, delete isn't used
++
+ * figure out a way to rename image files without breaking the levels
++  (use uuid? md5sums? alias files?)
+ 
+ * new boost1.37 seems to be missing boost_signals, instead it has
+   boost_signals-mt, do we want to get funcky with configure checks or
+   ignore and stay boost1.35 or so?
+ 
+-* add (maybe) a LispWriter::start_section(name, bool compact) to create:
+-
+-  (object (name "aeu") (...))
+-
+-  instead of
+-
+-  (object
+-    (name "aeu")
+-    (...))
+-
+ * add special blocker objects, i.e. black boxes that have a
+   configurable fadeout
+ 
+@@ -772,11 +907,8 @@
+   on edge
+ 
+ * add keyboard shortcuts to flatten (set same x or y value for all)
+-  current NodeSelection, also add snapping to grid and stuff
++  current NodeSelection
+ 
+-* add a way to delete navgraph nodes (need to move Selection out of
+-  tool, generalize it or just use right button)
+-
+ * NavgraphTool (see Construo):
+  
+   - in Construo insertion and selection are two different tool
+@@ -809,9 +941,6 @@
+ * turn the Selection into a kind-of ControlPoint, this would allow to
+   keep the move/offset logic out of the ObjectModel
+ 
+-* maybe have different RGB and RGBA Textures in the TexturePacker to
+-  save a bit of space
+-
+ * share SoftwareSurface via Manager class, generalize Manager classes
+   -> template
+ 
+@@ -993,11 +1122,11 @@
+ 
+   * CommandGroupCommand  [done]
+ 
+-  * NodeAddCommand
+-  * NodeRemoveCommand
+-  * EdgeAddCommand
+-  * EdgeRemoveCommand
+-  * NodeSetPosCommand
++  * NodeAddCommand       [done]
++  * NodeRemoveCommand    [done]
++  * EdgeAddCommand       [done]
++  * EdgeRemoveCommand    [done]
++  * NodeSetPosCommand    [done via ObjectSetPosCommand]
+ 
+   * UndoCopy
+   * UndoPaste
+@@ -1015,7 +1144,7 @@
+ 
+   * LayerAddCommand     [done, except proper order]
+   * LayerRemovedCommand [done, except proper order]
+-  * LayerReorderCommand
++  * LayerReorderCommand 
+ 
+   * FunctorCommand(boost::functor<void ()>& undo,
+                    boost::functor<void ()>& redo); [done]
+@@ -1097,7 +1226,13 @@
+ * sound of a metalic locker being opened
+ 
+ * sound of a lightswitch being toggled
++
++Obsolete
++========
+ 
++* maybe have different RGB and RGBA Textures in the TexturePacker to
++  save a bit of space
++
+ 
+ http://orange.blender.org/blog/the-amazing-incredible-monkey-brush#more-49
+ Hypatia
+
+
+
+From grumbel at mail.berlios.de  Thu Oct  1 15:36:00 2009
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Thu, 1 Oct 2009 15:36:00 +0200
+Subject: [Windstille-commit] r3285 - trunk/windstille/src/scenegraph
+Message-ID: <200910011336.n91Da0SR017107@sheep.berlios.de>
+
+Author: grumbel
+Date: 2009-10-01 15:35:59 +0200 (Thu, 01 Oct 2009)
+New Revision: 3285
+
+Added:
+   trunk/windstille/src/scenegraph/stencil_drawable.cpp
+   trunk/windstille/src/scenegraph/stencil_drawable.hpp
+Modified:
+   trunk/windstille/src/scenegraph/drawable.hpp
+Log:
+Added StencilDrawable
+
+Modified: trunk/windstille/src/scenegraph/drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/drawable.hpp	2009-10-01 01:41:40 UTC (rev 3284)
++++ trunk/windstille/src/scenegraph/drawable.hpp	2009-10-01 13:35:59 UTC (rev 3285)
+@@ -33,6 +33,12 @@
+   unsigned int render_mask;
+ 
+ public:
++  Drawable()
++    : pos(0.0f, 0.0f),
++      z_pos(0.0f),
++      modelview(Matrix::identity())
++  {}
++
+   Drawable(const Vector2f& pos_, float z_pos_ = 0,  const Matrix& modelview_ = Matrix::identity())
+     : pos(pos_), 
+       z_pos(z_pos_), 
+
+Added: trunk/windstille/src/scenegraph/stencil_drawable.cpp
+===================================================================
+--- trunk/windstille/src/scenegraph/stencil_drawable.cpp	2009-10-01 01:41:40 UTC (rev 3284)
++++ trunk/windstille/src/scenegraph/stencil_drawable.cpp	2009-10-01 13:35:59 UTC (rev 3285)
+@@ -0,0 +1,67 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke <grumbel at gmx.de>
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see <http://www.gnu.org/licenses/>.
++*/
++
++#include "stencil_drawable.hpp"
++
++StencilDrawable::StencilDrawable() :
++  m_stencil_group(),
++  m_drawable_group()
++{
++}
++
++void
++StencilDrawable::render(unsigned int mask)
++{
++  // FIXME: untested code
++
++  // FIXME: this wouldn't work with recursive stencils, maybe solvable
++  // by doing some cleverer stuff with glStencilFunc and glStencilOp
++  // (i.e. increment on each recursion and then test on the recursion
++  // depth count)
++
++  /*
++    http://www.opengl.org/documentation/specs/man_pages/hardcopy/GL/html/gl/stencilfunc.html
++    http://www.opengl.org/documentation/specs/man_pages/hardcopy/GL/html/gl/stencilop.html
++  */
++
++  // enable stencil and clear it
++  glEnable(GL_STENCIL_TEST);
++  glClearStencil(0);
++
++  // glStencilFunc: set when the test passes or fails 
++  // glStencilOp: set what is done when the test passes/fails
++
++  // render stencil buffer content
++  glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
++  glStencilFunc(GL_ALWAYS, 1, 1);
++  glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
++  m_stencil_group.render(~0u);
++  
++  // render framebuffer content
++  glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
++  glStencilFunc(GL_EQUAL, 1, 1);
++  glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
++  m_drawable_group.render(~0u);
++
++  // disable stencil and reset op and func
++  glStencilFunc(GL_ALWAYS, 0, 1);
++  glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
++  glDisable(GL_STENCIL_TEST);
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/scenegraph/stencil_drawable.cpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/scenegraph/stencil_drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/stencil_drawable.hpp	2009-10-01 01:41:40 UTC (rev 3284)
++++ trunk/windstille/src/scenegraph/stencil_drawable.hpp	2009-10-01 13:35:59 UTC (rev 3285)
+@@ -0,0 +1,43 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke <grumbel at gmx.de>
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see <http://www.gnu.org/licenses/>.
++*/
++
++#ifndef HEADER_WINDSTILLE_STENCIL_DRAWABLE_HPP
++#define HEADER_WINDSTILLE_STENCIL_DRAWABLE_HPP
++
++#include "scenegraph/drawable.hpp"
++#include "scenegraph/drawable_group.hpp"
++
++class StencilDrawable : public Drawable
++{
++private:
++  DrawableGroup m_stencil_group;
++  DrawableGroup m_drawable_group;
++
++public:
++  StencilDrawable();
++
++  void render(unsigned int mask);
++
++private:
++  StencilDrawable(const StencilDrawable&);
++  StencilDrawable& operator=(const StencilDrawable&);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/scenegraph/stencil_drawable.hpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+
+
+From grumbel at mail.berlios.de  Thu Oct  1 23:13:57 2009
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Thu, 1 Oct 2009 23:13:57 +0200
+Subject: [Windstille-commit] r3286 - trunk/windstille/src/scenegraph
+Message-ID: <200910012113.n91LDvZm029244@sheep.berlios.de>
+
+Author: grumbel
+Date: 2009-10-01 23:13:49 +0200 (Thu, 01 Oct 2009)
+New Revision: 3286
+
+Added:
+   trunk/windstille/src/scenegraph/scissor_drawable.cpp
+   trunk/windstille/src/scenegraph/scissor_drawable.hpp
+Modified:
+   trunk/windstille/src/scenegraph/stencil_drawable.hpp
+Log:
+Added ScissorDrawable
+
+Added: trunk/windstille/src/scenegraph/scissor_drawable.cpp
+===================================================================
+--- trunk/windstille/src/scenegraph/scissor_drawable.cpp	2009-10-01 13:35:59 UTC (rev 3285)
++++ trunk/windstille/src/scenegraph/scissor_drawable.cpp	2009-10-01 21:13:49 UTC (rev 3286)
+@@ -0,0 +1,36 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke <grumbel at gmx.de>
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see <http://www.gnu.org/licenses/>.
++*/
++
++#include "scenegraph/scissor_drawable.hpp"
++#include "display/display.hpp"
++
++ScissorDrawable::ScissorDrawable(const Rect& cliprect) :
++  m_cliprect(cliprect),
++  m_drawable_group()
++{
++}
++
++void
++ScissorDrawable::render(unsigned int mask)
++{
++  Display::push_cliprect(m_cliprect);
++  m_drawable_group.render(mask);
++  Display::pop_cliprect();
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/scenegraph/scissor_drawable.cpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/scenegraph/scissor_drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/scissor_drawable.hpp	2009-10-01 13:35:59 UTC (rev 3285)
++++ trunk/windstille/src/scenegraph/scissor_drawable.hpp	2009-10-01 21:13:49 UTC (rev 3286)
+@@ -0,0 +1,46 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke <grumbel at gmx.de>
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see <http://www.gnu.org/licenses/>.
++*/
++
++#ifndef HEADER_WINDSTILLE_SCISSOR_DRAWABLE_HPP
++#define HEADER_WINDSTILLE_SCISSOR_DRAWABLE_HPP
++
++#include "scenegraph/drawable.hpp"
++#include "scenegraph/drawable_group.hpp"
++#include "math/rect.hpp"
++
++class ScissorDrawable : public Drawable
++{
++private:
++  Rect m_cliprect;
++  DrawableGroup m_drawable_group;
++
++public:
++  ScissorDrawable(const Rect& cliprect);
++
++  void render(unsigned int mask);
++
++  DrawableGroup& get_drawable_group() { return m_drawable_group; }
++
++private:
++  ScissorDrawable(const ScissorDrawable&);
++  ScissorDrawable& operator=(const ScissorDrawable&);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/scenegraph/scissor_drawable.hpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/windstille/src/scenegraph/stencil_drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/stencil_drawable.hpp	2009-10-01 13:35:59 UTC (rev 3285)
++++ trunk/windstille/src/scenegraph/stencil_drawable.hpp	2009-10-01 21:13:49 UTC (rev 3286)
+@@ -33,6 +33,9 @@
+ 
+   void render(unsigned int mask);
+ 
++  DrawableGroup& get_stencil_group()  { return m_stencil_group; }
++  DrawableGroup& get_drawable_group() { return m_drawable_group; }
++
+ private:
+   StencilDrawable(const StencilDrawable&);
+   StencilDrawable& operator=(const StencilDrawable&);
+
+
+
+From grumbel at mail.berlios.de  Fri Oct  2 01:01:32 2009
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Fri, 2 Oct 2009 01:01:32 +0200
+Subject: [Windstille-commit] r3287 - in trunk/windstille: . src/app
+	src/display src/scenegraph test test/scissor_drawable
+Message-ID: <200910012301.n91N1WOA004273@sheep.berlios.de>
+
+Author: grumbel
+Date: 2009-10-02 01:01:30 +0200 (Fri, 02 Oct 2009)
+New Revision: 3287
+
+Added:
+   trunk/windstille/test/scissor_drawable/
+   trunk/windstille/test/scissor_drawable/scissor_drawable.cpp
+Removed:
+   trunk/windstille/test/SConstruct
+Modified:
+   trunk/windstille/SConscript
+   trunk/windstille/src/app/windstille_main.cpp
+   trunk/windstille/src/display/display.hpp
+   trunk/windstille/src/display/opengl_window.cpp
+   trunk/windstille/src/display/opengl_window.hpp
+   trunk/windstille/src/scenegraph/drawable.hpp
+   trunk/windstille/src/scenegraph/drawable_group.hpp
+   trunk/windstille/src/scenegraph/scissor_drawable.cpp
+   trunk/windstille/src/scenegraph/stencil_drawable.cpp
+Log:
+Some testing with Scissor- and StencilDrawable, removed some dependencies in OpenGLWindow
+
+Modified: trunk/windstille/SConscript
+===================================================================
+--- trunk/windstille/SConscript	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/SConscript	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -344,6 +344,18 @@
+         env.Program("test_directory", ["src/util/directory.cpp"], LIBS=['boost_filesystem-mt', self.util_lib])
+         env.Program("test_easing", ["src/math/easing.cpp"])
+ 
++        # FIXME: Little dirty, need to clean up the testcase stuff
++        sdl_env = env.Clone()
++        sdl_env.ParseConfig('sdl-config --cflags --libs | sed "s/-I/-isystem/g"')
++                        
++        sdl_env.Program("test_scissor_drawable",
++                        ["test/scissor_drawable/scissor_drawable.cpp"],
++                        CPPPATH=sdl_env["CPPPATH"],
++                        CPPDEFINES=sdl_env["CPPDEFINES"],
++                        CXXFLAGS=sdl_env["CXXFLAGS"] + ['-g3', "-O0"],
++                        LIBS=[self.display_lib, self.math_lib, self.util_lib, self.binreloc_lib,
++                              'png', 'GL', 'GLEW', 'SDL_image', 'boost_filesystem-mt'] + sdl_env["LIBS"])
++
+     def build_windstille_data(self):
+         data_env = self.env.Clone()
+ 
+
+Modified: trunk/windstille/src/app/windstille_main.cpp
+===================================================================
+--- trunk/windstille/src/app/windstille_main.cpp	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/src/app/windstille_main.cpp	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -66,7 +66,9 @@
+     config.parse_args(argc, argv);
+ 
+     {
+-      OpenGLWindow      window;
++      OpenGLWindow      window(Size(config.get_int("screen-width"), config.get_int("screen-height")),
++                               Size(config.get_int("aspect-width"), config.get_int("aspect-height")),
++                               config.get_bool("fullscreen"), config.get_int("anti-aliasing"));
+       TTFFontManager    ttffont_manager;
+       Fonts             fonts;
+       Console           console;
+
+Modified: trunk/windstille/src/display/display.hpp
+===================================================================
+--- trunk/windstille/src/display/display.hpp	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/src/display/display.hpp	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -76,8 +76,6 @@
+   static Framebuffer get_framebuffer();
+ 
+   static void save_screenshot(const Pathname& filename);
+-
+-  static void init();
+ };
+ 
+ #endif
+
+Modified: trunk/windstille/src/display/opengl_window.cpp
+===================================================================
+--- trunk/windstille/src/display/opengl_window.cpp	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/src/display/opengl_window.cpp	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -19,6 +19,7 @@
+ #include "display/opengl_window.hpp"
+ 
+ #include <GL/glew.h>
++#include <SDL.h>
+ #include <SDL/SDL_image.h>
+ 
+ #include "util/util.hpp" 
+@@ -26,28 +27,43 @@
+ #include "display/display.hpp"
+ #include "app/config.hpp"
+ 
+-OpenGLWindow::OpenGLWindow()
+-  : m_window(0)
++class OpenGLWindowImpl
+ {
++public:
++  SDL_Surface* m_window;
++  Size         m_size;
++
++  OpenGLWindowImpl() :
++    m_window(0),
++    m_size()
++  {}
++};
++
++OpenGLWindow::OpenGLWindow(const Size& size, const Size& aspect, bool fullscreen, int anti_aliasing)
++  : m_impl(new OpenGLWindowImpl)
++{
++  m_impl->m_size = size;
++
+   SDL_GL_SetAttribute(SDL_GL_SWAP_CONTROL, 1); // vsync
+   SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1); 
+-  SDL_GL_SetAttribute(SDL_GL_RED_SIZE,   5);
+-  SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 5);
+-  SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,  5);
++  SDL_GL_SetAttribute(SDL_GL_RED_SIZE,     5);
++  SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE,   5);
++  SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE,    5);
++  SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+ 
+-  if (config.get_int("anti-aliasing"))
++  if (anti_aliasing)
+   {
+     SDL_GL_SetAttribute( SDL_GL_MULTISAMPLEBUFFERS, 1 ); // boolean value, either it's enabled or not
+-    SDL_GL_SetAttribute( SDL_GL_MULTISAMPLESAMPLES, config.get_int("anti-aliasing") ); // 0, 2, or 4 for number of samples
++    SDL_GL_SetAttribute( SDL_GL_MULTISAMPLESAMPLES, anti_aliasing ); // 0, 2, or 4 for number of samples
+   }
+   
+   SDL_WM_SetCaption("Windstille", "Windstille");
+   SDL_WM_SetIcon(IMG_Load(Pathname("icon.png").get_sys_path().c_str()), NULL);
+ 
+-  m_window = SDL_SetVideoMode(config.get_int("screen-width"), config.get_int("screen-height"),
+-                              0, SDL_OPENGL | (config.get_bool("fullscreen") ? SDL_FULLSCREEN : 0));
++  m_impl->m_window = SDL_SetVideoMode(size.width, size.height,
++                                      0, SDL_OPENGL | (fullscreen ? SDL_FULLSCREEN : 0));
+ 
+-  if (!m_window)
++  if (!m_impl->m_window)
+   {
+     throw std::runtime_error("Display:: Couldn't create window");
+   }
+@@ -64,12 +80,11 @@
+     {
+       std::cout << "glewInit() successfull" << std::endl;
+ 
+-      glViewport(0, 0, m_window->w, m_window->h);
++      glViewport(0, 0, m_impl->m_window->w, m_impl->m_window->h);
+       glMatrixMode(GL_PROJECTION);
+       glLoadIdentity();
+ 
+-      Display::aspect_size = Size(config.get_int("aspect-width"), 
+-                                  config.get_int("aspect-height"));
++      Display::aspect_size = aspect;
+ 
+       glOrtho(0.0, Display::get_width(), Display::get_height(),
+               0.0, 1000.0, -1000.0);
+@@ -82,7 +97,7 @@
+         glTranslated(0.375f, 0.375f, 0.0);
+       }
+ 
+-      if (config.get_int("anti-aliasing"))
++      if (anti_aliasing)
+         glEnable(GL_MULTISAMPLE_ARB); 
+ 
+       assert_gl("setup projection");
+@@ -94,10 +109,28 @@
+ 
+ OpenGLWindow::~OpenGLWindow()
+ {
+-  // must not free m_window, see:
++  // must not free m_impl->m_window, see:
+   // http://sdl.beuc.net/sdl.wiki/SDL_SetVideoMode
+ } 
+ 
++int  
++OpenGLWindow::get_width()  const
++{
++  return m_impl->m_window->w; 
++}
++
++int 
++OpenGLWindow::get_height() const 
++{
++  return m_impl->m_window->h; 
++}
++
++Size 
++OpenGLWindow::get_size() const
++{
++  return Size(m_impl->m_window->w, m_impl->m_window->h); 
++}
++
+ void
+ OpenGLWindow::set_fullscreen(bool fullscreen)
+ {
+@@ -106,9 +139,9 @@
+   if (fullscreen)
+     flags |= SDL_FULLSCREEN;
+ 
+-  m_window = SDL_SetVideoMode(config.get_int("screen-width"), config.get_int("screen-height"), 0, flags);
++  m_impl->m_window = SDL_SetVideoMode(m_impl->m_size.width, m_impl->m_size.height, 0, flags);
+ 
+-  if (!m_window)
++  if (!m_impl->m_window)
+     {
+       throw std::runtime_error("OpenGLWindow: Couldn't create window");
+     }
+
+Modified: trunk/windstille/src/display/opengl_window.hpp
+===================================================================
+--- trunk/windstille/src/display/opengl_window.hpp	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/src/display/opengl_window.hpp	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -19,28 +19,31 @@
+ #ifndef HEADER_WINDSTILLE_DISPLAY_OPENGL_WINDOW_HPP
+ #define HEADER_WINDSTILLE_DISPLAY_OPENGL_WINDOW_HPP
+ 
+-#include <SDL.h>
++#include <boost/scoped_ptr.hpp>
+ 
+ #include "util/currenton.hpp"
+ #include "math/size.hpp"
+ 
++class OpenGLWindowImpl;
++
+ class OpenGLWindow : public Currenton<OpenGLWindow>
+ {
+-private:
+-  SDL_Surface* m_window;
+-
+ public:
+-  OpenGLWindow();
++  OpenGLWindow(const Size& size, const Size& aspect, 
++               bool fullscreen = false, int anti_aliasing = 0);
+   ~OpenGLWindow();
+ 
+-  int  get_width()  const { return m_window->w; }
+-  int  get_height() const { return m_window->h; }
+-  Size get_size()   const { return Size(m_window->w, m_window->h); }
++  int  get_width()  const;
++  int  get_height() const;
++  Size get_size()   const;
+ 
+   void set_fullscreen(bool fullscreen);
+   void set_gamma(float r, float g, float b);
+ 
+ private:
++  boost::scoped_ptr<OpenGLWindowImpl> m_impl;
++
++private:
+   OpenGLWindow(const OpenGLWindow&);
+   OpenGLWindow& operator=(const OpenGLWindow&);
+ };
+
+Modified: trunk/windstille/src/scenegraph/drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/drawable.hpp	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/src/scenegraph/drawable.hpp	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -36,7 +36,8 @@
+   Drawable()
+     : pos(0.0f, 0.0f),
+       z_pos(0.0f),
+-      modelview(Matrix::identity())
++      modelview(Matrix::identity()),
++      render_mask(1) // FIXME: Evil hardcoded constant
+   {}
+ 
+   Drawable(const Vector2f& pos_, float z_pos_ = 0,  const Matrix& modelview_ = Matrix::identity())
+
+Modified: trunk/windstille/src/scenegraph/drawable_group.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/drawable_group.hpp	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/src/scenegraph/drawable_group.hpp	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -37,6 +37,7 @@
+ 
+   void add_drawable(boost::shared_ptr<Drawable> drawable);
+   void remove_drawable(boost::shared_ptr<Drawable> drawable);
++  int  size() const { return static_cast<int>(m_drawables.size()); }
+   
+   void clear();
+ 
+
+Modified: trunk/windstille/src/scenegraph/scissor_drawable.cpp
+===================================================================
+--- trunk/windstille/src/scenegraph/scissor_drawable.cpp	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/src/scenegraph/scissor_drawable.cpp	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -28,6 +28,7 @@
+ void
+ ScissorDrawable::render(unsigned int mask)
+ {
++  std::cout << "Render" << std::endl;
+   Display::push_cliprect(m_cliprect);
+   m_drawable_group.render(mask);
+   Display::pop_cliprect();
+
+Modified: trunk/windstille/src/scenegraph/stencil_drawable.cpp
+===================================================================
+--- trunk/windstille/src/scenegraph/stencil_drawable.cpp	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/src/scenegraph/stencil_drawable.cpp	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -38,10 +38,11 @@
+     http://www.opengl.org/documentation/specs/man_pages/hardcopy/GL/html/gl/stencilfunc.html
+     http://www.opengl.org/documentation/specs/man_pages/hardcopy/GL/html/gl/stencilop.html
+   */
++  glEnable(GL_STENCIL_TEST);
+ 
+   // enable stencil and clear it
+-  glEnable(GL_STENCIL_TEST);
+   glClearStencil(0);
++  glClear(GL_STENCIL_BUFFER_BIT);
+ 
+   // glStencilFunc: set when the test passes or fails 
+   // glStencilOp: set what is done when the test passes/fails
+@@ -49,18 +50,24 @@
+   // render stencil buffer content
+   glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+   glStencilFunc(GL_ALWAYS, 1, 1);
+-  glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
++  glStencilOp(GL_REPLACE, GL_REPLACE, GL_REPLACE);
++
++  glEnable(GL_ALPHA_TEST);
++  glAlphaFunc(GL_GREATER, 0.5f);
+   m_stencil_group.render(~0u);
+-  
++  glDisable(GL_ALPHA_TEST);
++
+   // render framebuffer content
+   glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+   glStencilFunc(GL_EQUAL, 1, 1);
+   glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
++
+   m_drawable_group.render(~0u);
+ 
+   // disable stencil and reset op and func
+   glStencilFunc(GL_ALWAYS, 0, 1);
+   glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
++
+   glDisable(GL_STENCIL_TEST);
+ }
+ 
+
+Deleted: trunk/windstille/test/SConstruct
+===================================================================
+--- trunk/windstille/test/SConstruct	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/test/SConstruct	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -1,5 +0,0 @@
+-env = Environment(CXXFLAGS=['-Wall'], CPPPATH=['../src/'])
+-env.Program('matrix_test',
+-            ['matrix_test.cpp', '../src/math/matrix.cpp'])
+-
+-# EOF #
+
+Added: trunk/windstille/test/scissor_drawable/scissor_drawable.cpp
+===================================================================
+--- trunk/windstille/test/scissor_drawable/scissor_drawable.cpp	2009-10-01 21:13:49 UTC (rev 3286)
++++ trunk/windstille/test/scissor_drawable/scissor_drawable.cpp	2009-10-01 23:01:30 UTC (rev 3287)
+@@ -0,0 +1,88 @@
++#include <iostream>
++#include <sstream>
++#include <stdexcept>
++#include "SDL.h"
++
++#include "display/opengl_window.hpp"
++#include "display/surface.hpp"
++#include "display/surface_manager.hpp"
++#include "display/texture_manager.hpp"
++#include "scenegraph/drawable_group.hpp"
++#include "scenegraph/surface_drawable.hpp"
++#include "scenegraph/scissor_drawable.hpp"
++#include "scenegraph/stencil_drawable.hpp"
++#include "util/pathname.hpp"
++#include "util/system.hpp"
++
++int main()
++{
++  Pathname::set_datadir("data/"); //System::find_default_datadir());
++  Pathname::set_userdir(System::find_default_userdir());
++
++#ifdef DEBUG
++  // I wanna have usefull backtraces in debug mode
++  Uint32 flags = SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_NOPARACHUTE;
++#else
++  Uint32 flags = SDL_INIT_VIDEO | SDL_INIT_JOYSTICK;
++#endif
++
++  if (SDL_Init(flags) < 0)
++  {
++    std::stringstream msg;
++    msg << "Couldn't initialize SDL: " << SDL_GetError();
++    throw std::runtime_error(msg.str());
++  }
++  else
++  {
++    atexit(SDL_Quit);
++    SDL_EnableUNICODE(1);
++  }
++
++  OpenGLWindow window(Size(960, 600),
++                      Size(960, 600));
++  TextureManager    texture_manager;
++  SurfaceManager    surface_manager;
++  DrawableGroup group;
++  
++  int have_stencil = 0xdeadbeaf;
++  SDL_GL_GetAttribute(SDL_GL_STENCIL_SIZE, &have_stencil);
++  std::cout << "STENCIL: " << have_stencil << std::endl;
++  
++  boost::shared_ptr<ScissorDrawable> scissor(new ScissorDrawable(Rect(200, 200, 400, 400)));
++  boost::shared_ptr<StencilDrawable> stencil(new StencilDrawable());
++  boost::shared_ptr<SurfaceDrawable> surface(new SurfaceDrawable(Surface(Pathname("images/titlescreen.png")), 
++                                                                 SurfaceDrawingParameters(), 0, Matrix::identity()));
++
++  boost::shared_ptr<SurfaceDrawable> surface2(new SurfaceDrawable(Surface(Pathname("images/titlescreen.png")), 
++                                                                  SurfaceDrawingParameters().set_pos(Vector2f(-50.0f, -50.0f)), 0, Matrix::identity()));
++  boost::shared_ptr<SurfaceDrawable> surface3(new SurfaceDrawable(Surface(Pathname("images/portrait.png")), 
++                                                                  SurfaceDrawingParameters(), 0, Matrix::identity()));
++  
++  if (0)
++  {
++    scissor->get_drawable_group().add_drawable(surface);
++    surface2->set_pos(Vector2f(300.0f, 300.0f));
++    surface3->set_pos(Vector2f(350.0f, 350.0f));
++    group.add_drawable(scissor);
++  }
++  else
++  {
++    stencil->get_stencil_group().add_drawable(surface3);
++    stencil->get_drawable_group().add_drawable(surface);
++
++    group.add_drawable(surface2);
++    group.add_drawable(stencil);
++  }
++
++  for(int i = 0; i < 500; ++i)
++  {
++    std::cout << "." << std::flush;   
++    surface->get_params().set_pos(Vector2f(i-250, 0));
++    group.render(~0u);
++    SDL_GL_SwapBuffers();
++  }
++
++  return 0;
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/test/scissor_drawable/scissor_drawable.cpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+
+
+From grumbel at mail.berlios.de  Fri Oct  2 18:57:10 2009
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Fri, 2 Oct 2009 18:57:10 +0200
+Subject: [Windstille-commit] r3288 - trunk/windstille/src/scenegraph
+Message-ID: <200910021657.n92GvAed024777@sheep.berlios.de>
+
+Author: grumbel
+Date: 2009-10-02 18:57:08 +0200 (Fri, 02 Oct 2009)
+New Revision: 3288
+
+Modified:
+   trunk/windstille/src/scenegraph/scissor_drawable.cpp
+   trunk/windstille/src/scenegraph/stencil_drawable.cpp
+Log:
+Hacked together some support for recursive stenciling
+
+Modified: trunk/windstille/src/scenegraph/scissor_drawable.cpp
+===================================================================
+--- trunk/windstille/src/scenegraph/scissor_drawable.cpp	2009-10-01 23:01:30 UTC (rev 3287)
++++ trunk/windstille/src/scenegraph/scissor_drawable.cpp	2009-10-02 16:57:08 UTC (rev 3288)
+@@ -20,7 +20,7 @@
+ #include "display/display.hpp"
+ 
+ ScissorDrawable::ScissorDrawable(const Rect& cliprect) :
+-  m_cliprect(cliprect),
++  m_cliprect(cliprect), // FIXME: should we keep cliprect in world space instead of screen space?
+   m_drawable_group()
+ {
+ }
+
+Modified: trunk/windstille/src/scenegraph/stencil_drawable.cpp
+===================================================================
+--- trunk/windstille/src/scenegraph/stencil_drawable.cpp	2009-10-01 23:01:30 UTC (rev 3287)
++++ trunk/windstille/src/scenegraph/stencil_drawable.cpp	2009-10-02 16:57:08 UTC (rev 3288)
+@@ -18,6 +18,8 @@
+ 
+ #include "stencil_drawable.hpp"
+ 
++int g_stencil_enabled = 0;
++
+ StencilDrawable::StencilDrawable() :
+   m_stencil_group(),
+   m_drawable_group()
+@@ -27,30 +29,28 @@
+ void
+ StencilDrawable::render(unsigned int mask)
+ {
+-  // FIXME: untested code
++  if (g_stencil_enabled == 0)
++  {
++    g_stencil_enabled = 1;
+ 
+-  // FIXME: this wouldn't work with recursive stencils, maybe solvable
+-  // by doing some cleverer stuff with glStencilFunc and glStencilOp
+-  // (i.e. increment on each recursion and then test on the recursion
+-  // depth count)
++    glEnable(GL_STENCIL_TEST);
+ 
+-  /*
+-    http://www.opengl.org/documentation/specs/man_pages/hardcopy/GL/html/gl/stencilfunc.html
+-    http://www.opengl.org/documentation/specs/man_pages/hardcopy/GL/html/gl/stencilop.html
+-  */
+-  glEnable(GL_STENCIL_TEST);
++    // enable stencil and clear it
++    glClearStencil(0);
++    glClear(GL_STENCIL_BUFFER_BIT);
++  }
++  else
++  {
++    g_stencil_enabled += 1;
++  }
+ 
+-  // enable stencil and clear it
+-  glClearStencil(0);
+-  glClear(GL_STENCIL_BUFFER_BIT);
+-
+   // glStencilFunc: set when the test passes or fails 
+   // glStencilOp: set what is done when the test passes/fails
+ 
+   // render stencil buffer content
+   glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+   glStencilFunc(GL_ALWAYS, 1, 1);
+-  glStencilOp(GL_REPLACE, GL_REPLACE, GL_REPLACE);
++  glStencilOp(GL_KEEP, GL_KEEP, GL_INCR);
+ 
+   glEnable(GL_ALPHA_TEST);
+   glAlphaFunc(GL_GREATER, 0.5f);
+@@ -59,16 +59,21 @@
+ 
+   // render framebuffer content
+   glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+-  glStencilFunc(GL_EQUAL, 1, 1);
++  glStencilFunc(GL_EQUAL, g_stencil_enabled, g_stencil_enabled);
+   glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+ 
+   m_drawable_group.render(~0u);
+ 
+-  // disable stencil and reset op and func
+-  glStencilFunc(GL_ALWAYS, 0, 1);
+-  glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
++  g_stencil_enabled -= 1;
+ 
+-  glDisable(GL_STENCIL_TEST);
++  if (g_stencil_enabled == 0)
++  {
++    // disable stencil and reset op and func
++    glStencilFunc(GL_ALWAYS, 0, 1);
++    glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
++
++    glDisable(GL_STENCIL_TEST);
++  }
+ }
+ 
+ /* EOF */
+
+
+
+From grumbel at mail.berlios.de  Mon Oct  5 22:27:47 2009
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Mon, 5 Oct 2009 22:27:47 +0200
+Subject: [Windstille-commit] r3289 - in trunk/windstille/src: display
+	scenegraph
+Message-ID: <200910052027.n95KRl1j029829@sheep.berlios.de>
+
+Author: grumbel
+Date: 2009-10-05 22:27:46 +0200 (Mon, 05 Oct 2009)
+New Revision: 3289
+
+Added:
+   trunk/windstille/src/display/assert_gl.cpp
+   trunk/windstille/src/display/assert_gl.hpp
+Modified:
+   trunk/windstille/src/display/display.cpp
+   trunk/windstille/src/display/framebuffer.cpp
+   trunk/windstille/src/display/opengl_state.cpp
+   trunk/windstille/src/display/opengl_window.cpp
+   trunk/windstille/src/display/shader_object.cpp
+   trunk/windstille/src/display/shader_object.hpp
+   trunk/windstille/src/display/shader_program.cpp
+   trunk/windstille/src/display/shader_program.hpp
+   trunk/windstille/src/display/texture.cpp
+   trunk/windstille/src/display/texture.hpp
+   trunk/windstille/src/scenegraph/shockwave_drawable.hpp
+Log:
+switched from ARB functions to core OpenGL ones
+
+Added: trunk/windstille/src/display/assert_gl.cpp
+===================================================================
+--- trunk/windstille/src/display/assert_gl.cpp	2009-10-02 16:57:08 UTC (rev 3288)
++++ trunk/windstille/src/display/assert_gl.cpp	2009-10-05 20:27:46 UTC (rev 3289)
+@@ -0,0 +1,37 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke <grumbel at gmx.de>
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see <http://www.gnu.org/licenses/>.
++*/
++
++#include "display/assert_gl.hpp"
++
++#include <stdexcept>
++#include <sstream>
++#include <GL/glew.h>
++
++void assert_gl(const char* message)
++{ // FIXME: OpenGL stuff should go into display/
++  GLenum error = glGetError();
++  if(error != GL_NO_ERROR) 
++  {
++    std::ostringstream msg;
++    msg << "OpenGLError while '" << message << "': "
++        << gluErrorString(error);
++    throw std::runtime_error(msg.str());
++  }
++}
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/display/assert_gl.cpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/windstille/src/display/assert_gl.hpp
+===================================================================
+--- trunk/windstille/src/display/assert_gl.hpp	2009-10-02 16:57:08 UTC (rev 3288)
++++ trunk/windstille/src/display/assert_gl.hpp	2009-10-05 20:27:46 UTC (rev 3289)
+@@ -0,0 +1,26 @@
++/*
++**  Windstille - A Sci-Fi Action-Adventure Game
++**  Copyright (C) 2009 Ingo Ruhnke <grumbel at gmx.de>
++**
++**  This program is free software: you can redistribute it and/or modify
++**  it under the terms of the GNU General Public License as published by
++**  the Free Software Foundation, either version 3 of the License, or
++**  (at your option) any later version.
++**  
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++**  
++**  You should have received a copy of the GNU General Public License
++**  along with this program.  If not, see <http://www.gnu.org/licenses/>.
++*/
++
++#ifndef HEADER_WINDSTILLE_DISPLAY_ASSERT_GL_HPP
++#define HEADER_WINDSTILLE_DISPLAY_ASSERT_GL_HPP
++
++void assert_gl(const char* message);
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/windstille/src/display/assert_gl.hpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/windstille/src/display/display.cpp
+===================================================================
+--- trunk/windstille/src/display/display.cpp	2009-10-02 16:57:08 UTC (rev 3288)
++++ trunk/windstille/src/display/display.cpp	2009-10-05 20:27:46 UTC (rev 3289)
+@@ -22,6 +22,8 @@
+ #include <png.h>
+ #include <errno.h>
+ #include <fstream>
++#include <GL/glew.h>
++#include <GL/glext.h>
+ 
+ #include "display/color.hpp"
+ #include "math/quad.hpp"
+
+Modified: trunk/windstille/src/display/framebuffer.cpp
+===================================================================
+--- trunk/windstille/src/display/framebuffer.cpp	2009-10-02 16:57:08 UTC (rev 3288)
++++ trunk/windstille/src/display/framebuffer.cpp	2009-10-05 20:27:46 UTC (rev 3289)
+@@ -21,33 +21,35 @@
+ #include "util/util.hpp"
+ #include "display/render_buffer.hpp"
+ #include "display/framebuffer.hpp"
++#include "display/assert_gl.hpp"
+ 
+ class FramebufferImpl
+ {
+ public:
+   GLuint  handle;
+   Texture texture;
+-  RenderBuffer render_buffer;
+-  
++  RenderBuffer m_depth_stencil_buffer;
++  //RenderBuffer m_stencil_buffer;
++
+   FramebufferImpl(GLenum target, int width, int height)
+     : handle(0),
+       texture(target, width, height),
+-      render_buffer(GL_DEPTH_COMPONENT24, width, height)
++      m_depth_stencil_buffer(GL_DEPTH24_STENCIL8_EXT, width, height)
+   {
+     glGenFramebuffersEXT(1, &handle);
+-    assert_gl("Framebuffer1");
++    assert_gl("FramebufferImpl::FramebufferImpl()");
+ 
+     // FIXME: Should use push/pop_framebuffer instead, but don't have pointer to Framebuffer here
+     glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, handle);
+-    assert_gl("Framebuffer2");
+-    glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, 
+-                              GL_COLOR_ATTACHMENT0_EXT, texture.get_target(), texture.get_handle(), 0);
+-    assert_gl("Framebuffer3");
+-    
+-    glFramebufferRenderbufferEXT(GL_FRAMEBUFFER_EXT, 
+-                                 GL_DEPTH_ATTACHMENT_EXT, // FIXME: must not hardcode this
+-                                 GL_RENDERBUFFER_EXT, render_buffer.get_handle());
+ 
++    // bind texture and renderbuffers to the framebuffer
++    glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT,
++                              texture.get_target(), texture.get_handle(), 0);  
++    glFramebufferRenderbufferEXT(GL_FRAMEBUFFER_EXT, GL_DEPTH_ATTACHMENT_EXT, 
++                                 GL_RENDERBUFFER_EXT, m_depth_stencil_buffer.get_handle());
++    glFramebufferRenderbufferEXT(GL_FRAMEBUFFER_EXT, GL_STENCIL_ATTACHMENT_EXT, 
++                                 GL_RENDERBUFFER_EXT, m_depth_stencil_buffer.get_handle());
++    assert_gl("FramebufferImpl::FramebufferImpl() - binding");
+     glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+   }
+ 
+
+Modified: trunk/windstille/src/display/opengl_state.cpp
+===================================================================
+--- trunk/windstille/src/display/opengl_state.cpp	2009-10-02 16:57:08 UTC (rev 3288)
++++ trunk/windstille/src/display/opengl_state.cpp	2009-10-05 20:27:46 UTC (rev 3289)
+@@ -22,7 +22,7 @@
+ 
+ #include "display/texture.hpp"
+ #include "display/color.hpp"
+-#include "util/util.hpp"
++#include "display/assert_gl.hpp"
+ 
+ #define MAX_TEXTURE_UNITS 4
+ 
+@@ -283,21 +283,10 @@
+               global_state->impl->texture[i] = impl->texture[i];
+ 
+               switch (impl->texture[i].get_target())
+-                {
+-                case GL_TEXTURE_RECTANGLE_ARB:
+-                  glBindTexture(GL_TEXTURE_RECTANGLE_ARB, impl->texture[i].get_handle());
+-                  glEnable(GL_TEXTURE_RECTANGLE_ARB);
+-
+-                  //glBindTexture(GL_TEXTURE_2D, 0);
+-                  //glDisable(GL_TEXTURE_2D);                  
+-                  break;
+-                  
++                {                 
+                 case GL_TEXTURE_2D:
+                   glBindTexture(GL_TEXTURE_2D, impl->texture[i].get_handle());
+                   glEnable(GL_TEXTURE_2D);
+-
+-                  glBindTexture(GL_TEXTURE_RECTANGLE_ARB, 0);
+-                  glDisable(GL_TEXTURE_RECTANGLE_ARB);
+                   break;
+                   
+                 default:
+@@ -309,9 +298,6 @@
+             {
+               // FIXME: Hacky, should disable only the right target
+               glBindTexture(GL_TEXTURE_2D, 0);
+-              glBindTexture(GL_TEXTURE_RECTANGLE_ARB, 0);
+-
+-              glDisable(GL_TEXTURE_RECTANGLE_ARB);
+               glDisable(GL_TEXTURE_2D);
+ 
+               global_state->impl->texture[i] = impl->texture[i];
+
+Modified: trunk/windstille/src/display/opengl_window.cpp
+===================================================================
+--- trunk/windstille/src/display/opengl_window.cpp	2009-10-02 16:57:08 UTC (rev 3288)
++++ trunk/windstille/src/display/opengl_window.cpp	2009-10-05 20:27:46 UTC (rev 3289)
+@@ -25,6 +25,7 @@
+ #include "util/util.hpp" 
+ #include "display/opengl_state.hpp"
+ #include "display/display.hpp"
++#include "display/assert_gl.hpp"
+ #include "app/config.hpp"
+ 
+ class OpenGLWindowImpl
+@@ -98,7 +99,7 @@
+       }
+ 
+       if (anti_aliasing)
+-        glEnable(GL_MULTISAMPLE_ARB); 
++        glEnable(GL_MULTISAMPLE); 
+ 
+       assert_gl("setup projection");
+ 
+
+Modified: trunk/windstille/src/display/shader_object.cpp
+===================================================================
+--- trunk/windstille/src/display/shader_object.cpp	2009-10-02 16:57:08 UTC (rev 3288)
++++ trunk/windstille/src/display/shader_object.cpp	2009-10-05 20:27:46 UTC (rev 3289)
+@@ -21,7 +21,7 @@
+ #include <stdio.h>
+ #include <iostream>
+ 
+-#include "util/util.hpp"
++#include "display/assert_gl.hpp"
+ 
+ /** Read a file, user must free() the returned pointer */
+ static GLchar* load_file(const char* filename)
+@@ -54,16 +54,16 @@
+ class ShaderObjectImpl
+ {
+ public:
+-  GLhandleARB handle;
++  GLuint handle;
+ 
+   ShaderObjectImpl(GLenum type)
+-    : handle(glCreateShaderObjectARB(type))
++    : handle(glCreateShader(type))
+   {
+   }
+ 
+   ~ShaderObjectImpl()
+   {
+-    glDeleteObjectARB(handle);
++    glDeleteShader(handle);
+   }
+ };
+ 
+@@ -83,14 +83,14 @@
+ ShaderObject::load(const std::string& filename)
+ {
+   GLchar* buf = load_file(filename.c_str());
+-  glShaderSourceARB(impl->handle, 1, const_cast<const GLchar**>(&buf), NULL);
++  glShaderSource(impl->handle, 1, const_cast<const GLchar**>(&buf), NULL);
+   assert_gl("load_source");
+ 
+   std::cout << "Source:\n" << buf << std::endl;
+   free(buf);
+ }
+ 
+-GLhandleARB 
++GLuint 
+ ShaderObject::get_handle() const
+ {
+   return impl->handle;
+@@ -99,7 +99,7 @@
+ void
+ ShaderObject::compile()
+ {
+-  glCompileShaderARB(impl->handle);
++  glCompileShader(impl->handle);
+ }
+ 
+ void
+@@ -107,23 +107,21 @@
+ {
+   int infologLength = 0;
+   int charsWritten  = 0;
+-  GLcharARB *infoLog;
++  GLchar* infoLog;
+ 
+   assert_gl("print_log1");
+-
+-  glGetObjectParameterivARB(impl->handle, GL_OBJECT_INFO_LOG_LENGTH_ARB,
+-                            &infologLength);
++  glGetShaderiv(impl->handle, GL_INFO_LOG_LENGTH, &infologLength);
+   assert_gl("print_log2");
+ 
+   if (infologLength > 0)
+     {
+-      infoLog = (GLcharARB*)malloc(infologLength);
++      infoLog = (GLchar*)malloc(infologLength);
+       if (infoLog == NULL)
+         {
+           printf("ERROR: Could not allocate InfoLog buffer\n");
+           exit(1);
+         }
+-      glGetInfoLogARB(impl->handle, infologLength, &charsWritten, infoLog);
++      glGetShaderInfoLog(impl->handle, infologLength, &charsWritten, infoLog);
+       printf("InfoLog:\n%s\n\n", infoLog);
+       free(infoLog);
+     }
+
+Modified: trunk/windstille/src/display/shader_object.hpp
+===================================================================
+--- trunk/windstille/src/display/shader_object.hpp	2009-10-02 16:57:08 UTC (rev 3288)
++++ trunk/windstille/src/display/shader_object.hpp	2009-10-05 20:27:46 UTC (rev 3289)
+@@ -32,7 +32,7 @@
+   ShaderObject(GLenum type, const std::string& filename);
+   ~ShaderObject();
+ 
+-  GLhandleARB get_handle() const;
++  GLuint get_handle() const;
+   void load(const std::string& filename);
+   void compile();
+   void print_log();
+
+Modified: trunk/windstille/src/display/shader_program.cpp
+===================================================================
+--- trunk/windstille/src/display/shader_program.cpp	2009-10-02 16:57:08 UTC (rev 3288)
++++ trunk/windstille/src/display/shader_program.cpp	2009-10-05 20:27:46 UTC (rev 3289)
+@@ -19,20 +19,20 @@
+ #include <iostream>
+ 
+ #include "display/shader_object.hpp"
+-#include "util/util.hpp"
++#include "display/assert_gl.hpp"
+ #include "display/shader_program.hpp"
+ 
+ class ShaderProgramImpl
+ {
+ public:
+-  GLhandleARB handle;
++  GLuint handle;
+ 
+   ShaderProgramImpl() 
+-    : handle(glCreateProgramObjectARB())
++    : handle(glCreateProgram())
+   {}
+ 
+   ~ShaderProgramImpl() {
+-    glDeleteObjectARB(handle);
++    glDeleteProgram(handle);
+   }
+ };
+ 
+@@ -48,13 +48,13 @@
+ void
+ ShaderProgram::attach(const ShaderObject& obj)
+ {
+-  glAttachObjectARB(impl->handle, obj.get_handle());
++  glAttachShader(impl->handle, obj.get_handle());
+ }
+ 
+ void
+ ShaderProgram::link()
+ {
+-  glLinkProgramARB(impl->handle);
++  glLinkProgram(impl->handle);
+ }
+ 
+ GLint
+@@ -62,7 +62,7 @@
+ {
+   GLint loc;
+ 
+-  loc = glGetUniformLocationARB(impl->handle, name);
++  loc = glGetUniformLocation(impl->handle, name);
+ 
+   if (loc == -1)
+     std::cout << "No such uniform named \"%s\"\n" << name << std::endl;
+@@ -72,7 +72,7 @@
+   return loc;
+ }
+ 
+-GLhandleARB 
++GLuint 
+ ShaderProgram::get_handle() const
+ {
+   return impl->handle;
+@@ -81,81 +81,81 @@
+ void
+ ShaderProgram::set_uniform1f(const char* name, GLfloat v0)
+ {
+-  GLint location = glGetUniformLocationARB(impl->handle, name);
++  GLint location = glGetUniformLocation(impl->handle, name);
+   if (location == -1)
+     std::cout << "No such uniform named \"" << name << "\"" << std::endl;
+   else
+-    glUniform1fARB(location, v0);
++    glUniform1f(location, v0);
+ }
+ 
+ void
+ ShaderProgram::set_uniform2f(const char* name, GLfloat v0, GLfloat v1)
+ {
+-  GLint location = glGetUniformLocationARB(impl->handle, name);
++  GLint location = glGetUniformLocation(impl->handle, name);
+   if (location == -1)
+     std::cout << "No such uniform named \"" << name << "\"" << std::endl;
+   else
+-    glUniform2fARB(location, v0, v1);
++    glUniform2f(location, v0, v1);
+ }
+ 
+ void
+ ShaderProgram::set_uniform3f(const char* name, GLfloat v0, GLfloat v1, GLfloat v2)
+ {
+-  GLint location = glGetUniformLocationARB(impl->handle, name);
++  GLint location = glGetUniformLocation(impl->handle, name);
+   if (location == -1)
+     std::cout << "No such uniform named \"" << name << "\"" << std::endl;
+   else
+-    glUniform3fARB(location, v0, v1, v2);
++    glUniform3f(location, v0, v1, v2);
+ }
+ 
+ void
+ ShaderProgram::set_uniform4f(const char* name, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3)
+ {
+-  GLint location = glGetUniformLocationARB(impl->handle, name);
++  GLint location = glGetUniformLocation(impl->handle, name);
+   if (location == -1)
+     std::cout << "No such uniform named \"" << name << "\"" << std::endl;
+   else
+-    glUniform4fARB(location, v0, v1, v2, v3);
++    glUniform4f(location, v0, v1, v2, v3);
+ }
+ 
+ void
+ ShaderProgram::set_uniform1i(const char* name, GLint v0)
+ {
+-  GLint location = glGetUniformLocationARB(impl->handle, name);
++  GLint location = glGetUniformLocation(impl->handle, name);
+   if (location == -1)
+     std::cout << "No such uniform named \"" << name << "\"" << std::endl;
+   else
+-    glUniform1iARB(location, v0);
++    glUniform1i(location, v0);
+ }
+ 
+ void
+ ShaderProgram::set_uniform2i(const char* name, GLint v0, GLint v1)
+ {
+-  GLint location = glGetUniformLocationARB(impl->handle, name);
++  GLint location = glGetUniformLocation(impl->handle, name);
+   if (location == -1)
+     std::cout << "No such uniform named \"" << name << "\"" << std::endl;
+   else
+-    glUniform2iARB(location, v0, v1);
++    glUniform2i(location, v0, v1);
+ }
+ 
+ void
+ ShaderProgram::set_uniform3i(const char* name, GLint v0, GLint v1, GLint v2)
+ {
+-  GLint location = glGetUniformLocationARB(impl->handle, name);
++  GLint location = glGetUniformLocation(impl->handle, name);
+   if (location == -1)
+     std::cout << "No such uniform named \"" << name << "\"" << std::endl;
+   else
+-    glUniform3iARB(location, v0, v1, v2);
++    glUniform3i(location, v0, v1, v2);
+ }
+ 
+ void
+ ShaderProgram::set_uniform4i(const char* name, GLint v0, GLint v1, GLint v2, GLint v3)
+ {
+-  GLint location = glGetUniformLocationARB(impl->handle, name);
++  GLint location = glGetUniformLocation(impl->handle, name);
+   if (location == -1)
+     std::cout << "No such uniform named \"" << name << "\"" << std::endl;
+   else
+-    glUniform4iARB(location, v0, v1, v2, v3);
++    glUniform4i(location, v0, v1, v2, v3);
+ }
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/display/shader_program.hpp
+===================================================================
+--- trunk/windstille/src/display/shader_program.hpp	2009-10-02 16:57:08 UTC (rev 3288)
++++ trunk/windstille/src/display/shader_program.hpp	2009-10-05 20:27:46 UTC (rev 3289)
+@@ -38,10 +38,10 @@
+   void link();
+ 
+   GLint get_uniform_location(const char* name);
+-  GLhandleARB get_handle() const;
++  GLuint get_handle() const;
+ 
+   // FIXME: All these only work when you call
+-  // glUseProgramObjectARB(shader_program.get_handle()); before them
++  // glUseProgram(shader_program.get_handle()); before them
+   void set_uniform1f(const char* name, GLfloat v0);
+   void set_uniform2f(const char* name, GLfloat v0, GLfloat v1);
+   void set_uniform3f(const char* name, GLfloat v0, GLfloat v1, GLfloat v2);
+
+Modified: trunk/windstille/src/display/texture.cpp
+===================================================================
+--- trunk/windstille/src/display/texture.cpp	2009-10-02 16:57:08 UTC (rev 3288)
++++ trunk/windstille/src/display/texture.cpp	2009-10-05 20:27:46 UTC (rev 3289)
+@@ -26,7 +26,7 @@
+ #include "display/software_surface.hpp"
+ #include "display/opengl_state.hpp"
+ #include "display/texture_manager.hpp"
+-#include "util/util.hpp"
++#include "display/assert_gl.hpp"
+ 
+ class TextureImpl
+ {
+
+Modified: trunk/windstille/src/display/texture.hpp
+===================================================================
+--- trunk/windstille/src/display/texture.hpp	2009-10-02 16:57:08 UTC (rev 3288)
++++ trunk/windstille/src/display/texture.hpp	2009-10-05 20:27:46 UTC (rev 3289)
+@@ -77,8 +77,7 @@
+   GLuint get_handle() const;
+   
+   /**
+-   * Return the target used by this texture, ie. GL_TEXTURE_2D or
+-   * GL_TEXTURE_RECTANGLE_ARB
++   * Return the target used by this texture, ie. GL_TEXTURE_2D
+    */ 
+   GLenum get_target() const;
+ 
+
+Modified: trunk/windstille/src/scenegraph/shockwave_drawable.hpp
+===================================================================
+--- trunk/windstille/src/scenegraph/shockwave_drawable.hpp	2009-10-02 16:57:08 UTC (rev 3288)
++++ trunk/windstille/src/scenegraph/shockwave_drawable.hpp	2009-10-05 20:27:46 UTC (rev 3289)
+@@ -160,12 +160,12 @@
+         state.set_blend_func(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+         state.activate();
+ 
+-        glUseProgramObjectARB(shader_program.get_handle());    
++        glUseProgram(shader_program.get_handle());    
+         shader_program.set_uniform1f("radius",   radius/512.0f*2.0f);
+         shader_program.set_uniform1i("background_tex", 0);
+         shader_program.set_uniform1i("noise_tex",   1);
+         draw_disc(int(radius));
+-        glUseProgramObjectARB(0);
++        glUseProgram(0);
+       }
+     glPopMatrix();
+ #endif
+
+
+
+From grumbel at mail.berlios.de  Mon Oct  5 22:28:09 2009
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Mon, 5 Oct 2009 22:28:09 +0200
+Subject: [Windstille-commit] r3290 - trunk/windstille/src/util
+Message-ID: <200910052028.n95KS9Es029903@sheep.berlios.de>
+
+Author: grumbel
+Date: 2009-10-05 22:28:09 +0200 (Mon, 05 Oct 2009)
+New Revision: 3290
+
+Modified:
+   trunk/windstille/src/util/util.hpp
+Log:
+Moved assert_gl to its own file
+
+Modified: trunk/windstille/src/util/util.hpp
+===================================================================
+--- trunk/windstille/src/util/util.hpp	2009-10-05 20:27:46 UTC (rev 3289)
++++ trunk/windstille/src/util/util.hpp	2009-10-05 20:28:09 UTC (rev 3290)
+@@ -39,22 +39,6 @@
+   return os.str();
+ }
+ 
+-static inline void assert_gl(const char* message)
+-{
+-#ifdef DEBUG
+-  GLenum error = glGetError();
+-  if(error != GL_NO_ERROR) {
+-    std::ostringstream msg;
+-    msg << "OpenGLError while '" << message << "': "
+-        << gluErrorString(error);
+-    throw std::runtime_error(msg.str());
+-  }
+-#else
+-  // Stop compiler from issueing 'unused parameter'
+-  do { (void)(message); } while (0);
+ #endif
+-}
+ 
+-#endif
+-
+ /* EOF */
+
+
+
+From grumbel at mail.berlios.de  Mon Oct  5 22:28:47 2009
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Mon, 5 Oct 2009 22:28:47 +0200
+Subject: [Windstille-commit] r3291 - in trunk/windstille/src: app armature
+	editor engine input objects particles screen scripting sound
+	sprite3d tile
+Message-ID: <200910052028.n95KSlSK030001@sheep.berlios.de>
+
+Author: grumbel
+Date: 2009-10-05 22:28:45 +0200 (Mon, 05 Oct 2009)
+New Revision: 3291
+
+Modified:
+   trunk/windstille/src/app/config.cpp
+   trunk/windstille/src/app/globals.cpp
+   trunk/windstille/src/app/globals.hpp
+   trunk/windstille/src/app/windstille_main.cpp
+   trunk/windstille/src/armature/mesh.cpp
+   trunk/windstille/src/editor/object_selector.cpp
+   trunk/windstille/src/engine/sector.cpp
+   trunk/windstille/src/engine/sector_builder.cpp
+   trunk/windstille/src/input/input_manager_sdl.cpp
+   trunk/windstille/src/objects/shockwave.cpp
+   trunk/windstille/src/particles/deform_drawer.cpp
+   trunk/windstille/src/screen/game_session.cpp
+   trunk/windstille/src/scripting/interface.cpp
+   trunk/windstille/src/scripting/interface.hpp
+   trunk/windstille/src/sound/ogg_sound_file.cpp
+   trunk/windstille/src/sprite3d/sprite3d.cpp
+   trunk/windstille/src/tile/tile_description.cpp
+   trunk/windstille/src/tile/tile_packer.cpp
+Log:
+Removed DEBUG and --debug support, as they aren't used for any clear purpose
+
+Modified: trunk/windstille/src/app/config.cpp
+===================================================================
+--- trunk/windstille/src/app/config.cpp	2009-10-05 20:28:09 UTC (rev 3290)
++++ trunk/windstille/src/app/config.cpp	2009-10-05 20:28:45 UTC (rev 3291)
+@@ -138,8 +138,6 @@
+ 
+   CommandLine argp;
+ 
+-  const int debug_flag        = 256;
+-  const int nodebug_flag      = 257;
+   const int secondary_controller_file = 261;
+     
+   argp.set_help_indent(24);
+@@ -166,8 +164,6 @@
+ 
+   argp.add_group("Misc Options:");
+   argp.add_option('d', "datadir",    "DIR", "Fetch game data from DIR");
+-  argp.add_option(debug_flag, "debug",      "", "Turn on debug output");
+-  argp.add_option(nodebug_flag, "nodebug",      "", "Turn off debug output");
+   argp.add_option('v', "version",       "", "Print Windstille Version");
+   argp.add_option('h', "help",       "", "Print this help");
+ 
+@@ -214,14 +210,6 @@
+           Pathname::set_datadir(argp.get_argument());
+           break;
+ 
+-        case debug_flag:
+-          debug = true;
+-          break;
+-
+-        case nodebug_flag:
+-          debug = false;
+-          break;
+-
+         case 'f':
+           set_bool("fullscreen", true);
+           break;
+
+Modified: trunk/windstille/src/app/globals.cpp
+===================================================================
+--- trunk/windstille/src/app/globals.cpp	2009-10-05 20:28:09 UTC (rev 3290)
++++ trunk/windstille/src/app/globals.cpp	2009-10-05 20:28:45 UTC (rev 3291)
+@@ -20,12 +20,6 @@
+ 
+ float game_speed = 1.0f;
+ 
+-#ifdef DEBUG
+-bool debug = true;
+-#else
+-bool debug = false;
+-#endif
+-
+ bool collision_debug = false;
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/app/globals.hpp
+===================================================================
+--- trunk/windstille/src/app/globals.hpp	2009-10-05 20:28:09 UTC (rev 3290)
++++ trunk/windstille/src/app/globals.hpp	2009-10-05 20:28:45 UTC (rev 3291)
+@@ -32,7 +32,6 @@
+ 
+ extern float game_speed;
+ 
+-extern bool debug;
+ extern bool collision_debug;
+ 
+ #endif
+
+Modified: trunk/windstille/src/app/windstille_main.cpp
+===================================================================
+--- trunk/windstille/src/app/windstille_main.cpp	2009-10-05 20:28:09 UTC (rev 3290)
++++ trunk/windstille/src/app/windstille_main.cpp	2009-10-05 20:28:45 UTC (rev 3291)
+@@ -111,9 +111,6 @@
+   {
+     Pathname filename(config.get_string("levelfile"), Pathname::kSysPath);
+ 
+-    if (debug) 
+-      std::cout << "Starting file: " << filename << std::endl;
+-
+     const std::string file_type = filename.get_extension();
+ 
+     if (file_type == "wsprite")
+@@ -176,12 +173,7 @@
+ void
+ WindstilleMain::init_sdl()
+ {
+-#ifdef DEBUG
+-  // I wanna have usefull backtraces in debug mode
+-  Uint32 flags = SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_NOPARACHUTE;
+-#else
+   Uint32 flags = SDL_INIT_VIDEO | SDL_INIT_JOYSTICK;
+-#endif
+ 
+   if (SDL_Init(flags) < 0)
+   {
+@@ -217,7 +209,7 @@
+     // allow symbolic links
+     PHYSFS_permitSymbolicLinks(1);
+ 
+-    if (debug)
++    if (0)
+     { //show search Path
+       std::cout << "userdir: " << Pathname::get_userdir() << std::endl;
+       std::cout << "datadir: " << Pathname::get_datadir() << std::endl;
+
+Modified: trunk/windstille/src/armature/mesh.cpp
+===================================================================
+--- trunk/windstille/src/armature/mesh.cpp	2009-10-05 20:28:09 UTC (rev 3290)
++++ trunk/windstille/src/armature/mesh.cpp	2009-10-05 20:28:45 UTC (rev 3291)
+@@ -20,10 +20,11 @@
+ 
+ #include <stdexcept>
+ 
+-#include "util/util.hpp"
++#include "armature/armature.hpp"
++#include "display/assert_gl.hpp"
+ #include "display/opengl_state.hpp"
+ #include "display/texture_manager.hpp"
+-#include "armature/armature.hpp"
++#include "util/util.hpp"
+ 
+ Mesh::Mesh(FileReader& reader, const std::string& path)
+   : name(),
+
+Modified: trunk/windstille/src/editor/object_selector.cpp
+===================================================================
+--- trunk/windstille/src/editor/object_selector.cpp	2009-10-05 20:28:09 UTC (rev 3290)
++++ trunk/windstille/src/editor/object_selector.cpp	2009-10-05 20:28:45 UTC (rev 3291)
+@@ -25,6 +25,7 @@
+ #include <gtkmm/toolbar.h>
+ #include <gtkmm/treemodelcolumn.h>
+ 
++#include "util/util.hpp"
+ #include "editor/windstille_widget.hpp"
+ #include "editor/editor_window.hpp"
+ #include "editor/object_selector.hpp"
+@@ -171,14 +172,6 @@
+   (*it)[Columns::instance().filter_mask] = filter_;
+ }
+ 
+-static bool has_suffix(const std::string& str, const std::string& suffix)
+-{
+-  if (str.length() >= suffix.length())
+-    return str.compare(str.length() - suffix.length(), suffix.length(), suffix) == 0;
+-  else
+-    return false;
+-}
+-
+ bool
+ ObjectSelector::filter(const Gtk::TreeModel::const_iterator& it)
+ {
+
+Modified: trunk/windstille/src/engine/sector.cpp
+===================================================================
+--- trunk/windstille/src/engine/sector.cpp	2009-10-05 20:28:09 UTC (rev 3290)
++++ trunk/windstille/src/engine/sector.cpp	2009-10-05 20:28:45 UTC (rev 3291)
+@@ -47,8 +47,6 @@
+     interactivebackground_tilemap(0),
+     player()
+ {
+-  if (debug) std::cout << "Creating new Sector" << std::endl;
+-  
+   SectorBuilder(arg_filename, *this);
+ 
+   if (interactive_tilemap)
+
+Modified: trunk/windstille/src/engine/sector_builder.cpp
+===================================================================
+--- trunk/windstille/src/engine/sector_builder.cpp	2009-10-05 20:28:09 UTC (rev 3290)
++++ trunk/windstille/src/engine/sector_builder.cpp	2009-10-05 20:28:45 UTC (rev 3291)
+@@ -38,8 +38,6 @@
+     id_table(),
+     parent_table()
+ {
+-  if (debug) std::cout << "Sector:parse_file '" << m_filename << "'" << std::endl;
+-  
+   FileReader reader = FileReader::parse(m_filename);
+   if(reader.get_name() != "windstille-sector") 
+   {
+@@ -77,8 +75,6 @@
+     
+   parse_objects(reader);
+   parse_navgraph(reader);
+-
+-  if (debug) std::cout << "Finished parsing" << std::endl;
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/input/input_manager_sdl.cpp
+===================================================================
+--- trunk/windstille/src/input/input_manager_sdl.cpp	2009-10-05 20:28:09 UTC (rev 3290)
++++ trunk/windstille/src/input/input_manager_sdl.cpp	2009-10-05 20:28:45 UTC (rev 3291)
+@@ -23,6 +23,7 @@
+ #include "math/math.hpp"
+ #include "app/config.hpp"
+ #include "util/file_reader.hpp"
++#include "util/util.hpp"
+ #include "input_manager_sdl.hpp"
+ #ifdef HAVE_CWIID
+ #  include "wiimote.hpp"
+@@ -97,14 +98,6 @@
+   
+ }
+ 
+-static bool has_suffix(const std::string& str, const std::string& suffix)
+-{
+-  if (str.length() >= suffix.length())
+-    return str.compare(str.length() - suffix.length(), suffix.length(), suffix) == 0;
+-  else
+-    return false;
+-}
+-
+ void
+ InputManagerSDL::load(const Pathname& filename)
+ {
+
+Modified: trunk/windstille/src/objects/shockwave.cpp
+===================================================================
+--- trunk/windstille/src/objects/shockwave.cpp	2009-10-05 20:28:09 UTC (rev 3290)
++++ trunk/windstille/src/objects/shockwave.cpp	2009-10-05 20:28:45 UTC (rev 3291)
+@@ -35,7 +35,7 @@
+   noise.set_wrap(GL_REPEAT);
+   noise.set_filter(GL_LINEAR);
+ 
+-  shader_program.attach(ShaderObject(GL_FRAGMENT_SHADER_ARB, "data/shader/shockwave2.frag"));
++  shader_program.attach(ShaderObject(GL_FRAGMENT_SHADER, "data/shader/shockwave2.frag"));
+   shader_program.link();
+ }
+ 
+
+Modified: trunk/windstille/src/particles/deform_drawer.cpp
+===================================================================
+--- trunk/windstille/src/particles/deform_drawer.cpp	2009-10-05 20:28:09 UTC (rev 3290)
++++ trunk/windstille/src/particles/deform_drawer.cpp	2009-10-05 20:28:45 UTC (rev 3291)
+@@ -54,7 +54,7 @@
+     if (1) {
+       OpenGLState state;
+ 
+-      glUseProgramObjectARB(shader_program.get_handle());    
++      glUseProgram(shader_program.get_handle());    
+       shader_program.set_uniform1i("screen",      0);
+       shader_program.set_uniform1i("particles",   1);
+             
+@@ -77,7 +77,7 @@
+       glVertex2f(0,600);
+       glEnd();
+ 
+-      glUseProgramObjectARB(0);
++      glUseProgram(0);
+     }
+ #endif
+   }
+@@ -165,11 +165,11 @@
+ };
+ 
+ DeformDrawer::DeformDrawer(FileReader& /*props*/)
+-  : framebuffer(GL_TEXTURE_RECTANGLE_ARB, 800, 600),
++  : framebuffer(GL_TEXTURE_2D, 800, 600),
+     surface(Pathname("images/particles/deform2.png")),
+     shader_program()
+ {
+-  shader_program.attach(ShaderObject(GL_FRAGMENT_SHADER_ARB, "data/shader/particledeform.frag"));
++  shader_program.attach(ShaderObject(GL_FRAGMENT_SHADER, "data/shader/particledeform.frag"));
+   shader_program.link();
+ }
+ 
+
+Modified: trunk/windstille/src/screen/game_session.cpp
+===================================================================
+--- trunk/windstille/src/screen/game_session.cpp	2009-10-05 20:28:09 UTC (rev 3290)
++++ trunk/windstille/src/screen/game_session.cpp	2009-10-05 20:28:45 UTC (rev 3291)
+@@ -130,8 +130,6 @@
+ {
+   impl->filename = arg_filename;
+ 
+-  if (debug) std::cout << "Creating new GameSession" << std::endl;
+-
+   impl->pause = false;
+   
+   set_sector(impl->filename);
+@@ -352,9 +350,6 @@
+   impl->sector.reset(new Sector(impl->filename));
+   
+   impl->sector->activate();
+-  
+-  if (debug) 
+-    std::cout << "Finished changing sector" << std::endl;
+ }
+ 
+ void
+@@ -394,10 +389,8 @@
+                   break;
+ 
+                 case SDLK_c:
+-                  if (debug) {
+-                    collision_debug = !collision_debug;
+-                    ConsoleLog << "Collision Debugging " << (collision_debug ? "enabled" : "disabled") << std::endl;
+-                  }
++                  collision_debug = !collision_debug;
++                  ConsoleLog << "Collision Debugging " << (collision_debug ? "enabled" : "disabled") << std::endl;
+                   break;
+ 
+                 case SDLK_F2:
+
+Modified: trunk/windstille/src/scripting/interface.cpp
+===================================================================
+--- trunk/windstille/src/scripting/interface.cpp	2009-10-05 20:28:09 UTC (rev 3290)
++++ trunk/windstille/src/scripting/interface.cpp	2009-10-05 20:28:45 UTC (rev 3291)
+@@ -287,16 +287,6 @@
+   return 0;
+ }
+ 
+-void set_debug(bool t)
+-{
+-  debug = t;
+-}
+-
+-bool get_debug()
+-{
+-  return debug;
+-}
+-
+ void set_console_font(const std::string& font, int size)
+ {
+   try 
+
+Modified: trunk/windstille/src/scripting/interface.hpp
+===================================================================
+--- trunk/windstille/src/scripting/interface.hpp	2009-10-05 20:28:09 UTC (rev 3290)
++++ trunk/windstille/src/scripting/interface.hpp	2009-10-05 20:28:45 UTC (rev 3291)
+@@ -103,9 +103,6 @@
+ 
+ void list_objects();
+ 
+-void set_debug(bool t);
+-bool get_debug();
+-
+ float get_game_speed();
+ void  set_game_speed(float v);
+ 
+
+Modified: trunk/windstille/src/sound/ogg_sound_file.cpp
+===================================================================
+--- trunk/windstille/src/sound/ogg_sound_file.cpp	2009-10-05 20:28:09 UTC (rev 3290)
++++ trunk/windstille/src/sound/ogg_sound_file.cpp	2009-10-05 20:28:45 UTC (rev 3291)
+@@ -84,7 +84,8 @@
+ {
+   PHYSFS_file* file = reinterpret_cast<PHYSFS_file*> (source);
+ 
+-  switch(whence) {
++  switch(whence) 
++  {
+     case SEEK_SET:
+       if(PHYSFS_seek(file, static_cast<PHYSFS_uint64> (offset)) == 0)
+         return -1;
+@@ -98,11 +99,7 @@
+         return -1;
+       break;
+     default:
+-#ifdef DEBUG
+-      assert(false);
+-#else
+       return -1;
+-#endif
+   }
+   return 0;
+ }
+
+Modified: trunk/windstille/src/sprite3d/sprite3d.cpp
+===================================================================
+--- trunk/windstille/src/sprite3d/sprite3d.cpp	2009-10-05 20:28:09 UTC (rev 3290)
++++ trunk/windstille/src/sprite3d/sprite3d.cpp	2009-10-05 20:28:45 UTC (rev 3291)
+@@ -20,7 +20,7 @@
+ 
+ #include <boost/scoped_array.hpp>
+ 
+-#include "util/util.hpp"
++#include "display/assert_gl.hpp"
+ #include "display/opengl_state.hpp"
+ #include "sprite3d/manager.hpp"
+ #include "scenegraph/sprite3d_drawable.hpp"
+
+Modified: trunk/windstille/src/tile/tile_description.cpp
+===================================================================
+--- trunk/windstille/src/tile/tile_description.cpp	2009-10-05 20:28:09 UTC (rev 3290)
++++ trunk/windstille/src/tile/tile_description.cpp	2009-10-05 20:28:45 UTC (rev 3291)
+@@ -44,9 +44,6 @@
+ void
+ TileDescription::load(TileFactory* factory)
+ {  
+-  if (debug)
+-    std::cout << "Loading tiles: " << filename << std::endl;
+-
+   // FIXM: SoftwareSurface image(Pathname(filename)); doesn't work, as its handled as function declaration!?
+   SoftwareSurface image = SoftwareSurface(Pathname(filename));
+ 
+
+Modified: trunk/windstille/src/tile/tile_packer.cpp
+===================================================================
+--- trunk/windstille/src/tile/tile_packer.cpp	2009-10-05 20:28:09 UTC (rev 3290)
++++ trunk/windstille/src/tile/tile_packer.cpp	2009-10-05 20:28:45 UTC (rev 3291)
+@@ -21,7 +21,7 @@
+ 
+ #include "app/globals.hpp"
+ #include "tile/tile_packer.hpp"
+-#include "util/util.hpp"
++#include "display/assert_gl.hpp"
+ #include "display/blitter.hpp"
+ #include "display/software_surface.hpp"
+ 
+
+
+
+From grumbel at mail.berlios.de  Mon Oct  5 22:36:49 2009
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Mon, 5 Oct 2009 22:36:49 +0200
+Subject: [Windstille-commit] r3292 - trunk/windstille
+Message-ID: <200910052036.n95Kan63030873@sheep.berlios.de>
+
+Author: grumbel
+Date: 2009-10-05 22:36:48 +0200 (Mon, 05 Oct 2009)
+New Revision: 3292
+
+Modified:
+   trunk/windstille/TODO
+Log:
+TODO updates
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-10-05 20:28:45 UTC (rev 3291)
++++ trunk/windstille/TODO	2009-10-05 20:36:48 UTC (rev 3292)
+@@ -10,6 +10,15 @@
+ in the context of the whole game or if a potential performance
+ enhanchment, actually enhanchmes anything at all.
+ 
++Testing
++=======
++
++* write testcases (can be manual) for the SceneGraph
++
++* how to implemented stencil in the editor?
++
++* create some better graphics for stencil testing
++
+ Timeline
+ ========
+ 
+@@ -43,7 +52,7 @@
+ 
+ * implement load of timeline
+ 
+-* using UI manager doesn't work when toolbar is  on the Notepad
++* using UI manager doesn't work when toolbar is on the Notepad
+ 
+ * add ability to scale selections
+ 
+@@ -129,55 +138,11 @@
+   * apply changes instantly
+   * use the Undo/Redo system
+ 
+-Editor Restructuring
+-====================
+-
+-* 'delete layer' should set the layer selection to something valid
+-
+-* add a toggleable safe-area overlay that shows how much fits on a screen
+-
+-* SceneGraph needs to be updated while drag&drop is in progress
+-
+-* delete/remove/erase naming is a bit mixed up in a few places
+-
+-* being able to directly mark Edges still feels wonky, need to rethink the thing again
+-
+-* copy&paste works only very limited with edges, i.e. copying from one
+-  sector to another causes crazy stuff to happen as the nodes it links
+-  to are on another sector
+-
+-* draw NavGraph lines thicker (i.e. glLineWidth())
+-
+-* color code them by layer (how to figure out the color?)
+-
+-* add special drawing for different edge types (i.e. draw stairs for stair type edges)
+-
+-* snapping for navgraph is limited to moving the object, should also
+-  work when creating the nodes in the first place
+-
+-* horizontal/vertical navgraph edges are near impossible to select
+-  (bounding box is just 1px height)
+-
+-* objects can't snap to NavGraphNode's as they are not part of the
+-  normal layer structure, would also need inverse point-snapping to
+-  work properly, as they shouldn't snap to the bounding_box of the node
+-
+-* implement a stop-watch HUD element
+-
+-* it takes 25sec to run through every corner of the worker.wst map (75 meter + stairs in size)
+-
+-* add auto-visible button similar to auto-lock button
+-
+-#0  0x081115a7 in Vector2f::operator+ (this=0x0, other=@0xbff04558) at src/math/vector2f.hpp:56
+-#1  0x0816e342 in Selection::on_move_update (this=0x92043b8, offset=@0xbff04558) at src/editor/selection.cpp:130
+-#2  0x0816c80f in SelectTool::mouse_up (this=0x8999dd0, event=0x8f878a0, wst=@0x8f8e5a0) at src/editor/select_tool.cpp:205
+-#3  0x08174a22 in WindstilleWidget::mouse_up (this=0x8f8e5a0, ev=0x8f878a0) at src/editor/windstille_widget.cpp:372
+-#4  0x08177788 in sigc::bound_mem_functor1<bool, WindstilleWidget, _GdkEventButton*>::operator() (this=0x902fc34, _A_a1=@0xbff04664) at /usr/include/sigc++-2.0/sigc++/functors/mem_fun.h:1851
+-#5  0x081772bf in sigc::adaptor_functor<sigc::bound_mem_functor1<bool, WindstilleWidget, _GdkEventButton*> >::operator()<_GdkEventButton* const&> (this=0x902fc30, _A_arg1=@0xbff04664)
+-
+ Overview
+ ========
+ 
++* add a way to force render path (i.e. which Compositor to use)
++
+ * do demo sector with burning barrels, snow and steam, to get the
+   feeling of cold, could extend the trainstation to that
+ 
+@@ -253,12 +218,6 @@
+   * film grain
+ 
+   * lense flare
+-
+-* add a glScissor()/Display::push/pop_cliprect() Node
+-
+-* add a stencil node:
+-
+-  * StencilDrawable(DrawableHandle stencil, DrawableHandle child);
+ 
+ SceneGraph
+ ==========
+@@ -292,6 +251,7 @@
+     node)
+ 
+ * SceneGraph could be used to promote rotation and scaling to children
++  (i.e. ModelviewMatrixDrawable)
+ 
+ Navigation Graph
+ ================
+@@ -313,8 +273,22 @@
+ Display
+ =======
+ 
+-* Display::aspect_size is ugly, turning it into a Display::set_size() wouldn't help much
++* image-grid in Sprite seems broken
+ 
++* SurfaceManager::load_grid() bypasses TexturePacker, doesn't do
++  border pixel duplication
++
++* maybe add special support for opaque textures, i.e. Textures with
++  1-bit alpha, which could be used to bucket sort drawing requests and
++  reduce texture switches (in case those ever start posing a problem)
++
++* figure out how to enable mipmapping into the tile and surface packer
++  (no longer needed as both tile and surface packer are considered obsolete)
++
++* Display::aspect_size is ugly, turning it into a Display::set_size()
++  wouldn't help much, should be part of some GraphicContext object
++  that is passed around to Drawable::render()
++
+ * OpenGLState class is really slow (rewrite it to not use std::map, also remove the impl allocation)
+ 
+ * Display::push/pop_cliprect() doesn't handle different aspect-ratios properly
+@@ -547,24 +521,13 @@
+ ==============
+ 
+ * split music, voice and sound fx into seperate context or allow to
+-  change their volume by other means
++  change their volume independently by other means
+ 
+ Miscellaneous
+ =============
+ 
+-* figure out how to enable mipmapping into the tile and surface packer
+-
+ * View class could be done away, as it doesn't have any clear purpose
+ 
+-* SurfaceManager::load_grid() bypasses TexturePacker, doesn't do
+-  border pixel duplication
+-
+-* replace power_of_two function with one not based on a slow while() loop
+-
+-* maybe add special support for opaque textures, i.e. Textures with
+-  1-bit alpha, which could be used to bucket sort drawing requests and
+-  reduce texture switches (in case those ever start posing a problem)
+-
+ * replace lisp::Writer with custom FileWriter (used in config)
+ 
+ * add (maybe) a LispWriter::start_section(name, bool compact) to create:
+@@ -582,35 +545,6 @@
+   with the current FileReader is the way sections are handled, which
+   isn't pretty
+ 
+-* image-grid in Sprite seems broken
+-
+-* remove GameObject::get_world(), use Sector::current() instead
+-  (difference might matter on sector change)
+-
+-* move has_suffix, has_prefix and stuff into StringUtil class
+-
+-* get rid of global debug
+-
+-* work on Object introspection, see: ~/projects/lang/c++/introspection.cpp
+-
+-  class GameObject {
+-    PropertiesClass property_class() {
+-      static PropertyClass* this_class = 0;
+-      if (!this_class) {
+-                 
+-      } else {
+-
+-      }
+-    }
+-    Properties properties() {
+-       static PropertiesClass this_class;
+-       if (!PropertiesClass 
+-    }
+-  }
+-
+-* remove DEBUG macro or give it a clearer defined purpose, currently
+-  used only in a few tiny places
+-
+ * add way to TextArea to layout text with a fixed indent after a
+   linebreak (for use in the PDA):
+ 
+@@ -620,21 +554,16 @@
+ 
+ * cleanup the parenting code
+ 
+-* why does src/navigation/node.hpp use SegmentPosition? Doesn't seem
+-  right
+-
+ * set dynamic maximum size for auto resizing Menus depending on
+   resolution
+ 
+-* add way to jump without running
+-
+ * animation must be less strongly coupled to movement
+ 
+ * add way to skip through SpeechManager Speech lines (B-button)
+ 
+ * raycasting in laserpointer is broken, doesn't work if angle is 0
+   (maybe not worth to fix since it will be replaced with
+-  NavigationMesh)
++  NavigationMesh) [obsolete]
+ 
+ * get rid of global game_time variable
+ 
+@@ -681,7 +610,8 @@
+ ======
+ 
+ * OpenGL 2.0 supports non-power-of-two textures with mipmaps, that
+-  should be used instead of the texture packer
++  should be used instead of the texture packer [mostly done, except
++  for backward compability stuff]
+ 
+ * mipmapping needs to be enabled
+ 
+@@ -696,7 +626,7 @@
+ }
+ 
+ * Check if http://developer.nvidia.com/object/np2_mipmapping.html can
+-  be used to improve visual quality
++  be used to improve visual quality or if GLU is already using that
+ 
+ Profiling
+ =========
+@@ -715,8 +645,8 @@
+ Bugs
+ ====
+ 
+-* drawing is broken after loading a level, only get fixed when
+-  toggling Light layer, (bug in OpenGLState maybe?)
++* drawing in the editor is broken after loading a level, only gets
++  fixed when toggling Light layer, (bug in OpenGLState maybe?)
+ 
+ * quickly tapping forward-back-hold down forward makes your character
+   play the walking animation without actually moving anywhere
+@@ -727,7 +657,7 @@
+   std::exception: No marker with name 'RightFoot' defined in action 'Stand'
+ 
+   in general the game shouldn't crash when stuff isn't found, but
+-  instead fallback to placeholders and give a error message on the console
++  instead fallback to placeholders and give a warning message on the console
+ 
+ * miniswig causes bison++ to crash
+ 
+@@ -825,9 +755,9 @@
+ Graphics
+ ========
+ 
+-* do not make light larger then 256, maybe even smaller is ok (large
+-  light is a waste of space, as you don't see much pixelation in
+-  gradients)
++* do not make light sprites larger then 256, maybe even smaller is ok
++  (large light is a waste of space, as you don't see much pixelation
++  in gradients)
+ 
+ * do *NOT* use power of two textures, use multiple of 64/128 instead
+   (128 is easy to snap, power of two doesn't help, since textures are
+@@ -870,6 +800,51 @@
+ Editor
+ ======
+ 
++* mark the zero-spot in the editor (i.e. thicker lines for zero)
++
++* 'delete layer' should set the layer selection to something valid
++
++* add a toggleable safe-area overlay that shows how much fits on a screen
++
++* SceneGraph needs to be updated while drag&drop is in progress
++
++* delete/remove/erase naming is a bit mixed up in a few places
++
++* being able to directly mark Edges still feels wonky, need to rethink the thing again
++
++* copy&paste works only very limited with edges, i.e. copying from one
++  sector to another causes crazy stuff to happen as the nodes it links
++  to are on another sector
++
++* draw NavGraph lines thicker (i.e. glLineWidth())
++
++* color code them by layer (how to figure out the color?)
++
++* add special drawing for different edge types (i.e. draw stairs for stair type edges)
++
++* snapping for navgraph is limited to moving the object, should also
++  work when creating the nodes in the first place
++
++* horizontal/vertical navgraph edges are near impossible to select
++  (bounding box is just 1px height)
++
++* objects can't snap to NavGraphNode's as they are not part of the
++  normal layer structure, would also need inverse point-snapping to
++  work properly, as they shouldn't snap to the bounding_box of the node
++
++* implement a stop-watch HUD element
++
++* it takes 25sec to run through every corner of the worker.wst map (75 meter + stairs in size)
++
++* add auto-visible button similar to auto-lock button
++
++#0  0x081115a7 in Vector2f::operator+ (this=0x0, other=@0xbff04558) at src/math/vector2f.hpp:56
++#1  0x0816e342 in Selection::on_move_update (this=0x92043b8, offset=@0xbff04558) at src/editor/selection.cpp:130
++#2  0x0816c80f in SelectTool::mouse_up (this=0x8999dd0, event=0x8f878a0, wst=@0x8f8e5a0) at src/editor/select_tool.cpp:205
++#3  0x08174a22 in WindstilleWidget::mouse_up (this=0x8f8e5a0, ev=0x8f878a0) at src/editor/windstille_widget.cpp:372
++#4  0x08177788 in sigc::bound_mem_functor1<bool, WindstilleWidget, _GdkEventButton*>::operator() (this=0x902fc34, _A_a1=@0xbff04664) at /usr/include/sigc++-2.0/sigc++/functors/mem_fun.h:1851
++#5  0x081772bf in sigc::adaptor_functor<sigc::bound_mem_functor1<bool, WindstilleWidget, _GdkEventButton*> >::operator()<_GdkEventButton* const&> (this=0x902fc30, _A_arg1=@0xbff04664)
++
+ * add a NextLayer, PrevLayer keyboard shortcuts
+ 
+ * add AutoVisible button to Layer dialog
+
+
+
+From grumbel at mail.berlios.de  Tue Oct  6 18:43:50 2009
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Tue, 6 Oct 2009 18:43:50 +0200
+Subject: [Windstille-commit] r3293 - trunk/windstille/external
+Message-ID: <200910061643.n96GhojG002066@sheep.berlios.de>
+
+Author: grumbel
+Date: 2009-10-06 18:43:47 +0200 (Tue, 06 Oct 2009)
+New Revision: 3293
+
+Modified:
+   trunk/windstille/external/
+Log:
+Deleted empty svn:externals prop
+
+
+Property changes on: trunk/windstille/external
+___________________________________________________________________
+Name: svn:externals
+   - 
+
+
+
+

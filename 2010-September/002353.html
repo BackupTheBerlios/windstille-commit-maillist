@@ -1,0 +1,300 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3356 - trunk/windstille/src/display
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3356%20-%20trunk/windstille/src/display&In-Reply-To=%3C20100908093215.CD3CE48101F%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002352.html">
+   <LINK REL="Next"  HREF="002354.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3356 - trunk/windstille/src/display</H1>
+    <B>grumbel at mail.berlios.de</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3356%20-%20trunk/windstille/src/display&In-Reply-To=%3C20100908093215.CD3CE48101F%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3356 - trunk/windstille/src/display">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Sep  8 11:32:15 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002352.html">[Windstille-commit] r3355 - trunk/windstille/src/display
+</A></li>
+        <LI>Next message: <A HREF="002354.html">[Windstille-commit] r3357 - trunk/windstille/extra/slideshow
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2353">[ date ]</a>
+              <a href="thread.html#2353">[ thread ]</a>
+              <a href="subject.html#2353">[ subject ]</a>
+              <a href="author.html#2353">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2010-09-08 11:32:15 +0200 (Wed, 08 Sep 2010)
+New Revision: 3356
+
+Modified:
+   trunk/windstille/src/display/display.cpp
+   trunk/windstille/src/display/framebuffer.cpp
+   trunk/windstille/src/display/framebuffer.hpp
+   trunk/windstille/src/display/render_buffer.cpp
+   trunk/windstille/src/display/render_buffer.hpp
+Log:
+Implemented anti-aliasing for the Framebuffer (currently breaks render-to-texture)
+
+Modified: trunk/windstille/src/display/display.cpp
+===================================================================
+--- trunk/windstille/src/display/display.cpp	2010-09-08 09:30:19 UTC (rev 3355)
++++ trunk/windstille/src/display/display.cpp	2010-09-08 09:32:15 UTC (rev 3356)
+@@ -32,6 +32,7 @@
+ #include &quot;math/quad.hpp&quot;
+ #include &quot;math/line.hpp&quot;
+ #include &quot;display/opengl_state.hpp&quot;
++#include &quot;display/assert_gl.hpp&quot;
+ 
+ Size              Display::aspect_size;
+ std::vector&lt;Rect&gt; Display::cliprects;
+@@ -480,6 +481,7 @@
+   boost::scoped_array&lt;GLbyte&gt; pixels(new GLbyte[len]);
+   glPixelStorei(GL_PACK_ALIGNMENT, 1);
+   glReadPixels(0, 0, size.width, size.height, GL_RGB, GL_UNSIGNED_BYTE, pixels.get());
++  assert_gl(&quot;Display::save_screenshot()&quot;);
+ 
+   if (false)
+   { // PPM saving
+@@ -527,7 +529,7 @@
+       m_cinfo.in_color_space   = JCS_RGB;   /* colorspace of input image */
+ 
+       jpeg_set_defaults(&amp;m_cinfo);
+-      //jpeg_set_quality(&amp;m_cinfo, quality, TRUE /* limit to baseline-JPEG values */);
++      //jpeg_set_quality(&amp;m_cinfo, 100, TRUE /* limit to baseline-JPEG values */);
+  
+       jpeg_start_compress(&amp;m_cinfo, TRUE);
+ 
+@@ -551,7 +553,7 @@
+       fclose(m_out);
+     }
+   }
+-  else 
++  else if (false)
+   { // PNG saving
+     FILE* fp = fopen(filename.get_sys_path().c_str(), &quot;w&quot;);
+ 
+
+Modified: trunk/windstille/src/display/framebuffer.cpp
+===================================================================
+--- trunk/windstille/src/display/framebuffer.cpp	2010-09-08 09:30:19 UTC (rev 3355)
++++ trunk/windstille/src/display/framebuffer.cpp	2010-09-08 09:32:15 UTC (rev 3356)
+@@ -18,6 +18,7 @@
+ 
+ #include &lt;GL/glew.h&gt;
+ 
++#include &quot;math/size.hpp&quot;
+ #include &quot;util/util.hpp&quot;
+ #include &quot;display/render_buffer.hpp&quot;
+ #include &quot;display/framebuffer.hpp&quot;
+@@ -27,14 +28,19 @@
+ {
+ public:
+   GLuint  handle;
+-  Texture texture;
++  Size size;
++  
++  //Texture texture;
++  RenderBuffer m_color_buffer;
+   RenderBuffer m_depth_stencil_buffer;
+   //RenderBuffer m_stencil_buffer;
+ 
+-  FramebufferImpl(GLenum target, int width, int height)
+-    : handle(0),
+-      texture(target, width, height),
+-      m_depth_stencil_buffer(GL_DEPTH24_STENCIL8_EXT, width, height)
++  FramebufferImpl(GLenum target, int width, int height, int multisample) : 
++    handle(0),
++    size(width, height),
++    //texture(target, width, height),
++    m_color_buffer(GL_RGB8, width, height, multisample), // FIXME: do we need RGBA or just RGB?!
++    m_depth_stencil_buffer(GL_DEPTH24_STENCIL8_EXT, width, height, multisample)
+   {
+     glGenFramebuffersEXT(1, &amp;handle);
+     assert_gl(&quot;FramebufferImpl::FramebufferImpl()&quot;);
+@@ -43,13 +49,26 @@
+     glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, handle);
+ 
+     // bind texture and renderbuffers to the framebuffer
+-    glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT,
+-                              texture.get_target(), texture.get_handle(), 0);  
+-    glFramebufferRenderbufferEXT(GL_FRAMEBUFFER_EXT, GL_DEPTH_ATTACHMENT_EXT, 
+-                                 GL_RENDERBUFFER_EXT, m_depth_stencil_buffer.get_handle());
+-    glFramebufferRenderbufferEXT(GL_FRAMEBUFFER_EXT, GL_STENCIL_ATTACHMENT_EXT, 
+-                                 GL_RENDERBUFFER_EXT, m_depth_stencil_buffer.get_handle());
++    //glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, texture.get_target(), texture.get_handle(), 0);
++
++    glFramebufferRenderbufferEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT,  GL_RENDERBUFFER_EXT, m_color_buffer.get_handle());
++    glFramebufferRenderbufferEXT(GL_FRAMEBUFFER_EXT, GL_DEPTH_ATTACHMENT_EXT,   GL_RENDERBUFFER_EXT, m_depth_stencil_buffer.get_handle());
++    glFramebufferRenderbufferEXT(GL_FRAMEBUFFER_EXT, GL_STENCIL_ATTACHMENT_EXT, GL_RENDERBUFFER_EXT, m_depth_stencil_buffer.get_handle());
++
+     assert_gl(&quot;FramebufferImpl::FramebufferImpl() - binding&quot;);
++
++
++    GLenum status = glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT);
++    switch(status)
++    {
++      case GL_FRAMEBUFFER_COMPLETE_EXT:
++        std::cout &lt;&lt; &quot;Framebuffer ok&quot; &lt;&lt; std::endl;
++        break;
++
++      default:
++        std::cout &lt;&lt; &quot;Framebuffer status failure: &quot; &lt;&lt; status &lt;&lt; std::endl;
++        break;
++    }
+     glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+   }
+ 
+@@ -64,8 +83,8 @@
+ {
+ }
+ 
+-Framebuffer::Framebuffer(GLenum target, int width, int height) :
+-  impl(new FramebufferImpl(target, width, height))
++Framebuffer::Framebuffer(GLenum target, int width, int height, int multisample) :
++  impl(new FramebufferImpl(target, width, height, multisample))
+ {  
+ }
+ 
+@@ -77,19 +96,21 @@
+ Texture
+ Framebuffer::get_texture()
+ {
+-  return impl-&gt;texture;
++  assert(!&quot;not implemented right now - Framebuffer::get_texture()&quot;);
++  return Texture();
++  //return impl-&gt;texture;
+ }
+ 
+ int
+ Framebuffer::get_width()  const
+ {
+-  return impl-&gt;texture.get_width();
++  return impl-&gt;size.width;
+ }
+ 
+ int
+ Framebuffer::get_height() const
+ {
+-  return impl-&gt;texture.get_height();
++  return impl-&gt;size.height;
+ }
+ 
+ GLuint
+
+Modified: trunk/windstille/src/display/framebuffer.hpp
+===================================================================
+--- trunk/windstille/src/display/framebuffer.hpp	2010-09-08 09:30:19 UTC (rev 3355)
++++ trunk/windstille/src/display/framebuffer.hpp	2010-09-08 09:32:15 UTC (rev 3356)
+@@ -27,7 +27,7 @@
+ {
+ public:
+   Framebuffer();
+-  Framebuffer(GLenum target, int width, int height);
++  Framebuffer(GLenum target, int width, int height, int multisample = 0);
+   ~Framebuffer();
+   
+   int get_width()  const;
+
+Modified: trunk/windstille/src/display/render_buffer.cpp
+===================================================================
+--- trunk/windstille/src/display/render_buffer.cpp	2010-09-08 09:30:19 UTC (rev 3355)
++++ trunk/windstille/src/display/render_buffer.cpp	2010-09-08 09:32:15 UTC (rev 3356)
+@@ -17,6 +17,7 @@
+ */
+ 
+ #include &lt;GL/glew.h&gt;
++#include &lt;iostream&gt;
+ 
+ #include &quot;display/render_buffer.hpp&quot;
+ 
+@@ -25,14 +26,23 @@
+ public:
+   GLuint handle;
+ 
+-  RenderBufferImpl(GLenum format, int width, int height)
+-    : handle(0)
++  RenderBufferImpl(GLenum format, int width, int height, int multisample) :
++    handle(0)
+   {
+     glGenRenderbuffersEXT(1, &amp;handle);
+ 
+     glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, handle);
+-    glRenderbufferStorageEXT(GL_RENDERBUFFER_EXT, format, width, height);
+-    
++
++    if (multisample)
++    { 
++      // antialiasing
++      std::cout &lt;&lt; &quot;Antialised Renderbuffer&quot; &lt;&lt; std::endl;
++      glRenderbufferStorageMultisampleEXT(GL_RENDERBUFFER_EXT, multisample, format, width, height);
++    }
++    else
++    {
++      glRenderbufferStorageEXT(GL_RENDERBUFFER_EXT, format, width, height);
++    }      
+     glBindRenderbufferEXT(GL_RENDERBUFFER_EXT, 0);
+   }
+ 
+@@ -42,8 +52,8 @@
+   }
+ };
+ 
+-RenderBuffer::RenderBuffer(GLenum format, int width, int height) :
+-  impl(new RenderBufferImpl(format, width, height))
++RenderBuffer::RenderBuffer(GLenum format, int width, int height, int multisample) :
++  impl(new RenderBufferImpl(format, width, height, multisample))
+ {
+ }
+ 
+
+Modified: trunk/windstille/src/display/render_buffer.hpp
+===================================================================
+--- trunk/windstille/src/display/render_buffer.hpp	2010-09-08 09:30:19 UTC (rev 3355)
++++ trunk/windstille/src/display/render_buffer.hpp	2010-09-08 09:32:15 UTC (rev 3356)
+@@ -31,7 +31,7 @@
+    * @param height Height of the Renderbuffer
+    * @param format GL_DEPTH_COMPONENT24, GL_STENCIL_INDEX, ...
+    */
+-  RenderBuffer(GLenum format, int width, int height);
++  RenderBuffer(GLenum format, int width, int height, int multisample = 0);
+   
+   GLuint get_handle() const;
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002352.html">[Windstille-commit] r3355 - trunk/windstille/src/display
+</A></li>
+	<LI>Next message: <A HREF="002354.html">[Windstille-commit] r3357 - trunk/windstille/extra/slideshow
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2353">[ date ]</a>
+              <a href="thread.html#2353">[ thread ]</a>
+              <a href="subject.html#2353">[ subject ]</a>
+              <a href="author.html#2353">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

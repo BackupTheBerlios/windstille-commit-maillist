@@ -1,0 +1,233 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2889 - in trunk/windstille/src: . editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2889%20-%20in%20trunk/windstille/src%3A%20.%20editor&In-Reply-To=%3C200904071554.n37FsN5S001805%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001885.html">
+   <LINK REL="Next"  HREF="001887.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2889 - in trunk/windstille/src: . editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2889%20-%20in%20trunk/windstille/src%3A%20.%20editor&In-Reply-To=%3C200904071554.n37FsN5S001805%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2889 - in trunk/windstille/src: . editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Apr  7 17:54:23 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001885.html">[Windstille-commit] r2888 - trunk/windstille/src/navigation
+</A></li>
+        <LI>Next message: <A HREF="001887.html">[Windstille-commit] r2890 - in trunk/windstille/src: . editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1886">[ date ]</a>
+              <a href="thread.html#1886">[ thread ]</a>
+              <a href="subject.html#1886">[ subject ]</a>
+              <a href="author.html#1886">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-04-07 17:54:22 +0200 (Tue, 07 Apr 2009)
+New Revision: 2889
+
+Modified:
+   trunk/windstille/src/SConscript
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+Log:
+Added NavigationGraph to the SectorModel
+
+Modified: trunk/windstille/src/SConscript
+===================================================================
+--- trunk/windstille/src/SConscript	2009-04-07 15:51:20 UTC (rev 2888)
++++ trunk/windstille/src/SConscript	2009-04-07 15:54:22 UTC (rev 2889)
+@@ -58,6 +58,16 @@
+         'math/vector2f.cpp',
+         ])
+ 
++navgraph_env = conf_env.Clone()
++navgraph_env['CPPPATH'] = ['.']
++navgraph_lib = navgraph_env.StaticLibrary('navgraph', [
++        'navigation/navigation_graph.cpp',
++        'navigation/node.cpp',
++        'navigation/properties.cpp',
++        'navigation/edge.cpp',
++        'navigation/edge_position.cpp',
++        ])
++
+ display_env = conf_env.Clone()
+ display_env['CPPPATH'] = ['.', '..']
+ display_env.ParseConfig('sdl-config --cflags --libs')
+@@ -97,7 +107,7 @@
+         ])
+ 
+ env = conf_env.Clone()
+-env.Append(LIBS    = [display_lib, physfs_lib, util_lib, math_lib,
++env.Append(LIBS    = [navgraph_lib, display_lib, physfs_lib, util_lib, math_lib,
+                       'GL', 'GLU', 'GLEW', 'squirrel', 'physfs', 'SDL_image', 'openal', 'ogg', 'vorbis', 'vorbisfile', 'png', 'boost_signals'])
+ env.Append(LIBPATH = ['../external/'] )
+ env.Append(CPPPATH = ['.', '..', '../external/SQUIRREL2/include/'])
+@@ -164,11 +174,6 @@
+         'input/input_manager_impl.cpp',
+         'input/input_manager_sdl.cpp',
+         'input/wiimote.cpp',
+-        'navigation/navigation_graph.cpp',
+-        'navigation/node.cpp',
+-        'navigation/properties.cpp',
+-        'navigation/edge.cpp',
+-        'navigation/edge_position.cpp',
+         'objects/background_gradient.cpp',
+         'objects/bomb.cpp',
+         'objects/box.cpp',
+@@ -226,7 +231,7 @@
+ 
+ editor_env = Environment(CPPPATH=['.'],
+                          CXXFLAGS=['-Wall', '-Werror', '-O2', '-g'],
+-                         LIBS = [display_lib, util_lib, physfs_lib, math_lib, 'GL', 'GLEW', 'SDL_image', 'physfs'])
++                         LIBS = [navgraph_lib, display_lib, util_lib, physfs_lib, math_lib, 'GL', 'GLEW', 'SDL_image', 'physfs'])
+ 
+ editor_env.ParseConfig('pkg-config libpng --libs --cflags')
+ editor_env.ParseConfig('sdl-config --cflags --libs')
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-04-07 15:51:20 UTC (rev 2888)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-04-07 15:54:22 UTC (rev 2889)
+@@ -22,6 +22,9 @@
+ #include &lt;iostream&gt;
+ #include &lt;gdkmm/pixbuf.h&gt;
+ 
++#include &quot;navigation/navigation_graph.hpp&quot;
++#include &quot;navigation/edge.hpp&quot;
++#include &quot;navigation/node.hpp&quot;
+ #include &quot;editor_window.hpp&quot;
+ #include &quot;windstille_widget.hpp&quot;
+ #include &quot;util/file_reader.hpp&quot;
+@@ -33,7 +36,15 @@
+ LayerManagerColumns* LayerManagerColumns::instance_ = 0;
+ 
+ SectorModel::SectorModel()
++ : nav_graph(new NavigationGraph())
+ {  
++  try {
++    FileReader reader = FileReader::parse(&quot;navigation.nav&quot;);
++    nav_graph-&gt;load(reader);
++  } catch(std::exception&amp; err) {
++    std::cout &lt;&lt; &quot;NavigationTest: &quot; &lt;&lt; err.what() &lt;&lt; std::endl;
++  }
++
+   layer_tree = Gtk::TreeStore::create(LayerManagerColumns::instance());
+ 
+   Gtk::TreeStore::iterator it = layer_tree-&gt;append();
+@@ -53,6 +64,10 @@
+   layer_tree-&gt;signal_rows_reordered().connect(sigc::mem_fun(*this, &amp;SectorModel::on_rows_reordered));
+ }
+ 
++SectorModel::~SectorModel()
++{
++}
++
+ void
+ SectorModel::add_layer(const std::string&amp; name, const Gtk::TreeModel::Path&amp; path)
+ {
+@@ -156,6 +171,7 @@
+ void
+ SectorModel::draw(SceneContext&amp; sc, const SelectMask&amp; layermask)
+ {
++  // Draw Layers
+   const Layers&amp; layers = get_layers();
+  
+   for(Layers::const_reverse_iterator i = layers.rbegin(); i != layers.rend(); ++i)
+@@ -163,6 +179,20 @@
+       if ((*i)-&gt;is_visible())
+         (*i)-&gt;draw(sc, layermask);
+     }
++
++  // Draw Navgraph
++  for(NavigationGraph::Edges::iterator i = nav_graph-&gt;get_edges().begin(); i != nav_graph-&gt;get_edges().end(); ++i)
++    {
++      sc.control().draw_line(Line((*i)-&gt;get_node1()-&gt;get_pos(),
++                                  (*i)-&gt;get_node2()-&gt;get_pos()),
++                             Color(1.0f, 0.0f, 0.0f));
++    }
++
++  for(NavigationGraph::Nodes::iterator i = nav_graph-&gt;get_nodes().begin(); i != nav_graph-&gt;get_nodes().end(); ++i)
++    {
++      sc.control().fill_rect(Rectf((*i)-&gt;get_pos() - Vector2f(4,4), Sizef(9, 9)),
++                             Color(1.0f, 1.0f, 0.0f));
++    }
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-04-07 15:51:20 UTC (rev 2888)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-04-07 15:54:22 UTC (rev 2889)
+@@ -31,6 +31,7 @@
+ #include &quot;object_model.hpp&quot;
+ #include &quot;math/vector2f.hpp&quot;
+ 
++class NavigationGraph;
+ class SceneContext;
+ class LayerManagerColumns;
+ 
+@@ -66,6 +67,7 @@
+ class SectorModel
+ {
+ private:
++  std::auto_ptr&lt;NavigationGraph&gt; nav_graph;
+   Glib::RefPtr&lt;Gtk::TreeStore&gt; layer_tree;
+   Color ambient_color;
+   
+@@ -74,6 +76,7 @@
+   typedef std::vector&lt;LayerHandle&gt; Layers;
+ 
+   SectorModel();
++  ~SectorModel();
+ 
+   void draw(SceneContext&amp; sc, const SelectMask&amp; layers);
+ 
+@@ -123,6 +126,8 @@
+   void write(FileWriter&amp; writer) const;
+   void write(FileWriter&amp; writer, const Gtk::TreeRow&amp; row) const;
+ 
++  NavigationGraph* get_nav_graph() const { return nav_graph.get(); }
++
+   void queue_draw();
+ 
+   //iterator begin() { return objects.begin(); }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001885.html">[Windstille-commit] r2888 - trunk/windstille/src/navigation
+</A></li>
+	<LI>Next message: <A HREF="001887.html">[Windstille-commit] r2890 - in trunk/windstille/src: . editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1886">[ date ]</a>
+              <a href="thread.html#1886">[ thread ]</a>
+              <a href="subject.html#1886">[ subject ]</a>
+              <a href="author.html#1886">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

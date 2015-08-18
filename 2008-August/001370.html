@@ -1,0 +1,305 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2373 - in trunk/griv/src: . math
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2373%20-%20in%20trunk/griv/src%3A%20.%20math&In-Reply-To=%3C200808301944.m7UJiMuj032533%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001369.html">
+   <LINK REL="Next"  HREF="001371.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2373 - in trunk/griv/src: . math</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2373%20-%20in%20trunk/griv/src%3A%20.%20math&In-Reply-To=%3C200808301944.m7UJiMuj032533%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2373 - in trunk/griv/src: . math">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Aug 30 21:44:22 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001369.html">[Windstille-commit] r2372 - trunk/griv/src
+</A></li>
+        <LI>Next message: <A HREF="001371.html">[Windstille-commit] r2374 - trunk/griv/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1370">[ date ]</a>
+              <a href="thread.html#1370">[ thread ]</a>
+              <a href="subject.html#1370">[ subject ]</a>
+              <a href="author.html#1370">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-30 21:44:21 +0200 (Sat, 30 Aug 2008)
+New Revision: 2373
+
+Modified:
+   trunk/griv/src/database_thread.cpp
+   trunk/griv/src/file_database.cpp
+   trunk/griv/src/file_entry.hpp
+   trunk/griv/src/math/rect.hpp
+   trunk/griv/src/sqlite.cpp
+   trunk/griv/src/sqlite.hpp
+   trunk/griv/src/viewer.cpp
+Log:
+Some better handling of NULL entries in table, adjust cliprect when stuff is rotated
+
+Modified: trunk/griv/src/database_thread.cpp
+===================================================================
+--- trunk/griv/src/database_thread.cpp	2008-08-30 19:43:44 UTC (rev 2372)
++++ trunk/griv/src/database_thread.cpp	2008-08-30 19:44:21 UTC (rev 2373)
+@@ -226,9 +226,9 @@
+                   // FIXME: Make some better error checking in case of loading failure
+                   if (tile_msg-&gt;tile.surface)
+                     {
+-                      // FIXME: if (tile_msg-&gt;tile.scale == file_entry.max_scale)
+-                      //   file_db.store_tile(tile_msg-&gt;tile);
+-                      // else
++                      //if (tile_msg-&gt;tile.scale == file_entry.max_scale)
++                      //  file_db.store_tile(tile_msg-&gt;tile);
++                      //else
+                       tile_db.store_tile(tile_msg-&gt;tile);
+                     }
+                   else
+
+Modified: trunk/griv/src/file_database.cpp
+===================================================================
+--- trunk/griv/src/file_database.cpp	2008-08-30 19:43:44 UTC (rev 2372)
++++ trunk/griv/src/file_database.cpp	2008-08-30 19:44:21 UTC (rev 2373)
+@@ -52,7 +52,8 @@
+            &quot;height    INTEGER, &quot;
+            &quot;mtime     INTEGER, &quot;
+            &quot;color     INTEGER, &quot;
+-           &quot;thumbnail BLOB);&quot;);
++           &quot;thumbnail BLOB,&quot;
++           &quot;thumbnail_scale INTEGER);&quot;);
+ 
+   db-&gt;exec(&quot;CREATE UNIQUE INDEX IF NOT EXISTS files_index ON files ( filename );&quot;);
+ 
+@@ -82,9 +83,11 @@
+   store_stmt.bind_int (3, entry.filesize); 
+   store_stmt.bind_int (4, entry.size.width); 
+   store_stmt.bind_int (5, entry.size.height);
+-  // FIXME: Should we handle them her or depend on store_tile()?
++  // FIXME: Should we handle them here or depend on store_tile()?
+   // store_stmt.bind_int (6, entry.color); 
+   // store_stmt.bind_int (7, entry.surface.get_raw_data()); 
++  
++  store_stmt.bind_int (8, entry.thumbnail_scale);
+ 
+   store_stmt.execute();
+   
+@@ -123,8 +126,9 @@
+       entry-&gt;filesize    = reader.get_int (3);
+       entry-&gt;size.width  = reader.get_int (4);
+       entry-&gt;size.height = reader.get_int (5);
+-      entry-&gt;color       = RGB(reader.get_int(6));
+-      entry-&gt;surface     = SoftwareSurface::from_raw_data(reader.get_blob(7));
++      entry-&gt;color       = reader.is_null(6) ? RGB(155,0,155) : RGB(reader.get_int(6));
++      entry-&gt;thumbnail   = reader.is_null(7) ? SoftwareSurface() : SoftwareSurface::from_raw_data(reader.get_blob(7));
++      entry-&gt;thumbnail_scale = reader.get_int(8);
+ 
+       return true;
+     }
+@@ -134,8 +138,11 @@
+       entry-&gt;filename = filename;
+       entry-&gt;filesize = Filesystem::get_size(filename);
+       entry-&gt;mtime    = Filesystem::get_mtime(filename);
+-      
++     
+       entry-&gt;size = Size(-1, -1);
++
++      entry-&gt;color    = RGB(155,0,155);
++      entry-&gt;thumbnail = SoftwareSurface();
+       
+       if (JPEG::get_size(entry-&gt;filename, entry-&gt;size))
+         {
+@@ -164,6 +171,8 @@
+       entry.size.width  = reader.get_int (4);
+       entry.size.height = reader.get_int (5);
+       entry.mtime       = reader.get_int (6);
++      entry.color       = reader.is_null(6) ? RGB(155,0,155) : RGB(reader.get_int(6));
++      entry.thumbnail   = reader.is_null(7) ? SoftwareSurface() : SoftwareSurface::from_raw_data(reader.get_blob(7));
+ 
+       entries.push_back(entry);
+     }
+
+Modified: trunk/griv/src/file_entry.hpp
+===================================================================
+--- trunk/griv/src/file_entry.hpp	2008-08-30 19:43:44 UTC (rev 2372)
++++ trunk/griv/src/file_entry.hpp	2008-08-30 19:44:21 UTC (rev 2373)
+@@ -57,10 +57,6 @@
+   /** The size of the image in pixels */
+   Size size;
+ 
+-  /** The maximum scale for which a tile is generated, any tile
+-      smaller then this will not be generated */
+-  int max_tiledb_scale;
+-
+   /** The average color of the image, it can also be thought of as a
+       1x1 thumbnail, it is used when drawing the place holder rect
+       when no Tile is available */
+@@ -70,7 +66,11 @@
+       consume more more diskspace then the filename, so it makes a
+       good lower bound, it also the point at which the pixel data
+       stored raw consumes less space then a JPEG compressed file */
+-  SoftwareSurface surface;
++  SoftwareSurface thumbnail;
++
++  /** The maximum scale for which a tile is generated, any tile
++      smaller then this will not be generated */
++  int thumbnail_scale;
+ };
+ 
+ std::ostream&amp; operator&lt;&lt;(std::ostream&amp; os, const FileEntry&amp; entry);
+
+Modified: trunk/griv/src/math/rect.hpp
+===================================================================
+--- trunk/griv/src/math/rect.hpp	2008-08-30 19:43:44 UTC (rev 2372)
++++ trunk/griv/src/math/rect.hpp	2008-08-30 19:44:21 UTC (rev 2373)
+@@ -31,9 +31,11 @@
+ #define __MATH_RECT_HPP__
+ 
+ #include &lt;iosfwd&gt;
++#include &lt;math.h&gt;
+ #include &quot;../math.hpp&quot;
+ #include &quot;origin.hpp&quot;
+ #include &quot;vector3f.hpp&quot;
++#include &quot;vector2f.hpp&quot;
+ #include &quot;size.hpp&quot;
+ 
+ class Rectf;
+@@ -353,6 +355,17 @@
+                  Math::min(right,  cliprect.right),
+                  Math::min(bottom, cliprect.bottom));
+   }
++
++  float get_diagonal() const
++  {
++    return sqrtf((get_width() * get_width()) + (get_height() * get_height()));
++  }
++
++  Vector2f get_center() const
++  {
++    return Vector2f((left + right) / 2.0f,
++                    (top  + bottom) / 2.0f);
++  }
+ };
+ 
+ inline Rect::Rect(const Rectf&amp; rect)
+
+Modified: trunk/griv/src/sqlite.cpp
+===================================================================
+--- trunk/griv/src/sqlite.cpp	2008-08-30 19:43:44 UTC (rev 2372)
++++ trunk/griv/src/sqlite.cpp	2008-08-30 19:44:21 UTC (rev 2373)
+@@ -266,6 +266,18 @@
+   return sqlite3_column_int(stmt, column);
+ }
+ 
++bool
++SQLiteReader::is_null(int column)
++{
++  return sqlite3_column_type(stmt, column) == SQLITE_NULL;
++}
++
++int
++SQLiteReader::get_type(int column)
++{
++  return sqlite3_column_type(stmt, column);
++}
++
+ std::string
+ SQLiteReader::get_text(int column)
+ {
+
+Modified: trunk/griv/src/sqlite.hpp
+===================================================================
+--- trunk/griv/src/sqlite.hpp	2008-08-30 19:43:44 UTC (rev 2372)
++++ trunk/griv/src/sqlite.hpp	2008-08-30 19:44:21 UTC (rev 2373)
+@@ -74,6 +74,8 @@
+ 
+   bool next();
+ 
++  bool        is_null(int column);
++  int         get_type(int column);
+   int         get_int(int column);
+   std::string get_text(int column);
+   Blob        get_blob(int column);
+
+Modified: trunk/griv/src/viewer.cpp
+===================================================================
+--- trunk/griv/src/viewer.cpp	2008-08-30 19:43:44 UTC (rev 2372)
++++ trunk/griv/src/viewer.cpp	2008-08-30 19:44:21 UTC (rev 2373)
+@@ -24,6 +24,7 @@
+ */
+ 
+ #include &lt;iostream&gt;
++#include &lt;math.h&gt;
+ #include &quot;math/rgb.hpp&quot;
+ #include &quot;framebuffer.hpp&quot;
+ #include &quot;software_surface.hpp&quot;
+@@ -243,15 +244,28 @@
+       glTranslatef(-Framebuffer::get_width()/2, -Framebuffer::get_height()/2, 0.0f);
+     }
+ 
+-  glTranslatef(Framebuffer::get_width()/2, Framebuffer::get_height()/2, 0.0f);
+-  glRotatef(state.get_angle(), 0.0f, 0.0f, 1.0f); // Rotates around 0.0
+-  glTranslatef(-Framebuffer::get_width()/2, -Framebuffer::get_height()/2, 0.0f);
++  Rectf cliprect = state.screen2world(Rect(0, 0, Framebuffer::get_width(), Framebuffer::get_height())); 
+ 
++  if (state.get_angle() != 0.0f)
++    {
++      glTranslatef(Framebuffer::get_width()/2, Framebuffer::get_height()/2, 0.0f);
++      glRotatef(state.get_angle(), 0.0f, 0.0f, 1.0f); // Rotates around 0.0
++      glTranslatef(-Framebuffer::get_width()/2, -Framebuffer::get_height()/2, 0.0f);
++
++      // FIXME: We enlarge the cliprect so much that we can rotate
++      // freely, however this enlargement creates a cliprect that
++      // might be quite a bit larger then what is really needed
++      float  diagonal = cliprect.get_diagonal();
++      Vector2f center = cliprect.get_center();
++      cliprect.left   = center.x - diagonal;
++      cliprect.right  = center.x + diagonal;
++      cliprect.top    = center.y - diagonal;
++      cliprect.bottom = center.y + diagonal;
++    }
++
+   glTranslatef(state.get_offset().x, state.get_offset().y, 0.0f);
+   glScalef(state.get_scale(), state.get_scale(), 1.0f);
+ 
+-  Rectf cliprect = state.screen2world(Rect(0, 0, Framebuffer::get_width(), Framebuffer::get_height())); 
+-
+   if (clip_debug)
+     Framebuffer::draw_rect(cliprect, RGB(255, 0, 255));
+   
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001369.html">[Windstille-commit] r2372 - trunk/griv/src
+</A></li>
+	<LI>Next message: <A HREF="001371.html">[Windstille-commit] r2374 - trunk/griv/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1370">[ date ]</a>
+              <a href="thread.html#1370">[ thread ]</a>
+              <a href="subject.html#1370">[ subject ]</a>
+              <a href="author.html#1370">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,393 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1185 - in trunk/src: . scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1185%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200601052228.k05MSmGF022822%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000837.html">
+   <LINK REL="Next"  HREF="000839.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1185 - in trunk/src: . scripting</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1185%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200601052228.k05MSmGF022822%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1185 - in trunk/src: . scripting">grumbel at berlios.de
+       </A><BR>
+    <I>Thu Jan  5 23:28:48 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000837.html">[Windstille-commit] r1184 - in trunk/src: . math sprite3d
+</A></li>
+        <LI>Next message: <A HREF="000839.html">[Windstille-commit] r1186 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#838">[ date ]</a>
+              <a href="thread.html#838">[ thread ]</a>
+              <a href="subject.html#838">[ subject ]</a>
+              <a href="author.html#838">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-01-05 23:28:46 +0100 (Thu, 05 Jan 2006)
+New Revision: 1185
+
+Modified:
+   trunk/src/config.cpp
+   trunk/src/game_session.cpp
+   trunk/src/game_session.hpp
+   trunk/src/player.cpp
+   trunk/src/scripting/interface.cpp
+   trunk/src/scripting/interface.hpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/weapon.hpp
+Log:
+- improved cutscene bars, added scriptbindings
+
+Modified: trunk/src/config.cpp
+===================================================================
+--- trunk/src/config.cpp	2006-01-05 21:41:53 UTC (rev 1184)
++++ trunk/src/config.cpp	2006-01-05 22:28:46 UTC (rev 1185)
+@@ -365,10 +365,10 @@
+   out &lt;&lt; &quot;Config &quot; &lt;&lt; this &lt;&lt; &quot;:&quot; &lt;&lt; std::endl;
+   for(ConfigValues::iterator i = config_values.begin(); i != config_values.end(); ++i)
+     {
+-      out &lt;&lt; boost::format(&quot;  %|1$20| = %|2$-20| (set: %|3$|)&quot;) 
++      out &lt;&lt; boost::format(&quot;  %|1$20| = %|2$-20| (%|3$|)&quot;)
+         % i-&gt;second-&gt;get_name()
+         % (boost::format(&quot;'%|1s|'&quot;) % (*i-&gt;second))
+-        % i-&gt;second-&gt;is_set() 
++        % (i-&gt;second-&gt;is_set() ? &quot;set&quot; : &quot;default&quot;)
+           &lt;&lt; std::endl;
+       
+     }
+
+Modified: trunk/src/game_session.cpp
+===================================================================
+--- trunk/src/game_session.cpp	2006-01-05 21:41:53 UTC (rev 1184)
++++ trunk/src/game_session.cpp	2006-01-05 22:28:46 UTC (rev 1185)
+@@ -78,6 +78,7 @@
+   std::string filename;
+ 
+   bool pause;
++  float cutscene_value;
+   bool cutscene_mode;
+ 
+   enum { NO_ACTION, QUIT_ACTION, CHANGE_SECTOR_ACTION } next_action;
+@@ -99,7 +100,8 @@
+   GameSessionImpl() {
+     sector = 0;
+     current_gui = 0;
+-    cutscene_mode = false;
++    cutscene_mode  = false;
++    cutscene_value = 0.0f;
+   }
+   ~GameSessionImpl() {
+     delete sector;
+@@ -144,13 +146,14 @@
+       energy_bar.draw();
+       controller_help_window.draw();
+     }
+-  else
++
++  if (cutscene_mode || cutscene_value &gt; 0.0f)
+     {
+-      int border_size = 75;
++      int border_size = static_cast&lt;int&gt;(75 * cutscene_value);
+       Display::fill_rect(Rect(Point(0, 0), Size(Display::get_width(), border_size)), 
+-                         Color(0.0f, 0.0f, 0.0f, 1.0f));
++                         Color(0.0f, 0.0f, 0.0f, cutscene_value));
+       Display::fill_rect(Rect(Point(0, Display::get_height() - border_size), Size(Display::get_width(), border_size)), 
+-                         Color(0.0f, 0.0f, 0.0f, 1.0f));
++                         Color(0.0f, 0.0f, 0.0f, cutscene_value));
+     }
+ 
+   if (current_gui)
+@@ -183,6 +186,16 @@
+ void
+ GameSessionImpl::update(float delta, const Controller&amp; controller)
+ {  
++  if (cutscene_mode)
++    cutscene_value += delta * 0.75f;
++  else
++    cutscene_value -= delta * 0.75f;
++
++  if (cutscene_value &gt; 1.0f)
++    cutscene_value = 1.0f;
++  else if (cutscene_value &lt; 0.0f)
++    cutscene_value = 0.0f;
++
+   if (controller.button_was_pressed(PAUSE_BUTTON))
+     pause = !pause;
+ 
+@@ -420,7 +433,22 @@
+ void
+ GameSession::set_cutscene_mode(bool t)
+ {
+-  impl-&gt;cutscene_mode = t;
++  if (t != impl-&gt;cutscene_mode)
++    {
++      impl-&gt;cutscene_mode  = t;
++    }
+ }
+ 
++void
++GameSession::fadeout(const Color&amp; color)
++{
++  
++}
++
++void
++GameSession::fadein()
++{
++  
++}
++
+ /* EOF */
+
+Modified: trunk/src/game_session.hpp
+===================================================================
+--- trunk/src/game_session.hpp	2006-01-05 21:41:53 UTC (rev 1184)
++++ trunk/src/game_session.hpp	2006-01-05 22:28:46 UTC (rev 1185)
+@@ -76,6 +76,9 @@
+       most part to switch into a 16:9 viewmode with black borders */
+   void set_cutscene_mode(bool t);
+ 
++  void fadeout(const Color&amp; color);
++  void fadein();
++
+   void draw();
+   void update(float delta, const Controller&amp; controller);
+   void handle_event(const SDL_Event&amp; event);
+
+Modified: trunk/src/player.cpp
+===================================================================
+--- trunk/src/player.cpp	2006-01-05 21:41:53 UTC (rev 1184)
++++ trunk/src/player.cpp	2006-01-05 22:28:46 UTC (rev 1185)
+@@ -116,13 +116,12 @@
+       sc.highlight().draw(use_str, obj-&gt;get_pos().x, obj-&gt;get_pos().y - 150, 1000);
+     }
+   
++  // Draw weapon at the 'Weapon' attachment point
+   Sprite3D::PointID id = sprite.get_attachment_point_id(&quot;Weapon&quot;);
+   sc.push_modelview();
+   sc.translate(pos.x, pos.y);
+   sc.mult_modelview(sprite.get_attachment_point_matrix(id));
+-
+   weapon-&gt;draw(sc);
+-
+   sc.pop_modelview();
+ }
+ 
+
+Modified: trunk/src/scripting/interface.cpp
+===================================================================
+--- trunk/src/scripting/interface.cpp	2006-01-05 21:41:53 UTC (rev 1184)
++++ trunk/src/scripting/interface.cpp	2006-01-05 22:28:46 UTC (rev 1185)
+@@ -238,6 +238,28 @@
+   config.debug_print(console);
+ }
+ 
++void cutscene_begin()
++{
++  GameSession::current()-&gt;set_cutscene_mode(true);
++}
++
++void cutscene_end()
++{
++  GameSession::current()-&gt;set_cutscene_mode(false);
++}
++
++void fadeout()
++{
++}
++
++void fadeout_rgb(float r, float g, float b)
++{
++}
++
++void fadein()
++{
++}
++
+ } // namespace Scripting
+ 
+ /* EOF */
+
+Modified: trunk/src/scripting/interface.hpp
+===================================================================
+--- trunk/src/scripting/interface.hpp	2006-01-05 21:41:53 UTC (rev 1184)
++++ trunk/src/scripting/interface.hpp	2006-01-05 22:28:46 UTC (rev 1185)
+@@ -96,6 +96,13 @@
+ 
+ void show_config();
+ 
++void cutscene_begin();
++void cutscene_end();
++
++void fadeout();
++void fadeout_rgb(float r, float g, float b);
++void fadein();
++
+ } // namespace Scripting
+ 
+ #endif
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2006-01-05 21:41:53 UTC (rev 1184)
++++ trunk/src/scripting/wrapper.cpp	2006-01-05 22:28:46 UTC (rev 1185)
+@@ -549,6 +549,56 @@
+   return 0;
+ }
+ 
++static int cutscene_begin_wrapper(HSQUIRRELVM v)
++{
++  (void) v;
++  
++  Scripting::cutscene_begin();
++  
++  return 0;
++}
++
++static int cutscene_end_wrapper(HSQUIRRELVM v)
++{
++  (void) v;
++  
++  Scripting::cutscene_end();
++  
++  return 0;
++}
++
++static int fadeout_wrapper(HSQUIRRELVM v)
++{
++  (void) v;
++  
++  Scripting::fadeout();
++  
++  return 0;
++}
++
++static int fadeout_rgb_wrapper(HSQUIRRELVM v)
++{
++  float arg0;
++  sq_getfloat(v, 2, &amp;arg0);
++  float arg1;
++  sq_getfloat(v, 3, &amp;arg1);
++  float arg2;
++  sq_getfloat(v, 4, &amp;arg2);
++  
++  Scripting::fadeout_rgb(arg0, arg1, arg2);
++  
++  return 0;
++}
++
++static int fadein_wrapper(HSQUIRRELVM v)
++{
++  (void) v;
++  
++  Scripting::fadein();
++  
++  return 0;
++}
++
+ static int spawn_object_wrapper(HSQUIRRELVM v)
+ {
+   return Scripting::spawn_object(v);
+@@ -985,6 +1035,46 @@
+     throw SquirrelError(v, msg.str());
+   }
+ 
++  sq_pushstring(v, &quot;cutscene_begin&quot;, -1);
++  sq_newclosure(v, &amp;cutscene_begin_wrapper, 0);
++  if(SQ_FAILED(sq_createslot(v, -3))) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'cutscene_begin'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  sq_pushstring(v, &quot;cutscene_end&quot;, -1);
++  sq_newclosure(v, &amp;cutscene_end_wrapper, 0);
++  if(SQ_FAILED(sq_createslot(v, -3))) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'cutscene_end'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  sq_pushstring(v, &quot;fadeout&quot;, -1);
++  sq_newclosure(v, &amp;fadeout_wrapper, 0);
++  if(SQ_FAILED(sq_createslot(v, -3))) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'fadeout'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  sq_pushstring(v, &quot;fadeout_rgb&quot;, -1);
++  sq_newclosure(v, &amp;fadeout_rgb_wrapper, 0);
++  if(SQ_FAILED(sq_createslot(v, -3))) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'fadeout_rgb'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
++  sq_pushstring(v, &quot;fadein&quot;, -1);
++  sq_newclosure(v, &amp;fadein_wrapper, 0);
++  if(SQ_FAILED(sq_createslot(v, -3))) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'fadein'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
+   sq_pushstring(v, &quot;spawn_object&quot;, -1);
+   sq_newclosure(v, &amp;spawn_object_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+
+Modified: trunk/src/weapon.hpp
+===================================================================
+--- trunk/src/weapon.hpp	2006-01-05 21:41:53 UTC (rev 1184)
++++ trunk/src/weapon.hpp	2006-01-05 22:28:46 UTC (rev 1185)
+@@ -16,6 +16,7 @@
+ //  You should have received a copy of the GNU General Public License
+ //  along with this program; if not, write to the Free Software
+ //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
+ #ifndef WEAPON_HPP
+ #define WEAPON_HPP
+ 
+@@ -37,3 +38,4 @@
+ 
+ #endif
+ 
++/* EOF */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000837.html">[Windstille-commit] r1184 - in trunk/src: . math sprite3d
+</A></li>
+	<LI>Next message: <A HREF="000839.html">[Windstille-commit] r1186 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#838">[ date ]</a>
+              <a href="thread.html#838">[ thread ]</a>
+              <a href="subject.html#838">[ subject ]</a>
+              <a href="author.html#838">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

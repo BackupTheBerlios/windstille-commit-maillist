@@ -1,0 +1,334 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1133 - in trunk/src: . scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1133%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200511281650.jASGoCgH029243%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000785.html">
+   <LINK REL="Next"  HREF="000787.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1133 - in trunk/src: . scripting</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1133%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200511281650.jASGoCgH029243%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1133 - in trunk/src: . scripting">grumbel at berlios.de
+       </A><BR>
+    <I>Mon Nov 28 17:50:12 CET 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000785.html">[Windstille-commit] r1132 - in trunk/src: . display gui lisp tinygettext
+</A></li>
+        <LI>Next message: <A HREF="000787.html">[Windstille-commit] r1134 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#786">[ date ]</a>
+              <a href="thread.html#786">[ thread ]</a>
+              <a href="subject.html#786">[ subject ]</a>
+              <a href="author.html#786">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-11-28 17:50:09 +0100 (Mon, 28 Nov 2005)
+New Revision: 1133
+
+Modified:
+   trunk/src/config.cpp
+   trunk/src/config.hpp
+   trunk/src/scripting/SConscript
+   trunk/src/scripting/interface.cpp
+   trunk/src/scripting/interface.hpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/util.hpp
+Log:
+- just some debugging stuff
+
+Modified: trunk/src/config.cpp
+===================================================================
+--- trunk/src/config.cpp	2005-11-28 14:33:49 UTC (rev 1132)
++++ trunk/src/config.cpp	2005-11-28 16:50:09 UTC (rev 1133)
+@@ -24,7 +24,7 @@
+ */
+ 
+ #include &quot;config.hpp&quot;
+-
++#include &lt;boost/format.hpp&gt;
+ #include &lt;config.h&gt;
+ #include &lt;memory&gt;
+ #include &lt;iostream&gt;
+@@ -367,13 +367,18 @@
+ }
+ 
+ void
+-Config::debug_print()
++Config::debug_print(std::ostream&amp; out)
+ {
+-  std::cout &lt;&lt; &quot;Config &quot; &lt;&lt; this &lt;&lt; &quot;:&quot; &lt;&lt; std::endl;
++  out &lt;&lt; &quot;Config &quot; &lt;&lt; this &lt;&lt; &quot;:&quot; &lt;&lt; std::endl;
+   for(ConfigValues::iterator i = config_values.begin(); i != config_values.end(); ++i)
+     {
+-      std::cout &lt;&lt; &quot;  &quot; &lt;&lt; i-&gt;second-&gt;get_name() &lt;&lt; &quot; &quot; &lt;&lt; i-&gt;second-&gt;is_set() &lt;&lt; std::endl;
+-    }  
++      out &lt;&lt; boost::format(&quot;  %|1$20| = %|2$-20| (set: %|3$|)&quot;) 
++        % i-&gt;second-&gt;get_name()
++        % (boost::format(&quot;'%|1s|'&quot;) % (*i-&gt;second))
++        % i-&gt;second-&gt;is_set() 
++          &lt;&lt; std::endl;
++      
++    }
+ }
+ 
+ template&lt;&gt;
+
+Modified: trunk/src/config.hpp
+===================================================================
+--- trunk/src/config.hpp	2005-11-28 14:33:49 UTC (rev 1132)
++++ trunk/src/config.hpp	2005-11-28 16:50:09 UTC (rev 1133)
+@@ -63,7 +63,9 @@
+     return do_save;
+   }
+ 
+-  virtual void write(lisp::Writer&amp; writer) {}
++  virtual std::ostream&amp; print(std::ostream&amp; os) const =0;
++
++  virtual void write(lisp::Writer&amp; writer) =0;
+ };
+ 
+ template&lt;class T&gt;
+@@ -105,8 +107,17 @@
+   }
+ 
+   void write(lisp::Writer&amp; writer);
++
++  std::ostream&amp; print(std::ostream&amp; os) const {
++    return (os &lt;&lt; data);
++  }
+ };
+ 
++inline std::ostream&amp; operator&lt;&lt;(std::ostream &amp;o, const ConfigValueBase&amp; value)
++{
++  return value.print(o);
++}
++
+ class Config
+ {
+ private:
+@@ -156,10 +167,11 @@
+   void set_int   (const std::string&amp; name, int   value);
+   void set_float (const std::string&amp; name, float value);
+ 
+-  void debug_print();
++  void debug_print(std::ostream&amp; out);
+ };
+ 
+ extern Config config;
+ 
+ #endif
+ 
++/* EOF */
+
+Modified: trunk/src/scripting/SConscript
+===================================================================
+--- trunk/src/scripting/SConscript	2005-11-28 14:33:49 UTC (rev 1132)
++++ trunk/src/scripting/SConscript	2005-11-28 16:50:09 UTC (rev 1133)
+@@ -6,8 +6,9 @@
+ 
+ env = Environment(MINISWIG='tools/miniswig/miniswig')
+ 
+-env.Command('miniswig.tmp', 'wrapper.interface.hpp',
+-            [&quot;cpp -x c  -CC $SOURCE -o $TARGET -DSCRIPTING_API&quot;])
++env.Depends(env.Command('miniswig.tmp', 'wrapper.interface.hpp',
++                        [&quot;cpp -x c  -CC $SOURCE -o $TARGET -DSCRIPTING_API&quot;]),
++            ['interface.hpp', 'spawn_object.hpp', 'game_objects.hpp'])
+ 
+ env.Depends(env.Command(['wrapper.cpp', 'wrapper.hpp'], 'miniswig.tmp',
+                         [&quot;$MINISWIG  --input $SOURCE --output-cpp ${TARGETS[0]} --output-hpp ${TARGETS[1]} --module windstille --select-namespace Scripting&quot;]),
+
+Modified: trunk/src/scripting/interface.cpp
+===================================================================
+--- trunk/src/scripting/interface.cpp	2005-11-28 14:33:49 UTC (rev 1132)
++++ trunk/src/scripting/interface.cpp	2005-11-28 16:50:09 UTC (rev 1133)
+@@ -1,3 +1,28 @@
++/*  $Id: config.cpp 1132 2005-11-28 14:33:49Z grumbel $
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2000,2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
+ #include &lt;vector&gt;
+ #include &quot;wrapper.interface.hpp&quot;
+ #include &quot;interface.hpp&quot;
+@@ -10,6 +35,7 @@
+ #include &quot;font/fonts.hpp&quot;
+ #include &quot;serialize.hpp&quot;
+ #include &quot;camera.hpp&quot;
++#include &quot;config.hpp&quot;
+ #include &quot;pda.hpp&quot;
+ #include &quot;display/display.hpp&quot;
+ #include &quot;controller_help_window.hpp&quot;
+@@ -207,4 +233,11 @@
+   Display::set_gamma(r, g, b);
+ }
+ 
++void show_config()
++{
++  config.debug_print(console);
+ }
++
++} // namespace Scripting
++
++/* EOF */
+
+Modified: trunk/src/scripting/interface.hpp
+===================================================================
+--- trunk/src/scripting/interface.hpp	2005-11-28 14:33:49 UTC (rev 1132)
++++ trunk/src/scripting/interface.hpp	2005-11-28 16:50:09 UTC (rev 1133)
+@@ -1,3 +1,28 @@
++/*  $Id: config.cpp 1132 2005-11-28 14:33:49Z grumbel $
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2000,2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
+ #ifndef __INTERFACE_HPP__
+ #define __INTERFACE_HPP__
+ 
+@@ -68,7 +93,11 @@
+ void set_console_font(const std::string&amp; font, int size);
+ void set_gamma(float g);
+ void set_gamma_rgb(float r, float g, float b);
+-}
+ 
++void show_config();
++
++} // namespace Scripting
++
+ #endif
+ 
++/* EOF */
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2005-11-28 14:33:49 UTC (rev 1132)
++++ trunk/src/scripting/wrapper.cpp	2005-11-28 16:50:09 UTC (rev 1133)
+@@ -540,6 +540,15 @@
+   return 0;
+ }
+ 
++static int show_config_wrapper(HSQUIRRELVM v)
++{
++  (void) v;
++  
++  Scripting::show_config();
++  
++  return 0;
++}
++
+ static int spawn_object_wrapper(HSQUIRRELVM v)
+ {
+   return Scripting::spawn_object(v);
+@@ -968,6 +977,14 @@
+     throw SquirrelError(v, msg.str());
+   }
+ 
++  sq_pushstring(v, &quot;show_config&quot;, -1);
++  sq_newclosure(v, &amp;show_config_wrapper, 0);
++  if(SQ_FAILED(sq_createslot(v, -3))) {
++    std::ostringstream msg;
++    msg &lt;&lt; &quot;Couldn't register function'show_config'&quot;;
++    throw SquirrelError(v, msg.str());
++  }
++
+   sq_pushstring(v, &quot;spawn_object&quot;, -1);
+   sq_newclosure(v, &amp;spawn_object_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+
+Modified: trunk/src/util.hpp
+===================================================================
+--- trunk/src/util.hpp	2005-11-28 14:33:49 UTC (rev 1132)
++++ trunk/src/util.hpp	2005-11-28 16:50:09 UTC (rev 1133)
+@@ -11,6 +11,14 @@
+ std::string basename(const std::string&amp; filename);
+ void file_to_string(const std::string&amp; filename, std::string&amp; str);
+ 
++template&lt;class T&gt;
++std::string to_string(const T&amp; data)
++{
++  std::ostringstream os;
++  os &lt;&lt; data;
++  return os.str();
++}
++
+ static inline void assert_gl(const char* message)
+ {
+ #ifdef DEBUG
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000785.html">[Windstille-commit] r1132 - in trunk/src: . display gui lisp tinygettext
+</A></li>
+	<LI>Next message: <A HREF="000787.html">[Windstille-commit] r1134 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#786">[ date ]</a>
+              <a href="thread.html#786">[ thread ]</a>
+              <a href="subject.html#786">[ subject ]</a>
+              <a href="author.html#786">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

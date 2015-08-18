@@ -1,0 +1,317 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r402 - in trunk/src: . display
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-June/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r402%20-%20in%20trunk/src%3A%20.%20display&In-Reply-To=%3C200506232005.j5NK5FKk026845%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000057.html">
+   <LINK REL="Next"  HREF="000059.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r402 - in trunk/src: . display</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r402%20-%20in%20trunk/src%3A%20.%20display&In-Reply-To=%3C200506232005.j5NK5FKk026845%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r402 - in trunk/src: . display">grumbel at sheep.berlios.de
+       </A><BR>
+    <I>Thu Jun 23 22:05:15 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000057.html">[Windstille-commit] r401 - in trunk: data data/images data/images/objects src
+</A></li>
+        <LI>Next message: <A HREF="000059.html">[Windstille-commit] r403 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#58">[ date ]</a>
+              <a href="thread.html#58">[ thread ]</a>
+              <a href="subject.html#58">[ subject ]</a>
+              <a href="author.html#58">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-06-23 22:05:14 +0200 (Thu, 23 Jun 2005)
+New Revision: 402
+
+Modified:
+   trunk/src/display/scene_context.cxx
+   trunk/src/display/scene_context.hxx
+   trunk/src/door.cxx
+   trunk/src/door.hxx
+   trunk/src/game_session.cxx
+   trunk/src/game_session.hxx
+Log:
+- some more experimental doors
+- added flags and keybinding to turn of lightmap, highlightmap and colormap rendering
+
+Modified: trunk/src/display/scene_context.cxx
+===================================================================
+--- trunk/src/display/scene_context.cxx	2005-06-23 17:52:26 UTC (rev 401)
++++ trunk/src/display/scene_context.cxx	2005-06-23 20:05:14 UTC (rev 402)
+@@ -27,12 +27,14 @@
+   DrawingContext color;
+   DrawingContext light;
+   DrawingContext highlight; 
++  unsigned int render_mask;
+ 
+   CL_OpenGLSurface lightmap;
+   CL_Canvas        canvas;
+ 
+   SceneContextImpl() 
+-    : lightmap(CL_PixelBuffer(200, 
++    : render_mask(SceneContext::COLORMAP | SceneContext::LIGHTMAP | SceneContext::HIGHLIGHTMAP ),
++      lightmap(CL_PixelBuffer(200, 
+                               150,
+                               200*4, CL_PixelFormat::rgba8888)),
+       canvas(lightmap)
+@@ -124,21 +126,35 @@
+ void
+ SceneContext::render()
+ {
++  if (impl-&gt;render_mask &amp; CLEARMAP)
++    {
++      CL_Display::clear();
++    }
++
+   // Render all buffers
+   // FIXME: Render all to pbuffer for later combining of them
+-  impl-&gt;color.render();
++  if (impl-&gt;render_mask &amp; COLORMAP)
++    {
++      impl-&gt;color.render();
++    }
+ 
+-  impl-&gt;light.render(impl-&gt;canvas.get_gc());
+-  impl-&gt;canvas.sync_surface();
++  if (impl-&gt;render_mask &amp; LIGHTMAP)
++    {
++      impl-&gt;light.render(impl-&gt;canvas.get_gc());
++      impl-&gt;canvas.sync_surface();
+ 
+-  //impl-&gt;lightmap.set_blend_func(blend_src_alpha, blend_one);
+-  impl-&gt;lightmap.set_blend_func(blend_dest_color, blend_zero);
+-  //GL_DST_COLOR, GL_ZERO
+-  impl-&gt;lightmap.set_scale(4.0f, 4.0f);
+-  impl-&gt;lightmap.draw();
+-  impl-&gt;canvas.get_gc()-&gt;clear();
++      //impl-&gt;lightmap.set_blend_func(blend_src_alpha, blend_one);
++      impl-&gt;lightmap.set_blend_func(blend_dest_color, blend_zero);
++      //GL_DST_COLOR, GL_ZERO
++      impl-&gt;lightmap.set_scale(4.0f, 4.0f);
++      impl-&gt;lightmap.draw();
++      impl-&gt;canvas.get_gc()-&gt;clear();
++    }
+ 
+-  impl-&gt;highlight.render();
++  if (impl-&gt;render_mask &amp; HIGHLIGHTMAP)
++    {
++      impl-&gt;highlight.render();
++    }
+ 
+   // Clear all DrawingContexts
+   impl-&gt;color.clear();
+@@ -146,4 +162,16 @@
+   impl-&gt;highlight.clear();
+ }
+ 
++void
++SceneContext::set_render_mask(unsigned int mask)
++{
++  impl-&gt;render_mask = mask;
++}
++
++unsigned int
++SceneContext::get_render_mask()
++{
++  return impl-&gt;render_mask;
++}
++
+ /* EOF */
+
+Modified: trunk/src/display/scene_context.hxx
+===================================================================
+--- trunk/src/display/scene_context.hxx	2005-06-23 17:52:26 UTC (rev 401)
++++ trunk/src/display/scene_context.hxx	2005-06-23 20:05:14 UTC (rev 402)
+@@ -70,6 +70,15 @@
+   /** Takes all the buffers and combines them to form the final image
+       that will be shown on the screen */
+   void render();
++
++  enum { COLORMAP     = 1&lt;&lt;0,
++         LIGHTMAP     = 1&lt;&lt;1,
++         HIGHLIGHTMAP = 1&lt;&lt;2,
++         CLEARMAP     = 1&lt;&lt;3
++  };
++
++  void set_render_mask(unsigned int mask);
++  unsigned int get_render_mask();
+ private:
+   SceneContextImpl* impl;
+ 
+
+Modified: trunk/src/door.cxx
+===================================================================
+--- trunk/src/door.cxx	2005-06-23 17:52:26 UTC (rev 401)
++++ trunk/src/door.cxx	2005-06-23 20:05:14 UTC (rev 402)
+@@ -20,10 +20,10 @@
+ #include &quot;globals.hxx&quot;
+ #include &quot;door.hxx&quot;
+ 
+-Door::Door()
++Door::Door(int x, int y)
+   : highlight(&quot;vrdoor/highlight&quot;, resources),
+     color(&quot;vrdoor/color&quot;, resources),
+-    pos(32*24, 32*6)
++    pos(32*x, 32*y)
+ {
+ }
+ 
+
+Modified: trunk/src/door.hxx
+===================================================================
+--- trunk/src/door.hxx	2005-06-23 17:52:26 UTC (rev 401)
++++ trunk/src/door.hxx	2005-06-23 20:05:14 UTC (rev 402)
+@@ -31,7 +31,7 @@
+   CL_Sprite color;
+   CL_Vector pos;
+ public:
+-  Door();
++  Door(int x, int y);
+   virtual ~Door() {}
+ 
+   void draw (SceneContext&amp; sc);
+
+Modified: trunk/src/game_session.cxx
+===================================================================
+--- trunk/src/game_session.cxx	2005-06-23 17:52:26 UTC (rev 401)
++++ trunk/src/game_session.cxx	2005-06-23 20:05:14 UTC (rev 402)
+@@ -73,17 +73,21 @@
+ void
+ GameSession::draw_game()
+ {
+-  // Generic blue background
+-  CL_Display::fill_rect(CL_Rect(0, 0, 800, 300),
+-                        CL_Gradient(CL_Color(  0,   0,  50),
+-                                    CL_Color(  0,   0,  50),
+-                                    CL_Color( 50,  50, 128),
+-                                    CL_Color( 50,  50, 128)));
+-  CL_Display::fill_rect(CL_Rect(0, 300, 800, 600),
+-                        CL_Gradient(CL_Color( 50,  50, 128),
+-                                    CL_Color( 50,  50, 128),
+-                                    CL_Color(  0,   0,   0),
+-                                    CL_Color(  0,   0,   0)));
++  if (0)
++    {
++      // Generic blue background
++      // FIXME: let the level decide which kind of background he wants 
++      CL_Display::fill_rect(CL_Rect(0, 0, 800, 300),
++                            CL_Gradient(CL_Color(  0,   0,  50),
++                                        CL_Color(  0,   0,  50),
++                                        CL_Color( 50,  50, 128),
++                                        CL_Color( 50,  50, 128)));
++      CL_Display::fill_rect(CL_Rect(0, 300, 800, 600),
++                            CL_Gradient(CL_Color( 50,  50, 128),
++                                        CL_Color( 50,  50, 128),
++                                        CL_Color(  0,   0,   0),
++                                        CL_Color(  0,   0,   0)));
++    }
+ 
+   view-&gt;draw(sc);
+ 
+@@ -207,6 +211,7 @@
+ void
+ GameSession::on_startup ()
+ { 
++  slots.push_back(CL_Keyboard::sig_key_down().connect(this, &amp;GameSession::on_key_down));
+   CL_Display::get_current_window()-&gt;hide_cursor();
+ 
+   MusicManager::current()-&gt;play(datadir + &quot;music/techdemo.ogg&quot;, true);
+@@ -236,7 +241,9 @@
+                                            &quot;you? Press [Right] and [Jump] to hang on the ledge.&quot;);
+       set_dialog_state();
+ 
+-      world-&gt;add(new Door());
++      world-&gt;add(new Door(24, 6));
++      world-&gt;add(new Door(32, 14));
++      world-&gt;add(new Door(8, 22));
+     }
+ }
+ 
+@@ -258,4 +265,31 @@
+   MusicManager::current()-&gt;stop();
+ }
+ 
++void
++GameSession::on_key_down(const CL_InputEvent&amp; event)
++{
++  switch(event.id)
++    {
++    case CL_KEY_1:
++      sc.set_render_mask(sc.get_render_mask() ^ SceneContext::CLEARMAP);
++      break;
++
++    case CL_KEY_2:
++      sc.set_render_mask(sc.get_render_mask() ^ SceneContext::COLORMAP);
++      break;
++
++    case CL_KEY_3:
++      sc.set_render_mask(sc.get_render_mask() ^ SceneContext::LIGHTMAP);
++      break;
++
++    case CL_KEY_4:
++      sc.set_render_mask(sc.get_render_mask() ^ SceneContext::HIGHLIGHTMAP);
++      break;      
++
++    default:
++      // ignore key
++      break;
++    }
++}
++
+ /* EOF */
+
+Modified: trunk/src/game_session.hxx
+===================================================================
+--- trunk/src/game_session.hxx	2005-06-23 17:52:26 UTC (rev 401)
++++ trunk/src/game_session.hxx	2005-06-23 20:05:14 UTC (rev 402)
+@@ -61,8 +61,7 @@
+   CL_Sprite logo;
+   CL_Sprite logo_black;
+ 
+-  void on_mouse_up  (const CL_InputEvent&amp; event);
+-  void on_mouse_down(const CL_InputEvent&amp; event);
++  std::vector&lt;CL_Slot&gt; slots;
+   void on_key_down  (const CL_InputEvent&amp; event);
+ 
+   static GameSession* current_; 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000057.html">[Windstille-commit] r401 - in trunk: data data/images data/images/objects src
+</A></li>
+	<LI>Next message: <A HREF="000059.html">[Windstille-commit] r403 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#58">[ date ]</a>
+              <a href="thread.html#58">[ thread ]</a>
+              <a href="subject.html#58">[ subject ]</a>
+              <a href="author.html#58">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

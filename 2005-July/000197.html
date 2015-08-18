@@ -1,0 +1,380 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r541 - in trunk: contrib docs src/sprite3d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r541%20-%20in%20trunk%3A%20contrib%20docs%20src/sprite3d&In-Reply-To=%3C200507041541.j64FfWfj002082%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000196.html">
+   <LINK REL="Next"  HREF="000198.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r541 - in trunk: contrib docs src/sprite3d</H1>
+    <B>Matthias Braun at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r541%20-%20in%20trunk%3A%20contrib%20docs%20src/sprite3d&In-Reply-To=%3C200507041541.j64FfWfj002082%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r541 - in trunk: contrib docs src/sprite3d">matzebraun at berlios.de
+       </A><BR>
+    <I>Mon Jul  4 17:41:32 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000196.html">[Windstille-commit] r540 - trunk/data/blender/hero
+</A></li>
+        <LI>Next message: <A HREF="000198.html">[Windstille-commit] r542 - trunk/data/3dsprites
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#197">[ date ]</a>
+              <a href="thread.html#197">[ thread ]</a>
+              <a href="subject.html#197">[ subject ]</a>
+              <a href="author.html#197">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: matzebraun
+Date: 2005-07-04 17:41:30 +0200 (Mon, 04 Jul 2005)
+New Revision: 541
+
+Modified:
+   trunk/contrib/windstille_export.py
+   trunk/docs/models.txt
+   trunk/docs/wsprite_fileformat.txt
+   trunk/src/sprite3d/sprite3d.cpp
+   trunk/src/sprite3d/sprite3d_data.cpp
+   trunk/src/sprite3d/sprite3d_data.hpp
+Log:
+Improvements to exporter so that you can do some settings on animations now
+(first_frame, last_frame, speed, samplerate).
+
+
+
+Modified: trunk/contrib/windstille_export.py
+===================================================================
+--- trunk/contrib/windstille_export.py	2005-07-04 14:50:56 UTC (rev 540)
++++ trunk/contrib/windstille_export.py	2005-07-04 15:41:30 UTC (rev 541)
+@@ -32,20 +32,96 @@
+ #
+ # See windstille/docs/models.txt for more details
+ 
+-import struct
++import struct, shlex
+ import Blender
+ from Blender import NMesh
+ from Blender import Window
+ 
+ # SAMPLEFRAMES, only export every nth frame of the animation
+-SAMPLEFRAMES = 5
++DEFAULT_SAMPLERATE = 5
+ # ZOOM, is multiplied with all vertex coordinates
+ ZOOM = 32.0
+ 
++def parse_config(text):
++  lex = shlex.shlex(text)
++  lex.wordchars += &quot;.&quot;
++  def expect_string():
++    res = lex.get_token()
++    if res == lex.eof:
++      raise Exception, &quot;Expected string, got EOF&quot;
++    return res
++    
++  def expect_int():
++    res = lex.get_token()
++    if res == lex.eof:
++      raise Exception, &quot;Expected in, got EOF&quot;
++    return int(res)
++
++  def expect_float():
++    res = lex.get_token()
++    if res == lex.eof:
++      raise Exception, &quot;Expected float, got EOF&quot;
++    return float(res)
++
++  def expect_dash():
++    res = lex.get_token()
++    if res == lex.eof:
++      raise Exception, &quot;Expected '-', got EOF&quot;
++    elif res != &quot;-&quot;:
++      raise Exception, &quot;Expected '-', got '%s'&quot; % res
++
++  actionconfig = {}
++  while True:
++    action_name = expect_string()
++    first_frame = expect_int()
++    expect_dash()
++    last_frame = expect_int()
++
++    token = lex.get_token()
++    if token == &quot;speed&quot;:
++      speed = expect_float()
++    else:
++      lex.push_token(token)
++      speed = 1.0
++
++    token = lex.get_token()
++    if token == &quot;samplerate&quot;:
++      samplerate = expect_int()
++    else:
++      lex.push_token(token)
++      samplerate = DEFAULT_SAMPLERATE
++      
++    actionconfig[action_name] = (first_frame, last_frame, speed, samplerate)
++    print &quot;Config: %s - %s&quot; % (action_name, str(actionconfig[action_name]))
++    token = lex.get_token()
++    if token == lex.eof:
++      break
++    lex.push_token(token)
++
++  return actionconfig
++
+ def export(filename):
+   scene = Blender.Scene.getCurrent()
+   layers = scene.Layers
+ 
++  # Search for config text
++  actionconfig = {}
++  try:
++    textobj = Blender.Text.Get(&quot;actionconfig&quot;)
++  except:  
++    print &quot;WARNING: No actionconfig text found!&quot;
++    textobj = 0
++
++  try:
++    if textobj != 0:
++      lines = textobj.asLines()
++      text = &quot;&quot;
++      for line in lines:
++        text += line + &quot;\n&quot;
++      actionconfig = parse_config(text)
++  except Exception, message:  
++    print &quot;WARNING: Parse Error in actionconfig:&quot; + str(message)
++  
+   # file header
+   meshes = []
+   for obj in Blender.Object.Get():
+@@ -59,8 +135,7 @@
+ 
+   armatures = Blender.Armature.Get()
+   if len(armatures) != 1:
+-    print &quot;Need to have exactly 1 armature in the scene&quot;
+-    return
++    raise Exception, &quot;Need to have exactly 1 armature in the scene&quot;
+ 
+   armatureobj = 0
+   for obj in Blender.Object.Get():
+@@ -70,8 +145,7 @@
+       armatureobj = obj
+       break
+   if armatureobj == 0:
+-    print &quot;COuldn't find armature object...&quot;
+-    return
++    raise Exception, &quot;Couldn't find armature object...&quot;
+ 
+   actions = []
+   for action in Blender.Armature.NLA.GetActions().iteritems():
+@@ -89,7 +163,7 @@
+ 
+     texture = data.faces[0].image
+     if not texture:
+-      print &quot;Mesh %s has no texture&quot; % obj.getName
++      print &quot;Skipping Mesh %s: no texture&quot; % obj.getName()
+       continue
+       
+     texture_filename = texture.filename
+@@ -108,9 +182,11 @@
+     uvs = []
+     bodydata = &quot;&quot;
+     facecount = 0
++    texturewarning = False
+     for face in data.faces:
+-      if face.image != texture:
+-        print &quot;Meshs with different materials not supported&quot;
++      if face.image != texture and not texturewarning:
++        print &quot;WARNING: Mesh '%s' has more than 1 material&quot; % obj.getName()
++        texturewarning = True
+     
+       for v in [0, 1, 2]:
+         bodydata += struct.pack(&quot;=H&quot;, \
+@@ -142,30 +218,45 @@
+ 
+   actionnum = 0
+   for action in actions:
+-    # TODO...
+-    #print armatures[0]
++    # enable action
+     action.setActive(armatureobj)
++ 
++    # find/autodetect config
++    if actionconfig.has_key(action.getName()):
++      (first_frame, last_frame, action_speed, samplerate) = actionconfig[action.getName()]
++    else:
++      print &quot;No config for action '%s' defined.&quot; % action.getName()
++      first_frame = 1 
+   
+-    # find out when the last ipo frame is set
+-    numframes = 1
+-    for _ipo in action.getAllChannelIpos().iteritems():
+-      ipo = _ipo[1]
+-      for curve in ipo.getCurves():
+-        for p in curve.getPoints():
+-          time = p.getPoints() [0]
+-          if time &gt; numframes:
+-            numframes = time
++      # find out when the last ipo frame is set
++      last_frame = 1
++      for _ipo in action.getAllChannelIpos().iteritems():
++        ipo = _ipo[1]
++        for curve in ipo.getCurves():
++          for p in curve.getPoints():
++            time = p.getPoints() [0]
++            if time &gt; last_frame:
++              last_frame = int(time)
++      action_speed = 1.0
++      samplerate = DEFAULT_SAMPLERATE
+ 
+-    resultframes = (SAMPLEFRAMES - 1 + numframes) / SAMPLEFRAMES
+-    progress = 1.0/len(actions).__float__() * actionnum
++    # calculate number of frames and stuff for the header
++    numframes = last_frame - first_frame + 1
++    # aehm aehm... I wasn't able to find a mathematical formula that works
++    # correct (shame on me) so this is a simple loop now
++    resultframes = 0
++    for i in range(first_frame, last_frame+1, samplerate):
++      resultframes += 1
++    progress = 1.0/float(len(actions)) * actionnum
++    
+     Window.DrawProgressBar(progress, &quot;Exporting Action %s (%d frames)&quot; \
+             % (action.getName(), resultframes))
+     actionnum += 1
+-    
+-    file.write(struct.pack(&quot;=64sH&quot;, action.getName(), resultframes))
+-   
++    file.write(struct.pack(&quot;=64sfH&quot;, action.getName(), action_speed, resultframes))
++  
++    # output for all frames for all meshs all vertex positions
+     frs = 0
+-    for frame in range(1, numframes+1, SAMPLEFRAMES):
++    for frame in range(first_frame, last_frame+1, samplerate):
+       frs += 1
+       Blender.Set(&quot;curframe&quot;, float(frame))
+       for obj in Blender.Object.Get():
+@@ -187,6 +278,10 @@
+           t[1] *= ZOOM
+           t[2] *= ZOOM
+           file.write(struct.pack(&quot;=fff&quot;, t[1], -t[2], t[0]))
++    # debug check...
++    if frs != resultframes:
++      raise Exception, &quot;resultframe calculation went wrong f: %d L: %d R: %d, calced %d got %d&quot; \
++              % (first_frame, last_frame, samplerate, resultframes, frs)
+ 
+ def fs_callback(filename):
+   export(filename)
+
+Modified: trunk/docs/models.txt
+===================================================================
+--- trunk/docs/models.txt	2005-07-04 14:50:56 UTC (rev 540)
++++ trunk/docs/models.txt	2005-07-04 15:41:30 UTC (rev 541)
+@@ -19,4 +19,13 @@
+   UVs in windstille are
+     u -&gt; right
+     v -&gt; down
++- You should specify additional attributes for the actions by creating a blender
++  textobject with name &quot;actionconfig&quot;. You can then specify lines like this
++  (this example states that for action MyActionName frames 5 - 40 should be
++   exported every 8th frame should be exported and the animation should be
++   played back with speed 5.7 later. The speed and samplerate part are optional)
+ 
++  # Sampe actionconfig file
++
++  MyActionName 5 - 40 speed 5.7 smaplerate 8
++- Take a look at the console output to see warnings and errors from the script
+
+Modified: trunk/docs/wsprite_fileformat.txt
+===================================================================
+--- trunk/docs/wsprite_fileformat.txt	2005-07-04 14:50:56 UTC (rev 540)
++++ trunk/docs/wsprite_fileformat.txt	2005-07-04 15:41:30 UTC (rev 541)
+@@ -15,6 +15,7 @@
+ 
+ Action Header
+ char name[64]
++float speed
+ uint16_t frame_count
+ 
+ Data per action:
+
+Modified: trunk/src/sprite3d/sprite3d.cpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d.cpp	2005-07-04 14:50:56 UTC (rev 540)
++++ trunk/src/sprite3d/sprite3d.cpp	2005-07-04 15:41:30 UTC (rev 541)
+@@ -38,7 +38,7 @@
+ {
+   current_action = &amp;data-&gt;actions[0];
+   time_delta = 0;
+-  speed = 3.0;
++  speed = 1.0;
+ }
+ 
+ Sprite3D::~Sprite3D()
+@@ -115,7 +115,7 @@
+ void
+ Sprite3D::draw(SceneContext&amp; sc, const Vector&amp; pos)
+ {
+-  float gtime = (game_time - time_delta) * speed;
++  float gtime = (game_time - time_delta) * speed * current_action-&gt;speed;
+   int frame = static_cast&lt;int&gt;(gtime) % current_action-&gt;frame_count;
+   int nextframe = (frame+1) % current_action-&gt;frame_count;  
+   float time = fmodf(gtime, 1.0);
+
+Modified: trunk/src/sprite3d/sprite3d_data.cpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d_data.cpp	2005-07-04 14:50:56 UTC (rev 540)
++++ trunk/src/sprite3d/sprite3d_data.cpp	2005-07-04 15:41:30 UTC (rev 541)
+@@ -107,6 +107,7 @@
+       Action&amp; action = actions[i];
+ 
+       action.name = read_string(file, 64);
++      action.speed = read_float(file);
+       action.frame_count = read_uint16_t(file);
+ 
+       printf(&quot;ReadingAction %s Frames %u.\n&quot;, action.name.c_str(), action.frame_count);
+
+Modified: trunk/src/sprite3d/sprite3d_data.hpp
+===================================================================
+--- trunk/src/sprite3d/sprite3d_data.hpp	2005-07-04 14:50:56 UTC (rev 540)
++++ trunk/src/sprite3d/sprite3d_data.hpp	2005-07-04 15:41:30 UTC (rev 541)
+@@ -84,6 +84,7 @@
+     : frames(0)
+   { }
+   std::string name;
++  float speed;
+   uint16_t frame_count;
+   ActionFrame* frames;
+ };
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000196.html">[Windstille-commit] r540 - trunk/data/blender/hero
+</A></li>
+	<LI>Next message: <A HREF="000198.html">[Windstille-commit] r542 - trunk/data/3dsprites
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#197">[ date ]</a>
+              <a href="thread.html#197">[ thread ]</a>
+              <a href="subject.html#197">[ subject ]</a>
+              <a href="author.html#197">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

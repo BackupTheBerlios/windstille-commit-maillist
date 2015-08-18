@@ -1,0 +1,432 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r982 - in trunk/src: . scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r982%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200508182351.j7INpmnc004872%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000634.html">
+   <LINK REL="Next"  HREF="000636.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r982 - in trunk/src: . scripting</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r982%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200508182351.j7INpmnc004872%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r982 - in trunk/src: . scripting">grumbel at berlios.de
+       </A><BR>
+    <I>Fri Aug 19 01:51:48 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000634.html">[Windstille-commit] r981 - in trunk/src: . scripting
+</A></li>
+        <LI>Next message: <A HREF="000636.html">[Windstille-commit] r983 - in trunk: data/controller src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#635">[ date ]</a>
+              <a href="thread.html#635">[ thread ]</a>
+              <a href="subject.html#635">[ subject ]</a>
+              <a href="author.html#635">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-08-19 01:51:35 +0200 (Fri, 19 Aug 2005)
+New Revision: 982
+
+Modified:
+   trunk/src/character.cpp
+   trunk/src/controller_def.cpp
+   trunk/src/controller_def.hpp
+   trunk/src/game_session.cpp
+   trunk/src/game_session.hpp
+   trunk/src/pda.cpp
+   trunk/src/pda.hpp
+   trunk/src/player.cpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/scripting/wrapper.hpp
+   trunk/src/sector.cpp
+   trunk/src/sector.hpp
+Log:
+- cleaned up GameSession and input handling a bit more
+
+Modified: trunk/src/character.cpp
+===================================================================
+--- trunk/src/character.cpp	2005-08-18 23:24:37 UTC (rev 981)
++++ trunk/src/character.cpp	2005-08-18 23:51:35 UTC (rev 982)
+@@ -69,7 +69,7 @@
+ void
+ Character::use()
+ {
+-  std::string filename = basename(GameSession::current()-&gt;get_filename());
++  std::string filename = basename(Sector::current()-&gt;get_filename());
+   filename.erase(filename.find('.'));
+   filename = &quot;scripts/&quot; + filename + &quot;/&quot; + name + &quot;.nut&quot;;
+ 
+
+Modified: trunk/src/controller_def.cpp
+===================================================================
+--- trunk/src/controller_def.cpp	2005-08-18 23:24:37 UTC (rev 981)
++++ trunk/src/controller_def.cpp	2005-08-18 23:51:35 UTC (rev 982)
+@@ -27,6 +27,7 @@
+   add_button(&quot;tertiary-button&quot;,  TERTIARY_BUTTON);
+ 
+   add_button(&quot;pda-button&quot;, PDA_BUTTON);
++  add_button(&quot;inventory-button&quot;, INVENTORY_BUTTON);
+ 
+   add_button(&quot;aim-button&quot;,       AIM_BUTTON);
+   add_button(&quot;pause-button&quot;,     PAUSE_BUTTON);
+
+Modified: trunk/src/controller_def.hpp
+===================================================================
+--- trunk/src/controller_def.hpp	2005-08-18 23:24:37 UTC (rev 981)
++++ trunk/src/controller_def.hpp	2005-08-18 23:51:35 UTC (rev 982)
+@@ -33,6 +33,7 @@
+     SECONDARY_BUTTON, // used to cancel a dialog or for jumping
+     TERTIARY_BUTTON,  // used to cancel a dialog or for jumping
+     PDA_BUTTON,       // display the PDA
++    INVENTORY_BUTTON, // display inventory button
+     
+     PAUSE_BUTTON,     // used to pause the game
+     AIM_BUTTON,       // used to draw the gun and aim
+
+Modified: trunk/src/game_session.cpp
+===================================================================
+--- trunk/src/game_session.cpp	2005-08-18 23:24:37 UTC (rev 981)
++++ trunk/src/game_session.cpp	2005-08-18 23:51:35 UTC (rev 982)
+@@ -82,18 +82,22 @@
+   enum { NO_ACTION, QUIT_ACTION, CHANGE_SECTOR_ACTION } next_action;
+   
+   enum { FADEIN, RUNNING, FADEOUT } fade_state;
+-  GameSession::ControlState control_state;
+ 
+   // GUI Elements
+   ControllerHelpWindow controller_help_window;
+   EnergyBar     energy_bar;
++
++  // Active GUI Elements
+   DialogManager dialog_manager;
+   Conversation  conversation;
+   Inventory     inventory;
+   PDA           pda;
+ 
++  Screen* current_gui;
++
+   GameSessionImpl() {
+     sector = 0;
++    current_gui = 0;
+   }
+   ~GameSessionImpl() {
+     delete sector;
+@@ -134,15 +138,11 @@
+ 
+   // Draw HUD
+   energy_bar.draw();
+-  inventory.draw();
+-
+-  if (control_state == GameSession::DIALOG)
+-    dialog_manager.draw(); 
+-  
+-  conversation.draw();
+   controller_help_window.draw();
+-  pda.draw();
+ 
++  if (current_gui)
++    current_gui-&gt;draw();
++
+   switch (fade_state)
+     {
+     case FADEOUT:
+@@ -171,7 +171,10 @@
+ GameSessionImpl::update(float delta, const Controller&amp; controller)
+ {  
+   if (controller.button_was_pressed(PDA_BUTTON))
+-    pda.set_active(!pda.is_active());
++    if (current_gui == &amp;pda)
++      current_gui = 0;
++    else
++      current_gui = &pda;
+ 
+   if (controller.button_was_pressed(PAUSE_BUTTON))
+     pause = !pause;
+@@ -228,25 +231,13 @@
+         case RUNNING:
+           sector-&gt;update(delta);
+           energy_bar.update(delta, controller);
+-          switch (control_state) 
+-            {
+-            case GameSession::DIALOG:
+-              dialog_manager.update(delta, controller);
+-              break;
+-            case GameSession::CONVERSATION:
+-              conversation.update(delta, controller);
+-              break;
+-            case GameSession::GAME:
+-              break;
+-            }
++          if (current_gui)
++            current_gui-&gt;update(delta, controller);
+           break;
+         }
+       
+       controller_help_window.update(delta, controller);
+-      pda.update(delta, controller);
+     }
+-  
+-  inventory.update(delta, controller);
+ 
+   if(keystate[SDLK_ESCAPE])
+     GameSession::current()-&gt;quit();
+@@ -280,7 +271,6 @@
+     
+   impl-&gt;fade_state    = GameSessionImpl::FADEIN;
+   impl-&gt;fadeout_value = 0;
+-  impl-&gt;control_state = GAME;
+   impl-&gt;next_action   = GameSessionImpl::NO_ACTION;
+ 
+   if (debug) std::cout &lt;&lt; &quot;Finished changing sector&quot; &lt;&lt; std::endl;
+@@ -385,19 +375,26 @@
+ void
+ GameSession::set_control_state(ControlState state) 
+ {
+-  impl-&gt;control_state = state; 
+-}
++  switch(state)
++    {
++    case DIALOG:
++      impl-&gt;current_gui = &amp;impl-&gt;dialog_manager;
++      break;
+ 
+-GameSession::ControlState
+-GameSession::get_game_state() const 
+-{
+-  return impl-&gt;control_state; 
++    case CONVERSATION:
++      impl-&gt;current_gui = &amp;impl-&gt;conversation;
++      break;
++
++    case GAME:
++      impl-&gt;current_gui = 0;
++      break;
++    }
+ }
+ 
+-const std::string&amp;
+-GameSession::get_filename() const 
++bool
++GameSession::is_active() const
+ {
+- return impl-&gt;filename; 
++  return (impl-&gt;current_gui == 0);
+ }
+ 
+ /* EOF */
+
+Modified: trunk/src/game_session.hpp
+===================================================================
+--- trunk/src/game_session.hpp	2005-08-18 23:24:37 UTC (rev 981)
++++ trunk/src/game_session.hpp	2005-08-18 23:51:35 UTC (rev 982)
+@@ -60,6 +60,10 @@
+ 
+   View* get_view();
+ 
++  /** Return true when the gameplay is currently active, return false
++      if PDA, Conversation or other things are active */
++  bool is_active() const;
++
+   void set_control_state(ControlState state);
+ 
+   /** Switches the sector instantly without fadeout */
+@@ -68,8 +72,6 @@
+   /** Fades out then switches sectors and fades in again */
+   void change_sector(const std::string&amp; filename);
+ 
+-  ControlState get_game_state() const;
+-
+   void draw();
+   void update(float delta, const Controller&amp; controller);
+   void handle_event(const SDL_Event&amp; event);
+@@ -78,8 +80,6 @@
+ 
+   void quit();
+ 
+-  const std::string&amp; get_filename () const;
+-
+ private:
+   SharedPtr&lt;GameSessionImpl&gt; impl;
+ };
+
+Modified: trunk/src/pda.cpp
+===================================================================
+--- trunk/src/pda.cpp	2005-08-18 23:24:37 UTC (rev 981)
++++ trunk/src/pda.cpp	2005-08-18 23:51:35 UTC (rev 982)
+@@ -43,8 +43,7 @@
+ }
+ 
+ PDA::PDA()
+-  : active(false),
+-    state(PDA_INVENTORY)
++  : state(PDA_INVENTORY)
+ { 
+   text_area = 0;
+ }
+@@ -52,9 +51,6 @@
+ void
+ PDA::draw()
+ {
+-  if (!active)
+-    return;
+-    
+   if (text_area)
+     {
+       const Rectf&amp; rect = text_area-&gt;get_rect().grow(8.0f);
+@@ -69,9 +65,6 @@
+ void
+ PDA::update(float delta, const Controller&amp; controller)
+ {
+-  if (!active)
+-    return;
+-  
+   const InputEventLst&amp; events = controller.get_events();
+   for(InputEventLst::const_iterator i = events.begin(); i != events.end(); ++i) {
+     if (i-&gt;type == AXIS_EVENT &amp;&amp; i-&gt;axis.name == X_AXIS) {
+
+Modified: trunk/src/pda.hpp
+===================================================================
+--- trunk/src/pda.hpp	2005-08-18 23:24:37 UTC (rev 981)
++++ trunk/src/pda.hpp	2005-08-18 23:51:35 UTC (rev 982)
+@@ -57,8 +57,6 @@
+ 
+   void draw();
+   void update(float delta, const Controller&amp; controller);
+-  bool is_active() const {return active;}
+-  void set_active(bool arg_active) {active = arg_active;}
+   void add_dialog(const std::string&amp; character, const std::string&amp; text);
+   
+   void add_objective(const std::string&amp; name, const std::string&amp; text);
+@@ -72,7 +70,6 @@
+   void show_dialogs();
+   
+   TextArea* text_area;
+-  bool active;
+   std::vector&lt;DialogEntry&gt; dialogs;
+   std::vector&lt;ObjectiveEntry&gt; objectives;   
+   
+
+Modified: trunk/src/player.cpp
+===================================================================
+--- trunk/src/player.cpp	2005-08-18 23:24:37 UTC (rev 981)
++++ trunk/src/player.cpp	2005-08-18 23:51:35 UTC (rev 982)
+@@ -115,9 +115,7 @@
+ {
+   controller = InputManager::get_controller();
+ 
+-  if (!console.is_active() &amp;&amp; !GameSession::current()-&gt;get_pda().is_active()
+-  &amp;&amp; GameSession::current()-&gt;get_game_state() != GameSession::DIALOG
+-  &amp;&amp; GameSession::current()-&gt;get_game_state() != GameSession::CONVERSATION)
++  if (GameSession::current()-&gt;is_active())
+     {
+       switch(state) {
+         case STAND:
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2005-08-18 23:24:37 UTC (rev 981)
++++ trunk/src/scripting/wrapper.cpp	2005-08-18 23:51:35 UTC (rev 982)
+@@ -1,6 +1,6 @@
+ /**
+  * WARNING: This file is automatically generated from:
+- *  'scripting/wrapper.interface.hpp'
++ *  'src/scripting/wrapper.interface.hpp'
+  * DO NOT CHANGE
+  */
+ #include &lt;config.h&gt;
+
+Modified: trunk/src/scripting/wrapper.hpp
+===================================================================
+--- trunk/src/scripting/wrapper.hpp	2005-08-18 23:24:37 UTC (rev 981)
++++ trunk/src/scripting/wrapper.hpp	2005-08-18 23:51:35 UTC (rev 982)
+@@ -1,6 +1,6 @@
+ /**
+  * WARNING: This file is automatically generated from:
+- *  'scripting/wrapper.interface.hpp'
++ *  'src/scripting/wrapper.interface.hpp'
+  * DO NOT CHANGE
+  */
+ #ifndef __windstille_WRAPPER_H__
+
+Modified: trunk/src/sector.cpp
+===================================================================
+--- trunk/src/sector.cpp	2005-08-18 23:24:37 UTC (rev 981)
++++ trunk/src/sector.cpp	2005-08-18 23:51:35 UTC (rev 982)
+@@ -54,9 +54,16 @@
+ 
+ Sector* Sector::current_ = 0;
+ 
+-Sector::Sector(const std::string&amp; filename)
+-  : player(0)
++const std::string&amp;
++Sector::get_filename () const
+ {
++  return filename;
++}
++
++Sector::Sector(const std::string&amp; arg_filename)
++  : filename(arg_filename),
++    player(0)    
++{
+   // make sure squirrel has an &quot;objects&quot; table
+   script_manager-&gt;run_script(
+       &quot;if(! (\&quot;&quot; OBJECTS_TABLE &quot;\&quot; in this)) {&quot;
+
+Modified: trunk/src/sector.hpp
+===================================================================
+--- trunk/src/sector.hpp	2005-08-18 23:24:37 UTC (rev 981)
++++ trunk/src/sector.hpp	2005-08-18 23:51:35 UTC (rev 982)
+@@ -37,6 +37,7 @@
+ class Sector
+ {
+ private:
++  std::string filename;
+   std::string name;
+   std::string music;
+   std::string init_script;
+@@ -75,6 +76,8 @@
+ 
+   static Sector* current() { return current_; }
+ 
++  const std::string&amp; get_filename () const;
++
+   void draw(SceneContext&amp; gc);
+   void update(float delta);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000634.html">[Windstille-commit] r981 - in trunk/src: . scripting
+</A></li>
+	<LI>Next message: <A HREF="000636.html">[Windstille-commit] r983 - in trunk: data/controller src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#635">[ date ]</a>
+              <a href="thread.html#635">[ thread ]</a>
+              <a href="subject.html#635">[ subject ]</a>
+              <a href="author.html#635">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

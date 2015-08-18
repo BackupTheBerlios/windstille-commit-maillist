@@ -1,0 +1,721 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r865 - in trunk/src: . display glutil math scripting sprite2d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r865%20-%20in%20trunk/src%3A%20.%20display%20glutil%20math%20scripting%20sprite2d&In-Reply-To=%3C200507311458.j6VEwZtJ013917%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000517.html">
+   <LINK REL="Next"  HREF="000519.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r865 - in trunk/src: . display glutil math scripting sprite2d</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r865%20-%20in%20trunk/src%3A%20.%20display%20glutil%20math%20scripting%20sprite2d&In-Reply-To=%3C200507311458.j6VEwZtJ013917%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r865 - in trunk/src: . display glutil math scripting sprite2d">grumbel at berlios.de
+       </A><BR>
+    <I>Sun Jul 31 16:58:35 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000517.html">[Windstille-commit] r864 - in trunk/src: collision display
+</A></li>
+        <LI>Next message: <A HREF="000519.html">[Windstille-commit] r866 - trunk/data/levels
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#518">[ date ]</a>
+              <a href="thread.html#518">[ thread ]</a>
+              <a href="subject.html#518">[ subject ]</a>
+              <a href="author.html#518">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-07-31 16:58:34 +0200 (Sun, 31 Jul 2005)
+New Revision: 865
+
+Added:
+   trunk/src/glutil/surface_drawing_parameters.hpp
+Modified:
+   trunk/src/display/drawing_context.cpp
+   trunk/src/display/drawing_context.hpp
+   trunk/src/glutil/Jamfile
+   trunk/src/glutil/surface.cpp
+   trunk/src/glutil/surface.hpp
+   trunk/src/math/Jamfile
+   trunk/src/math/vector.cpp
+   trunk/src/math/vector.hpp
+   trunk/src/player.cpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/scripting/wrapper.hpp
+   trunk/src/sprite2d/sprite.cpp
+   trunk/src/sprite2d/sprite.hpp
+Log:
+- cleaned up a bit how paramters are passed between Sprite and Surface
+
+Modified: trunk/src/display/drawing_context.cpp
+===================================================================
+--- trunk/src/display/drawing_context.cpp	2005-07-31 12:11:51 UTC (rev 864)
++++ trunk/src/display/drawing_context.cpp	2005-07-31 14:58:34 UTC (rev 865)
+@@ -28,6 +28,7 @@
+ #include &quot;fonts.hpp&quot;
+ #include &quot;sprite2d/sprite.hpp&quot;
+ #include &quot;drawing_context.hpp&quot;
++#include &quot;glutil/surface_drawing_parameters.hpp&quot;
+ #include &quot;glutil/surface.hpp&quot;
+ 
+ struct DrawingRequestsSorter
+@@ -80,52 +81,24 @@
+ {
+ private:
+   Surface surface;
+-  float alpha;
++  SurfaceDrawingParameters params;
+ 
+ public:
+-  SurfaceDrawingRequest(Surface surface, const Vector&amp; pos, float z_pos_,
+-                        const Matrix modelview, float alpha)
+-    : DrawingRequest(pos, z_pos_, modelview), surface(surface), alpha(alpha)
++  SurfaceDrawingRequest(Surface surface, const SurfaceDrawingParameters&amp; params, float z_pos_,
++                        const Matrix modelview)
++    : DrawingRequest(pos, z_pos_, modelview), surface(surface), params(params)
+   {}
+   virtual ~SurfaceDrawingRequest()
+   {}
+ 
+-  void draw(CL_GraphicContext* gc) {
+-    static const float rectvertices[12]
+-      = { 0, 0, 0,
+-          1, 0, 0,
+-          1, 1, 0,
+-          0, 1, 0 };
++  void draw(CL_GraphicContext* gc) 
++  {
++    gc-&gt;push_modelview();
++    gc-&gt;add_modelview(modelview.matrix);
+ 
+-    CL_OpenGLState state(gc);
+-    state.set_active();
+-    state.setup_2d();
++    surface.draw(params);
+ 
+-    glEnable(GL_TEXTURE_2D);
+-    glEnable(GL_BLEND);
+-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+-
+-    glPushMatrix();
+-    glMultMatrixf(modelview.matrix);
+-    glTranslatef(pos.x, pos.y, 0);
+-    glScalef(surface.get_width(), surface.get_height(), 1.0);
+-
+-    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+-    glEnableClientState(GL_VERTEX_ARRAY);
+-    glDisableClientState(GL_NORMAL_ARRAY);
+-
+-    if(alpha != 0.0)
+-      glColor4f(1.0, 1.0, 1.0, alpha);
+-    
+-    glBindTexture(GL_TEXTURE_2D, surface.get_texture().get_handle());
+-    
+-    glVertexPointer(3, GL_FLOAT, 0, rectvertices);
+-    glTexCoordPointer(2, GL_FLOAT, 0, surface.get_texcoords());
+-    glDrawArrays(GL_QUADS, 0, 4);
+-
+-    if(alpha != 0.0)
+-      glColor4f(1.0, 1.0, 1.0, 0.0);
+-    glPopMatrix();
++    gc-&gt;pop_modelview();
+   }
+ };
+ 
+@@ -172,16 +145,30 @@
+ }
+ 
+ void
+-DrawingContext::draw(const Sprite&amp; sprite,  const Vector&amp; pos, float z)
++DrawingContext::draw(const Sprite&amp; sprite,  const Vector&amp; pos, float z_pos)
+ {
+-  sprite.draw(*this, pos, z);
++  draw(sprite.get_current_surface(),
++       SurfaceDrawingParameters()
++       .set_pos(pos + sprite.get_offset() * sprite.get_scale())
++       .set_blend_func(sprite.get_blend_sfactor(), sprite.get_blend_dfactor())
++       .set_color(sprite.get_color())
++       .set_scale(sprite.get_scale()),
++       z_pos);
+ }
+ 
+ void
++DrawingContext::draw(const Surface surface, const SurfaceDrawingParameters&amp; params, float z_pos)
++{
++  draw(new SurfaceDrawingRequest(surface, params, z_pos,
++                                 modelview_stack.back()));
++}
++
++void
+ DrawingContext::draw(Surface surface, float x, float y, float z, float a)
+ {
+-  draw(new SurfaceDrawingRequest(surface, Vector(x, y), z,
+-                                 modelview_stack.back(), a));
++  draw(new SurfaceDrawingRequest(surface,
++                                 SurfaceDrawingParameters().set_pos(Vector(x, y)),
++                                 z, modelview_stack.back()));
+ }
+ 
+ void
+
+Modified: trunk/src/display/drawing_context.hpp
+===================================================================
+--- trunk/src/display/drawing_context.hpp	2005-07-31 12:11:51 UTC (rev 864)
++++ trunk/src/display/drawing_context.hpp	2005-07-31 14:58:34 UTC (rev 865)
+@@ -28,6 +28,7 @@
+ #include &quot;drawing_request.hpp&quot;
+ 
+ class Surface;
++class SurfaceDrawingParameters;
+ class Sprite;
+ 
+ /** The DrawingContext collects all DrawingRequests and allows you to
+@@ -64,6 +65,7 @@
+   void draw(const Sprite&amp;   sprite,  const Vector&amp; pos, float z = 0);
+   void draw(const std::string&amp; text,    float x, float y, float z = 0);
+   void draw(const Surface surface, float x, float y, float z = 0, float alpha = 0);
++  void draw(const Surface surface, const SurfaceDrawingParameters&amp; params, float z_pos);
+   /*} */
+   
+   /** Translate the drawing context */
+
+Modified: trunk/src/glutil/Jamfile
+===================================================================
+--- trunk/src/glutil/Jamfile	2005-07-31 12:11:51 UTC (rev 864)
++++ trunk/src/glutil/Jamfile	2005-07-31 14:58:34 UTC (rev 865)
+@@ -5,6 +5,7 @@
+     texture.hpp
+     surface.hpp
+     surface.cpp
++    surface_drawing_parameters.hpp
+     surface_manager.cpp
+     surface_manager.hpp
+     texture_manager.cpp
+
+Modified: trunk/src/glutil/surface.cpp
+===================================================================
+--- trunk/src/glutil/surface.cpp	2005-07-31 12:11:51 UTC (rev 864)
++++ trunk/src/glutil/surface.cpp	2005-07-31 14:58:34 UTC (rev 865)
+@@ -27,6 +27,7 @@
+ #include &lt;ClanLib/gl.h&gt;
+ #include &lt;ClanLib/display.h&gt;
+ #include &quot;surface.hpp&quot;
++#include &quot;surface_drawing_parameters.hpp&quot;
+ #include &quot;surface_manager.hpp&quot;
+ 
+ class SurfaceImpl
+@@ -165,4 +166,39 @@
+   glEnd();
+ }
+ 
++void
++Surface::draw(const SurfaceDrawingParameters&amp; params) const
++{
++  CL_OpenGLState state(CL_Display::get_current_window()-&gt;get_gc());
++  state.set_active(); 
++  state.setup_2d(); 
++
++  glEnable(GL_TEXTURE_2D);
++  glEnable(GL_BLEND);
++  glBlendFunc(params.blendfunc_src, params.blendfunc_dst);
++  glBindTexture(GL_TEXTURE_2D, impl-&gt;texture.get_handle());
++  glColor4f(params.color.r,
++            params.color.g,
++            params.color.b,
++            params.color.a);
++
++  glBegin(GL_QUADS);
++
++  // FIXME: This is just a primitive prototype, should take things
++  // like hotspot and flip into account 
++  glTexCoord2f(impl-&gt;uv.left, impl-&gt;uv.top);
++  glVertex2f(params.pos.x, params.pos.y);
++
++  glTexCoord2f(impl-&gt;uv.right, impl-&gt;uv.top);
++  glVertex2f(params.pos.x + impl-&gt;width * params.scale, params.pos.y);
++
++  glTexCoord2f(impl-&gt;uv.right, impl-&gt;uv.bottom);
++  glVertex2f(params.pos.x + impl-&gt;width * params.scale, params.pos.y + impl-&gt;height * params.scale);
++
++  glTexCoord2f(impl-&gt;uv.left, impl-&gt;uv.bottom);
++  glVertex2f(params.pos.x, params.pos.y + impl-&gt;height * params.scale);
++
++  glEnd(); 
++}
++
+ /* EOF */
+
+Modified: trunk/src/glutil/surface.hpp
+===================================================================
+--- trunk/src/glutil/surface.hpp	2005-07-31 12:11:51 UTC (rev 864)
++++ trunk/src/glutil/surface.hpp	2005-07-31 14:58:34 UTC (rev 865)
+@@ -31,6 +31,7 @@
+ #include &quot;texture.hpp&quot;
+ #include &quot;sharedptr.hpp&quot;
+ 
++class SurfaceDrawingParameters;
+ class SurfaceImpl;
+ 
+ /**
+@@ -60,6 +61,7 @@
+   Rectf get_uv() const;
+ 
+   void draw(const Vector&amp; pos) const;
++  void draw(const SurfaceDrawingParameters&amp; params) const;
+ 
+   /** true if the Texture is valid and usable, false if not */
+   operator bool() const;
+
+Added: trunk/src/glutil/surface_drawing_parameters.hpp
+===================================================================
+--- trunk/src/glutil/surface_drawing_parameters.hpp	2005-07-31 12:11:51 UTC (rev 864)
++++ trunk/src/glutil/surface_drawing_parameters.hpp	2005-07-31 14:58:34 UTC (rev 865)
+@@ -0,0 +1,97 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2005 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_GLUTIL_SURFACE_DRAWING_PARAMETERS_HPP
++#define HEADER_GLUTIL_SURFACE_DRAWING_PARAMETERS_HPP
++
++#include &quot;math/vector.hpp&quot;
++#include &quot;color.hpp&quot;
++
++/** Helper class which holds all the parameters that you can tweak
++    when you want to draw a Surface */
++class SurfaceDrawingParameters
++{
++public:
++  /** This includes flip, rotation, scaling and position */
++  GLenum blendfunc_src;
++  GLenum blendfunc_dst;
++
++  Vector pos;
++
++  /** Includes color and alpha settings */
++  Color   color;
++
++  float rotation;
++
++  float scale;
++
++  SurfaceDrawingParameters()
++  {
++    blendfunc_src = GL_SRC_ALPHA;
++    blendfunc_dst = GL_ONE_MINUS_SRC_ALPHA;
++
++    pos = Vector(0, 0);
++    
++    color = Color(1.0f, 1.0f, 1.0f, 1.0f);
++  
++    rotation = 0.0f;
++    scale    = 1.0f;
++  }
++
++  SurfaceDrawingParameters&amp; set_scale(float s) 
++  { 
++    scale    = s; 
++    return *this; 
++  }
++
++  SurfaceDrawingParameters&amp; set_color(const Color&amp; c)
++  { 
++    color = c;
++    return *this; 
++  }
++
++  SurfaceDrawingParameters&amp; set_rotation(float r) 
++  { 
++    rotation = r; 
++    return *this; 
++  }
++
++  SurfaceDrawingParameters&amp; set_pos(const Vector&amp; p) 
++  { 
++    pos = p;
++    return *this;
++  }
++  
++  SurfaceDrawingParameters&amp; set_blend_func(GLenum src, GLenum dst) 
++  { 
++    blendfunc_src = src;
++    blendfunc_dst = dst;
++    return *this; 
++  }  
++};
++
++#endif
++
++/* EOF */
+
+Modified: trunk/src/math/Jamfile
+===================================================================
+--- trunk/src/math/Jamfile	2005-07-31 12:11:51 UTC (rev 864)
++++ trunk/src/math/Jamfile	2005-07-31 14:58:34 UTC (rev 865)
+@@ -5,6 +5,7 @@
+           rect.hpp
+           rect.cpp
+           vector.hpp
++          vector.cpp
+ ;
+ 
+ TRANSLATABLE_SOURCES = [ SearchSource $(sources) ] ;
+
+Modified: trunk/src/math/vector.cpp
+===================================================================
+--- trunk/src/math/vector.cpp	2005-07-31 12:11:51 UTC (rev 864)
++++ trunk/src/math/vector.cpp	2005-07-31 14:58:34 UTC (rev 865)
+@@ -16,10 +16,10 @@
+ //  You should have received a copy of the GNU General Public License
+ //  along with this program; if not, write to the Free Software
+ //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
+ #include &lt;config.h&gt;
+-
+ #include &lt;cmath&gt;
+-
++#include &lt;iostream&gt;
+ #include &quot;math/vector.hpp&quot;
+ 
+ Vector Vector::unit() const
+@@ -31,3 +31,11 @@
+ {
+   return sqrt(x*x + y*y);
+ }
++
++std::ostream&amp; operator&lt;&lt;(std::ostream&amp; s, const Vector&amp; v)
++{
++  s &lt;&lt; &quot;(&quot; &lt;&lt; v.x &lt;&lt; &quot;, &quot; &lt;&lt; v.y &lt;&lt; &quot;)&quot;;
++  return s;
++}
++
++/* EOF */
+
+Modified: trunk/src/math/vector.hpp
+===================================================================
+--- trunk/src/math/vector.hpp	2005-07-31 12:11:51 UTC (rev 864)
++++ trunk/src/math/vector.hpp	2005-07-31 14:58:34 UTC (rev 865)
+@@ -20,6 +20,8 @@
+ #ifndef SUPERTUX_VECTOR_H
+ #define SUPERTUX_VECTOR_H
+ 
++#include &lt;iosfwd&gt;
++
+ /** Simple two dimensional vector. */
+ class Vector
+ {
+@@ -119,5 +121,7 @@
+   // for such simple stuff :)
+ };
+ 
++std::ostream&amp; operator&lt;&lt;(std::ostream&amp; s, const Vector&amp; v);
++
+ #endif
+ 
+
+Modified: trunk/src/player.cpp
+===================================================================
+--- trunk/src/player.cpp	2005-07-31 12:11:51 UTC (rev 864)
++++ trunk/src/player.cpp	2005-07-31 14:58:34 UTC (rev 865)
+@@ -73,6 +73,8 @@
+ Player::draw (SceneContext&amp; sc)
+ {
+   light.set_blend_func(GL_SRC_ALPHA, GL_ONE);
++  light.set_scale(4.0f);
++
+   sc.light().draw(light, pos, 100.0f);
+   sprite.draw(sc, pos, 100);
+ 
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2005-07-31 12:11:51 UTC (rev 864)
++++ trunk/src/scripting/wrapper.cpp	2005-07-31 14:58:34 UTC (rev 865)
+@@ -1,6 +1,6 @@
+ /**
+  * WARNING: This file is automatically generated from:
+- *  'src/scripting/wrapper.interface.hpp'
++ *  'scripting/wrapper.interface.hpp'
+  * DO NOT CHANGE
+  */
+ #include &lt;config.h&gt;
+
+Modified: trunk/src/scripting/wrapper.hpp
+===================================================================
+--- trunk/src/scripting/wrapper.hpp	2005-07-31 12:11:51 UTC (rev 864)
++++ trunk/src/scripting/wrapper.hpp	2005-07-31 14:58:34 UTC (rev 865)
+@@ -1,6 +1,6 @@
+ /**
+  * WARNING: This file is automatically generated from:
+- *  'src/scripting/wrapper.interface.hpp'
++ *  'scripting/wrapper.interface.hpp'
+  * DO NOT CHANGE
+  */
+ #ifndef __windstille_WRAPPER_H__
+
+Modified: trunk/src/sprite2d/sprite.cpp
+===================================================================
+--- trunk/src/sprite2d/sprite.cpp	2005-07-31 12:11:51 UTC (rev 864)
++++ trunk/src/sprite2d/sprite.cpp	2005-07-31 14:58:34 UTC (rev 865)
+@@ -10,6 +10,7 @@
+ #include &quot;display/scene_context.hpp&quot;
+ #include &quot;sprite2d/data.hpp&quot;
+ #include &quot;sprite2d/manager.hpp&quot;
++#include &quot;glutil/surface_drawing_parameters.hpp&quot;
+ #include &quot;color.hpp&quot;
+ #include &quot;util.hpp&quot;
+ 
+@@ -29,6 +30,10 @@
+   pingpong = false;
+   reverse  = false;
+   alpha    = 0.0;
++  scale    = 1.0f;
++  color    = Color(1.0f, 1.0f, 1.0f);
++  blend_sfactor = GL_SRC_ALPHA;
++  blend_dfactor = GL_ONE_MINUS_SRC_ALPHA;
+ }
+ 
+ Sprite::Sprite(const sprite2d::Data* data)
+@@ -41,6 +46,10 @@
+   pingpong = false;
+   reverse = false;
+   alpha = 0.0;
++  scale    = 1.0f;
++  color    = Color(1.0f, 1.0f, 1.0f);
++  blend_sfactor = GL_SRC_ALPHA;
++  blend_dfactor = GL_ONE_MINUS_SRC_ALPHA;
+ }
+ 
+ Sprite::~Sprite()
+@@ -65,6 +74,7 @@
+       i != data-&gt;actions.end(); ++i) {
+     const sprite2d::Action* action = *i;
+     if(action-&gt;name == name) {
++      // FIXME: This should be per-action and not get reset, shouldn't they?
+       current_action = action;
+       pingpong = false;
+       reverse = false;
+@@ -72,6 +82,10 @@
+       frame = 0;
+       vflip = false;
+       alpha = 0.0;
++      scale = 1.0f;
++      color = Color(1.0f, 1.0f, 1.0f);
++      blend_sfactor = GL_SRC_ALPHA;
++      blend_dfactor = GL_ONE_MINUS_SRC_ALPHA;
+       return;
+     }
+   }
+@@ -136,25 +150,29 @@
+   return alpha;
+ }
+ 
+-void
+-Sprite::draw(DrawingContext&amp; dc, const Vector&amp; pos, float z_pos) const
++Surface
++Sprite::get_current_surface() const
+ {
+-  // FIXME: Sprite needs to get a whole list with possible parameters
+-  // (color, blendfunc, ...), not just alpha
+-  Surface surface = current_action-&gt;surfaces[ static_cast&lt;int&gt; (frame) ];
+-  dc.draw(surface, 
+-          pos.x + current_action-&gt;offset.x, 
+-          pos.y + current_action-&gt;offset.y, 
+-          z_pos, alpha);
++  return current_action-&gt;surfaces[ static_cast&lt;int&gt; (frame) ];
+ }
+ 
++Vector
++Sprite::get_offset() const
++{
++  return current_action-&gt;offset;
++}
++
+ void
+ Sprite::draw(const Vector&amp; pos) const
+ {
+   // FIXME: Sprite needs to get a whole list with possible parameters
+   // (color, blendfunc, ...), not just alpha
+   Surface surface = current_action-&gt;surfaces[ static_cast&lt;int&gt; (frame) ];
+-  surface.draw(pos);
++  surface.draw(SurfaceDrawingParameters()
++               .set_pos(pos + (current_action-&gt;offset * scale))
++               .set_blend_func(blend_sfactor, blend_dfactor)
++               .set_scale(scale)
++               .set_color(color));
+ }
+ 
+ bool
+@@ -167,20 +185,42 @@
+ void
+ Sprite::set_scale(float s)
+ {
+-  // FIXME: implement me
+-  (void)s;
++  scale = s;
+ }
+ 
+ void
+-Sprite::set_color(const Color&amp; color)
++Sprite::set_color(const Color&amp; c)
+ {
+-  // FIXME: implement me
+-  (void)color;
++  color = c;
+ }
+ 
++float
++Sprite::get_scale() const
++{
++  return scale;
++}
++
++Color
++Sprite::get_color() const
++{
++  return color;
++}
++
+ Sprite::operator bool() const
+ {
+   return data != 0;
+ }
+ 
++GLenum
++Sprite::get_blend_sfactor() const
++{
++  return blend_sfactor;
++}
++
++GLenum
++Sprite::get_blend_dfactor() const
++{
++  return blend_dfactor;
++}
++
+ /* EOF */
+
+Modified: trunk/src/sprite2d/sprite.hpp
+===================================================================
+--- trunk/src/sprite2d/sprite.hpp	2005-07-31 12:11:51 UTC (rev 864)
++++ trunk/src/sprite2d/sprite.hpp	2005-07-31 14:58:34 UTC (rev 865)
+@@ -3,6 +3,8 @@
+ 
+ #include &lt;string&gt;
+ #include &lt;GL/gl.h&gt;
++#include &quot;color.hpp&quot;
++#include &quot;glutil/surface.hpp&quot;
+ #include &quot;math/vector.hpp&quot;
+ #include &quot;math/matrix.hpp&quot;
+ 
+@@ -28,10 +30,9 @@
+   ~Sprite();
+ 
+   void update(float elapsed_time);
+-  void draw(DrawingContext&amp; dc, const Vector&amp; pos, float z_pos) const;
+   void draw(const Vector&amp; pos) const;
+ 
+-  void set_action(const std::string&amp; name);
++  void  set_action(const std::string&amp; name);
+   const std::string&amp; get_action() const;
+ 
+   void set_vflip(bool vflip);
+@@ -40,20 +41,28 @@
+   void set_pingpong(bool pingpong);
+   bool get_pingpong() const;
+ 
+-  void set_speed(float speed);
++  void  set_speed(float speed);
+   float get_speed() const;
+ 
+-  void set_alpha(float alpha);
++  void  set_alpha(float alpha);
+   float get_alpha() const;
+-
++  
+   bool is_finished() const;
+ 
+   void set_blend_func(GLenum sfactor, GLenum dfactor);
++  GLenum get_blend_sfactor() const;
++  GLenum get_blend_dfactor() const;
+ 
+   void set_color(const Color&amp; color);
++  Color get_color() const;
+ 
+-  void set_scale(float s);
++  void  set_scale(float s);
++  float get_scale() const;
+ 
++  Surface get_current_surface() const;
++
++  Vector get_offset() const;
++
+   /** true if the Sprite is valid and usable, false if not */
+   operator bool() const;
+ private:
+@@ -72,6 +81,8 @@
+   bool vflip;
+   GLenum blend_sfactor;
+   GLenum blend_dfactor;
++  float scale;
++  Color color;
+ };
+ 
+ #endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000517.html">[Windstille-commit] r864 - in trunk/src: collision display
+</A></li>
+	<LI>Next message: <A HREF="000519.html">[Windstille-commit] r866 - trunk/data/levels
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#518">[ date ]</a>
+              <a href="thread.html#518">[ thread ]</a>
+              <a href="subject.html#518">[ subject ]</a>
+              <a href="author.html#518">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

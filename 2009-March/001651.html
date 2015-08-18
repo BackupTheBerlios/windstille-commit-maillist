@@ -1,0 +1,607 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2654 - in trunk/windstille: . data/scripts	data/sectors/apartment src/engine src/hud src/scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2654%20-%20in%20trunk/windstille%3A%20.%20data/scripts%0A%09data/sectors/apartment%20src/engine%20src/hud%20src/scripting&In-Reply-To=%3C200903130300.n2D30mcI012521%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001650.html">
+   <LINK REL="Next"  HREF="001652.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2654 - in trunk/windstille: . data/scripts	data/sectors/apartment src/engine src/hud src/scripting</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2654%20-%20in%20trunk/windstille%3A%20.%20data/scripts%0A%09data/sectors/apartment%20src/engine%20src/hud%20src/scripting&In-Reply-To=%3C200903130300.n2D30mcI012521%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2654 - in trunk/windstille: . data/scripts	data/sectors/apartment src/engine src/hud src/scripting">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Mar 13 04:00:48 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001650.html">[Windstille-commit] r2653 - trunk/windstille
+</A></li>
+        <LI>Next message: <A HREF="001652.html">[Windstille-commit] r2655 - in trunk/windstille/src: app screen
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1651">[ date ]</a>
+              <a href="thread.html#1651">[ thread ]</a>
+              <a href="subject.html#1651">[ subject ]</a>
+              <a href="author.html#1651">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-13 04:00:43 +0100 (Fri, 13 Mar 2009)
+New Revision: 2654
+
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/data/scripts/windstille.nut
+   trunk/windstille/data/sectors/apartment/apartment.wst
+   trunk/windstille/data/sectors/apartment/init.nut
+   trunk/windstille/src/engine/script_manager.hpp
+   trunk/windstille/src/engine/squirrel_thread.cpp
+   trunk/windstille/src/hud/speech_manager.cpp
+   trunk/windstille/src/hud/speech_manager.hpp
+   trunk/windstille/src/scripting/interface.cpp
+   trunk/windstille/src/scripting/interface.hpp
+   trunk/windstille/src/scripting/wrapper.cpp
+Log:
+Implemented some more stuff in SpeechManager and experimented with it a bit
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-03-12 14:17:54 UTC (rev 2653)
++++ trunk/windstille/TODO	2009-03-13 03:00:43 UTC (rev 2654)
+@@ -10,6 +10,11 @@
+ Scripting
+ =========
+ 
++* add function that clears all scripts and rereads them from file
++
++* add check that looks into a scripts root table to see if init()
++  and/or run() is present
++
+ * add ability to wait on custom event and add ability to fire of a
+   custom event:
+ 
+@@ -111,6 +116,8 @@
+ Input Handling
+ ==============
+ 
++* get rid of global game_time variable
++
+ * change of input context is troublesome: when the user selects a
+   dialog and confirms it, the character starts to walk into the
+   direction that the player indicated, because the stick still points
+@@ -139,6 +146,9 @@
+ Miscellaneous
+ =============
+ 
++* implement proper word wrap in SpeechManager and also add code to
++  'unstuck' speech bubbles when they go over the window border
++
+ * Add option for ControllerHelpWindow to option menu
+ 
+ * cleanup display/text_area.cpp, having scrolling and running text
+@@ -183,9 +193,6 @@
+ * make lightmap resolution independent (done, but an artifact remains
+   when the resolution isn't dividable by LIGHTMAP_DIV)
+ 
+-* write a LucasArts-like dialog system (i.e. non-blocking text,
+-  instead of JRPG like boxes with portraits), see SpeechManager
+-
+ * PDA needs scrolling text thing (right analog stick?), TextArea has
+   it implemented, but events don't to pass through PDA
+ 
+
+Modified: trunk/windstille/data/scripts/windstille.nut
+===================================================================
+--- trunk/windstille/data/scripts/windstille.nut	2009-03-12 14:17:54 UTC (rev 2653)
++++ trunk/windstille/data/scripts/windstille.nut	2009-03-13 03:00:43 UTC (rev 2654)
+@@ -37,7 +37,8 @@
+                                RENDER_MASK_COLORMAP | 
+                                RENDER_MASK_BLURMAP)
+ 
+-has_nightvision &lt;- false;
++state &lt;- {}
++  has_nightvision &lt;- false;
+ 
+ function nightvision_enabled(...)
+ {
+@@ -72,10 +73,21 @@
+ function conversation_get()
+ {
+   conversation_show();
+-  println(&quot;wait_for_conversation: &quot; + wait_for_conversation());
++  wait_for_conversation();
++  //println(&quot;wait_for_conversation: &quot; + );
+   return conversation_get_selection();
+ }
+ 
++function conversation(arr)
++{
++  foreach(val in arr) {
++    conversation_add2(val[0], val[1])
++  }
++
++  return ::conversation_get();
++}
++
++
+ class Dialog {
+   constructor(arg_align, arg_character, arg_portrait)
+   {
+
+Modified: trunk/windstille/data/sectors/apartment/apartment.wst
+===================================================================
+--- trunk/windstille/data/sectors/apartment/apartment.wst	2009-03-12 14:17:54 UTC (rev 2653)
++++ trunk/windstille/data/sectors/apartment/apartment.wst	2009-03-13 03:00:43 UTC (rev 2654)
+@@ -217,6 +217,17 @@
+       (use-verb &quot;Look&quot;)
+       (script &quot;barrobot.nut&quot;)
+     )
++
++
++    (scriptable-object
++      (name &quot;barrobot2&quot;)
++      (pos 770 177)
++      (z-pos -100)
++      (sprite  &quot;models/objects/barrobot/barrobotsprite.sprite&quot;)
++      (active true)
++      (use-verb &quot;Look&quot;)
++      (script &quot;barrobot2.nut&quot;)
++    )
+     
+     (scriptable-object      
+      (name &quot;flashlight&quot;)
+
+Modified: trunk/windstille/data/sectors/apartment/init.nut
+===================================================================
+--- trunk/windstille/data/sectors/apartment/init.nut	2009-03-12 14:17:54 UTC (rev 2653)
++++ trunk/windstille/data/sectors/apartment/init.nut	2009-03-13 03:00:43 UTC (rev 2654)
+@@ -3,20 +3,47 @@
+   // spawn_script(&quot;flicker.nut&quot;);
+ 
+   println(&quot;spawn_function()&quot;);
+-  spawn_function(function() {
+-      while (true)
+-        {
+-          wait(0.1);
+-          objects.lamp3.set_active(false);
+-          wait(0.1);
+-          objects.lamp3.set_active(true);
+-          wait(0.1);
+-          objects.lamp3.set_active(false);
+-          wait(0.1);
+-          objects.lamp3.set_active(true);
+-          wait(1.0);
+-        }
+-    });
++
++  do_flicker &lt;- false;
++
++  if (false)
++    { // Test of variable sharing
++      spawn_function(function() {
++          while (true)
++            {
++              wait(0.1);
++              objects.lamp3.set_active(false);
++              wait(0.1);
++              objects.lamp3.set_active(true);
++              wait(0.1);
++              objects.lamp3.set_active(false);
++              wait(0.1);
++              objects.lamp3.set_active(true);
++              wait(1.0);
++              do_flicker = !do_flicker;
++            }
++        });
++
++      spawn_function(function() {
++          while (true)
++            {
++              wait(0.1);
++
++              if (::do_flicker)
++                {
++                  wait(0.1);
++                  objects.lamp2.set_active(false);
++                  wait(0.1);
++                  objects.lamp2.set_active(true);
++                  wait(0.1);
++                  objects.lamp2.set_active(false);
++                  wait(0.1);
++                  objects.lamp2.set_active(true);
++                  wait(1.0);
++                }
++            }
++        });
++    }
+ }
+ 
+-    /* EOF */
++/* EOF */
+
+Modified: trunk/windstille/src/engine/script_manager.hpp
+===================================================================
+--- trunk/windstille/src/engine/script_manager.hpp	2009-03-12 14:17:54 UTC (rev 2653)
++++ trunk/windstille/src/engine/script_manager.hpp	2009-03-13 03:00:43 UTC (rev 2654)
+@@ -51,6 +51,7 @@
+       TIME,
+       DIALOG_CLOSED,
+       CONVERSATION_CLOSED,
++      SPEECH_DONE,
+       FADE_DONE,
+       CAMERA_DONE,
+       GAMEOBJECT_DONE,
+@@ -67,6 +68,7 @@
+     union {
+       // GAMEOBJECT_DONE
+       GameObject* game_object;
++      int id;
+     };
+   };
+ 
+
+Modified: trunk/windstille/src/engine/squirrel_thread.cpp
+===================================================================
+--- trunk/windstille/src/engine/squirrel_thread.cpp	2009-03-12 14:17:54 UTC (rev 2653)
++++ trunk/windstille/src/engine/squirrel_thread.cpp	2009-03-13 03:00:43 UTC (rev 2654)
+@@ -200,6 +200,13 @@
+     {
+       switch (event.type)
+         {
++          case ScriptManager::SPEECH_DONE:
++            if (waiting_for_events.id == event.id)
++              {
++                wakeup_time = game_time;
++              }
++            break;
++
+           case ScriptManager::GAMEOBJECT_DONE:
+             if (waiting_for_events.game_object == event.game_object)
+               {
+
+Modified: trunk/windstille/src/hud/speech_manager.cpp
+===================================================================
+--- trunk/windstille/src/hud/speech_manager.cpp	2009-03-12 14:17:54 UTC (rev 2653)
++++ trunk/windstille/src/hud/speech_manager.cpp	2009-03-13 03:00:43 UTC (rev 2654)
+@@ -16,35 +16,55 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
++#include &quot;engine/entity.hpp&quot;
++#include &quot;engine/script_manager.hpp&quot;
+ #include &quot;font/fonts.hpp&quot;
+ #include &quot;speech_manager.hpp&quot;
+ 
+ SpeechManager* SpeechManager::current_ = 0;
+ 
+-SpeechManager::Speech::Speech(const std::string&amp; text, const Vector2f&amp; pos, const Color&amp; color)
+-  : text(text),
+-    pos(pos),
+-    color(color),
++class Speech 
++{
++public:
++  int id;
++  std::string text;
++  Vector2f    pos;
++  Color       color;
++  float       seconds_passed;
++  float       wpm;
++
++  Speech(int id, const std::string&amp; text, const Vector2f&amp; pos, const Color&amp; color);
++    
++  void draw();
++  void update(float delta);
++  bool is_done() const;
++};
++
++Speech::Speech(int id_, const std::string&amp; text_, const Vector2f&amp; pos_, const Color&amp; color_)
++  : id(id_),
++    text(text_),
++    pos(pos_),
++    color(color_),
+     seconds_passed(0.0f)
+ {
+ }
+ 
+ void 
+-SpeechManager::Speech::draw()
++Speech::draw()
+ {
+-  Fonts::vera20-&gt;draw(pos, text, color);
++  Fonts::vera20-&gt;draw_center(pos, text, color);
+ }
+ 
+ void
+-SpeechManager::Speech::update(float delta)
++Speech::update(float delta)
+ {
+   seconds_passed += delta;
+ }
+ 
+ bool
+-SpeechManager::Speech::is_done() const
++Speech::is_done() const
+ {
+-  float words = 1 + text.size() / 5.0f;
++  float words = 2 + text.size() / 5.0f;
+   float words_per_minute = 150.0f;
+   float words_per_second = words_per_minute / 60.0f;
+   
+@@ -52,6 +72,7 @@
+ }
+ 
+ SpeechManager::SpeechManager()
++  : speech_id(1)
+ {
+   assert(current_ == 0);
+   current_ = this;
+@@ -68,12 +89,26 @@
+   current_ = 0;
+ }
+ 
+-void
+-SpeechManager::add(const std::string&amp; text, const Vector2f&amp; pos, const Color&amp; color)
++int
++SpeechManager::add(const std::string&amp; text, 
++                   const Entity&amp; entity,
++                   const Color&amp; color)
+ {
+-  speeches.push_back(new Speech(text, pos, color));
++  return add(text, entity.get_pos(), color);
+ }
+ 
++
++int
++SpeechManager::add(const std::string&amp; text, 
++                   const Vector2f&amp; pos, 
++                   const Color&amp; color)
++{
++  int this_speech_id = speech_id;
++  speeches.push_back(new Speech(this_speech_id, text, pos, color));
++  speech_id += 1;
++  return this_speech_id;
++}
++
+ void
+ SpeechManager::draw()
+ {
+@@ -97,6 +132,11 @@
+     {  
+       if ((*i)-&gt;is_done())
+         {
++          ScriptManager::WakeupData event;
++          event.type = ScriptManager::SPEECH_DONE;
++          event.id   = (*i)-&gt;id;
++          ScriptManager::current()-&gt;fire_wakeup_event(event);
++
+           delete *i;
+           *i = 0;
+         }
+
+Modified: trunk/windstille/src/hud/speech_manager.hpp
+===================================================================
+--- trunk/windstille/src/hud/speech_manager.hpp	2009-03-12 14:17:54 UTC (rev 2653)
++++ trunk/windstille/src/hud/speech_manager.hpp	2009-03-13 03:00:43 UTC (rev 2654)
+@@ -26,6 +26,7 @@
+ #include &quot;display/color.hpp&quot;
+ 
+ class Entity;
++class Speech;
+ 
+ /** The SpeechManager displays speech text over characters or
+     objects, similar to what you see in LucasArts games */
+@@ -37,24 +38,9 @@
+   static SpeechManager* current() { return current_; }
+ 
+ private:
+-  class Speech 
+-  {
+-  public:
+-    std::string text;
+-    Vector2f    pos;
+-    Color       color;
+-    float       seconds_passed;
+-    float       wpm;
+-
+-    Speech(const std::string&amp; text, const Vector2f&amp; pos, const Color&amp; color);
+-    
+-    void draw();
+-    void update(float delta);
+-    bool is_done() const;
+-  };
+-
+   typedef std::vector&lt;Speech*&gt; Speeches;
+   Speeches speeches;
++  int speech_id;
+ 
+ public:
+   SpeechManager();
+@@ -68,9 +54,13 @@
+    *  @param pos   The position of the speech bubble in screen coordinates
+    *  @param color The color of the speech bubble
+    */
+-  void add(const std::string&amp; text, 
+-           const Vector2f&amp; pos, 
+-           const Color&amp; color = Color(1.0f, 1.0f, 1.0f));
++  int add(const std::string&amp; text, 
++          const Vector2f&amp; pos, 
++          const Color&amp; color = Color(1.0f, 1.0f, 1.0f));
++  
++  int add(const std::string&amp; text, 
++          const Entity&amp; entity,
++          const Color&amp; color = Color(1.0f, 1.0f, 1.0f));
+ 
+   void draw();
+   void update(float delta, const Controller&amp; controller);
+
+Modified: trunk/windstille/src/scripting/interface.cpp
+===================================================================
+--- trunk/windstille/src/scripting/interface.cpp	2009-03-12 14:17:54 UTC (rev 2653)
++++ trunk/windstille/src/scripting/interface.cpp	2009-03-13 03:00:43 UTC (rev 2654)
+@@ -17,6 +17,7 @@
+ */
+ 
+ #include &lt;vector&gt;
++#include &lt;assert.h&gt;
+ #include &quot;wrapper.interface.hpp&quot;
+ #include &quot;util.hpp&quot;
+ #include &quot;interface.hpp&quot;
+@@ -159,11 +160,19 @@
+     }
+ }
+ 
+-void speech_show(const std::string&amp; text, float x, float y)
++int speech_show(const std::string&amp; text, float x, float y, float r, float g, float b)
+ {
+-  SpeechManager::current()-&gt;add(text, Vector2f(x, y));
++  return SpeechManager::current()-&gt;add(text, Vector2f(x, y), Color(r, g, b));
+ }
+ 
++void wait_for_speech(HSQUIRRELVM vm, int i) __suspend
++{
++  ScriptManager::WakeupData data;
++  data.type = ScriptManager::SPEECH_DONE;
++  data.id   = i;
++  ScriptManager::current()-&gt;get_thread(vm)-&gt;set_wakeup_event(data);
++}
++
+ void dialog_show(int alignment, const std::string&amp; character, const std::string&amp; portrait, const std::string&amp; text)
+ {
+   DialogManager::current()-&gt;add_dialog(alignment, portrait, text);
+
+Modified: trunk/windstille/src/scripting/interface.hpp
+===================================================================
+--- trunk/windstille/src/scripting/interface.hpp	2009-03-12 14:17:54 UTC (rev 2653)
++++ trunk/windstille/src/scripting/interface.hpp	2009-03-13 03:00:43 UTC (rev 2654)
+@@ -55,7 +55,8 @@
+ static const int TOP     = 0x10;
+ static const int BOTTOM  = 0x20;
+ 
+-void speech_show(const std::string&amp; text, float x, float y);
++int  speech_show(const std::string&amp; text, float x, float y, float r, float g, float b);
++void wait_for_speech(HSQUIRRELVM vm, int i) __suspend;
+ 
+ void dialog_show(int alignment, const std::string&amp; character, const std::string&amp; portrait, const std::string&amp; text);
+ void wait_for_dialog(HSQUIRRELVM vm) __suspend;
+
+Modified: trunk/windstille/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/windstille/src/scripting/wrapper.cpp	2009-03-12 14:17:54 UTC (rev 2653)
++++ trunk/windstille/src/scripting/wrapper.cpp	2009-03-13 03:00:43 UTC (rev 2654)
+@@ -793,11 +793,27 @@
+     sq_throwerror(vm, _SC(&quot;Argument 3 not a float&quot;));
+     return SQ_ERROR;
+   }
++  SQFloat arg3;
++  if(SQ_FAILED(sq_getfloat(vm, 5, &amp;arg3))) {
++    sq_throwerror(vm, _SC(&quot;Argument 4 not a float&quot;));
++    return SQ_ERROR;
++  }
++  SQFloat arg4;
++  if(SQ_FAILED(sq_getfloat(vm, 6, &amp;arg4))) {
++    sq_throwerror(vm, _SC(&quot;Argument 5 not a float&quot;));
++    return SQ_ERROR;
++  }
++  SQFloat arg5;
++  if(SQ_FAILED(sq_getfloat(vm, 7, &amp;arg5))) {
++    sq_throwerror(vm, _SC(&quot;Argument 6 not a float&quot;));
++    return SQ_ERROR;
++  }
+ 
+   try {
+-    Scripting::speech_show(arg0, static_cast&lt;float&gt; (arg1), static_cast&lt;float&gt; (arg2));
++    int return_value = Scripting::speech_show(arg0, static_cast&lt;float&gt; (arg1), static_cast&lt;float&gt; (arg2), static_cast&lt;float&gt; (arg3), static_cast&lt;float&gt; (arg4), static_cast&lt;float&gt; (arg5));
+ 
+-    return 0;
++    sq_pushinteger(vm, return_value);
++    return 1;
+ 
+   } catch(std::exception&amp; e) {
+     sq_throwerror(vm, e.what());
+@@ -809,6 +825,30 @@
+ 
+ }
+ 
++static SQInteger wait_for_speech_wrapper(HSQUIRRELVM vm)
++{
++  HSQUIRRELVM arg0 = vm;
++  SQInteger arg1;
++  if(SQ_FAILED(sq_getinteger(vm, 2, &amp;arg1))) {
++    sq_throwerror(vm, _SC(&quot;Argument 1 not an integer&quot;));
++    return SQ_ERROR;
++  }
++
++  try {
++    Scripting::wait_for_speech(arg0, static_cast&lt;int&gt; (arg1));
++
++    return sq_suspendvm(vm);
++
++  } catch(std::exception&amp; e) {
++    sq_throwerror(vm, e.what());
++    return SQ_ERROR;
++  } catch(...) {
++    sq_throwerror(vm, _SC(&quot;Unexpected exception while executing function 'wait_for_speech'&quot;));
++    return SQ_ERROR;
++  }
++
++}
++
+ static SQInteger dialog_show_wrapper(HSQUIRRELVM vm)
+ {
+   SQInteger arg0;
+@@ -1818,11 +1858,18 @@
+ 
+   sq_pushstring(v, &quot;speech_show&quot;, -1);
+   sq_newclosure(v, &amp;speech_show_wrapper, 0);
+-  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t s f|i f|i &quot;);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t s f|i f|i f|i f|i f|i &quot;);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+     throw SquirrelError(v, &quot;Couldn't register function 'speech_show'&quot;);
+   }
+ 
++  sq_pushstring(v, &quot;wait_for_speech&quot;, -1);
++  sq_newclosure(v, &amp;wait_for_speech_wrapper, 0);
++  sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t i &quot;);
++  if(SQ_FAILED(sq_createslot(v, -3))) {
++    throw SquirrelError(v, &quot;Couldn't register function 'wait_for_speech'&quot;);
++  }
++
+   sq_pushstring(v, &quot;dialog_show&quot;, -1);
+   sq_newclosure(v, &amp;dialog_show_wrapper, 0);
+   sq_setparamscheck(v, SQ_MATCHTYPEMASKSTRING, &quot;x|t i s s s &quot;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001650.html">[Windstille-commit] r2653 - trunk/windstille
+</A></li>
+	<LI>Next message: <A HREF="001652.html">[Windstille-commit] r2655 - in trunk/windstille/src: app screen
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1651">[ date ]</a>
+              <a href="thread.html#1651">[ thread ]</a>
+              <a href="subject.html#1651">[ subject ]</a>
+              <a href="author.html#1651">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,479 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2332 - trunk/griv/new
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2332%20-%20trunk/griv/new&In-Reply-To=%3C200808151314.m7FDEOAd017496%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001323.html">
+   <LINK REL="Next"  HREF="001326.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2332 - trunk/griv/new</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2332%20-%20trunk/griv/new&In-Reply-To=%3C200808151314.m7FDEOAd017496%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2332 - trunk/griv/new">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Aug 15 15:14:24 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001323.html">[Windstille-commit] r2331 - trunk/griv/new
+</A></li>
+        <LI>Next message: <A HREF="001326.html">[Windstille-commit] r2333 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1334">[ date ]</a>
+              <a href="thread.html#1334">[ thread ]</a>
+              <a href="subject.html#1334">[ subject ]</a>
+              <a href="author.html#1334">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-15 15:14:24 +0200 (Fri, 15 Aug 2008)
+New Revision: 2332
+
+Added:
+   trunk/griv/new/jpeg_decoder_thread.cpp
+   trunk/griv/new/jpeg_decoder_thread.hpp
+Modified:
+   trunk/griv/new/SConstruct
+   trunk/griv/new/database_thread.cpp
+   trunk/griv/new/griv.cpp
+   trunk/griv/new/image.cpp
+   trunk/griv/new/tile_database.cpp
+   trunk/griv/new/tile_generator_thread.cpp
+   trunk/griv/new/tile_generator_thread.hpp
+   trunk/griv/new/viewer.cpp
+Log:
+Added JPEG decoder thread
+
+Modified: trunk/griv/new/SConstruct
+===================================================================
+--- trunk/griv/new/SConstruct	2008-08-15 13:12:44 UTC (rev 2331)
++++ trunk/griv/new/SConstruct	2008-08-15 13:14:24 UTC (rev 2332)
+@@ -23,6 +23,7 @@
+         'jpeg_image.cpp',
+         'jpeg_memory_src.cpp',
+         'jpeg_memory_dest.cpp',
++        'jpeg_decoder_thread.cpp',
+         'griv.cpp',
+         'image.cpp',
+         'md5.cpp',
+
+Modified: trunk/griv/new/database_thread.cpp
+===================================================================
+--- trunk/griv/new/database_thread.cpp	2008-08-15 13:12:44 UTC (rev 2331)
++++ trunk/griv/new/database_thread.cpp	2008-08-15 13:14:24 UTC (rev 2332)
+@@ -230,13 +230,15 @@
+                     }
+                   else
+                     {
+-                      std::cout &lt;&lt; &quot;Error: Couldn't get tile: &quot; 
+-                                &lt;&lt; tile_msg-&gt;fileid &lt;&lt; &quot; &quot;
+-                                &lt;&lt; tile_msg-&gt;x &lt;&lt; &quot; &quot;
+-                                &lt;&lt; tile_msg-&gt;y &lt;&lt; &quot; &quot;
+-                                &lt;&lt; tile_msg-&gt;tilescale
+-                                &lt;&lt; std::endl;
+-                      
++                      if (0)
++                        std::cout &lt;&lt; &quot;Error: Couldn't get tile: &quot; 
++                                  &lt;&lt; tile_msg-&gt;fileid &lt;&lt; &quot; &quot;
++                                  &lt;&lt; tile_msg-&gt;x &lt;&lt; &quot; &quot;
++                                  &lt;&lt; tile_msg-&gt;y &lt;&lt; &quot; &quot;
++                                  &lt;&lt; tile_msg-&gt;tilescale
++                                  &lt;&lt; std::endl;
++
++                      // TileGeneratorThread::request_tile(fileid, x, y, tilescale);
+                     }
+                 }
+                 break;
+
+Modified: trunk/griv/new/griv.cpp
+===================================================================
+--- trunk/griv/new/griv.cpp	2008-08-15 13:12:44 UTC (rev 2331)
++++ trunk/griv/new/griv.cpp	2008-08-15 13:14:24 UTC (rev 2332)
+@@ -41,6 +41,7 @@
+ #include &quot;url.hpp&quot;
+ #include &quot;sqlite.hpp&quot;
+ #include &quot;software_surface.hpp&quot;
++#include &quot;jpeg_decoder_thread.hpp&quot;
+ #include &quot;file_database.hpp&quot;
+ #include &quot;tile_database.hpp&quot;
+ #include &quot;database_thread.hpp&quot;
+@@ -123,10 +124,12 @@
+     }
+   atexit(SDL_Quit); 
+ 
+-  DatabaseThread database_thread(database);
++  JPEGDecoderThread   jpeg_thread;
++  DatabaseThread      database_thread(database);
+   TileGeneratorThread tile_generator_thread;
+-  ViewerThread viewer_thread;
++  ViewerThread        viewer_thread;
+ 
++  jpeg_thread.start();
+   database_thread.start();
+   tile_generator_thread.start();
+ 
+
+Modified: trunk/griv/new/image.cpp
+===================================================================
+--- trunk/griv/new/image.cpp	2008-08-15 13:12:44 UTC (rev 2331)
++++ trunk/griv/new/image.cpp	2008-08-15 13:14:24 UTC (rev 2332)
+@@ -23,6 +23,7 @@
+ **  02111-1307, USA.
+ */
+ 
++#include &quot;math/rgb.hpp&quot;
+ #include &quot;math/rect.hpp&quot;
+ #include &quot;framebuffer.hpp&quot;
+ #include &quot;surface.hpp&quot;
+@@ -140,6 +141,14 @@
+     {
+       ViewerThread::current()-&gt;request_tile(impl-&gt;fileid, tile_scale, x, y, *this);
+ 
++      // Request the next smaller tile too, so we get a lower quality
++      // image fast and a higher quality one soon after FIXME: Its
++      // unclear if this actually improves things, also the order of
++      // request gets mungled in the DatabaseThread, we should request
++      // the whole group of lower res tiles at once, instead of one by
++      // one, since that eats up the possible speed up
++      ViewerThread::current()-&gt;request_tile(impl-&gt;fileid, tile_scale+1, x, y, *this);
++
+       SurfaceStruct s;
+       
+       s.surface = Surface();
+@@ -162,6 +171,7 @@
+   if (surface)
+     {
+       surface.draw(Rectf(pos, surface.get_size() * scale));
++      //Framebuffer::draw_rect(Rectf(pos, surface.get_size() * scale), RGB(100, 100, 100));
+     }
+   else
+     {
+@@ -187,6 +197,7 @@
+           i-&gt;second.surface.draw(Rectf(Vector2f(x%downscale, y%downscale) * 256/downscale, 
+                                        s),
+                                  Rectf(pos, s * scale * downscale));
++          //Framebuffer::draw_rect(Rectf(pos, s * scale * downscale), RGB(255, 255, 255));
+         }
+       else
+         {
+@@ -264,24 +275,31 @@
+       // big images we would end up never clearing it
+       
+       // Clear the cache, but keep the smallest tile (Wonky hack)
+-      int max_tiledb_scale = 0;
+-      SurfaceStruct s;
+-      int tileid;
+-      for(Cache::iterator i = impl-&gt;cache.begin(); i != impl-&gt;cache.end(); ++i)
++      if (0)
+         {
+-          int tiledb_scale = (i-&gt;first &gt;&gt; 16);
+-          if (tiledb_scale &gt; max_tiledb_scale)
++          impl-&gt;cache.clear();
++        }
++      else
++        {
++          int max_tiledb_scale = 0;
++          SurfaceStruct s;
++          int tileid;
++          for(Cache::iterator i = impl-&gt;cache.begin(); i != impl-&gt;cache.end(); ++i)
+             {
+-              max_tiledb_scale = tiledb_scale;
+-              tileid = i-&gt;first;
+-              s      = i-&gt;second;
++              int tiledb_scale = (i-&gt;first &gt;&gt; 16);
++              if (tiledb_scale &gt; max_tiledb_scale)
++                {
++                  max_tiledb_scale = tiledb_scale;
++                  tileid = i-&gt;first;
++                  s      = i-&gt;second;
++                }
+             }
+-        }
+-      impl-&gt;cache.clear();
++          impl-&gt;cache.clear();
+ 
+-      if (max_tiledb_scale != 0)
+-        {
+-          impl-&gt;cache[tileid] = s;
++          if (max_tiledb_scale != 0)
++            {
++              impl-&gt;cache[tileid] = s;
++            }
+         }
+     }
+ }
+
+Added: trunk/griv/new/jpeg_decoder_thread.cpp
+===================================================================
+--- trunk/griv/new/jpeg_decoder_thread.cpp	2008-08-15 13:12:44 UTC (rev 2331)
++++ trunk/griv/new/jpeg_decoder_thread.cpp	2008-08-15 13:14:24 UTC (rev 2332)
+@@ -0,0 +1,71 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &quot;software_surface.hpp&quot;
++#include &quot;jpeg_decoder_thread.hpp&quot;
++
++JPEGDecoderThread* JPEGDecoderThread::current_ = 0;
++
++JPEGDecoderThread::JPEGDecoderThread()
++  : quit(false)
++{
++  current_ = 0;
++}
++
++void
++JPEGDecoderThread::request_decode(const Blob&amp; blob,
++                                  const boost::function&lt;void (const SoftwareSurface&amp;)&gt;&amp; callback)
++{
++  JPEGDecoderThreadMessage msg;
++  msg.blob     = blob;
++  msg.callback = callback;
++  queue.push(msg);
++}
++
++void 
++JPEGDecoderThread::stop()
++{
++  quit = true;
++}
++
++int
++JPEGDecoderThread::run()
++{
++  quit = false;
++  while (!quit)
++    {
++      while(!queue.empty())
++        {
++          JPEGDecoderThreadMessage msg = queue.front();
++          queue.pop();
++          msg.callback(SoftwareSurface::from_data(msg.blob));
++        }
++      queue.wait();
++    }
++
++  return 0;
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/jpeg_decoder_thread.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/new/jpeg_decoder_thread.hpp
+===================================================================
+--- trunk/griv/new/jpeg_decoder_thread.hpp	2008-08-15 13:12:44 UTC (rev 2331)
++++ trunk/griv/new/jpeg_decoder_thread.hpp	2008-08-15 13:14:24 UTC (rev 2332)
+@@ -0,0 +1,71 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_JPEG_DECODER_THREAD_HPP
++#define HEADER_JPEG_DECODER_THREAD_HPP
++
++#include &lt;boost/function.hpp&gt;
++#include &quot;thread_message_queue.hpp&quot;
++#include &quot;blob.hpp&quot;
++#include &quot;thread.hpp&quot;
++
++class SoftwareSurface;
++
++/** Simple thread that takes a binary blob and decodes it to a
++    SoftwareSurface */
++class JPEGDecoderThread : public Thread
++{
++private:
++  static JPEGDecoderThread* current_;
++
++public:
++  static JPEGDecoderThread* current() { return current_; } 
++
++private:
++  struct JPEGDecoderThreadMessage 
++  {
++    Blob blob;
++    boost::function&lt;void (const SoftwareSurface&amp;)&gt; callback;
++  };
++
++  ThreadMessageQueue&lt;JPEGDecoderThreadMessage&gt; queue;
++  bool quit;
++
++protected:
++  int run();
++public:
++  JPEGDecoderThread();
++
++  void request_decode(const Blob&amp; blob, const boost::function&lt;void (const SoftwareSurface&amp;)&gt;&amp; callback);
++  void stop();
++
++private:
++  JPEGDecoderThread (const JPEGDecoderThread&amp;);
++  JPEGDecoderThread&amp; operator= (const JPEGDecoderThread&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/new/jpeg_decoder_thread.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/griv/new/tile_database.cpp
+===================================================================
+--- trunk/griv/new/tile_database.cpp	2008-08-15 13:12:44 UTC (rev 2331)
++++ trunk/griv/new/tile_database.cpp	2008-08-15 13:14:24 UTC (rev 2332)
+@@ -64,6 +64,8 @@
+       tile.scale   = reader.get_int (1);
+       tile.x       = reader.get_int (2);
+       tile.y       = reader.get_int (3);
++
++      // FIXME: Do this in the JPEGDecoderThread
+       tile.surface = SoftwareSurface::from_data(reader.get_blob(4));
+ 
+       return true;
+
+Modified: trunk/griv/new/tile_generator_thread.cpp
+===================================================================
+--- trunk/griv/new/tile_generator_thread.cpp	2008-08-15 13:12:44 UTC (rev 2331)
++++ trunk/griv/new/tile_generator_thread.cpp	2008-08-15 13:14:24 UTC (rev 2332)
+@@ -53,6 +53,12 @@
+ }
+ 
+ void
++TileGeneratorThread::request_tile(int fileid, const std::string&amp; filename, int x, int y)
++{
++  
++}
++
++void
+ TileGeneratorThread::stop()
+ {
+   quit = true;
+
+Modified: trunk/griv/new/tile_generator_thread.hpp
+===================================================================
+--- trunk/griv/new/tile_generator_thread.hpp	2008-08-15 13:12:44 UTC (rev 2331)
++++ trunk/griv/new/tile_generator_thread.hpp	2008-08-15 13:14:24 UTC (rev 2332)
+@@ -54,7 +54,10 @@
+   ~TileGeneratorThread();
+ 
+   void stop();
++
+   void request_tiles(int fileid, const std::string&amp; filename);
++  void request_tile(int fileid, const std::string&amp; filename, int x, int y);
++
+   void receive_tile(const Tile&amp; tile);
+   
+ private:
+
+Modified: trunk/griv/new/viewer.cpp
+===================================================================
+--- trunk/griv/new/viewer.cpp	2008-08-15 13:12:44 UTC (rev 2331)
++++ trunk/griv/new/viewer.cpp	2008-08-15 13:14:24 UTC (rev 2332)
+@@ -24,6 +24,7 @@
+ */
+ 
+ #include &lt;iostream&gt;
++#include &quot;math/rgb.hpp&quot;
+ #include &quot;framebuffer.hpp&quot;
+ #include &quot;software_surface.hpp&quot;
+ #include &quot;math/vector2f.hpp&quot;
+@@ -184,7 +185,7 @@
+   Rectf cliprect = state.screen2world(Rect(0, 0, Framebuffer::get_width(), Framebuffer::get_height())); 
+ 
+   if (clip_debug)
+-    Framebuffer::draw_rect(cliprect);
++    Framebuffer::draw_rect(cliprect, RGB(255, 0, 255));
+   
+   workspace.draw(cliprect,
+                  state.get_scale());
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001323.html">[Windstille-commit] r2331 - trunk/griv/new
+</A></li>
+	<LI>Next message: <A HREF="001326.html">[Windstille-commit] r2333 - trunk/griv/new
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1334">[ date ]</a>
+              <a href="thread.html#1334">[ thread ]</a>
+              <a href="subject.html#1334">[ subject ]</a>
+              <a href="author.html#1334">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

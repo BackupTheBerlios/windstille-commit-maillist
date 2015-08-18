@@ -1,0 +1,599 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2358 - in trunk/griv: . src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2358%20-%20in%20trunk/griv%3A%20.%20src&In-Reply-To=%3C200808280136.m7S1abeb027534%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001354.html">
+   <LINK REL="Next"  HREF="001356.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2358 - in trunk/griv: . src</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2358%20-%20in%20trunk/griv%3A%20.%20src&In-Reply-To=%3C200808280136.m7S1abeb027534%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2358 - in trunk/griv: . src">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Aug 28 03:36:37 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001354.html">[Windstille-commit] r2357 - in trunk/griv: . src
+</A></li>
+        <LI>Next message: <A HREF="001356.html">[Windstille-commit] r2359 - trunk/griv/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1355">[ date ]</a>
+              <a href="thread.html#1355">[ thread ]</a>
+              <a href="subject.html#1355">[ subject ]</a>
+              <a href="author.html#1355">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2008-08-28 03:36:35 +0200 (Thu, 28 Aug 2008)
+New Revision: 2358
+
+Added:
+   trunk/griv/src/space_navigator.cpp
+   trunk/griv/src/space_navigator.hpp
+Modified:
+   trunk/griv/SConstruct
+   trunk/griv/TODO
+   trunk/griv/src/image.cpp
+   trunk/griv/src/tile_generator_thread.cpp
+   trunk/griv/src/tile_generator_thread.hpp
+   trunk/griv/src/viewer.cpp
+   trunk/griv/src/viewer.hpp
+   trunk/griv/src/viewer_thread.cpp
+Log:
+Added space navigator support and some other small bug fixes
+
+Modified: trunk/griv/SConstruct
+===================================================================
+--- trunk/griv/SConstruct	2008-08-27 20:13:54 UTC (rev 2357)
++++ trunk/griv/SConstruct	2008-08-28 01:36:35 UTC (rev 2358)
+@@ -3,6 +3,7 @@
+                        CXXFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O2&quot;, &quot;-g3&quot;, &quot;-Wnon-virtual-dtor&quot;], 
+                        LIBS=['jpeg',
+                              'mhash', 
++                             'spnav',
+                              'GL', 
+                              'GLU',
+                              'GLEW'])
+@@ -30,6 +31,7 @@
+         'src/image.cpp',
+         'src/md5.cpp',
+         'src/software_surface.cpp',
++        'src/space_navigator.cpp',
+         'src/sqlite.cpp',
+         'src/surface.cpp',
+         'src/texture.cpp',
+
+Modified: trunk/griv/TODO
+===================================================================
+--- trunk/griv/TODO	2008-08-27 20:13:54 UTC (rev 2357)
++++ trunk/griv/TODO	2008-08-28 01:36:35 UTC (rev 2358)
+@@ -1,5 +1,11 @@
+ [[ Griv ToDo ]]
+ 
++* pointing griv to an empty directory is weird (directory is empty,
++  griv displays files in database, but can't create new thumbnails due
++  to missing files). It should give an error that no images could be found
++
++* float isn't enough, on high zoom level it breaks apart, need double
++
+ * store the max_tile size into the FileTable
+ 
+ * implement shader to change hue, saturation, contrast, brightness, etc.
+
+Modified: trunk/griv/src/image.cpp
+===================================================================
+--- trunk/griv/src/image.cpp	2008-08-27 20:13:54 UTC (rev 2357)
++++ trunk/griv/src/image.cpp	2008-08-28 01:36:35 UTC (rev 2358)
+@@ -326,6 +326,9 @@
+           int max_tiledb_scale = 0;
+           SurfaceStruct s;
+           int tileid = -1;
++
++          //FIXME: Calculate a size at which the thumbnail is 32x32 or
++          //smaller, keep that and everything smaller, discard the rest
+           for(Cache::iterator i = impl-&gt;cache.begin(); i != impl-&gt;cache.end(); ++i)
+             {
+               int tiledb_scale = (i-&gt;first &gt;&gt; 16);
+
+Added: trunk/griv/src/space_navigator.cpp
+===================================================================
+--- trunk/griv/src/space_navigator.cpp	2008-08-27 20:13:54 UTC (rev 2357)
++++ trunk/griv/src/space_navigator.cpp	2008-08-28 01:36:35 UTC (rev 2358)
+@@ -0,0 +1,97 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &lt;math.h&gt;
++#include &lt;assert.h&gt;
++#include &lt;iostream&gt;
++#include &lt;spnav.h&gt;
++#include &quot;viewer.hpp&quot;
++#include &quot;space_navigator.hpp&quot;
++
++SpaceNavigator::SpaceNavigator()
++{
++  if (spnav_open() != 0)
++    {
++      std::cout &lt;&lt; &quot;Error: SpaceNavigator: open&quot; &lt;&lt; std::endl;
++    }
++}
++
++SpaceNavigator::~SpaceNavigator()
++{
++  if (spnav_close() != 0)
++    {
++      std::cout &lt;&lt; &quot;Error: SpaceNavigator: close&quot; &lt;&lt; std::endl;
++    }
++}
++
++void
++SpaceNavigator::poll(Viewer&amp; viewer)
++{
++  spnav_event event;
++  while(spnav_poll_event(&amp;event))
++    {
++      switch(event.type)
++        {
++          case SPNAV_EVENT_MOTION:
++            {
++              if (0)
++              std::cout &lt;&lt; &quot;MotionEvent: &quot; 
++                        &lt;&lt; &quot;(&quot;
++                        &lt;&lt; event.motion.x &lt;&lt; &quot;, &quot;
++                        &lt;&lt; event.motion.y &lt;&lt; &quot;, &quot;
++                        &lt;&lt; event.motion.z
++                        &lt;&lt; &quot;) (&quot;
++                        &lt;&lt; event.motion.rx &lt;&lt; &quot;, &quot;
++                        &lt;&lt; event.motion.ry &lt;&lt; &quot;, &quot;
++                        &lt;&lt; event.motion.rz
++                        &lt;&lt; std::endl;              
++
++
++              float factor = -abs(event.motion.y)/10000.0f;
++
++              if (event.motion.y &gt; 0)
++                viewer.get_state().zoom(1.0f+factor);
++              else if (event.motion.y &lt; 0)
++                viewer.get_state().zoom(1.0f/(1.0f+factor));
++
++              viewer.get_state().move(Vector2f(-event.motion.x / 10.0f,
++                                               +event.motion.z / 10.0f));
++
++              viewer.get_state().rotate(event.motion.ry / 100.0f);                                       
++            }
++            break;
++            
++          case SPNAV_EVENT_BUTTON:
++            if (0)
++            std::cout &lt;&lt; &quot;ButtonEvent: &quot; &lt;&lt; event.button.press &lt;&lt; event.button.bnum &lt;&lt; std::endl;
++            break;
++
++          default:
++            assert(!&quot;SpaceNavigator: Unhandled event&quot;);
++        }
++    }
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/src/space_navigator.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Added: trunk/griv/src/space_navigator.hpp
+===================================================================
+--- trunk/griv/src/space_navigator.hpp	2008-08-27 20:13:54 UTC (rev 2357)
++++ trunk/griv/src/space_navigator.hpp	2008-08-28 01:36:35 UTC (rev 2358)
+@@ -0,0 +1,46 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#ifndef HEADER_SPNAV_HPP
++#define HEADER_SPNAV_HPP
++
++class Viewer;
++
++class SpaceNavigator
++{
++public:
++  SpaceNavigator();
++  ~SpaceNavigator();
++
++  void poll(Viewer&amp; viewer);
++
++private:
++  SpaceNavigator (const SpaceNavigator&amp;);
++  SpaceNavigator&amp; operator= (const SpaceNavigator&amp;);
++};
++
++#endif
++
++/* EOF */
+
+
+Property changes on: trunk/griv/src/space_navigator.hpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/griv/src/tile_generator_thread.cpp
+===================================================================
+--- trunk/griv/src/tile_generator_thread.cpp	2008-08-27 20:13:54 UTC (rev 2357)
++++ trunk/griv/src/tile_generator_thread.cpp	2008-08-28 01:36:35 UTC (rev 2358)
+@@ -36,7 +36,10 @@
+ 
+ TileGeneratorThread::TileGeneratorThread()
+   : Thread(&quot;TileGeneratorThread&quot;),
+-    quit(false)
++    quit(false),
++    min_scale(0),
++    max_scale(0),
++    fileid(0)
+ {
+   current_ = this;
+   working  = false;
+@@ -73,53 +76,65 @@
+ void
+ TileGeneratorThread::process_message(const TileGeneratorThreadJob&amp; job)
+ {
+-  std::cout &lt;&lt; &quot;Processing: scale: &quot; &lt;&lt; job.min_scale &lt;&lt; &quot;-&quot; &lt;&lt; job.max_scale &lt;&lt; &quot; &quot; &lt;&lt; job.entry.filename &lt;&lt; &quot;...&quot; &lt;&lt; std::flush;
+-
+-  // Find scale at which the image fits on one tile
+-  int width  = job.entry.size.width;
+-  int height = job.entry.size.height;
+-  int scale  = job.min_scale;
+-
+-  int jpeg_scale = Math::pow2(scale);
+-  SoftwareSurface surface;
+-
+-  if (jpeg_scale &gt; 8)
+-    {
+-      // The JPEG class can only scale down by factor 2,4,8, so we have to
+-      // limit things (FIXME: is that true? if so, why?)
+-      surface = JPEG::load_from_file(job.entry.filename, 8);
+-      
+-      surface = surface.scale(Size(width  / Math::pow2(scale),
+-                                   height / Math::pow2(scale)));
++  if (fileid    == job.entry.fileid &amp;&amp;
++      min_scale == job.min_scale &amp;&amp;
++      max_scale == job.max_scale)
++    { 
++      // FIXME: Workaround for jobs getting reqested multiple times in a row for some reason
++      std::cout &lt;&lt; &quot;TileGeneratorThread: Job rejected: &quot; &lt;&lt; job.min_scale &lt;&lt; &quot;-&quot; &lt;&lt; job.max_scale &lt;&lt; &quot; &quot; &lt;&lt; job.entry.filename &lt;&lt; std::endl;
+     }
+   else
+     {
+-      surface = JPEG::load_from_file(job.entry.filename, jpeg_scale);
+-    }
++      std::cout &lt;&lt; &quot;TileGeneratorThread: Processing: scale: &quot; &lt;&lt; job.min_scale &lt;&lt; &quot;-&quot; &lt;&lt; job.max_scale &lt;&lt; &quot; &quot; &lt;&lt; job.entry.filename &lt;&lt; &quot;...&quot; &lt;&lt; std::flush;
+ 
+-  do
+-    {
+-      if (scale != job.min_scale)
++      min_scale = job.min_scale;
++      max_scale = job.max_scale;
++      fileid    = job.entry.fileid;
++
++      // Find scale at which the image fits on one tile
++      int width  = job.entry.size.width;
++      int height = job.entry.size.height;
++      int scale  = job.min_scale;
++
++      int jpeg_scale = Math::pow2(scale);
++      SoftwareSurface surface;
++
++      if (jpeg_scale &gt; 8)
+         {
+-          surface = surface.halve();
++          // The JPEG class can only scale down by factor 2,4,8, so we have to
++          // limit things (FIXME: is that true? if so, why?)
++          surface = JPEG::load_from_file(job.entry.filename, 8);
++      
++          surface = surface.scale(Size(width  / Math::pow2(scale),
++                                       height / Math::pow2(scale)));
+         }
++      else
++        {
++          surface = JPEG::load_from_file(job.entry.filename, jpeg_scale);
++        }
+ 
+-      for(int y = 0; 256*y &lt; surface.get_height(); ++y)
+-        for(int x = 0; 256*x &lt; surface.get_width(); ++x)
+-          {
+-            SoftwareSurface croped_surface = surface.crop(Rect(Vector2i(x * 256, y * 256),
+-                                                               Size(256, 256)));
++      do
++        {
++          if (scale != job.min_scale)
++            {
++              surface = surface.halve();
++            }
+ 
+-            job.callback(TileEntry(job.entry.fileid, scale, Vector2i(x, y), croped_surface));
+-          }
++          for(int y = 0; 256*y &lt; surface.get_height(); ++y)
++            for(int x = 0; 256*x &lt; surface.get_width(); ++x)
++              {
++                SoftwareSurface croped_surface = surface.crop(Rect(Vector2i(x * 256, y * 256),
++                                                                   Size(256, 256)));
+ 
+-      scale += 1;
++                job.callback(TileEntry(job.entry.fileid, scale, Vector2i(x, y), croped_surface));
++              }
+ 
+-    } while (scale &lt;= job.max_scale);
++          scale += 1;
+ 
+-  working = false;
++        } while (scale &lt;= job.max_scale);
+ 
+-  std::cout &lt;&lt; &quot;done&quot; &lt;&lt; std::endl;
++      std::cout &lt;&lt; &quot;done&quot; &lt;&lt; std::endl;
++    }
+ }
+ 
+ int
+@@ -143,11 +158,13 @@
+           catch(std::exception&amp; err)
+             {
+               // FIXME: We need a better way to communicate errors back
+-              std::cout &lt;&lt; &quot;\Error: nTileGeneratorThread: Loading failure: &quot; &lt;&lt; job.entry.filename &lt;&lt; std::endl;
++              std::cout &lt;&lt; &quot;\nError: TileGeneratorThread: Loading failure: &quot; &lt;&lt; job.entry.filename &lt;&lt; std::endl;
+               job.callback(TileEntry());
+             }
++          working = false;
+         }
+-            
++
++      //std::cout &lt;&lt; &quot;TileGeneratorThread: Waiting&quot; &lt;&lt; std::endl;
+       msg_queue.wait();
+     }
+   
+
+Modified: trunk/griv/src/tile_generator_thread.hpp
+===================================================================
+--- trunk/griv/src/tile_generator_thread.hpp	2008-08-27 20:13:54 UTC (rev 2357)
++++ trunk/griv/src/tile_generator_thread.hpp	2008-08-28 01:36:35 UTC (rev 2358)
+@@ -57,6 +57,10 @@
+   bool working;
+   ThreadMessageQueue&lt;TileGeneratorThreadJob&gt; msg_queue;
+ 
++  int min_scale;
++  int max_scale;
++  int fileid;
++
+ protected:
+   int run();
+   
+
+Modified: trunk/griv/src/viewer.cpp
+===================================================================
+--- trunk/griv/src/viewer.cpp	2008-08-27 20:13:54 UTC (rev 2357)
++++ trunk/griv/src/viewer.cpp	2008-08-28 01:36:35 UTC (rev 2358)
+@@ -34,6 +34,7 @@
+ 
+ ViewerState::ViewerState()
+   : scale(0.25f),
++    angle(0.0f),
+     offset(0.0f, 0.0f)
+ {
+ }
+@@ -47,8 +48,21 @@
+ }
+ 
+ void
+-ViewerState::move(const Vector2i&amp; pos)
++ViewerState::zoom(float factor)
+ {
++  zoom(factor, Vector2i(Framebuffer::get_width()/2, // FIXME: Little ugly, isn't it?
++                        Framebuffer::get_height()/2));
++}
++
++void
++ViewerState::rotate(float r)
++{
++  angle += r;
++}
++
++void
++ViewerState::move(const Vector2f&amp; pos)
++{
+   offset.x += pos.x;
+   offset.y += pos.y;
+ }
+@@ -117,6 +131,10 @@
+               workspace.layout(4, 3);
+               break;
+ 
++            case SDLK_2:
++              workspace.layout(16, 9);
++              break;
++
+             default:
+               break;
+           }
+@@ -128,8 +146,8 @@
+         
+         if (drag_n_drop)
+           {
+-            state.move(Vector2i(event.motion.xrel * 4,
+-                                event.motion.yrel * 4));
++            state.move(Vector2f(event.motion.xrel * 4.0f,
++                                event.motion.yrel * 4.0f));
+           }
+         break;
+ 
+@@ -195,6 +213,7 @@
+ 
+   glTranslatef(state.get_offset().x, state.get_offset().y, 0.0f);
+   glScalef(state.get_scale(), state.get_scale(), 1.0f);
++  //glRotatef(state.get_angle(), 0.0f, 0.0f, 1.0f);
+ 
+   Rectf cliprect = state.screen2world(Rect(0, 0, Framebuffer::get_width(), Framebuffer::get_height())); 
+ 
+
+Modified: trunk/griv/src/viewer.hpp
+===================================================================
+--- trunk/griv/src/viewer.hpp	2008-08-27 20:13:54 UTC (rev 2357)
++++ trunk/griv/src/viewer.hpp	2008-08-28 01:36:35 UTC (rev 2358)
+@@ -29,6 +29,7 @@
+ #include &quot;SDL.h&quot;
+ #include &quot;surface.hpp&quot;
+ #include &quot;math/vector2i.hpp&quot;
++#include &quot;math/vector2f.hpp&quot;
+ 
+ class Workspace;
+ 
+@@ -36,19 +37,23 @@
+ {
+ private:
+   float    scale;
++  float    angle;
+   Vector2f offset;
+   
+ public:
+   ViewerState();
+ 
+   void zoom(float factor, const Vector2i&amp; pos);
+-  void move(const Vector2i&amp; pos);
++  void zoom(float factor);
++  void move(const Vector2f&amp; pos);
++  void rotate(float r);
+ 
+   Vector2f screen2world(const Vector2i&amp;) const;
+   Rectf    screen2world(const Rect&amp;) const;
+ 
+   Vector2f get_offset() const { return offset; }
+   float    get_scale()  const { return scale; }
++  float    get_angle() const  { return angle; }
+ };
+ 
+ class Viewer
+@@ -72,6 +77,8 @@
+   void process_event(Workspace&amp; workspace, const SDL_Event&amp; event);
+   bool done() const { return quit; }
+ 
++  ViewerState&amp; get_state() { return state; }
++
+ private:
+   Viewer (const Viewer&amp;);
+   Viewer&amp; operator= (const Viewer&amp;);
+
+Modified: trunk/griv/src/viewer_thread.cpp
+===================================================================
+--- trunk/griv/src/viewer_thread.cpp	2008-08-27 20:13:54 UTC (rev 2357)
++++ trunk/griv/src/viewer_thread.cpp	2008-08-28 01:36:35 UTC (rev 2358)
+@@ -30,6 +30,7 @@
+ #include &quot;viewer.hpp&quot;
+ #include &quot;viewer_thread.hpp&quot;
+ #include &quot;tile_generator_thread.hpp&quot;
++#include &quot;space_navigator.hpp&quot;
+ #include &quot;database_thread.hpp&quot;
+ 
+ ViewerThread* ViewerThread::current_ = 0;
+@@ -61,6 +62,9 @@
+   Viewer viewer;
+ 
+   Uint32 ticks = SDL_GetTicks();
++
++  SpaceNavigator space_navigator;
++
+   while(!viewer.done())
+     {     
+       while (!file_queue.empty())
+@@ -70,6 +74,8 @@
+           file_queue.pop();
+         }
+ 
++      space_navigator.poll(viewer);
++
+       SDL_Event event;
+       while (SDL_PollEvent(&amp;event))
+         {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001354.html">[Windstille-commit] r2357 - in trunk/griv: . src
+</A></li>
+	<LI>Next message: <A HREF="001356.html">[Windstille-commit] r2359 - trunk/griv/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1355">[ date ]</a>
+              <a href="thread.html#1355">[ thread ]</a>
+              <a href="subject.html#1355">[ subject ]</a>
+              <a href="author.html#1355">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

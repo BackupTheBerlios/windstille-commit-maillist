@@ -1,0 +1,574 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1261 - in trunk/src: . display sprite2d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-April/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1261%20-%20in%20trunk/src%3A%20.%20display%20sprite2d&In-Reply-To=%3C200604250409.k3P49BYB007835%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000912.html">
+   <LINK REL="Next"  HREF="000914.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1261 - in trunk/src: . display sprite2d</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1261%20-%20in%20trunk/src%3A%20.%20display%20sprite2d&In-Reply-To=%3C200604250409.k3P49BYB007835%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1261 - in trunk/src: . display sprite2d">grumbel at berlios.de
+       </A><BR>
+    <I>Tue Apr 25 06:09:11 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000912.html">[Windstille-commit] r1260 - in trunk/data/models: . characters characters/airportpersonal characters/bob characters/jane characters/merc3 characters/miner characters/scientist characters/soldier characters/yagor misc misc/city objects/barrobot vehicles/minetrain vehicles/shuttle vehicles/troopshuttle
+</A></li>
+        <LI>Next message: <A HREF="000914.html">[Windstille-commit] r1262 - in trunk/src: . input
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#913">[ date ]</a>
+              <a href="thread.html#913">[ thread ]</a>
+              <a href="subject.html#913">[ subject ]</a>
+              <a href="author.html#913">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-04-25 06:08:56 +0200 (Tue, 25 Apr 2006)
+New Revision: 1261
+
+Modified:
+   trunk/src/SConscript
+   trunk/src/box.cpp
+   trunk/src/console.cpp
+   trunk/src/display/surface.cpp
+   trunk/src/display/surface.hpp
+   trunk/src/display/surface_manager.cpp
+   trunk/src/display/surface_manager.hpp
+   trunk/src/sharedptr.hpp
+   trunk/src/sprite2d/data.cpp
+   trunk/src/sprite2d/manager.cpp
+   trunk/src/sprite2d/manager.hpp
+   trunk/src/sprite2d/sprite.cpp
+   trunk/src/sprite2d/sprite.hpp
+   trunk/src/sprite2dview.cpp
+   trunk/src/sprite2dview.hpp
+Log:
+- some more features and bugfixes for Sprite2DVieew
+- added cleanup() calls for Sprite2DManager and SurfaceManager to get rid of all unused resources
+
+Modified: trunk/src/SConscript
+===================================================================
+--- trunk/src/SConscript	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/SConscript	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -174,7 +174,7 @@
+ 'tinygettext/gettext.cpp',
+ 'tinygettext/tinygettext.cpp'
+ ],
+-LIBS    = ['GL', 'GLU', 'squirrel', 'physfs', 'SDL_image', 'openal', 'glew'] + env['LIBS'],
++LIBS    = ['GL', 'GLU', 'squirrel', 'physfs', 'SDL_image', 'openal', 'glew', 'ogg', 'vorbis', 'vorbisfile'] + env['LIBS'],
+ LIBPATH = ['squirrel/', '../lib/'],
+ CPPPATH = env['CPPPATH'] + ['.', '..', 'squirrel/include/', '../lib/glew'])
+ 
+
+Modified: trunk/src/box.cpp
+===================================================================
+--- trunk/src/box.cpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/box.cpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -48,6 +48,7 @@
+   
+   if(spritename == &quot;&quot;)
+     throw std::runtime_error(&quot;No sprite name specified in Box&quot;);
++  
+   sprite = Sprite(spritename);
+   
+   colobj = new CollisionObject(this, Rectf(0, 0, width, height));
+
+Modified: trunk/src/console.cpp
+===================================================================
+--- trunk/src/console.cpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/console.cpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -163,7 +163,7 @@
+ 
+   if (console.is_active())
+     Display::fill_rect(Rect(0,0, 800, 600),
+-                       Color(0, 0, 0, 0.25f));
++                       Color(0, 0, 0, 0.5f));
+ 
+   for(int i = buffer.size()-1 - scroll_offset; i &gt;= 0 &amp;&amp; i &gt; int(buffer.size()) - num_lines - scroll_offset; --i)
+     {
+@@ -189,7 +189,7 @@
+             str += &quot;_&quot;;
+         }
+ 
+-      Fonts::ttffont-&gt;draw(x_pos, y_pos, &quot;&gt;&quot; + str, Color(1.0f, 1.0f, 1.0f));
++      Fonts::ttffont-&gt;draw(x_pos, y_pos, &quot;&gt; &quot; + str, Color(1.0f, 1.0f, 1.0f));
+     }
+ }
+ 
+
+Modified: trunk/src/display/surface.cpp
+===================================================================
+--- trunk/src/display/surface.cpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/display/surface.cpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -116,7 +116,7 @@
+ 
+ Surface::operator bool() const
+ {
+-  return !impl.is_null();
++  return impl.get() != 0;
+ }
+ 
+ void
+
+Modified: trunk/src/display/surface.hpp
+===================================================================
+--- trunk/src/display/surface.hpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/display/surface.hpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -27,9 +27,9 @@
+ #define HEADER_SURFACE_HPP
+ 
+ #include &lt;string&gt;
++#include &lt;boost/shared_ptr.hpp&gt;
+ #include &quot;math/rect.hpp&quot;
+ #include &quot;texture.hpp&quot;
+-#include &quot;sharedptr.hpp&quot;
+ 
+ class SurfaceDrawingParameters;
+ class SurfaceImpl;
+@@ -70,8 +70,10 @@
+ 
+   /** true if the Texture is valid and usable, false if not */
+   operator bool() const;
++
++  long use_count() const { return impl.use_count(); }
+ private:
+-  SharedPtr&lt;SurfaceImpl&gt; impl;
++  boost::shared_ptr&lt;SurfaceImpl&gt; impl;
+ };
+ 
+ #endif
+
+Modified: trunk/src/display/surface_manager.cpp
+===================================================================
+--- trunk/src/display/surface_manager.cpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/display/surface_manager.cpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -27,7 +27,8 @@
+   {
+     for(Surfaces::iterator i = surfaces.begin(); i != surfaces.end(); ++i)
+     {
+-      std::cerr &lt;&lt; &quot;Warning: Surface '&quot; &lt;&lt; i-&gt;first &lt;&lt; &quot;' not released.\n&quot;;
++      //      if (i-&gt;second.use_count() &gt; 1)
++        std::cerr &lt;&lt; &quot;Warning: Surface '&quot; &lt;&lt; i-&gt;first &lt;&lt; &quot;' not released.\n&quot;;
+     }
+   }
+ }
+@@ -162,3 +163,17 @@
+   return texture;
+ }
+ 
++void
++SurfaceManager::cleanup()
++{
++  for(Surfaces::iterator i = surfaces.begin(); i != surfaces.end(); ++i)
++    {
++      if (i-&gt;second.use_count() == 1)
++        {
++          surfaces.erase(i);
++        }
++    }
++}
++
++
++/* EOF */
+
+Modified: trunk/src/display/surface_manager.hpp
+===================================================================
+--- trunk/src/display/surface_manager.hpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/display/surface_manager.hpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -33,6 +33,9 @@
+ 
+   Texture create_texture(SDL_Surface* image, 
+                          float&amp; maxu, float&amp; maxv);
++
++  /** Removes all cached Sprites that are no longer in use */
++  void cleanup();
+   
+   typedef std::map&lt;std::string, Surface&gt; Surfaces;
+   Surfaces surfaces;
+
+Modified: trunk/src/sharedptr.hpp
+===================================================================
+--- trunk/src/sharedptr.hpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/sharedptr.hpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -103,12 +103,6 @@
+ 
+ 	U const* get() const { return (const U*) ((impl != 0) ? impl-&gt;ptr : 0); }
+ 
+-	//: Return the pointer.
+-	operator U*() { return get(); }
+-
+-	//: Returns the pointer.
+-	operator U const*() const { return get(); }
+-
+ 	//: Pointer equality check operator.
+ 	//- &lt;p&gt; This will return true if the SharedPtrs point to the same data. It doesn't
+ 	//- check the data itself for equality. &lt;/p&gt;
+
+Modified: trunk/src/sprite2d/data.cpp
+===================================================================
+--- trunk/src/sprite2d/data.cpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/sprite2d/data.cpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -15,8 +15,7 @@
+ #include &quot;display/surface.hpp&quot;
+ #include &quot;display/surface_manager.hpp&quot;
+ 
+-namespace sprite2d
+-{
++namespace sprite2d {
+ 
+ static bool has_suffix(const std::string&amp; str, const std::string&amp; suffix)
+ {
+@@ -26,6 +25,14 @@
+     return false;
+ }
+ 
++static std::string tolowercase(const std::string&amp; str)
++{
++  std::string out;
++  for(std::string::const_iterator i = str.begin();  i != str.end(); ++i)
++    out += tolower(*i);
++  return out;
++}
++
+ Data::Data(const std::string&amp; filename)
+ {
+   if (PHYSFS_exists(filename.c_str()))
+@@ -44,7 +51,7 @@
+           std::string dir = dirname(filename);
+           parse(dir, sprite);
+         }
+-      else if (has_suffix(filename, &quot;.png&quot;) || has_suffix(filename, &quot;.jpg&quot;))
++      else if (has_suffix(tolowercase(filename), &quot;.png&quot;) || has_suffix(tolowercase(filename), &quot;.jpg&quot;))
+         {
+           if (PHYSFS_exists(filename.c_str()))
+             {
+@@ -179,4 +186,6 @@
+                              action-&gt;surfaces, x_size, y_size);
+ }
+  
+-}
++} // namespace sprite2d
++
++/* EOF */
+
+Modified: trunk/src/sprite2d/manager.cpp
+===================================================================
+--- trunk/src/sprite2d/manager.cpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/sprite2d/manager.cpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -3,6 +3,7 @@
+ #include &quot;sprite2d/manager.hpp&quot;
+ #include &quot;sprite2d/data.hpp&quot;
+ #include &quot;sprite2d/sprite.hpp&quot;
++#include &lt;iostream&gt;
+ 
+ sprite2d::Manager* sprite2d_manager = 0;
+ 
+@@ -15,11 +16,9 @@
+ 
+ Manager::~Manager()
+ {
+-  for(Datas::iterator i = datas.begin(); i != datas.end(); ++i)
+-    delete i-&gt;second;
+ }
+ 
+-const Data*
++DataPtr
+ Manager::create_data(const std::string&amp; filename)
+ {
+   Datas::iterator i = datas.find(filename);
+@@ -29,12 +28,24 @@
+     }
+   else
+     {  
+-      Data* data = new Data(filename);
++      DataPtr data(new Data(filename));
+       datas.insert(std::make_pair(filename, data));
+       return data;
+     }
+ }
+ 
++void
++Manager::cleanup()
++{
++  for(Datas::iterator i = datas.begin(); i != datas.end(); ++i)
++    {
++      if (i-&gt;second.use_count() == 1)
++        {
++          datas.erase(i);
++        }
++    }
+ }
+ 
++} // namespace sprite2d
++
+ /* EOF */
+
+Modified: trunk/src/sprite2d/manager.hpp
+===================================================================
+--- trunk/src/sprite2d/manager.hpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/sprite2d/manager.hpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -3,10 +3,14 @@
+ 
+ #include &lt;string&gt;
+ #include &lt;map&gt;
++#include &lt;boost/shared_ptr.hpp&gt;
+ 
+ namespace sprite2d
+ {
++typedef 
++
+ class Data;
++typedef boost::shared_ptr&lt;Data&gt; DataPtr;
+ 
+ class Manager
+ {
+@@ -14,10 +18,12 @@
+   Manager();
+   ~Manager();
+ 
+-  const Data* create_data(const std::string&amp; filename);
++  DataPtr create_data(const std::string&amp; filename);
+   
++  /** Removes all cached Sprites that are no longer in use */
++  void cleanup();
+ private:
+-  typedef std::map&lt;std::string, Data*&gt; Datas;
++  typedef std::map&lt;std::string, DataPtr&gt; Datas;
+   Datas datas;
+ };
+ 
+
+Modified: trunk/src/sprite2d/sprite.cpp
+===================================================================
+--- trunk/src/sprite2d/sprite.cpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/sprite2d/sprite.cpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -13,7 +13,6 @@
+ #include &quot;util.hpp&quot;
+ 
+ Sprite::Sprite()
+-  : data(0)
+ {  
+ }
+ 
+@@ -34,7 +33,7 @@
+   blend_dfactor = GL_ONE_MINUS_SRC_ALPHA;
+ }
+ 
+-Sprite::Sprite(const sprite2d::Data* data)
++Sprite::Sprite(const sprite2d::DataPtr data)
+   : data(data)
+ {
+   current_action = data-&gt;actions[0];
+
+Modified: trunk/src/sprite2d/sprite.hpp
+===================================================================
+--- trunk/src/sprite2d/sprite.hpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/sprite2d/sprite.hpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -8,12 +8,12 @@
+ #include &quot;display/surface.hpp&quot;
+ #include &quot;math/vector.hpp&quot;
+ #include &quot;math/matrix.hpp&quot;
++#include &quot;manager.hpp&quot;
+ 
+ class DrawingContext;
+ class Color;
+ 
+ namespace sprite2d {
+-class Data;
+ struct Action;
+ } 
+ 
+@@ -26,7 +26,7 @@
+       search for a .png with the same name and use that as a simple
+       one-file sprite */
+   Sprite(const std::string&amp; filename);
+-  Sprite(const sprite2d::Data* data);
++  Sprite(const sprite2d::DataPtr data);
+   ~Sprite();
+ 
+   void update(float delta);
+@@ -68,11 +68,11 @@
+ 
+   /** true if the Sprite is valid and usable, false if not */
+   operator bool() const;
++
+ private:
+   /** Pointer to the Sprites data which is shared among all sprites
+       with are loaded from the same file */
+-  const sprite2d::Data* data;
+-
++  sprite2d::DataPtr data;
+   const sprite2d::Action* current_action;
+ 
+   float frame;
+
+Modified: trunk/src/sprite2dview.cpp
+===================================================================
+--- trunk/src/sprite2dview.cpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/sprite2dview.cpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -25,10 +25,14 @@
+ 
+ #include &lt;iostream&gt;
+ #include &lt;algorithm&gt;
++#include &lt;physfs.h&gt;
++
+ #include &quot;display/display.hpp&quot;
++#include &quot;sprite2d/manager.hpp&quot;
+ #include &quot;math.hpp&quot;
+ #include &quot;console.hpp&quot;
+ #include &quot;input/controller.hpp&quot;
++#include &quot;display/surface_manager.hpp&quot;
+ #include &quot;sprite2dview.hpp&quot;
+ 
+ extern std::vector&lt;std::string&gt; arg_files;
+@@ -40,15 +44,22 @@
+ {
+   index = 0;
+ 
+-  directory = arg_files;
++  for(std::vector&lt;std::string&gt;::iterator i = arg_files.begin(); i != arg_files.end(); ++i)
++    {
++      if (PHYSFS_isDirectory(i-&gt;c_str()))
++        { 
++          adddir(i-&gt;c_str());
++        }
++      else
++        {
++          directory.push_back(*i);
++        }
++    }
++  
++  next_image(0);
++  sprite = new_sprite;
++  new_sprite = Sprite();
+ 
+-  std::cout &lt;&lt; &quot;Length: &quot; &lt;&lt; directory.size() &lt;&lt; std::endl;
+-
+-  std::random_shuffle(directory.begin(), directory.end());
+-
+-  std::cout &lt;&lt; &quot;Length: &quot; &lt;&lt; directory.size() &lt;&lt; std::endl;
+-
+-  sprite      = Sprite(directory.back());
+   offset = 0.0f;
+ 
+   if (directory.size() &gt; 1)
+@@ -63,6 +74,25 @@
+   ignore_delta = false;
+ }
+ 
++void
++Sprite2DView::adddir(const std::string&amp; dirname)
++{
++  char** dirlist = PHYSFS_enumerateFiles(dirname.c_str());
++  for (char **i = dirlist; *i != NULL; ++i)
++    {
++      //std::cout &lt;&lt; dirname + &quot;/&quot; + *i &lt;&lt; std::endl;
++      if (PHYSFS_isDirectory((dirname + &quot;/&quot; + *i).c_str()))
++        {
++          adddir(dirname + &quot;/&quot; + *i);
++        }
++      else
++        {
++          directory.push_back((dirname + &quot;/&quot; + *i).c_str());
++        }
++    }
++  PHYSFS_freeList(dirlist);
++}
++
+ Sprite2DView::~Sprite2DView()
+ {
+   
+@@ -199,12 +229,26 @@
+         }
+ 
+       index = (unsigned int)(index + i) % directory.size();
+-      new_sprite = Sprite(directory[index]);
++
++    retry:
++      try {
++        new_sprite = Sprite(directory[index]);
++      } catch(std::exception&amp; e) {
++        std::cout &lt;&lt; &quot;Error: &quot; &lt;&lt; e.what() &lt;&lt; std::endl;
++        std::cout &lt;&lt; &quot;Removing '&quot; &lt;&lt; directory[index] &lt;&lt; &quot;' from the list&quot; &lt;&lt; std::endl;
++        directory.erase(directory.begin() + index);
++        index = (unsigned int)(index) % directory.size();
++        goto retry;
++      }
++
+       ignore_delta = true;
+       fadein = 0.0f;
+       prepare_sprite(new_sprite);
+       console &lt;&lt; index &lt;&lt; &quot;: &quot; &lt;&lt; directory[index] &lt;&lt; std::endl;
+     }
++
++  sprite2d_manager-&gt;cleanup();
++  surface_manager-&gt;cleanup();
+ }
+ 
+ void
+@@ -265,6 +309,9 @@
+     break;
+   }
+ 
++  if (controller.button_was_pressed(INVENTORY_BUTTON))
++     std::random_shuffle(directory.begin(), directory.end());
++   
+   if (controller.button_was_pressed(TERTIARY_BUTTON))
+     show_thumbnail = !show_thumbnail;
+ 
+
+Modified: trunk/src/sprite2dview.hpp
+===================================================================
+--- trunk/src/sprite2dview.hpp	2006-04-25 03:43:23 UTC (rev 1260)
++++ trunk/src/sprite2dview.hpp	2006-04-25 04:08:56 UTC (rev 1261)
+@@ -63,9 +63,12 @@
+   float display_time;
+   bool show_thumbnail;
+   bool ignore_delta;
++
+ public:
+   Sprite2DView();
+   ~Sprite2DView();
++  
++  void adddir(const std::string&amp; dir);
+ 
+   void draw();
+   void update(float delta, const Controller&amp; controller);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000912.html">[Windstille-commit] r1260 - in trunk/data/models: . characters characters/airportpersonal characters/bob characters/jane characters/merc3 characters/miner characters/scientist characters/soldier characters/yagor misc misc/city objects/barrobot vehicles/minetrain vehicles/shuttle vehicles/troopshuttle
+</A></li>
+	<LI>Next message: <A HREF="000914.html">[Windstille-commit] r1262 - in trunk/src: . input
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#913">[ date ]</a>
+              <a href="thread.html#913">[ thread ]</a>
+              <a href="subject.html#913">[ subject ]</a>
+              <a href="author.html#913">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

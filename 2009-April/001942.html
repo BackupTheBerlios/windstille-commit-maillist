@@ -1,0 +1,446 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2945 - in trunk/windstille: . src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-April/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2945%20-%20in%20trunk/windstille%3A%20.%20src/editor&In-Reply-To=%3C200904220501.n3M51hjU019510%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001941.html">
+   <LINK REL="Next"  HREF="001943.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2945 - in trunk/windstille: . src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2945%20-%20in%20trunk/windstille%3A%20.%20src/editor&In-Reply-To=%3C200904220501.n3M51hjU019510%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2945 - in trunk/windstille: . src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Apr 22 07:01:43 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001941.html">[Windstille-commit] r2944 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="001943.html">[Windstille-commit] r2946 - in trunk/windstille: . src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1942">[ date ]</a>
+              <a href="thread.html#1942">[ thread ]</a>
+              <a href="subject.html#1942">[ subject ]</a>
+              <a href="author.html#1942">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-04-22 07:01:32 +0200 (Wed, 22 Apr 2009)
+New Revision: 2945
+
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/functor_command.hpp
+   trunk/windstille/src/editor/group_command.hpp
+   trunk/windstille/src/editor/object_model.cpp
+   trunk/windstille/src/editor/object_model.hpp
+   trunk/windstille/src/editor/select_tool.cpp
+   trunk/windstille/src/editor/selection.cpp
+   trunk/windstille/src/editor/selection.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+Log:
+Moved ObjectModel offset handling into Selection, implemented undo/redo for move, fixed some undo/redo button update issues
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-04-22 04:37:31 UTC (rev 2944)
++++ trunk/windstille/TODO	2009-04-22 05:01:32 UTC (rev 2945)
+@@ -787,19 +787,19 @@
+   * ObjectRemoveCommand   [done]
+   * ObjectReorderCommand (raise/lower)
+ 
+-  * ObjectSetAngleCommand
+-  * ObjectSetScaleCommand
+-  * ObjectSetPosCommand
+-  * ObjectSetParent
+-  * ObjectSetHFlip
+-  * ObjectSetVFlip
++  * ObjectSetAngleCommand [done]
++  * ObjectSetScaleCommand [done]
++  * ObjectSetPosCommand   [done]
++  * ObjectSetParent       [done]
++  * ObjectSetHFlip        [done]
++  * ObjectSetVFlip        [done]
+ 
+   * LayerAddCommand
+   * LayerRemovedCommand
+   * LayerReorderCommand
+ 
+-  * GenericCommand(Object objects[],
+-                   sigc::mem_fun(&amp;ObjectModel::set_pos));
++  * FunctorCommand(boost::functor&lt;void ()&gt;&amp; undo,
++                   boost::functor&lt;void ()&gt;&amp; redo); [done]
+ 
+ * implement non-Surface based objects:
+ 
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-04-22 04:37:31 UTC (rev 2944)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-04-22 05:01:32 UTC (rev 2945)
+@@ -756,6 +756,8 @@
+       background_layer-&gt;set_active(wst-&gt;get_draw_background_pattern());
+       visible_layer-&gt;set_active(wst-&gt;get_draw_only_active_layer());
+       grid_layer-&gt;set_active(wst-&gt;get_enable_grid());
++
++      update_undo_state();
+     }
+   else
+     {
+
+Modified: trunk/windstille/src/editor/functor_command.hpp
+===================================================================
+--- trunk/windstille/src/editor/functor_command.hpp	2009-04-22 04:37:31 UTC (rev 2944)
++++ trunk/windstille/src/editor/functor_command.hpp	2009-04-22 05:01:32 UTC (rev 2945)
+@@ -19,6 +19,8 @@
+ #ifndef HEADER_WINDSTILLE_EDITOR_FUNCTOR_COMMAND_HPP
+ #define HEADER_WINDSTILLE_EDITOR_FUNCTOR_COMMAND_HPP
+ 
++#include &lt;boost/function.hpp&gt;
++
+ #include &quot;command.hpp&quot;
+ 
+ class FunctorCommand : public Command
+
+Modified: trunk/windstille/src/editor/group_command.hpp
+===================================================================
+--- trunk/windstille/src/editor/group_command.hpp	2009-04-22 04:37:31 UTC (rev 2944)
++++ trunk/windstille/src/editor/group_command.hpp	2009-04-22 05:01:32 UTC (rev 2945)
+@@ -19,6 +19,7 @@
+ #ifndef HEADER_WINDSTILLE_EDITOR_GROUP_COMMAND_HPP
+ #define HEADER_WINDSTILLE_EDITOR_GROUP_COMMAND_HPP
+ 
++#include &lt;vector&gt;
+ #include &quot;command.hpp&quot;
+ 
+ class GroupCommand : public Command
+
+Modified: trunk/windstille/src/editor/object_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/object_model.cpp	2009-04-22 04:37:31 UTC (rev 2944)
++++ trunk/windstille/src/editor/object_model.cpp	2009-04-22 05:01:32 UTC (rev 2945)
+@@ -113,11 +113,11 @@
+   ObjectModelHandle parent = parent_ptr.lock();
+   if (parent.get())
+     {
+-      return rel_pos + move_offset + parent-&gt;get_world_pos();
++      return rel_pos + parent-&gt;get_world_pos();
+     }
+   else
+     {
+-      return rel_pos + move_offset;
++      return rel_pos;
+     }
+ }
+ 
+@@ -131,6 +131,14 @@
+ }
+ 
+ void
++ObjectModel::set_rel_pos(const Vector2f&amp; rel_pos_)
++{
++  // Cut to integer positions
++  rel_pos.x = floorf(rel_pos_.x);
++  rel_pos.y = floorf(rel_pos_.y);
++}
++
++void
+ ObjectModel::draw_select(SceneContext&amp; sc, bool highlight)
+ {
+   if (highlight)
+@@ -153,38 +161,6 @@
+ }
+ 
+ void
+-ObjectModel::on_move_start()
+-{
+-}
+-
+-void
+-ObjectModel::on_move_update(const Vector2f&amp; offset)
+-{
+-  // Cut to integer positions
+-  move_offset.x = floorf(offset.x);
+-  move_offset.y = floorf(offset.y);
+-
+-  // Cut to integer positions
+-  rel_pos.x = floorf(rel_pos.x);
+-  rel_pos.y = floorf(rel_pos.y);
+-}
+-
+-void
+-ObjectModel::on_move_end(const Vector2f&amp; offset)
+-{
+-  // Cut to integer positions
+-  move_offset.x = floorf(offset.x);
+-  move_offset.y = floorf(offset.y);
+-
+-  rel_pos += move_offset;
+-  move_offset = Vector2f(0,0);
+-
+-  // Cut to integer positions
+-  rel_pos.x = floorf(rel_pos.x);
+-  rel_pos.y = floorf(rel_pos.y);
+-}
+-
+-void
+ ObjectModel::reset()
+ {
+ }
+
+Modified: trunk/windstille/src/editor/object_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/object_model.hpp	2009-04-22 04:37:31 UTC (rev 2944)
++++ trunk/windstille/src/editor/object_model.hpp	2009-04-22 05:01:32 UTC (rev 2945)
+@@ -44,7 +44,6 @@
+   SelectMask  select_mask;
+ 
+   ObjectModelPtr parent_ptr;
+-  Vector2f move_offset;
+ 
+ public:
+   ObjectModel(const FileReader&amp; reader);
+@@ -61,11 +60,7 @@
+   void set_world_pos(const Vector2f&amp; p);
+ 
+   Vector2f get_rel_pos() const { return rel_pos; }
+-  void     set_rel_pos(const Vector2f&amp; rel_pos_)  {  rel_pos = rel_pos_; }
+-  
+-  void on_move_start();
+-  void on_move_update(const Vector2f&amp; offset);
+-  void on_move_end(const Vector2f&amp; offset);
++  void     set_rel_pos(const Vector2f&amp; rel_pos_);
+ 
+   SelectMask get_select_mask() const { return select_mask; }
+   void   set_select_mask(const SelectMask&amp; select_mask_) { select_mask = select_mask_; }
+
+Modified: trunk/windstille/src/editor/select_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/select_tool.cpp	2009-04-22 04:37:31 UTC (rev 2944)
++++ trunk/windstille/src/editor/select_tool.cpp	2009-04-22 05:01:32 UTC (rev 2945)
+@@ -185,11 +185,11 @@
+       
+           if (event-&gt;state &amp; GDK_CONTROL_MASK)
+             {
+-              selection-&gt;on_move_end(offset + process_snap(wst));
++              selection-&gt;on_move_end(wst, offset + process_snap(wst));
+             }
+           else
+             {
+-              selection-&gt;on_move_end(offset);
++              selection-&gt;on_move_end(wst, offset);
+             }
+           wst.queue_draw();
+         }
+
+Modified: trunk/windstille/src/editor/selection.cpp
+===================================================================
+--- trunk/windstille/src/editor/selection.cpp	2009-04-22 04:37:31 UTC (rev 2944)
++++ trunk/windstille/src/editor/selection.cpp	2009-04-22 05:01:32 UTC (rev 2945)
+@@ -17,6 +17,12 @@
+ */
+ 
+ #include &lt;iostream&gt;
++#include &lt;boost/bind.hpp&gt;
++
++#include &quot;undo_manager.hpp&quot;
++#include &quot;group_command.hpp&quot;
++#include &quot;functor_command.hpp&quot;
++#include &quot;windstille_widget.hpp&quot;
+ #include &quot;editor_window.hpp&quot;
+ #include &quot;selection.hpp&quot;
+ 
+@@ -99,10 +105,15 @@
+         }
+     }
+ 
++  object_orig_poss.clear();
++
+   for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
+     {
+       if (non_moveable_objects.find(*i) == non_moveable_objects.end())
+-        (*i)-&gt;on_move_start();
++        {
++          //(*i)-&gt;on_move_start();
++          object_orig_poss.push_back((*i)-&gt;get_rel_pos());
++        }
+     }
+ 
+   signal_changed();
+@@ -114,23 +125,35 @@
+   for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
+     {
+       if (non_moveable_objects.find(*i) == non_moveable_objects.end())
+-        (*i)-&gt;on_move_update(offset);
++        {
++          (*i)-&gt;set_rel_pos(object_orig_poss[i - objects.begin()] + offset);
++        }
+     }
+ }
+ 
+ void
+-Selection::on_move_end(const Vector2f&amp; offset)
++Selection::on_move_end(WindstilleWidget&amp; wst, const Vector2f&amp; offset)
+ {
+   moving = false;
+ 
++  boost::shared_ptr&lt;GroupCommand&gt; group_command(new GroupCommand());
++
+   for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
+     {
+       if (non_moveable_objects.find(*i) == non_moveable_objects.end())
+-        (*i)-&gt;on_move_end(offset);
++        {
++          //(*i)-&gt;on_move_end(offset);
++          //(*i)-&gt;set_rel_pos(object_orig_poss[i - objects.begin()]);
++
++          group_command-&gt;add(CommandHandle(new FunctorCommand(boost::bind(&amp;ObjectModel::set_rel_pos, *i, object_orig_poss[i - objects.begin()]),
++                                                              boost::bind(&amp;ObjectModel::set_rel_pos, *i, object_orig_poss[i - objects.begin()] + offset))));
++        }
+     }
+ 
+   non_moveable_objects.clear();
+ 
++  wst.get_undo_manager()-&gt;execute(group_command);
++  EditorWindow::current()-&gt;update_undo_state();
+   signal_changed();
+ }
+ 
+
+Modified: trunk/windstille/src/editor/selection.hpp
+===================================================================
+--- trunk/windstille/src/editor/selection.hpp	2009-04-22 04:37:31 UTC (rev 2944)
++++ trunk/windstille/src/editor/selection.hpp	2009-04-22 05:01:32 UTC (rev 2945)
+@@ -27,6 +27,7 @@
+ #include &quot;object_model.hpp&quot;
+ 
+ class Selection;
++class WindstilleWidget;
+ typedef boost::shared_ptr&lt;Selection&gt; SelectionHandle;
+ 
+ class Selection
+@@ -35,6 +36,8 @@
+   typedef std::vector&lt;ObjectModelHandle&gt; Objects;
+   Objects objects;
+ 
++  std::vector&lt;Vector2f&gt; object_orig_poss;
++
+   std::set&lt;ObjectModelHandle&gt; non_moveable_objects;
+ 
+   bool moving;
+@@ -80,7 +83,7 @@
+ 
+   void on_move_start();
+   void on_move_update(const Vector2f&amp; offset);
+-  void on_move_end(const Vector2f&amp; offset);
++  void on_move_end(WindstilleWidget&amp; wst, const Vector2f&amp; offset);
+   
+   /** Performs a deep clone of the selection */
+   SelectionHandle clone() const;
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-04-22 04:37:31 UTC (rev 2944)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-04-22 05:01:32 UTC (rev 2945)
+@@ -378,6 +378,7 @@
+         }
+ 
+       undo_manager-&gt;execute(group_command);
++      EditorWindow::current()-&gt;update_undo_state();
+       queue_draw();
+     }
+ }
+@@ -412,6 +413,7 @@
+         }
+ 
+       undo_manager-&gt;execute(group_command);
++      EditorWindow::current()-&gt;update_undo_state();
+       queue_draw();
+     }
+ }
+@@ -435,6 +437,7 @@
+         }
+ 
+       undo_manager-&gt;execute(group_command);
++      EditorWindow::current()-&gt;update_undo_state();
+       queue_draw();
+     }
+ }
+@@ -452,6 +455,7 @@
+     }
+ 
+   undo_manager-&gt;execute(group_command);
++  EditorWindow::current()-&gt;update_undo_state();
+   queue_draw();
+ }
+ 
+@@ -504,7 +508,7 @@
+     }
+ 
+   undo_manager-&gt;execute(group_command);
+-
++  EditorWindow::current()-&gt;update_undo_state();
+   set_selection(new_selection);
+ }
+ 
+@@ -527,6 +531,7 @@
+ 
+   on_selection_change();
+   undo_manager-&gt;execute(group_command);
++  EditorWindow::current()-&gt;update_undo_state();
+   queue_draw();
+ }
+ 
+@@ -554,6 +559,7 @@
+ 
+  on_selection_change();
+  undo_manager-&gt;execute(group_command);
++ EditorWindow::current()-&gt;update_undo_state();
+  queue_draw();
+ }
+ 
+@@ -567,6 +573,7 @@
+     }
+   undo_manager-&gt;execute(group_cmd);
+   EditorWindow::current()-&gt;update_undo_state();
++  EditorWindow::current()-&gt;update_undo_state();
+ 
+  selection-&gt;clear();
+  queue_draw();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001941.html">[Windstille-commit] r2944 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="001943.html">[Windstille-commit] r2946 - in trunk/windstille: . src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1942">[ date ]</a>
+              <a href="thread.html#1942">[ thread ]</a>
+              <a href="subject.html#1942">[ subject ]</a>
+              <a href="author.html#1942">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

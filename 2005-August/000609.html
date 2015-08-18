@@ -1,0 +1,464 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r956 - in trunk/src: . scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r956%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200508131719.j7DHJswo006753%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000608.html">
+   <LINK REL="Next"  HREF="000610.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r956 - in trunk/src: . scripting</H1>
+    <B>James Gregory at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r956%20-%20in%20trunk/src%3A%20.%20scripting&In-Reply-To=%3C200508131719.j7DHJswo006753%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r956 - in trunk/src: . scripting">jamesgregory at berlios.de
+       </A><BR>
+    <I>Sat Aug 13 19:19:54 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000608.html">[Windstille-commit] r955 - in trunk/src: badguy glutil input lisp
+</A></li>
+        <LI>Next message: <A HREF="000610.html">[Windstille-commit] r957 - trunk/data/blender/shuttle
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#609">[ date ]</a>
+              <a href="thread.html#609">[ thread ]</a>
+              <a href="subject.html#609">[ subject ]</a>
+              <a href="author.html#609">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: jamesgregory
+Date: 2005-08-13 19:19:44 +0200 (Sat, 13 Aug 2005)
+New Revision: 956
+
+Modified:
+   trunk/src/conversation.cpp
+   trunk/src/dialog_manager.cpp
+   trunk/src/dialog_manager.hpp
+   trunk/src/game_session.cpp
+   trunk/src/game_session.hpp
+   trunk/src/globals.cpp
+   trunk/src/globals.hpp
+   trunk/src/player.cpp
+   trunk/src/scripting/interface.cpp
+   trunk/src/scripting/interface.hpp
+   trunk/src/scripting/wrapper.cpp
+   trunk/src/text_area.cpp
+   trunk/src/text_area.hpp
+Log:
+- made dialogs disappear when conversation responses appear, again
+- added CONVERSATION control state in the hope it might one day be possible to view a dialog and possible responses at the same time
+- made it possible to find when a text area has finished writing
+- made it possible to skip dialogs again, and switched it to use button events rather than check for key down
+- merge GameSession set control_state functions
+- removed unused global text_speed and dialog manager progress variables
+
+Modified: trunk/src/conversation.cpp
+===================================================================
+--- trunk/src/conversation.cpp	2005-08-13 11:50:32 UTC (rev 955)
++++ trunk/src/conversation.cpp	2005-08-13 17:19:44 UTC (rev 956)
+@@ -108,7 +108,7 @@
+               active = false;
+               GameSession::current()-&gt;pda.add_dialog(&quot;Jane&quot;, choices[selection]);
+               choices.clear();
+-              GameSession::current()-&gt;set_game_state();
++              GameSession::current()-&gt;set_control_state(GameSession::GAME);
+               script_manager-&gt;fire_wakeup_event(ScriptManager::CONVERSATION_CLOSED);
+               return;
+               break;
+
+Modified: trunk/src/dialog_manager.cpp
+===================================================================
+--- trunk/src/dialog_manager.cpp	2005-08-13 11:50:32 UTC (rev 955)
++++ trunk/src/dialog_manager.cpp	2005-08-13 17:19:44 UTC (rev 956)
+@@ -44,7 +44,6 @@
+ void
+ DialogManager::add_dialog(int alignment_, const std::string&amp; portrait_, const std::string&amp; text_)
+ { 
+-  progress  = 0;
+   delay     = 0.0;
+   alignment = alignment_;
+   portrait  = Sprite(portrait_);
+@@ -57,7 +56,6 @@
+ void
+ DialogManager::add_caption(int alignment_, const std::string&amp; text_)
+ {
+-  progress  = 0;
+   delay     = 0.0;
+   alignment = alignment_;
+   text      = text_;
+@@ -114,11 +112,6 @@
+   text_area-&gt;update(delta);
+ 
+   delay += delta;
+-  if (InputManager::get_controller().get_button_state(OK_BUTTON) 
+-      &amp;&amp; delay &gt; 0.2 &amp;&amp; progress * text_speed &lt; text.size())
+-    progress = int(text.size()) / text_speed;
+-  else
+-    progress += delta;
+ 
+   InputEventLst events = InputManager::get_controller().get_events();
+ 	
+@@ -126,11 +119,15 @@
+     {
+       if ((*i).type == BUTTON_EVENT)
+         {
+-          if ((*i).button.name == OK_BUTTON &amp;&amp; (*i).button.down == true
+-              &amp;&amp; int(progress * text_speed) &gt; int(text.size()))
++          if ((*i).button.name == OK_BUTTON &amp;&amp; (*i).button.down == true)
+             {
+-              GameSession::current()-&gt;set_game_state();
+-              script_manager-&gt;fire_wakeup_event(ScriptManager::DIALOG_CLOSED);
++              if (text_area-&gt;is_progress_complete())
++                {
++                  GameSession::current()-&gt;set_control_state(GameSession::GAME);
++                  script_manager-&gt;fire_wakeup_event(ScriptManager::DIALOG_CLOSED);
++                }
++              else if (delay &gt; 0.2)
++                text_area-&gt;set_progress_complete();
+             } 
+         }
+     }
+
+Modified: trunk/src/dialog_manager.hpp
+===================================================================
+--- trunk/src/dialog_manager.hpp	2005-08-13 11:50:32 UTC (rev 955)
++++ trunk/src/dialog_manager.hpp	2005-08-13 17:19:44 UTC (rev 956)
+@@ -35,7 +35,6 @@
+   
+   Sprite portrait;
+   std::string text;
+-  float progress;
+   float delay;
+   TextArea* text_area;
+ 
+
+Modified: trunk/src/game_session.cpp
+===================================================================
+--- trunk/src/game_session.cpp	2005-08-13 11:50:32 UTC (rev 955)
++++ trunk/src/game_session.cpp	2005-08-13 17:19:44 UTC (rev 956)
+@@ -205,6 +205,8 @@
+             {
+             case DIALOG:
+               dialog_manager-&gt;update(delta);
++              break;
++            case CONVERSATION:
+               conversation-&gt;update(delta);
+               break;
+             case GAME:
+
+Modified: trunk/src/game_session.hpp
+===================================================================
+--- trunk/src/game_session.hpp	2005-08-13 11:50:32 UTC (rev 955)
++++ trunk/src/game_session.hpp	2005-08-13 17:19:44 UTC (rev 956)
+@@ -46,7 +46,7 @@
+ class GameSession : public Screen
+ {
+ public:
+-  enum ControlState { DIALOG, GAME };
++  enum ControlState { DIALOG, GAME, CONVERSATION };
+ private:
+   SceneContext sc;
+ 
+@@ -81,8 +81,7 @@
+   View* get_view() { return view; }
+   PDA pda;
+ 
+-  void set_dialog_state() { control_state = DIALOG; }
+-  void set_game_state()   { control_state = GAME; }
++  void set_control_state(ControlState state) { control_state = state; }
+ 
+   /** Switches the sector instantly without fadeout */
+   void set_sector(const std::string&amp; filename);
+
+Modified: trunk/src/globals.cpp
+===================================================================
+--- trunk/src/globals.cpp	2005-08-13 11:50:32 UTC (rev 955)
++++ trunk/src/globals.cpp	2005-08-13 17:19:44 UTC (rev 956)
+@@ -24,7 +24,6 @@
+ int TILE_SIZE    = 32;
+ int TILE_RESOLUTION = 64;
+ 
+-float text_speed = 15.0f;
+ float game_speed = 1.0f;
+ #ifdef DEBUG
+ bool debug = true;
+
+Modified: trunk/src/globals.hpp
+===================================================================
+--- trunk/src/globals.hpp	2005-08-13 11:50:32 UTC (rev 955)
++++ trunk/src/globals.hpp	2005-08-13 17:19:44 UTC (rev 956)
+@@ -32,7 +32,6 @@
+ /** datadir =&gt; /usr/local/share/games/windstille/ */
+ extern std::string datadir;
+ 
+-extern float text_speed;
+ extern float game_speed;
+ extern bool sound_disabled;
+ 
+
+Modified: trunk/src/player.cpp
+===================================================================
+--- trunk/src/player.cpp	2005-08-13 11:50:32 UTC (rev 955)
++++ trunk/src/player.cpp	2005-08-13 17:19:44 UTC (rev 956)
+@@ -115,7 +115,8 @@
+   controller = InputManager::get_controller();
+ 
+   if (!console.is_active() &amp;&amp; !GameSession::current()-&gt;pda.is_active()
+-  &amp;&amp; GameSession::current()-&gt;get_game_state() != GameSession::DIALOG)
++  &amp;&amp; GameSession::current()-&gt;get_game_state() != GameSession::DIALOG
++  &amp;&amp; GameSession::current()-&gt;get_game_state() != GameSession::CONVERSATION)
+     {
+       switch(state) {
+         case STAND:
+
+Modified: trunk/src/scripting/interface.cpp
+===================================================================
+--- trunk/src/scripting/interface.cpp	2005-08-13 11:50:32 UTC (rev 955)
++++ trunk/src/scripting/interface.cpp	2005-08-13 17:19:44 UTC (rev 956)
+@@ -38,12 +38,12 @@
+ void add_caption(int alignment, const std::string&amp; text)
+ {
+   DialogManager::current()-&gt;add_caption(alignment, text);
+-  GameSession::current()-&gt;set_dialog_state();
++  GameSession::current()-&gt;set_control_state(GameSession::DIALOG);
+ }
+ 
+ void end_caption()
+ {
+-  GameSession::current()-&gt;set_game_state();
++  GameSession::current()-&gt;set_control_state(GameSession::GAME);
+ }
+ 
+ void set_view(float x, float y)
+@@ -74,7 +74,7 @@
+ void dialog_show(int alignment, const std::string&amp; character, const std::string&amp; portrait, const std::string&amp; text)
+ {
+   DialogManager::current()-&gt;add_dialog(alignment, portrait, text);
+-  GameSession::current()-&gt;set_dialog_state();
++  GameSession::current()-&gt;set_control_state(GameSession::DIALOG);
+   GameSession::current()-&gt;pda.add_dialog(character, text);
+ }
+ 
+@@ -140,16 +140,6 @@
+   game_speed = v;
+ }
+ 
+-float get_text_speed()
+-{
+-  return text_speed;
+-}
+-
+-void set_text_speed(float v)
+-{
+-  text_speed = v;
+-}
+-
+ void conversation_add(const std::string&amp; text)
+ {
+   Conversation::current()-&gt;add(text);
+@@ -158,7 +148,7 @@
+ void conversation_show()
+ {
+   Conversation::current()-&gt;show();
+-  GameSession::current()-&gt;set_dialog_state();
++  GameSession::current()-&gt;set_control_state(GameSession::CONVERSATION);
+ }
+ 
+ int  conversation_get_selection()
+
+Modified: trunk/src/scripting/interface.hpp
+===================================================================
+--- trunk/src/scripting/interface.hpp	2005-08-13 11:50:32 UTC (rev 955)
++++ trunk/src/scripting/interface.hpp	2005-08-13 17:19:44 UTC (rev 956)
+@@ -59,9 +59,6 @@
+ float get_game_speed();
+ void  set_game_speed(float v);
+ 
+-float get_text_speed();
+-void  set_text_speed(float v);
+-
+ //Waits the specified time in seconds.
+ void wait(HSQUIRRELVM vm, float time) __suspend;
+ 
+
+Modified: trunk/src/scripting/wrapper.cpp
+===================================================================
+--- trunk/src/scripting/wrapper.cpp	2005-08-13 11:50:32 UTC (rev 955)
++++ trunk/src/scripting/wrapper.cpp	2005-08-13 17:19:44 UTC (rev 956)
+@@ -483,25 +483,6 @@
+   return 0;
+ }
+ 
+-static int get_text_speed_wrapper(HSQUIRRELVM v)
+-{
+-  
+-  float return_value = Scripting::get_text_speed();
+-  
+-  sq_pushfloat(v, return_value);
+-  return 1;
+-}
+-
+-static int set_text_speed_wrapper(HSQUIRRELVM v)
+-{
+-  float arg0;
+-  sq_getfloat(v, 2, &amp;arg0);
+-  
+-  Scripting::set_text_speed(arg0);
+-  
+-  return 0;
+-}
+-
+ static int wait_wrapper(HSQUIRRELVM v)
+ {
+   HSQUIRRELVM arg0 = v;
+@@ -915,22 +896,6 @@
+     throw SquirrelError(v, msg.str());
+   }
+ 
+-  sq_pushstring(v, &quot;get_text_speed&quot;, -1);
+-  sq_newclosure(v, &amp;get_text_speed_wrapper, 0);
+-  if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't register function'get_text_speed'&quot;;
+-    throw SquirrelError(v, msg.str());
+-  }
+-
+-  sq_pushstring(v, &quot;set_text_speed&quot;, -1);
+-  sq_newclosure(v, &amp;set_text_speed_wrapper, 0);
+-  if(SQ_FAILED(sq_createslot(v, -3))) {
+-    std::ostringstream msg;
+-    msg &lt;&lt; &quot;Couldn't register function'set_text_speed'&quot;;
+-    throw SquirrelError(v, msg.str());
+-  }
+-
+   sq_pushstring(v, &quot;wait&quot;, -1);
+   sq_newclosure(v, &amp;wait_wrapper, 0);
+   if(SQ_FAILED(sq_createslot(v, -3))) {
+
+Modified: trunk/src/text_area.cpp
+===================================================================
+--- trunk/src/text_area.cpp	2005-08-13 11:50:32 UTC (rev 955)
++++ trunk/src/text_area.cpp	2005-08-13 17:19:44 UTC (rev 956)
+@@ -49,6 +49,7 @@
+ 
+   int v_space;
+   bool letter_by_letter;
++  bool progress_complete;
+   std::vector&lt;TextAreaCommand&gt; commands;
+ };
+ 
+@@ -60,6 +61,7 @@
+   // FIXME: freetype might provide info for vspacing, not sure
+   impl-&gt;v_space = 2;
+   impl-&gt;letter_by_letter = letter_by_letter;
++  impl-&gt;progress_complete = false;
+   impl-&gt;passed_time = 0;
+ }
+ 
+@@ -124,6 +126,18 @@
+ }
+ 
+ void
++TextArea::set_progress_complete()
++{
++  impl-&gt;letter_by_letter = false;
++}
++
++bool
++TextArea::is_progress_complete()
++{
++  return impl-&gt;progress_complete;
++}
++
++void
+ TextArea::draw()
+ {
+   assert(impl-&gt;font);
+@@ -153,8 +167,13 @@
+   bool is_large = false;
+   float eat_time = impl-&gt;passed_time;
+   bool sinus = false;
+-  for(std::vector&lt;TextAreaCommand&gt;::const_iterator i = impl-&gt;commands.begin(); i != impl-&gt;commands.end(); ++i)
++  bool break_writing = false;
++  std::vector&lt;TextAreaCommand&gt;::const_iterator i = impl-&gt;commands.begin();
++  for(; i != impl-&gt;commands.end(); ++i)
+     {
++      if (break_writing)
++        break;
++        
+       switch (i-&gt;type)
+         {
+         case TextAreaCommand::START:
+@@ -239,7 +258,10 @@
+                   for(std::string::const_iterator j = i-&gt;content.begin(); j != i-&gt;content.end(); ++j)
+                     {
+                       if (impl-&gt;letter_by_letter &amp;&amp; eat_time &lt;= 0)
+-                        break;
++                        {
++                          break_writing = true;
++                          break;
++                        }
+                         
+                       int x = x_pos;
+                       int y = y_pos;
+@@ -325,6 +347,9 @@
+           break;
+         }
+     }
++  if (i == impl-&gt;commands.end())
++    impl-&gt;progress_complete = true;
++    
+   glEnd();
+   glPopMatrix();
+ }
+
+Modified: trunk/src/text_area.hpp
+===================================================================
+--- trunk/src/text_area.hpp	2005-08-13 11:50:32 UTC (rev 955)
++++ trunk/src/text_area.hpp	2005-08-13 17:19:44 UTC (rev 956)
+@@ -49,6 +49,11 @@
+       with special tags */
+   void set_font(TTFFont* font);
+ 
++  /** Skips letter by letter display */  
++  void set_progress_complete();
++  
++  bool is_progress_complete();
++
+   void update(float delta);
+   void draw();
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000608.html">[Windstille-commit] r955 - in trunk/src: badguy glutil input lisp
+</A></li>
+	<LI>Next message: <A HREF="000610.html">[Windstille-commit] r957 - trunk/data/blender/shuttle
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#609">[ date ]</a>
+              <a href="thread.html#609">[ thread ]</a>
+              <a href="subject.html#609">[ subject ]</a>
+              <a href="author.html#609">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

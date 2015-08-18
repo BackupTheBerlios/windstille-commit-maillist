@@ -1,0 +1,264 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r680 - in trunk/src: . display
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r680%20-%20in%20trunk/src%3A%20.%20display&In-Reply-To=%3C200507191317.j6JDHCFo027175%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000332.html">
+   <LINK REL="Next"  HREF="000334.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r680 - in trunk/src: . display</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r680%20-%20in%20trunk/src%3A%20.%20display&In-Reply-To=%3C200507191317.j6JDHCFo027175%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r680 - in trunk/src: . display">grumbel at berlios.de
+       </A><BR>
+    <I>Tue Jul 19 15:17:12 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000332.html">[Windstille-commit] r679 - trunk/src/display
+</A></li>
+        <LI>Next message: <A HREF="000334.html">[Windstille-commit] r681 - in trunk/src: . display particles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#333">[ date ]</a>
+              <a href="thread.html#333">[ thread ]</a>
+              <a href="subject.html#333">[ subject ]</a>
+              <a href="author.html#333">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-07-19 15:16:52 +0200 (Tue, 19 Jul 2005)
+New Revision: 680
+
+Modified:
+   trunk/src/display/vertex_array_drawing_request.cpp
+   trunk/src/tile_map.cpp
+Log:
+- replaced custom tilemap drawing request with generic vertexarray one
+
+Modified: trunk/src/display/vertex_array_drawing_request.cpp
+===================================================================
+--- trunk/src/display/vertex_array_drawing_request.cpp	2005-07-19 13:11:33 UTC (rev 679)
++++ trunk/src/display/vertex_array_drawing_request.cpp	2005-07-19 13:16:52 UTC (rev 680)
+@@ -26,7 +26,7 @@
+   : DrawingRequest(pos_, modelview_)
+ {
+   blend_sfactor = GL_SRC_ALPHA;
+-  blend_dfactor = GL_ONE;
++  blend_dfactor = GL_ONE_MINUS_SRC_ALPHA;
+   mode = GL_QUADS;
+ }
+ 
+
+Modified: trunk/src/tile_map.cpp
+===================================================================
+--- trunk/src/tile_map.cpp	2005-07-19 13:11:33 UTC (rev 679)
++++ trunk/src/tile_map.cpp	2005-07-19 13:16:52 UTC (rev 680)
+@@ -26,7 +26,7 @@
+ #include &quot;tile_factory.hpp&quot;
+ #include &quot;globals.hpp&quot;
+ #include &quot;view.hpp&quot;
+-#include &quot;display/drawing_request.hpp&quot;
++#include &quot;display/vertex_array_drawing_request.hpp&quot;
+ 
+ extern CL_ResourceManager* resources;
+ 
+@@ -103,125 +103,56 @@
+   total_time += delta;
+ }
+ 
+-struct VertexPack {
+-  std::vector&lt;float&gt; vertices;
+-  std::vector&lt;float&gt; texcoords;
+-};
+-
+-class TileMapDrawingRequest : public DrawingRequest
++void
++TileMap::draw (SceneContext&amp; sc)
+ {
+-private:
+-  TileMap* tilemap;
+-  bool highlight;
+-  CL_Rect rect;
++  CL_Rect clip_rect = CL_Rect(View::current()-&gt;get_clip_rect());
+ 
+-public:
+-  TileMapDrawingRequest(TileMap* tilemap_, bool highlight_,
+-                        const CL_Rect&amp; rect_,
+-                        const CL_Vector&amp; pos, const CL_Matrix4x4&amp; modelview)
+-    : DrawingRequest(pos, modelview),
+-      tilemap(tilemap_),
+-      highlight(highlight_),
+-      rect(rect_)
+-  {}
++  CL_Rect rect(std::max(0, clip_rect.left/TILE_SIZE),
++               std::max(0, clip_rect.top/TILE_SIZE),
++               std::min(field.get_width(),  clip_rect.right/TILE_SIZE + 1),
++               std::min(field.get_height(), clip_rect.bottom/TILE_SIZE + 1));
+ 
+-  void draw(CL_GraphicContext* gc)
+-  {
+-    Field&lt;Tile*&gt;&amp; field = tilemap-&gt;field;
++  std::vector&lt;VertexArrayDrawingRequest*&gt; requests;
++  for (int y = rect.top;   y &lt; rect.bottom; ++y)
++    for (int x = rect.left; x &lt; rect.right; ++x)
++      {
++        Tile* tile = field(x, y);
++        if (tile &amp;&amp; tile-&gt;color_packer != -1)
++          {
++            if (tile-&gt;color_packer &gt;= int(requests.size()))
++              requests.resize(tile-&gt;color_packer+1);
+ 
+-    CL_OpenGLState state(gc);
+-    state.set_active();
+-    state.setup_2d();
+-
+-    clPushMatrix();
+-    clMultMatrixd(modelview);
+-      
+-    clEnable(CL_TEXTURE_2D);
+-    clEnable(CL_BLEND);
+-    glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+-
+-    std::vector&lt;VertexPack&gt; packs;
+-
+-    for (int y = rect.top;   y &lt; rect.bottom; ++y)
+-      for (int x = rect.left; x &lt; rect.right; ++x)
+-        {
+-          Tile* tile = field(x, y);
+-          if (tile &amp;&amp; tile-&gt;color_packer != -1 &amp;&amp; !highlight)
+-            {
+-              if (tile-&gt;color_packer &gt;= int(packs.size()))
+-                packs.resize(tile-&gt;color_packer+1);
++            if (!requests[tile-&gt;color_packer])
++              {
++                requests[tile-&gt;color_packer] = new VertexArrayDrawingRequest(CL_Vector(0, 0, z_pos),
++                                                                             sc.color().get_modelview());
++                requests[tile-&gt;color_packer]-&gt;set_mode(GL_QUADS);
++                requests[tile-&gt;color_packer]-&gt;set_blend_func(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++                requests[tile-&gt;color_packer]-&gt;set_surface(TileFactory::current()-&gt;get_texture(tile-&gt;color_packer));
++              }
+               
+-              VertexPack&amp; pack = packs[tile-&gt;color_packer];
++            VertexArrayDrawingRequest&amp; pack = *requests[tile-&gt;color_packer];
+ 
+-              pack.texcoords.push_back(tile-&gt;color_rect.left);
+-              pack.texcoords.push_back(tile-&gt;color_rect.top);
++            pack.texcoord(tile-&gt;color_rect.left, tile-&gt;color_rect.top);
++            pack.vertex(x * TILE_SIZE, y * TILE_SIZE);
+ 
+-              pack.vertices.push_back(x * TILE_SIZE);
+-              pack.vertices.push_back(y * TILE_SIZE);
++            pack.texcoord(tile-&gt;color_rect.right, tile-&gt;color_rect.top);
++            pack.vertex(x * TILE_SIZE + TILE_SIZE, y * TILE_SIZE);
+ 
+-              pack.texcoords.push_back(tile-&gt;color_rect.right);
+-              pack.texcoords.push_back(tile-&gt;color_rect.top);
++            pack.texcoord(tile-&gt;color_rect.right, tile-&gt;color_rect.bottom);
++            pack.vertex(x * TILE_SIZE + TILE_SIZE, y * TILE_SIZE + TILE_SIZE);
+               
+-              pack.vertices.push_back(x * TILE_SIZE + TILE_SIZE);
+-              pack.vertices.push_back(y * TILE_SIZE);
+-
+-              pack.texcoords.push_back(tile-&gt;color_rect.right);
+-              pack.texcoords.push_back(tile-&gt;color_rect.bottom);
+-              
+-              pack.vertices.push_back(x * TILE_SIZE + TILE_SIZE);
+-              pack.vertices.push_back(y * TILE_SIZE + TILE_SIZE);
+-              
+-              pack.texcoords.push_back(tile-&gt;color_rect.left);
+-              pack.texcoords.push_back(tile-&gt;color_rect.bottom);
+-              
+-              pack.vertices.push_back(x * TILE_SIZE);
+-              pack.vertices.push_back(y * TILE_SIZE + TILE_SIZE);
+-            }
+-        }
+-
+-    glDisableClientState(GL_NORMAL_ARRAY);
+-    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+-    glEnableClientState(GL_VERTEX_ARRAY);
+-    
+-    for(std::vector&lt;VertexPack&gt;::size_type i = 0; i &lt; packs.size(); ++i)
+-      {
+-        TileFactory::current()-&gt;get_texture(i).bind();
+-
+-        clTexParameteri(CL_TEXTURE_2D, CL_TEXTURE_MIN_FILTER, CL_LINEAR);
+-        clTexParameteri(CL_TEXTURE_2D, CL_TEXTURE_MAG_FILTER, CL_LINEAR);
+-        clTexParameteri(CL_TEXTURE_2D, CL_TEXTURE_WRAP_S, CL_CLAMP_TO_EDGE);
+-        clTexParameteri(CL_TEXTURE_2D, CL_TEXTURE_WRAP_T, CL_CLAMP_TO_EDGE);
+-      
+-        glVertexPointer  (2, GL_FLOAT, 0, &amp;*(packs[i].vertices.begin()));
+-        glTexCoordPointer(2, GL_FLOAT, 0, &amp;*(packs[i].texcoords.begin()));
+-        glDrawArrays(GL_QUADS, 0, packs[i].vertices.size()/2);
++            pack.texcoord(tile-&gt;color_rect.left, tile-&gt;color_rect.bottom);
++            pack.vertex(x * TILE_SIZE, y * TILE_SIZE + TILE_SIZE); 
++          }
+       }
+-    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+-    glDisableClientState(GL_VERTEX_ARRAY);
+-    glDisableClientState(GL_NORMAL_ARRAY);
+ 
+-    clPopMatrix();
+-  }
+-};
+-
+-void
+-TileMap::draw (SceneContext&amp; sc)
+-{
+-  CL_Rect rect = CL_Rect(View::current()-&gt;get_clip_rect());
+-
+-  int start_x = std::max(0, rect.left/TILE_SIZE);
+-  int start_y = std::max(0, rect.top/TILE_SIZE);
+-  int end_x   = std::min(field.get_width(),  rect.right/TILE_SIZE + 1);
+-  int end_y   = std::min(field.get_height(), rect.bottom/TILE_SIZE + 1);
+-
+-  sc.color().draw(new TileMapDrawingRequest(this, false, CL_Rect(start_x, start_y,
+-                                                                 end_x,   end_y),
+-                                            CL_Vector(0,0,z_pos),
+-                                            sc.color().get_modelview()));
+-  sc.highlight().draw(new TileMapDrawingRequest(this, true, CL_Rect(start_x, start_y,
+-                                                                    end_x,   end_y),
+-                                                CL_Vector(0,0,z_pos),
+-                                                sc.color().get_modelview()));
++  for(std::vector&lt;VertexArrayDrawingRequest*&gt;::iterator i = requests.begin(); i != requests.end(); ++i)
++    {
++      if (*i)
++        sc.color().draw(*i);
++    }
+ }
+ 
+ unsigned int
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000332.html">[Windstille-commit] r679 - trunk/src/display
+</A></li>
+	<LI>Next message: <A HREF="000334.html">[Windstille-commit] r681 - in trunk/src: . display particles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#333">[ date ]</a>
+              <a href="thread.html#333">[ thread ]</a>
+              <a href="subject.html#333">[ subject ]</a>
+              <a href="author.html#333">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

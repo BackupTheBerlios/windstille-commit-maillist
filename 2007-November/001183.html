@@ -1,0 +1,501 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1533 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1533%20-%20trunk/griv&In-Reply-To=%3C200711130956.lAD9uccU001614%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001182.html">
+   <LINK REL="Next"  HREF="001184.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1533 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1533%20-%20trunk/griv&In-Reply-To=%3C200711130956.lAD9uccU001614%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1533 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Tue Nov 13 10:56:38 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001182.html">[Windstille-commit] r1532 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001184.html">[Windstille-commit] r1534 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1183">[ date ]</a>
+              <a href="thread.html#1183">[ thread ]</a>
+              <a href="subject.html#1183">[ subject ]</a>
+              <a href="author.html#1183">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-13 10:56:37 +0100 (Tue, 13 Nov 2007)
+New Revision: 1533
+
+Added:
+   trunk/griv/workspace.cpp
+Modified:
+   trunk/griv/SConstruct
+   trunk/griv/image.cpp
+   trunk/griv/image.hpp
+   trunk/griv/workspace.hpp
+Log:
+- some more source code splitting
+
+Modified: trunk/griv/SConstruct
+===================================================================
+--- trunk/griv/SConstruct	2007-11-13 09:31:36 UTC (rev 1532)
++++ trunk/griv/SConstruct	2007-11-13 09:56:37 UTC (rev 1533)
+@@ -3,6 +3,6 @@
+ env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O0&quot;, &quot;-g&quot;], LIBS=['SDL_image'])
+ env.ParseConfig(&quot;sdl-config --libs --cflags&quot;)
+ 
+-env.Program('griv', ['griv.cpp', 'loader.cpp', 'image.cpp', 'filesystem.cpp', 'display.cpp'])
++env.Program('griv', ['griv.cpp', 'loader.cpp', 'image.cpp', 'filesystem.cpp', 'display.cpp', 'texture.cpp', 'workspace.cpp'])
+ 
+ # EOF #
+
+Modified: trunk/griv/image.cpp
+===================================================================
+--- trunk/griv/image.cpp	2007-11-13 09:31:36 UTC (rev 1532)
++++ trunk/griv/image.cpp	2007-11-13 09:56:37 UTC (rev 1533)
+@@ -49,4 +49,78 @@
+   loading_16   = IMG_Load(&quot;loading_16.jpg&quot;);
+ }
+ 
++Image::Image(const std::string&amp; uid) 
++  : uid(uid),
++    surface(0),
++    res(0),
++    image_requested(false)
++{
++  mutex = SDL_CreateMutex();
++}
++
++Image::~Image()
++{
++  SDL_DestroyMutex(mutex);
++}
++
++void
++Image::receive(SDL_Surface* new_surface)
++{ 
++  SDL_LockMutex(mutex);
++  if (new_surface)
++    {
++      if (surface)
++        {
++          SDL_Surface* old_surface = surface;
++          surface = new_surface;
++          SDL_FreeSurface(old_surface); 
++        }
++      else
++        {
++          surface = new_surface;
++        }
++      force_redraw = true;
++    }
++  image_requested = false;
++  SDL_UnlockMutex(mutex);
++}
++
++void
++Image::draw(int x, int y, int res)
++{
++  SDL_LockMutex(mutex);
++  if (x &gt; Display::get_width() ||
++      y &gt; Display::get_height() ||
++      x &lt; -res || 
++      y &lt; -res)
++    { // Image out of screen
++      if (res &gt;= 512)
++        if (surface)
++          {
++            SDL_FreeSurface(surface);
++            surface = 0;
++          }
++    }
++  else
++    { // image on screen
++      if (!image_requested)
++        if (surface == 0 || res != this-&gt;res)
++          {
++            //std::cout &lt;&lt; &quot;Requesting&quot; &lt;&lt; std::endl;
++            loader.request(uid, res, this);
++            image_requested = true;
++            this-&gt;res = res;
++          }
++
++      SDL_Rect dstrect;
++      dstrect.x = x;
++      dstrect.y = y;
++      if (surface)
++        SDL_BlitSurface(surface, NULL, Display::get_screen(), &amp;dstrect);
++      else if (image_requested)
++        SDL_BlitSurface(placeholder(res), NULL, Display::get_screen(), &amp;dstrect);        
++    }
++  SDL_UnlockMutex(mutex);
++}
++
+ /* EOF */
+
+Modified: trunk/griv/image.hpp
+===================================================================
+--- trunk/griv/image.hpp	2007-11-13 09:31:36 UTC (rev 1532)
++++ trunk/griv/image.hpp	2007-11-13 09:56:37 UTC (rev 1533)
+@@ -34,6 +34,7 @@
+ class Image
+ {
+ public:
++  // Place holder images when no other is available
+   static SDL_Surface* loading_16;
+   static SDL_Surface* loading_32;
+   static SDL_Surface* loading_64;
+@@ -64,7 +65,7 @@
+     else 
+       return loading_1024;
+   }
+-
++
+   std::string uid;
+   SDL_Surface* surface;
+   int res;
+@@ -72,78 +73,11 @@
+ 
+   SDL_mutex* mutex;
+ 
++  Image(const std::string&amp; uid);
++  ~Image();
+ 
+-  Image(const std::string&amp; uid) 
+-    : uid(uid),
+-      surface(0),
+-      res(0),
+-      image_requested(false)
+-  {
+-    mutex = SDL_CreateMutex();
+-  }
+-
+-  ~Image()
+-  {
+-    SDL_DestroyMutex(mutex);
+-  }
+-
+-  void receive(SDL_Surface* new_surface)
+-  { 
+-    SDL_LockMutex(mutex);
+-    if (new_surface)
+-      {
+-        if (surface)
+-          {
+-            SDL_Surface* old_surface = surface;
+-            surface = new_surface;
+-            SDL_FreeSurface(old_surface); 
+-          }
+-        else
+-          {
+-            surface = new_surface;
+-          }
+-        force_redraw = true;
+-      }
+-    image_requested = false;
+-    SDL_UnlockMutex(mutex);
+-  }
+-
+-  void draw(int x, int y, int res)
+-  {
+-    SDL_LockMutex(mutex);
+-    if (x &gt; Display::get_width() ||
+-        y &gt; Display::get_height() ||
+-        x &lt; -res || 
+-        y &lt; -res)
+-      { // Image out of screen
+-        if (res &gt;= 512)
+-          if (surface)
+-            {
+-              SDL_FreeSurface(surface);
+-              surface = 0;
+-            }
+-      }
+-    else
+-      { // image on screen
+-        if (!image_requested)
+-          if (surface == 0 || res != this-&gt;res)
+-            {
+-              //std::cout &lt;&lt; &quot;Requesting&quot; &lt;&lt; std::endl;
+-              loader.request(uid, res, this);
+-              image_requested = true;
+-              this-&gt;res = res;
+-            }
+-
+-        SDL_Rect dstrect;
+-        dstrect.x = x;
+-        dstrect.y = y;
+-        if (surface)
+-          SDL_BlitSurface(surface, NULL, Display::get_screen(), &amp;dstrect);
+-        else if (image_requested)
+-          SDL_BlitSurface(placeholder(res), NULL, Display::get_screen(), &amp;dstrect);        
+-      }
+-    SDL_UnlockMutex(mutex);
+-  }
++  void receive(SDL_Surface* new_surface);
++  void draw(int x, int y, int res);
+ };
+ 
+ #endif
+
+Added: trunk/griv/workspace.cpp
+===================================================================
+--- trunk/griv/workspace.cpp	2007-11-13 09:31:36 UTC (rev 1532)
++++ trunk/griv/workspace.cpp	2007-11-13 09:56:37 UTC (rev 1533)
+@@ -0,0 +1,110 @@
++/*  $Id$
++**   __      __ __             ___        __   __ __   __
++**  /  \    /  \__| ____    __| _/_______/  |_|__|  | |  |   ____
++**  \   \/\/   /  |/    \  / __ |/  ___/\   __\  |  | |  | _/ __ \
++**   \        /|  |   |  \/ /_/ |\___ \  |  | |  |  |_|  |_\  ___/
++**    \__/\  / |__|___|  /\____ /____  &gt; |__| |__|____/____/\___  &gt;
++**         \/          \/      \/    \/                         \/
++**  Copyright (C) 2007 Ingo Ruhnke &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/windstille-commit">grumbel at gmx.de</A>&gt;
++**
++**  This program is free software; you can redistribute it and/or
++**  modify it under the terms of the GNU General Public License
++**  as published by the Free Software Foundation; either version 2
++**  of the License, or (at your option) any later version.
++**
++**  This program is distributed in the hope that it will be useful,
++**  but WITHOUT ANY WARRANTY; without even the implied warranty of
++**  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++**  GNU General Public License for more details.
++** 
++**  You should have received a copy of the GNU General Public License
++**  along with this program; if not, write to the Free Software
++**  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++**  02111-1307, USA.
++*/
++
++#include &lt;iostream&gt;
++#include &lt;math.h&gt;
++#include &quot;workspace.hpp&quot;
++
++inline bool has_suffix(const std::string&amp; str, const std::string&amp; suffix)
++{
++  if (str.length() &gt;= suffix.length())
++    return str.compare(str.length() - suffix.length(), suffix.length(), suffix) == 0;
++  else
++    return false;
++}
++
++Workspace::Workspace()
++{
++  res = 16;
++}
++
++void
++Workspace::draw()
++{
++  int w = int(sqrt(4 * images.size() / 3));
++  for(int i = 0; i &lt; int(images.size()); ++i)
++    {
++      images[i]-&gt;draw((i % w) * res + x_offset + Display::get_width()/2,
++                      (i / w) * res + y_offset + Display::get_height()/2,
++                      res);
++    }
++}
++
++void
++Workspace::add(const std::string&amp; filename)
++{
++  // if directory, do recursion
++  if (Filesystem::is_directory(filename))
++    {
++      std::cout &lt;&lt; '.' &lt;&lt; std::flush;
++      std::vector&lt;std::string&gt; dir_list = Filesystem::open_directory(filename);
++      for(std::vector&lt;std::string&gt;::iterator i = dir_list.begin(); i != dir_list.end(); ++i)
++        {
++          add(*i);
++        }
++    }
++  else if (has_suffix(filename, &quot;.jpg&quot;) ||
++           has_suffix(filename, &quot;.JPG&quot;)
++           )
++    {
++      std::string md5 = Filesystem::getxattr(filename);
++      if (!md5.empty())
++        {
++          images.push_back(new Image(md5));
++        }
++      else
++        {
++          std::cout &lt;&lt; &quot;Ignoring: &quot; &lt;&lt; filename &lt;&lt; std::endl;
++        }
++    }
++}
++
++void
++Workspace::zoom_in()
++{
++  res *= 2;
++  if (res &gt; 2048)
++    res = 2048;
++  else
++    { //300,200 ~ 212, 134 ~ 64, 0
++      x_offset *= 2;
++      y_offset *= 2;
++    }
++}
++
++void
++Workspace::zoom_out()
++{
++  res /= 2;
++  if (res &lt; 16)
++    res = 16;
++  else
++    {
++      x_offset /= 2;
++      y_offset /= 2;
++    }
++}
++
++/* EOF */
+
+
+Property changes on: trunk/griv/workspace.cpp
+___________________________________________________________________
+Name: svn:keywords
+   + Id
+Name: svn:eol-style
+   + native
+
+Modified: trunk/griv/workspace.hpp
+===================================================================
+--- trunk/griv/workspace.hpp	2007-11-13 09:31:36 UTC (rev 1532)
++++ trunk/griv/workspace.hpp	2007-11-13 09:56:37 UTC (rev 1533)
+@@ -31,15 +31,6 @@
+ #include &quot;griv.hpp&quot;
+ #include &quot;image.hpp&quot;
+ 
+-inline bool has_suffix(const std::string&amp; str, const std::string&amp; suffix)
+-{
+-  if (str.length() &gt;= suffix.length())
+-    return str.compare(str.length() - suffix.length(), suffix.length(), suffix) == 0;
+-  else
+-    return false;
+-}
+-
+-
+ class Workspace
+ {
+ public:
+@@ -47,73 +38,12 @@
+   int res;
+   
+ public:
+-  Workspace()
+-  {
+-    res = 16;
+-  }
++  Workspace();
+ 
+-  void draw()
+-  {
+-    int w = int(sqrt(4 * images.size() / 3));
+-    for(int i = 0; i &lt; int(images.size()); ++i)
+-      {
+-        images[i]-&gt;draw((i % w) * res + x_offset + Display::get_width()/2,
+-                        (i / w) * res + y_offset + Display::get_height()/2,
+-                        res);
+-      }
+-  }
+-
+-  void add(const std::string&amp; filename)
+-  {
+-    // if directory, do recursion
+-    if (Filesystem::is_directory(filename))
+-      {
+-        std::cout &lt;&lt; '.' &lt;&lt; std::flush;
+-        std::vector&lt;std::string&gt; dir_list = Filesystem::open_directory(filename);
+-        for(std::vector&lt;std::string&gt;::iterator i = dir_list.begin(); i != dir_list.end(); ++i)
+-          {
+-            add(*i);
+-          }
+-      }
+-    else if (has_suffix(filename, &quot;.jpg&quot;) ||
+-             has_suffix(filename, &quot;.JPG&quot;)
+-             )
+-      {
+-        std::string md5 = Filesystem::getxattr(filename);
+-        if (!md5.empty())
+-          {
+-            images.push_back(new Image(md5));
+-          }
+-        else
+-          {
+-            std::cout &lt;&lt; &quot;Ignoring: &quot; &lt;&lt; filename &lt;&lt; std::endl;
+-          }
+-      }
+-  }
+-
+-  void zoom_in()
+-  {
+-    res *= 2;
+-    if (res &gt; 2048)
+-      res = 2048;
+-    else
+-      { //300,200 ~ 212, 134 ~ 64, 0
+-        x_offset *= 2;
+-        y_offset *= 2;
+-      }
+-  }
+-
+-  void zoom_out()
+-  {
+-    res /= 2;
+-    if (res &lt; 16)
+-      res = 16;
+-    else
+-      {
+-        x_offset /= 2;
+-        y_offset /= 2;
+-      }
+-  }
++  void draw();
++  void add(const std::string&amp; filename);
++  void zoom_in();
++  void zoom_out();
+ };
+ 
+ #endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001182.html">[Windstille-commit] r1532 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001184.html">[Windstille-commit] r1534 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1183">[ date ]</a>
+              <a href="thread.html#1183">[ thread ]</a>
+              <a href="subject.html#1183">[ subject ]</a>
+              <a href="author.html#1183">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

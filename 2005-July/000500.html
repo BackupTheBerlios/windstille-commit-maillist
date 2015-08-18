@@ -1,0 +1,300 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r847 - in trunk/src: display sprite3d
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r847%20-%20in%20trunk/src%3A%20display%20sprite3d&In-Reply-To=%3C200507291238.j6TCcLsn002944%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000499.html">
+   <LINK REL="Next"  HREF="000501.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r847 - in trunk/src: display sprite3d</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r847%20-%20in%20trunk/src%3A%20display%20sprite3d&In-Reply-To=%3C200507291238.j6TCcLsn002944%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r847 - in trunk/src: display sprite3d">grumbel at berlios.de
+       </A><BR>
+    <I>Fri Jul 29 14:38:21 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000499.html">[Windstille-commit] r846 - trunk/src/sprite3d
+</A></li>
+        <LI>Next message: <A HREF="000501.html">[Windstille-commit] r848 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#500">[ date ]</a>
+              <a href="thread.html#500">[ thread ]</a>
+              <a href="subject.html#500">[ subject ]</a>
+              <a href="author.html#500">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-07-29 14:38:19 +0200 (Fri, 29 Jul 2005)
+New Revision: 847
+
+Modified:
+   trunk/src/display/drawing_context.cpp
+   trunk/src/display/drawing_request.hpp
+   trunk/src/display/vertex_array_drawing_request.cpp
+   trunk/src/sprite3d/sprite.cpp
+   trunk/src/sprite3d/sprite.hpp
+Log:
+- undid the modelview changes
+
+Modified: trunk/src/display/drawing_context.cpp
+===================================================================
+--- trunk/src/display/drawing_context.cpp	2005-07-29 09:26:54 UTC (rev 846)
++++ trunk/src/display/drawing_context.cpp	2005-07-29 12:38:19 UTC (rev 847)
+@@ -32,8 +32,7 @@
+ 
+ struct DrawingRequestsSorter
+ {
+-  bool operator() (const DrawingRequest* a, const DrawingRequest* b) const
+-  {
++  bool operator()(DrawingRequest* a, DrawingRequest* b) {
+     return a-&gt;get_z_pos() &lt; b-&gt;get_z_pos();
+   }
+ };
+@@ -76,7 +75,8 @@
+ 
+     gc-&gt;push_modelview();
+     gc-&gt;add_modelview(modelview.matrix);
+-    sprite.draw(0, 0, gc);
++    sprite.draw(static_cast&lt;int&gt;(pos.x),
++                static_cast&lt;int&gt;(pos.y), gc);
+     gc-&gt;pop_modelview();
+   }
+ };
+@@ -98,7 +98,8 @@
+     // FIXME: frequent push/pops might be slow
+     gc-&gt;push_modelview();
+     gc-&gt;add_modelview(modelview.matrix);
+-    sprite.draw(0, 0, gc);
++    sprite.draw(static_cast&lt;int&gt;(pos.x),
++                static_cast&lt;int&gt;(pos.y), gc);
+     gc-&gt;pop_modelview();
+   }
+ };
+@@ -118,7 +119,7 @@
+     gc-&gt;push_modelview();
+     gc-&gt;add_modelview(modelview.matrix);
+     Fonts::dialog_h.set_alignment(origin_center);
+-    Fonts::dialog_h.draw(0, 0, text);
++    Fonts::dialog_h.draw(int(pos.x), int(pos.y), text);
+     gc-&gt;pop_modelview();
+   }
+ };
+@@ -152,9 +153,9 @@
+     glEnable(GL_BLEND);
+     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+ 
+-    glMatrixMode(GL_MODELVIEW);
+     glPushMatrix();
+     glMultMatrixf(modelview.matrix);
++    glTranslatef(pos.x, pos.y, 0);
+     glScalef(surface.get_width(), surface.get_height(), 1.0);
+ 
+     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+@@ -220,13 +221,15 @@
+ 
+ void
+ DrawingContext::draw(const CL_Surface&amp;   sprite,  float x, float y, float z)
+-{ 
++{ // FIXME: This should get flattend down to a simple texture draw
++  // command for easier sorting after texture-id/alpha
+   draw(new CLSurfaceDrawingRequest(sprite, Vector(x, y), z, modelview_stack.back()));
+ }
+ 
+ void
+ DrawingContext::draw(const CL_Sprite&amp;   sprite,  float x, float y, float z)
+-{
++{ // FIXME: This should get flattend down to a simple texture draw
++  // command for easier sorting after texture-id/alpha
+   draw(new SpriteDrawingRequest(sprite, Vector(x, y), z, modelview_stack.back()));
+ }
+ 
+
+Modified: trunk/src/display/drawing_request.hpp
+===================================================================
+--- trunk/src/display/drawing_request.hpp	2005-07-29 09:26:54 UTC (rev 846)
++++ trunk/src/display/drawing_request.hpp	2005-07-29 12:38:19 UTC (rev 847)
+@@ -30,35 +30,23 @@
+ class DrawingRequest
+ {
+ protected:
++  Vector pos;
+   float  z_pos;
+   Matrix modelview;
+ 
+ public:
+-  DrawingRequest(const Vector&amp; pos, float z_pos = 0,  const Matrix&amp; modelview_ = Matrix::identity())
+-    : z_pos(z_pos), modelview(modelview_)
+-  {
+-    modelview[12] += pos.x;
+-    modelview[13] += pos.y;
+-  }
+-  DrawingRequest(const Matrix&amp; modelview, float z_pos = 0)
+-    : z_pos(z_pos), modelview(modelview)
++  DrawingRequest(const Vector&amp; pos_, float z_pos = 0,  const Matrix&amp; modelview_ = Matrix::identity())
++    : pos(pos_), z_pos(z_pos), modelview(modelview_)
+   {}
+-  virtual ~DrawingRequest() 
+-  {}
++  virtual ~DrawingRequest() {}
+   
+   virtual void draw(CL_GraphicContext* gc) = 0;
+   
+   /** Returns the position at which the request should be drawn */
+   float get_z_pos() const { return z_pos; }
+ 
+-  const Matrix&amp; get_modelview() const
++  Matrix get_modelview() const
+   { return modelview; }
+-
+-  Vector get_pos() const
+-  {
+-    return Vector(modelview[12], modelview[13]);
+-  }
+-
+ private:
+   DrawingRequest (const DrawingRequest&amp;);
+   DrawingRequest&amp; operator= (const DrawingRequest&amp;);
+
+Modified: trunk/src/display/vertex_array_drawing_request.cpp
+===================================================================
+--- trunk/src/display/vertex_array_drawing_request.cpp	2005-07-29 09:26:54 UTC (rev 846)
++++ trunk/src/display/vertex_array_drawing_request.cpp	2005-07-29 12:38:19 UTC (rev 847)
+@@ -56,7 +56,6 @@
+   state.set_active();
+   state.setup_2d();
+ 
+-  glMatrixMode(GL_MODELVIEW);
+   glPushMatrix();
+   glMultMatrixf(modelview.matrix);
+ 
+@@ -109,9 +108,9 @@
+ void
+ VertexArrayDrawingRequest::vertex(float x, float y, float z)
+ {
+-  vertices.push_back(x);
+-  vertices.push_back(y);
+-  vertices.push_back(z);
++  vertices.push_back(x + pos.x);
++  vertices.push_back(y + pos.y);
++  vertices.push_back(z + z_pos);
+ }
+ 
+ void
+
+Modified: trunk/src/sprite3d/sprite.cpp
+===================================================================
+--- trunk/src/sprite3d/sprite.cpp	2005-07-29 09:26:54 UTC (rev 846)
++++ trunk/src/sprite3d/sprite.cpp	2005-07-29 12:38:19 UTC (rev 847)
+@@ -269,15 +269,14 @@
+   const Sprite* sprite;
+ 
+ public:
+-  SpriteDrawingRequest(const Sprite* sprite,
+-                       const Matrix&amp; modelview, float z_pos)
+-      : DrawingRequest(modelview, z_pos), sprite(sprite)
+-  {
+-  }
++  SpriteDrawingRequest(const Sprite* sprite, const Vector&amp; pos, float z_pos,
++                       const Matrix&amp; modelview)
++    : DrawingRequest(pos, z_pos, modelview), sprite(sprite)
++  {}
+ 
+   void draw(CL_GraphicContext* gc)
+   {
+-    sprite-&gt;draw(gc, modelview);
++    sprite-&gt;draw(gc, pos, modelview);
+   }
+ };
+ 
+@@ -334,35 +333,26 @@
+ void
+ Sprite::draw(SceneContext&amp; sc, const Vector&amp; pos, float z_pos) const
+ {
+-  Matrix matrix = sc.color().get_modelview();
+-  matrix[12] += pos.x;
+-  matrix[13] += pos.y;
+-  sc.color().draw(new SpriteDrawingRequest(this, matrix, z_pos));
++  sc.color().draw(new SpriteDrawingRequest(this, pos, z_pos, sc.color().get_modelview()));
+ }
+ 
+ void
+ Sprite::draw(SceneContext&amp; sc, const Matrix&amp; matrix, float z_pos) const
+ {
+-#if 0
+-  Matrix mmatrix 
+-    = matrix.multiply(sc.color().get_modelview());
+-#else
+-  Matrix mmatrix
+-    = sc.color().get_modelview().multiply(matrix);
+-#endif
+-  sc.color().draw(new SpriteDrawingRequest(this, mmatrix, z_pos));
++  sc.color().draw(new SpriteDrawingRequest(this, Vector(0, 0), 0.0f, sc.color().get_modelview()));
+ }
+ 
+ void
+-Sprite::draw(CL_GraphicContext* gc, const Matrix&amp; modelview) const
++Sprite::draw(CL_GraphicContext* gc, const Vector&amp; pos, const Matrix&amp; modelview) const
+ {
+   CL_OpenGLState state(gc);
+   state.set_active();
+   state.setup_2d();
+ 
+   glMatrixMode(GL_MODELVIEW);
+-  glPushMatrix();
++  glPushMatrix(); 
+   glMultMatrixf(modelview.matrix);
++  glTranslatef(pos.x, pos.y, 0);
+   if(frame1.rot) {
+     glRotatef(180, 0, 1.0, 0);
+   } 
+
+Modified: trunk/src/sprite3d/sprite.hpp
+===================================================================
+--- trunk/src/sprite3d/sprite.hpp	2005-07-29 09:26:54 UTC (rev 846)
++++ trunk/src/sprite3d/sprite.hpp	2005-07-29 12:38:19 UTC (rev 847)
+@@ -110,7 +110,7 @@
+   
+ private:  
+   friend class SpriteDrawingRequest;
+-  void draw(CL_GraphicContext* gc, const Matrix&amp; modelview) const;
++  void draw(CL_GraphicContext* gc, const Vector&amp; pos, const Matrix&amp; modelview) const;
+   
+   struct Frame {
+     const Action* action;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000499.html">[Windstille-commit] r846 - trunk/src/sprite3d
+</A></li>
+	<LI>Next message: <A HREF="000501.html">[Windstille-commit] r848 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#500">[ date ]</a>
+              <a href="thread.html#500">[ thread ]</a>
+              <a href="subject.html#500">[ subject ]</a>
+              <a href="author.html#500">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

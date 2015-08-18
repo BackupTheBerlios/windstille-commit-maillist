@@ -1,0 +1,339 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r626 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r626%20-%20trunk/src&In-Reply-To=%3C200507140455.j6E4t0ef001767%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000278.html">
+   <LINK REL="Next"  HREF="000280.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r626 - trunk/src</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r626%20-%20trunk/src&In-Reply-To=%3C200507140455.j6E4t0ef001767%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r626 - trunk/src">grumbel at berlios.de
+       </A><BR>
+    <I>Thu Jul 14 06:55:00 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000278.html">[Windstille-commit] r625 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000280.html">[Windstille-commit] r627 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#279">[ date ]</a>
+              <a href="thread.html#279">[ thread ]</a>
+              <a href="subject.html#279">[ subject ]</a>
+              <a href="author.html#279">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-07-14 06:54:49 +0200 (Thu, 14 Jul 2005)
+New Revision: 626
+
+Modified:
+   trunk/src/character.cpp
+   trunk/src/console.cpp
+   trunk/src/console.hpp
+   trunk/src/game_session.cpp
+   trunk/src/screen.cpp
+   trunk/src/script_manager.cpp
+Log:
+- added a streambuf to the console
+
+Modified: trunk/src/character.cpp
+===================================================================
+--- trunk/src/character.cpp	2005-07-14 04:51:57 UTC (rev 625)
++++ trunk/src/character.cpp	2005-07-14 04:54:49 UTC (rev 626)
+@@ -88,7 +88,7 @@
+     {
+       script_manager-&gt;run_script(script, name);
+     } catch (std::exception e) {
+-      Console::current()-&gt;add(e.what());
++      Console::current() &lt;&lt; e.what() &lt;&lt; std::endl;
+     }
+ }
+ 
+
+Modified: trunk/src/console.cpp
+===================================================================
+--- trunk/src/console.cpp	2005-07-14 04:51:57 UTC (rev 625)
++++ trunk/src/console.cpp	2005-07-14 04:54:49 UTC (rev 626)
+@@ -29,7 +29,47 @@
+ 
+ Console* Console::current_ = 0;
+ 
++ConsoleStreambuf::ConsoleStreambuf(Console* console_)
++  : console(console_)
++{
++  setp(buf, buf+sizeof(buf));
++}
++
++ConsoleStreambuf::~ConsoleStreambuf()
++{
++  sync();
++}
++
++int
++ConsoleStreambuf::overflow(int c)
++{
++  if(pbase() == pptr())
++    return 0;
++
++  size_t size = pptr() - pbase();
++  console-&gt;add(pbase(), size);
++      
++  if(c != traits_type::eof()) {
++    char str[1];
++    str[0] = c;
++    console-&gt;add(str, 1);
++  }
++
++  setp(buf, buf + size);
++
++  return 0;
++}
++
++int
++ConsoleStreambuf::sync()
++{
++    return overflow(traits_type::eof());
++}
++
++//-------------------------------------------------------------------------------
++
+ Console::Console(int arg_x, int arg_y)
++  : std::ostream(new ConsoleStreambuf(this))
+ {
+   current_ = this;
+   x_pos = arg_x;
+@@ -38,20 +78,30 @@
+   history_position = 1;
+ }
+ 
+-Console* 
++Console&amp;
+ Console::current()
+ {
+   assert(current_);
+-  return current_;
++  return *current_;
+ }
+ 
+ void
+-Console::add(const std::string&amp; str)
++Console::add(char* buf, int len)
+ {
+-  ConsoleEntry entry;
+-  entry.display_time = 0;
+-  entry.message = str;
+-  buffer.push_back(entry);
++  current_entry.display_time = 0;
++
++  for (int i = 0; i &lt; len; ++i)
++    {
++      if (buf[i] == '\n')
++        {
++          buffer.push_back(current_entry);
++          current_entry = ConsoleEntry();
++        }
++      else
++        {
++          current_entry.message += buf[i];
++        }
++    }
+ }
+ 
+ void
+@@ -149,15 +199,15 @@
+                           history.push_back(command_line);
+                           history_position = history.size();
+                         }
+-                      add(&quot;&gt;&quot; + command_line);
++                      (*this) &lt;&lt; &quot;&gt;&quot; &lt;&lt; command_line &lt;&lt; std::endl;
+                       if (command_line == &quot;quit&quot; || command_line == &quot;exit&quot;)
+                         {
+                           deactive();
+                         }
+                       else if (command_line == &quot;help&quot;)
+                         {
+-                          add(&quot;This is a script console, can enter stuff in here that will then be evaluated.&quot;);
+-                          add(&quot;Type 'quit' to exit the console.&quot;);
++                          (*this) &lt;&lt; &quot;This is a script console, can enter stuff in here that will then be evaluated.\n&quot;
++                                  &lt;&lt; &quot;Type 'quit' to exit the console.&quot; &lt;&lt; std::endl;
+                         }
+                       else if (command_line == &quot;reset&quot;)
+                         {
+@@ -171,9 +221,7 @@
+                             {
+                               int size = sq_getsize(v, -1);
+                           
+-                              std::ostringstream str;
+-                              str &lt;&lt; size &lt;&lt; &quot; elements on the root table:&quot;;
+-                              add(str.str());
++                              (*this) &lt;&lt; size &lt;&lt; &quot; elements on the root table&quot; &lt;&lt; std::endl;
+                             }
+ 
+                           sq_pushroottable(v);
+@@ -186,7 +234,7 @@
+                               const SQChar *s;
+                               if (SQ_SUCCEEDED(sq_getstring(v,-2, &amp;s)))
+                                 {
+-                                  add(s + std::string(&quot; -&gt;&quot;));
++                                  (*this) &lt;&lt; s &lt;&lt; &quot; -&gt; &quot;;
+                                   
+                                   sq_pushroottable(v);
+                                   sq_pushstring(v,&quot;print&quot;,-1);
+@@ -197,12 +245,12 @@
+                                   sq_call(v,2,SQFalse);
+                                   
+                                   sq_pop(v,2); //pops the roottable and the function
++
++                                  (*this) &lt;&lt; std::endl;;
+                                 }
+                               else
+                                 {
+-                                  std::ostringstream str;
+-                                  str &lt;&lt; &quot;Unknown key type for element&quot;;
+-                                  add(str.str());
++                                  (*this) &lt;&lt; &quot;Unknown key type for element&quot; &lt;&lt; std::endl;
+                                 }
+                               
+                               sq_pop(v,2); //pops key and val before the nex iteration
+
+Modified: trunk/src/console.hpp
+===================================================================
+--- trunk/src/console.hpp	2005-07-14 04:51:57 UTC (rev 625)
++++ trunk/src/console.hpp	2005-07-14 04:54:49 UTC (rev 626)
+@@ -28,8 +28,25 @@
+   float display_time;
+ };
+ 
++class Console;
++
++class ConsoleStreambuf : public std::streambuf
++{
++public:
++  ConsoleStreambuf(Console* console);
++  ~ConsoleStreambuf();
++
++protected:
++  virtual int overflow(int c);
++  virtual int sync();
++
++private:
++  Console* console;
++  char buf[1024];
++};
++
+ /** */
+-class Console
++class Console : public std::ostream
+ {
+ private:
+   int x_pos;
+@@ -41,25 +58,13 @@
+   bool active;
+   std::vector&lt;std::string&gt; history;
+   int history_position;
++  ConsoleEntry current_entry;
+ public:
+-  static Console* current();
++  static Console&amp; current();
+ 
+   Console(int x, int y);
+-  
+-  void add(const std::string&amp;);
+-  template&lt;class A, class B&gt;
+-  void add(const A&amp; a, const B&amp; b) {
+-    std::ostringstream s;
+-    s &lt;&lt; a &lt;&lt; b;
+-    add(s.str());
+-  }
+ 
+-  template&lt;class A, class B, class C&gt;
+-  void add(const A&amp; a, const B&amp; b, const C&amp; c) {
+-    std::ostringstream s;
+-    s &lt;&lt; a &lt;&lt; b &lt;&lt; c;
+-    add(s.str());
+-  }
++  void add(char* buf, int len);
+ 
+   void draw();
+   void update(float delta);
+
+Modified: trunk/src/game_session.cpp
+===================================================================
+--- trunk/src/game_session.cpp	2005-07-14 04:51:57 UTC (rev 625)
++++ trunk/src/game_session.cpp	2005-07-14 04:54:49 UTC (rev 626)
+@@ -316,7 +316,7 @@
+   switch(event.id)
+     {
+     case CL_MOUSE_LEFT:
+-      console.add(&quot;Click at: &quot;, CL_Point(view-&gt;screen2world(event.mouse_pos)));
++      console &lt;&lt; &quot;Click at: &quot; &lt;&lt; CL_Point(view-&gt;screen2world(event.mouse_pos)) &lt;&lt; std::endl;
+       break;
+     default:
+       break;
+
+Modified: trunk/src/screen.cpp
+===================================================================
+--- trunk/src/screen.cpp	2005-07-14 04:51:57 UTC (rev 625)
++++ trunk/src/screen.cpp	2005-07-14 04:54:49 UTC (rev 626)
+@@ -102,8 +102,7 @@
+     case CL_KEY_C:
+       if(debug) {
+         collision_debug = !collision_debug;
+-        Console::current()-&gt;add(std::string(&quot;Collision Debugging &quot;)
+-            + (collision_debug ? &quot;enabled&quot; : &quot;disabled&quot;));
++        Console::current() &lt;&lt; &quot;Collision Debugging &quot; &lt;&lt; (collision_debug ? &quot;enabled&quot; : &quot;disabled&quot;) &lt;&lt; std::endl;
+       }
+       break;
+     case CL_KEY_F10:
+
+Modified: trunk/src/script_manager.cpp
+===================================================================
+--- trunk/src/script_manager.cpp	2005-07-14 04:51:57 UTC (rev 625)
++++ trunk/src/script_manager.cpp	2005-07-14 04:54:49 UTC (rev 626)
+@@ -25,7 +25,7 @@
+   va_list arglist; 
+   va_start(arglist, str); 
+   vsprintf(buf, str, arglist);
+-  Console::current()-&gt;add(buf);
++  Console::current() &lt;&lt; (char*)buf;
+   puts(buf);
+   va_end(arglist); 
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000278.html">[Windstille-commit] r625 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000280.html">[Windstille-commit] r627 - trunk/src
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#279">[ date ]</a>
+              <a href="thread.html#279">[ thread ]</a>
+              <a href="subject.html#279">[ subject ]</a>
+              <a href="author.html#279">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

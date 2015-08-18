@@ -1,0 +1,430 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r937 - trunk/src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-August/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r937%20-%20trunk/src&In-Reply-To=%3C200508062213.j76MDgMZ016604%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000589.html">
+   <LINK REL="Next"  HREF="000595.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r937 - trunk/src</H1>
+    <B>James Gregory at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r937%20-%20trunk/src&In-Reply-To=%3C200508062213.j76MDgMZ016604%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r937 - trunk/src">jamesgregory at berlios.de
+       </A><BR>
+    <I>Sun Aug  7 00:13:42 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000589.html">[Windstille-commit] r936 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000595.html">[Windstille-commit] r938 - in trunk: data/controller src src/input
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#590">[ date ]</a>
+              <a href="thread.html#590">[ thread ]</a>
+              <a href="subject.html#590">[ subject ]</a>
+              <a href="author.html#590">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: jamesgregory
+Date: 2005-08-07 00:13:39 +0200 (Sun, 07 Aug 2005)
+New Revision: 937
+
+Modified:
+   trunk/src/conversation.cpp
+   trunk/src/conversation.hpp
+   trunk/src/game_session.cpp
+   trunk/src/pda.cpp
+   trunk/src/pda.hpp
+Log:
+- made PDA much bigger and slightly better
+- changed some &quot;visibles&quot; to &quot;actives&quot; to make things more unified across different classes
+
+Modified: trunk/src/conversation.cpp
+===================================================================
+--- trunk/src/conversation.cpp	2005-08-06 21:11:14 UTC (rev 936)
++++ trunk/src/conversation.cpp	2005-08-06 22:13:39 UTC (rev 937)
+@@ -30,14 +30,14 @@
+ Conversation::Conversation()
+ {
+   current_ = this;
+-  visible = false;
++  active = false;
+   selection = 0;
+ }
+ 
+ void
+ Conversation::add(const std::string&amp; text)
+ {
+-  if (!visible)
++  if (!active)
+     {
+       choices.push_back(text);
+       if (selection &gt;= int(choices.size()))
+@@ -48,27 +48,27 @@
+ void
+ Conversation::draw()
+ {
+-  if (visible)
++  if (!active)
++    return;
++    
++  int x = 100;
++  int y = 200;
++
++  Rect rect(Point(x - 20, y - 20 + Fonts::ttffont-&gt;get_height()/2 - 5),
++            Size(300 + 20, // FIXME:
++                 (Fonts::ttffont-&gt;get_height() + 10) * choices.size() + 20));
++  
++  Display::fill_rect(rect, Color(0,0,0,0.5f));
++  Display::draw_rect(rect, Color(1.0f, 1.0f, 1.0f, 0.3f));
++
++  for(int i = 0; i &lt; int(choices.size()); ++i)
+     {
+-      int x = 100;
+-      int y = 200;
+-
+-      Rect rect(Point(x - 20, y - 20 + Fonts::ttffont-&gt;get_height()/2 - 5),
+-                Size(300 + 20, // FIXME:
+-                     (Fonts::ttffont-&gt;get_height() + 10) * choices.size() + 20));
+-      
+-      Display::fill_rect(rect, Color(0,0,0,0.5f));
+-      Display::draw_rect(rect, Color(1.0f, 1.0f, 1.0f, 0.3f));
+- 
+-      for(int i = 0; i &lt; int(choices.size()); ++i)
+-        {
+-          if (i == selection)
+-            Fonts::ttfdialog-&gt;draw(x, y, choices[i]);
+-          else
+-            Fonts::ttfdialog-&gt;draw(x, y, choices[i], Color(0.5f, 0.5f, 0.5f));
+-      
+-          y += Fonts::ttfdialog-&gt;get_height() + 10;
+-        }
++      if (i == selection)
++        Fonts::ttfdialog-&gt;draw(x, y, choices[i]);
++      else
++        Fonts::ttfdialog-&gt;draw(x, y, choices[i], Color(0.5f, 0.5f, 0.5f));
++  
++      y += Fonts::ttfdialog-&gt;get_height() + 10;
+     }
+ }
+ 
+@@ -76,39 +76,39 @@
+ Conversation::update(float delta)
+ {
+   (void) delta;
+-  if (visible)
++  if (!active)
++    return;
++    
++  Controller controller = InputManager::get_controller();
++  const InputEventLst&amp; events = controller.get_events();
++
++  for(InputEventLst::const_iterator i = events.begin(); i != events.end(); ++i)
+     {
+-      Controller controller = InputManager::get_controller();
+-      const InputEventLst&amp; events = controller.get_events();
+- 
+-      for(InputEventLst::const_iterator i = events.begin(); i != events.end(); ++i)
++      if (i-&gt;type == AXIS_EVENT &amp;&amp; i-&gt;axis.name == Y_AXIS)
+         {
+-          if (i-&gt;type == AXIS_EVENT &amp;&amp; i-&gt;axis.name == Y_AXIS)
++          if (i-&gt;axis.pos &gt; 0)
+             {
+-              if (i-&gt;axis.pos &gt; 0)
+-                {
+-                  selection -= 1;
+-                  if (selection &lt; 0)
+-                    selection = choices.size() - 1;
+-                }
+-              else if (i-&gt;axis.pos &lt; 0)
+-                {        
+-                  selection += 1;
+-                  if (selection &gt;= int(choices.size()))
+-                    selection = 0;
+-                }
++              selection -= 1;
++              if (selection &lt; 0)
++                selection = choices.size() - 1;
+             }
+-          else if (i-&gt;type == BUTTON_EVENT &amp;&amp; i-&gt;button.down)
++          else if (i-&gt;axis.pos &lt; 0)
++            {        
++              selection += 1;
++              if (selection &gt;= int(choices.size()))
++                selection = 0;
++            }
++        }
++      else if (i-&gt;type == BUTTON_EVENT &amp;&amp; i-&gt;button.down)
++        {
++          switch (i-&gt;button.name)
+             {
+-              switch (i-&gt;button.name)
+-                {
+-                case PRIMARY_BUTTON:
+-                  visible = false;
+-                  choices.clear();
+-                  script_manager-&gt;fire_wakeup_event(ScriptManager::CONVERSATION_CLOSED);
+-                  return;
+-                  break;
+-                }
++            case PRIMARY_BUTTON:
++              active = false;
++              choices.clear();
++              script_manager-&gt;fire_wakeup_event(ScriptManager::CONVERSATION_CLOSED);
++              return;
++              break;
+             }
+         }
+     }
+@@ -123,7 +123,7 @@
+ void
+ Conversation::show()
+ {
+-  visible = true;
++  active = true;
+ }
+ 
+ /* EOF */
+
+Modified: trunk/src/conversation.hpp
+===================================================================
+--- trunk/src/conversation.hpp	2005-08-06 21:11:14 UTC (rev 936)
++++ trunk/src/conversation.hpp	2005-08-06 22:13:39 UTC (rev 937)
+@@ -28,7 +28,7 @@
+ class Conversation
+ {
+ private:
+-  bool visible;
++  bool active;
+   int selection;
+ 
+   typedef std::vector&lt;std::string&gt; Choices;
+
+Modified: trunk/src/game_session.cpp
+===================================================================
+--- trunk/src/game_session.cpp	2005-08-06 21:11:14 UTC (rev 936)
++++ trunk/src/game_session.cpp	2005-08-06 22:13:39 UTC (rev 937)
+@@ -146,7 +146,7 @@
+ GameSession::update(float delta)
+ {  
+   if (InputManager::get_controller().button_pressed(PDA_BUTTON))
+-    pda.set_visible(!pda.get_visible());
++    pda.set_active(!pda.is_active());
+ 
+   if (InputManager::get_controller().button_pressed(PAUSE_BUTTON))
+     pause = !pause;
+
+Modified: trunk/src/pda.cpp
+===================================================================
+--- trunk/src/pda.cpp	2005-08-06 21:11:14 UTC (rev 936)
++++ trunk/src/pda.cpp	2005-08-06 22:13:39 UTC (rev 937)
+@@ -29,8 +29,15 @@
+ #include &quot;fonts.hpp&quot;
+ #include &quot;pda.hpp&quot;
+ 
++Dialog_Entry::Dialog_Entry(const std::string&amp; arg_character, const std::string&amp; arg_text)
++  : character(arg_character),
++    text(arg_text)
++{
++}
++
+ PDA::PDA()
+-  : visible(false)
++  : active(false),
++    state(PDA_INVENTORY)
+ { 
+   text_area = 0;
+ }
+@@ -38,7 +45,7 @@
+ void
+ PDA::draw()
+ {
+-  if (!visible)
++  if (!active)
+     return;
+     
+   const Rectf&amp; rect = text_area-&gt;get_rect().grow(8.0f);
+@@ -51,25 +58,50 @@
+ void
+ PDA::update(float delta)
+ {
+-  int width  = 200;
+-  int height = 120;
+-  std::string text;
+-  text = &quot;&lt;large&gt;PDA&lt;/large&gt;\n&quot;
+-         &quot;------------------------\n&quot;;
+-
+-  for (unsigned i = 0; i != messages.size(); ++i)
+-    text += messages[i] + '\n';
++  if (!active)
++    return;
+   
+-  if (text != old_text)
+-  {
++  Controller controller = InputManager::get_controller();
++  const InputEventLst&amp; events = controller.get_events();
++  for(InputEventLst::const_iterator i = events.begin(); i != events.end(); ++i) {
++    if (i-&gt;type == AXIS_EVENT &amp;&amp; i-&gt;axis.name == X_AXIS) {
++      if (i-&gt;axis.pos &gt; 0) {
++        state = static_cast&lt;pda_state&gt;(state + 1);
++        if (state &gt; PDA_DIALOGS)
++          state = PDA_INVENTORY;
++      }
++      else if (i-&gt;axis.pos &lt; 0) {
++        state = static_cast&lt;pda_state&gt;(state - 1);
++        if (state &lt; PDA_INVENTORY)
++          state = PDA_DIALOGS;
++      }
++    }
++  }
++  
++  int width  = 600;
++  int height = 400;
++  
++  switch (state) {
++    case PDA_INVENTORY:
++      show_inventory();
++      break;
++    case PDA_MISSIONS:
++      show_missions();
++      break;
++    case PDA_DIALOGS:
++      show_dialogs();
++      break;
++  }
++ 
++  if (new_text != old_text) {
+     delete text_area;
+-    text_area = new TextArea(Rect(Point(16,
+-                Display::get_height() - height - 16),
++    text_area = new TextArea(Rect(Point(100,
++                100),
+                 Size(width, height)), false);
+     text_area-&gt;set_font(Fonts::ttffont);
+-    text_area-&gt;set_text(text);
++    text_area-&gt;set_text(new_text);
+     
+-    old_text = text;
++    old_text = new_text;
+   }
+   
+   text_area-&gt;update(delta);
+@@ -78,7 +110,35 @@
+ void
+ PDA::add_dialog(const std::string&amp; text)
+ {
+-  messages.push_back(text);
++  dialogs.push_back(Dialog_Entry(&quot;Someone&quot;, text));
+ }
+ 
++void
++PDA::show_inventory()
++{
++  new_text = &quot;&lt;large&gt;Personal Digital Assistant&lt;/large&gt;\n&quot;;
++  new_text += &quot;&lt;b&gt;inventory&lt;/b&gt; - missions - dialogs\n\n&quot;;
++}
++
++void
++PDA::show_missions()
++{
++  new_text = &quot;&lt;large&gt;Personal Digital Assistant&lt;/large&gt;\n&quot;;
++  new_text += &quot;inventory - &lt;b&gt;missions&lt;/b&gt; - dialogs\n\n&quot;;
++
++}
++
++void
++PDA::show_dialogs()
++{
++  new_text = &quot;&lt;large&gt;Personal Digital Assistant&lt;/large&gt;\n&quot;;
++  new_text += &quot;inventory - missions - &lt;b&gt;dialogs&lt;/b&gt;\n\n&quot;;
++  
++  for (unsigned i = 0; i != dialogs.size(); ++i) {
++    new_text += dialogs[i].character;
++    new_text += &quot;: &quot;;
++    new_text += dialogs[i].text + '\n';
++  }
++}
++
+ /* EOF */
+
+Modified: trunk/src/pda.hpp
+===================================================================
+--- trunk/src/pda.hpp	2005-08-06 21:11:14 UTC (rev 936)
++++ trunk/src/pda.hpp	2005-08-06 22:13:39 UTC (rev 937)
+@@ -28,6 +28,15 @@
+ 
+ class TextArea;
+ 
++class Dialog_Entry
++{
++public:
++  Dialog_Entry(const std::string&amp; arg_character, const std::string&amp; arg_text);
++  
++  std::string character;
++  std::string text;
++};
++
+ /** */
+ class PDA
+ {
+@@ -36,15 +45,21 @@
+ 
+   void draw();
+   void update(float delta);
+-  bool get_visible() const {return visible;}
+-  void set_visible(bool arg_visible) {visible = arg_visible;}
++  bool is_active() const {return active;}
++  void set_active(bool arg_active) {active = arg_active;}
+   void add_dialog(const std::string&amp; text);
+ 
+ private:
++  void show_inventory();
++  void show_missions();
++  void show_dialogs();
++  
+   TextArea* text_area;
+-  bool visible;
+-  std::vector&lt;std::string&gt; messages;
++  bool active;
++  std::vector&lt;Dialog_Entry&gt; dialogs;
++  std::string new_text;  
+   std::string old_text;
++  enum pda_state { PDA_INVENTORY, PDA_MISSIONS, PDA_DIALOGS } state;
+ };
+ 
+ #endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000589.html">[Windstille-commit] r936 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000595.html">[Windstille-commit] r938 - in trunk: data/controller src src/input
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#590">[ date ]</a>
+              <a href="thread.html#590">[ thread ]</a>
+              <a href="subject.html#590">[ subject ]</a>
+              <a href="author.html#590">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

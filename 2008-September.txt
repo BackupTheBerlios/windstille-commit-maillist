@@ -1,0 +1,848 @@
+From grumbel at mail.berlios.de  Tue Sep  2 01:20:42 2008
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Tue, 2 Sep 2008 01:20:42 +0200
+Subject: [Windstille-commit] r2380 - trunk/griv/src
+Message-ID: <200809012320.m81NKgUl017262@sheep.berlios.de>
+
+Author: grumbel
+Date: 2008-09-02 01:20:37 +0200 (Tue, 02 Sep 2008)
+New Revision: 2380
+
+Modified:
+   trunk/griv/src/database_thread.cpp
+   trunk/griv/src/file_database.cpp
+   trunk/griv/src/file_database.hpp
+   trunk/griv/src/file_entry.cpp
+   trunk/griv/src/file_entry.hpp
+   trunk/griv/src/galapix.cpp
+   trunk/griv/src/image.cpp
+   trunk/griv/src/tile_entry.hpp
+   trunk/griv/src/tile_generator.cpp
+   trunk/griv/src/tile_generator_thread.cpp
+   trunk/griv/src/workspace.cpp
+Log:
+Make FileEntry a refcounted objected
+
+Modified: trunk/griv/src/database_thread.cpp
+===================================================================
+--- trunk/griv/src/database_thread.cpp	2008-08-31 20:54:43 UTC (rev 2379)
++++ trunk/griv/src/database_thread.cpp	2008-09-01 23:20:37 UTC (rev 2380)
+@@ -207,7 +207,7 @@
+ 
+                   for(std::list<TileDatabaseMessage*>::iterator i = tile_queue.begin(); i != tile_queue.end();)
+                     {
+-                      if (tile_msg->tile.fileid == (*i)->file_entry.fileid &&
++                      if (tile_msg->tile.fileid == (*i)->file_entry.get_fileid() &&
+                           tile_msg->tile.scale  == (*i)->tilescale &&
+                           tile_msg->tile.pos    == (*i)->pos)
+                         {
+@@ -254,17 +254,14 @@
+               case DATABASE_FILE_MESSAGE:
+                 {
+                   FileDatabaseMessage* file_msg = static_cast<FileDatabaseMessage*>(msg);
+-                  FileEntry entry;
+-
+-                  //std::cout << "Lookup for: " << file_msg->filename << std::endl;
+-                  if (file_db.get_file_entry(file_msg->filename, &entry))
++                  FileEntry entry = file_db.get_file_entry(file_msg->filename);
++                  if (!entry)
+                     {
+-                      //std::cout << entry.filename << " -> " << entry.fileid << std::endl;
+-                      file_msg->callback(entry);
++                      std::cout << "Error: Couldn't get FileEntry for " << file_msg->filename << std::endl;
+                     }
+                   else
+                     {
+-                      std::cout << "Error: Couldn't get FileEntry for " << file_msg->filename << std::endl;
++                      file_msg->callback(entry);
+                     }
+                 }
+                 break;
+@@ -288,7 +285,7 @@
+                   if (!tile_msg->job_handle.is_aborted())
+                     {
+                       TileEntry tile;
+-                      if (tile_db.get_tile(tile_msg->file_entry.fileid, tile_msg->tilescale, tile_msg->pos, tile))
++                      if (tile_db.get_tile(tile_msg->file_entry.get_fileid(), tile_msg->tilescale, tile_msg->pos, tile))
+                         {
+                           tile_msg->callback(tile);
+                           tile_msg->job_handle.finish();
+@@ -297,7 +294,7 @@
+                         {
+                           if (0)
+                             std::cout << "Error: Couldn't get tile: " 
+-                                      << tile_msg->file_entry.fileid << " "
++                                      << tile_msg->file_entry.get_fileid() << " "
+                                       << tile_msg->pos.x << " "
+                                       << tile_msg->pos.y << " "
+                                       << tile_msg->tilescale
+@@ -352,13 +349,13 @@
+                 {
+                   tiles_missing = false;
+ 
+-                  int width  = Math::ceil_div(msg.file_entry.size.width  / Math::pow2(max_scale), 256);
+-                  int height = Math::ceil_div(msg.file_entry.size.height / Math::pow2(max_scale), 256);
++                  int width  = Math::ceil_div(msg.file_entry.get_width()  / Math::pow2(max_scale), 256);
++                  int height = Math::ceil_div(msg.file_entry.get_height() / Math::pow2(max_scale), 256);
+ 
+                   for(int y = 0; y < height; ++y)
+                     for(int x = 0; x < width; ++x)
+                       {
+-                        if (!tile_db.has_tile(msg.file_entry.fileid, Vector2i(x,y), max_scale+1))
++                        if (!tile_db.has_tile(msg.file_entry.get_fileid(), Vector2i(x,y), max_scale+1))
+                           {
+                             tiles_missing = true;
+                             max_scale += 1;
+@@ -369,7 +366,7 @@
+                 here:
+                   ;
+                 }
+-              while(tiles_missing && max_scale < msg.file_entry.thumbnail_scale);
++              while(tiles_missing && max_scale < msg.file_entry.get_thumbnail_scale());
+               
+               TileGeneratorThread::current()->request_tiles(msg.file_entry,
+                                                             msg.tilescale,
+
+Modified: trunk/griv/src/file_database.cpp
+===================================================================
+--- trunk/griv/src/file_database.cpp	2008-08-31 20:54:43 UTC (rev 2379)
++++ trunk/griv/src/file_database.cpp	2008-09-01 23:20:37 UTC (rev 2380)
+@@ -64,17 +64,15 @@
+ 
+ }
+  
+-int
+-FileDatabase::store_file_entry(FileEntry& entry)
++FileEntry
++FileDatabase::store_file_entry(const std::string& filename,
++                               const Size& size)
+ {
+-  store_stmt.bind_text(1, entry.filename);
+-  if (entry.md5.empty())
+-    store_stmt.bind_null(2);
+-  else
+-    store_stmt.bind_text(2, entry.md5);
+-  store_stmt.bind_int (3, entry.filesize); 
+-  store_stmt.bind_int (4, entry.size.width); 
+-  store_stmt.bind_int (5, entry.size.height);
++  store_stmt.bind_text(1, filename);
++  store_stmt.bind_null(2); // MD5
++  store_stmt.bind_null(3); // filesize
++  store_stmt.bind_int (4, size.width);
++  store_stmt.bind_int (5, size.height);
+   // FIXME: Should we handle them here or depend on store_tile()?
+   // store_stmt.bind_int (6, entry.color); 
+   // store_stmt.bind_int (7, entry.surface.get_raw_data()); 
+@@ -82,9 +80,9 @@
+ 
+   store_stmt.execute();
+   
+-  entry.fileid = sqlite3_last_insert_rowid(db->get_db());
++  int fileid = sqlite3_last_insert_rowid(db->get_db());
+ 
+-  return entry.fileid;
++  return FileEntry(fileid, filename, size.width, size.height);
+ }
+ 
+ void
+@@ -111,53 +109,29 @@
+   return i;
+ }
+ 
+-bool
+-FileDatabase::get_file_entry(const std::string& filename, FileEntry* entry)
++FileEntry
++FileDatabase::get_file_entry(const std::string& filename)
+ {
+   get_by_filename_stmt.bind_text(1, filename);
+   SQLiteReader reader = get_by_filename_stmt.execute_query();
+ 
+   if (reader.next())
+     {
+-      if (0)
+-        std::cout << "Row: " 
+-                  << reader.get_column_name(0) << " "
+-                  << reader.get_text(0)
+-                  << std::endl;
+-
+-      entry->fileid      = reader.get_int (0);
+-      entry->filename    = reader.get_text(1);
+-      entry->md5         = reader.get_text(2);
+-      entry->filesize    = reader.get_int (3);
+-      entry->size.width  = reader.get_int (4);
+-      entry->size.height = reader.get_int (5);
+-      entry->color       = reader.is_null(6) ? RGB(155,0,155) : RGB(reader.get_int(6));
+-      entry->thumbnail   = reader.is_null(7) ? SoftwareSurface() : SoftwareSurface::from_raw_data(reader.get_blob(7));
+-      entry->thumbnail_scale = reader.is_null(8) ? get_thumbnail_scale(entry->size) : reader.get_int(8);
+-
+-      return true;
++      return FileEntry(reader.get_int (0),  // fileid
++                       reader.get_text(1),  // filename
++                       reader.get_int (4),  // width
++                       reader.get_int (5)); // height
+     }
+   else
+     {
+-      entry->fileid   = -1;
+-      entry->filename = filename;
+-      entry->filesize = Filesystem::get_size(filename);
+-      entry->mtime    = Filesystem::get_mtime(filename);
+-     
+-      entry->size = Size(-1, -1);
+-
+-      entry->color    = RGB(155,0,155);
+-      entry->thumbnail = SoftwareSurface();
+-      
+-      if (JPEG::get_size(entry->filename, entry->size))
++      Size size;
++      if (JPEG::get_size(filename, size))
+         {
+-          store_file_entry(*entry);
+-          entry->thumbnail_scale = get_thumbnail_scale(entry->size);
+-          return true;
++          return store_file_entry(filename, size);
+         }
+       else
+         {
+-          return false;
++          throw std::runtime_error("FileDatabase: Couldn't load " + filename);
+         }
+     }
+ }
+@@ -169,18 +143,11 @@
+ 
+   while (reader.next())  
+     {
+-      FileEntry entry;
+-      entry.fileid      = reader.get_int (0);
+-      entry.filename    = reader.get_text(1);
+-      entry.md5         = reader.get_text(2);
+-      entry.filesize    = reader.get_int (3);
+-      entry.size.width  = reader.get_int (4);
+-      entry.size.height = reader.get_int (5);
+-      entry.mtime       = reader.get_int (6);
+-      entry.color       = reader.is_null(6) ? RGB(155,0,155) : RGB(reader.get_int(6));
+-      entry.thumbnail   = reader.is_null(7) ? SoftwareSurface() : SoftwareSurface::from_raw_data(reader.get_blob(7));
+-      entry.thumbnail_scale = reader.is_null(8) ? get_thumbnail_scale(entry.size) : reader.get_int(8);
+-
++      // FIXME: Use macro definitions instead of numeric constants
++      FileEntry entry(reader.get_int (0),  // fileid
++                      reader.get_text(1),  // filename
++                      reader.get_int (4),  // width
++                      reader.get_int (5)); // height
+       entries.push_back(entry);
+     }
+ }
+@@ -206,13 +173,13 @@
+   std::cout << "Checking File Existance:" << std::endl;
+   for(std::vector<FileEntry>::iterator i = entries.begin(); i != entries.end(); ++i)
+     {
+-      if (!Filesystem::exist(i->filename))
++      if (!Filesystem::exist(i->get_filename()))
+         {
+-          std::cout << i->filename << ": does not exist" << std::endl;
++          std::cout << i->get_filename() << ": does not exist" << std::endl;
+         }
+       else
+         {
+-          std::cout << i->filename << ": ok" << std::endl;
++          std::cout << i->get_filename() << ": ok" << std::endl;
+         }
+     } 
+ 
+
+Modified: trunk/griv/src/file_database.hpp
+===================================================================
+--- trunk/griv/src/file_database.hpp	2008-08-31 20:54:43 UTC (rev 2379)
++++ trunk/griv/src/file_database.hpp	2008-09-01 23:20:37 UTC (rev 2380)
+@@ -47,7 +47,7 @@
+   SQLiteStatement get_all_stmt;
+   SQLiteStatement get_by_file_id_stmt;
+ 
+-  int  store_file_entry(FileEntry& entry);
++  FileEntry store_file_entry(const std::string& filename, const Size& size);
+   void delete_file_entry(uint32_t fileid);
+   void update_file_entry(FileEntry& entry);
+  
+@@ -65,7 +65,7 @@
+       @param[out] entry   Lokation where the file information will be stored 
+       @return true if lookup was successful, false otherwise, in which case entry stays untouched
+   */
+-  bool get_file_entry(const std::string& filename, FileEntry* entry);
++  FileEntry get_file_entry(const std::string& filename);
+   void get_file_entries(std::vector<FileEntry>& entries);
+ 
+   void store_tile(TileEntry& entry);
+
+Modified: trunk/griv/src/file_entry.cpp
+===================================================================
+--- trunk/griv/src/file_entry.cpp	2008-08-31 20:54:43 UTC (rev 2379)
++++ trunk/griv/src/file_entry.cpp	2008-09-01 23:20:37 UTC (rev 2380)
+@@ -21,7 +21,7 @@
+ 
+ std::ostream& operator<<(std::ostream& os, const FileEntry& entry)
+ {
+-  return os << "filename: " << entry.filename << " size: "<< entry.size;
++  return os << "filename: " << entry.get_filename() << " size: "<< entry.get_width() << "x" << entry.get_height();
+ }
+ 
+ /* EOF */
+
+Modified: trunk/griv/src/file_entry.hpp
+===================================================================
+--- trunk/griv/src/file_entry.hpp	2008-08-31 20:54:43 UTC (rev 2379)
++++ trunk/griv/src/file_entry.hpp	2008-09-01 23:20:37 UTC (rev 2380)
+@@ -21,11 +21,13 @@
+ 
+ #include <stdint.h>
+ #include <string>
++#include <boost/shared_ptr.hpp>
++#include "math.hpp"
+ #include "math/size.hpp"
+ #include "math/rgb.hpp"
+ #include "software_surface.hpp"
+ 
+-class FileEntry 
++class FileEntryImpl
+ {
+ public:
+   /** Unique id by which one can refer to this FileEntry, used in the
+@@ -35,35 +37,49 @@
+   /** The absolute filename of the image file */
+   std::string filename; 
+ 
+-  /** MD5 Checksum of the image file 
+-      FIXME: currently not used */
+-  std::string md5;      
++  /** The size of the image in pixels */
++  Size size;
+ 
+-  /** MD5 Checksum of the image file 
+-      FIXME: currently not used */
+-  int         filesize; 
++  int thumbnail_size;
++};
+ 
+-  /** Modification time of the image file
+-      FIXME: currently not used */
+-  uint32_t    mtime;
++class FileEntry 
++{
++public:
++  FileEntry()
++  {}
+ 
+-  /** The size of the image in pixels */
+-  Size size;
++  FileEntry(uint32_t fileid, 
++            const std::string& filename,
++            int width,
++            int height)
++    : impl(new FileEntryImpl())
++  {
++    impl->fileid    = fileid;
++    impl->filename  = filename;
++    impl->size      = Size(width, height);
+ 
+-  /** The average color of the image, it can also be thought of as a
+-      1x1 thumbnail, it is used when drawing the place holder rect
+-      when no Tile is available */
+-  RGB color;
++    int s = Math::max(width, height);
++    impl->thumbnail_size = 0;
++    while(s > 8)
++      {
++        s /= 2;
++        impl->thumbnail_size += 1;
++      }
++  }
+ 
+-  /** A 8x8 thumbnail of the image, at this size the thumbnail doesn't
+-      consume more more diskspace then the filename, so it makes a
+-      good lower bound, it also the point at which the pixel data
+-      stored raw consumes less space then a JPEG compressed file */
+-  SoftwareSurface thumbnail;
++  uint32_t    get_fileid()   const { return impl->fileid; }
++  std::string get_filename() const { return impl->filename; }
++  int         get_width()    const { return impl->size.width; }
++  int         get_height()   const { return impl->size.height; }
++  Size        get_size()     const { return impl->size; }
+ 
+-  /** The maximum scale for which a tile is generated, any tile
+-      smaller then this will not be generated */
+-  int thumbnail_scale;
++  int get_thumbnail_scale() const { return impl->thumbnail_size; }
++
++  operator bool() const { return impl.get(); }
++ 
++private:
++  boost::shared_ptr<FileEntryImpl> impl;
+ };
+ 
+ std::ostream& operator<<(std::ostream& os, const FileEntry& entry);
+
+Modified: trunk/griv/src/galapix.cpp
+===================================================================
+--- trunk/griv/src/galapix.cpp	2008-08-31 20:54:43 UTC (rev 2379)
++++ trunk/griv/src/galapix.cpp	2008-09-01 23:20:37 UTC (rev 2380)
+@@ -108,7 +108,7 @@
+ 
+   for(std::vector<FileEntry>::iterator i = entries.begin(); i != entries.end(); ++i)
+     {
+-      std::cout << i->filename << std::endl;
++      std::cout << i->get_filename() << std::endl;
+     }  
+ }
+ 
+@@ -133,14 +133,14 @@
+ 
+   for(std::vector<std::string>::size_type i = 0; i < filenames.size(); ++i)
+     {
+-      FileEntry entry;
+-      if (!file_db.get_file_entry(filenames[i], &entry))
++      FileEntry entry = file_db.get_file_entry(filenames[i]);
++      if (!entry)
+         {
+           std::cout << "Couldn't get entry for " << filenames[i] << std::endl;
+         }
+       else
+         {
+-          std::cout << "Got: " << entry.filename << " " << entry.size << std::endl;
++          std::cout << "Got: " << entry.get_filename() << " " << entry.get_width() << "x" << entry.get_height() << std::endl;
+         }
+     }
+ }
+@@ -158,13 +158,9 @@
+ 
+   for(std::vector<std::string>::size_type i = 0; i < filenames.size(); ++i)
+     {
+-      FileEntry entry;
+-      if (!file_db.get_file_entry(filenames[i], &entry))
++      try 
+         {
+-          std::cout << "Couldn't find entry for " << filenames[i] << std::endl;
+-        }
+-      else
+-        {
++          FileEntry entry = file_db.get_file_entry(filenames[i]);
+           // FIXME: Insert some checks if the tile already exist
+ 
+           // Generate Image Tiles
+@@ -176,6 +172,10 @@
+             std::cout << err.what() << std::endl;
+           }
+         }
++      catch (std::exception& err) 
++        {
++          std::cout << "Couldn't find entry for " << filenames[i] << std::endl;
++        }
+     }
+ }
+ 
+@@ -192,9 +192,9 @@
+ 
+   for(std::vector<std::string>::size_type i = 0; i < filenames.size(); ++i)
+     {
+-      FileEntry entry;
+       std::cout << "Getting file entry..." << std::endl;
+-      if (!file_db.get_file_entry(filenames[i], &entry))
++      FileEntry entry = file_db.get_file_entry(filenames[i]);
++      if (!entry)
+         {
+           std::cout << "Couldn't find entry for " << filenames[i] << std::endl;
+         }
+@@ -204,7 +204,7 @@
+           std::cout << "Generating tiles... " << filenames[i]  << std::endl;
+           SoftwareSurface surface = SoftwareSurface::from_file(filenames[i]);
+           
+-          tile_generator.generate_all(entry.fileid, surface, 
++          tile_generator.generate_all(entry.get_fileid(), surface, 
+                                       boost::bind(&TileDatabase::store_tile, &tile_db, _1));
+         }
+     }
+@@ -348,11 +348,13 @@
+             }
+         }
+ 
++      std::cout << "Scanning directories... " << std::flush;
+       std::vector<std::string> filenames;
+       for(std::vector<std::string>::iterator i = argument_filenames.begin(); i != argument_filenames.end(); ++i)
+         Filesystem::generate_jpeg_file_list(*i, filenames);
+ 
+       std::sort(filenames.begin(), filenames.end());
++      std::cout << "done" << std::endl;
+ 
+       if (strcmp(argv[1], "view") == 0)
+         {
+
+Modified: trunk/griv/src/image.cpp
+===================================================================
+--- trunk/griv/src/image.cpp	2008-08-31 20:54:43 UTC (rev 2379)
++++ trunk/griv/src/image.cpp	2008-09-01 23:20:37 UTC (rev 2380)
+@@ -70,7 +70,7 @@
+   impl->file_entry = file_entry;
+   impl->scale      = 1.0f;
+ 
+-  int size  = Math::max(file_entry.size.width, file_entry.size.height);
++  int size  = Math::max(file_entry.get_width(), file_entry.get_height());
+   impl->min_keep_scale = 0;
+   while(size > 32) 
+     {
+@@ -132,25 +132,25 @@
+ float
+ Image::get_scaled_width() const
+ {
+-  return impl->file_entry.size.width * impl->scale;
++  return impl->file_entry.get_width() * impl->scale;
+ }
+ 
+ float
+ Image::get_scaled_height() const
+ {
+-  return impl->file_entry.size.height * impl->scale;
++  return impl->file_entry.get_height() * impl->scale;
+ }
+ 
+ int
+ Image::get_original_width() const
+ {
+-  return impl->file_entry.size.width;
++  return impl->file_entry.get_width();
+ }
+ 
+ int
+ Image::get_original_height() const
+ {
+-  return impl->file_entry.size.height;
++  return impl->file_entry.get_height();
+ }
+ 
+ Surface
+@@ -246,10 +246,10 @@
+       else // draw replacement rect when no tile could be loaded
+         {         
+           // Calculate the actual size of the tile (i.e. border tiles might be smaller then 256x256)
+-          Size s(Math::min(256, (impl->file_entry.size.width  / Math::pow2(tiledb_scale)) - 256 * x),
+-                 Math::min(256, (impl->file_entry.size.height / Math::pow2(tiledb_scale)) - 256 * y));
++          Size s(Math::min(256, (impl->file_entry.get_width()  / Math::pow2(tiledb_scale)) - 256 * x),
++                 Math::min(256, (impl->file_entry.get_height() / Math::pow2(tiledb_scale)) - 256 * y));
+ 
+-          Framebuffer::fill_rect(Rectf(pos, s*scale), impl->file_entry.color);
++          Framebuffer::fill_rect(Rectf(pos, s*scale), RGB(155, 0, 155)); // impl->file_entry.color);
+         }
+     }
+ }
+@@ -350,7 +350,7 @@
+ {
+   process_queue();
+   
+-  Rectf image_rect(impl->pos, Sizef(impl->file_entry.size * impl->scale)); // in world coordinates
++  Rectf image_rect(impl->pos, Sizef(impl->file_entry.get_size() * impl->scale)); // in world coordinates
+ 
+   if (!cliprect.is_overlapped(image_rect))
+     {
+@@ -364,8 +364,8 @@
+                                                        log(2)));
+       int scale_factor = Math::pow2(tiledb_scale);
+ 
+-      int scaled_width  = impl->file_entry.size.width  / scale_factor;
+-      int scaled_height = impl->file_entry.size.height / scale_factor;
++      int scaled_width  = impl->file_entry.get_width()  / scale_factor;
++      int scaled_height = impl->file_entry.get_height() / scale_factor;
+ 
+       if (scaled_width  < 256 && scaled_height < 256)
+         { // So small that only one tile is to be drawn
+@@ -401,7 +401,7 @@
+ std::string
+ Image::get_filename() const
+ {
+-  return impl->file_entry.filename;
++  return impl->file_entry.get_filename();
+ }
+ 
+ 
+
+Modified: trunk/griv/src/tile_entry.hpp
+===================================================================
+--- trunk/griv/src/tile_entry.hpp	2008-08-31 20:54:43 UTC (rev 2379)
++++ trunk/griv/src/tile_entry.hpp	2008-09-01 23:20:37 UTC (rev 2380)
+@@ -25,7 +25,7 @@
+ class TileEntry
+ {
+ public:
+-  uint32_t fileid; // FIXME: Can we replace this with a FileEntry object?!
++  uint32_t fileid;
+   int      scale;
+   Vector2i pos;
+   SoftwareSurface surface;
+
+Modified: trunk/griv/src/tile_generator.cpp
+===================================================================
+--- trunk/griv/src/tile_generator.cpp	2008-08-31 20:54:43 UTC (rev 2379)
++++ trunk/griv/src/tile_generator.cpp	2008-09-01 23:20:37 UTC (rev 2380)
+@@ -84,8 +84,8 @@
+                               const boost::function<void (TileEntry)>& callback)
+ {
+   // Find scale at which the image fits on one tile
+-  int width  = entry.size.width;
+-  int height = entry.size.height;
++  int width  = entry.get_width();
++  int height = entry.get_height();
+   int scale  = 0;
+   while (width  / Math::pow2(scale) > 256 || 
+          height / Math::pow2(scale) > 256)
+@@ -97,7 +97,7 @@
+   int jpeg_scale = Math::min(8, Math::pow2(scale));
+ 
+   // Load the largest scale at which the image fits on a single tile 
+-  SoftwareSurface surface = JPEG::load_from_file(entry.filename, jpeg_scale);
++  SoftwareSurface surface = JPEG::load_from_file(entry.get_filename(), jpeg_scale);
+ 
+   // The result of JPEG::load_from_file might be larger then the requested size, so scale it down
+   // FIXME: We should not throw this data away, now that we already
+@@ -117,7 +117,7 @@
+       //std::cout << scale << " size: " << surface.get_size() << std::endl;
+ 
+       TileEntry tile;
+-      tile.fileid  = entry.fileid;
++      tile.fileid  = entry.get_fileid();
+       tile.scale   = scale;
+       tile.pos.x   = 0;
+       tile.pos.y   = 0;
+
+Modified: trunk/griv/src/tile_generator_thread.cpp
+===================================================================
+--- trunk/griv/src/tile_generator_thread.cpp	2008-08-31 20:54:43 UTC (rev 2379)
++++ trunk/griv/src/tile_generator_thread.cpp	2008-09-01 23:20:37 UTC (rev 2380)
+@@ -69,24 +69,24 @@
+ void
+ TileGeneratorThread::process_message(const TileGeneratorThreadJob& job)
+ {
+-  if (fileid    == job.entry.fileid &&
++  if (fileid    == job.entry.get_fileid() &&
+       min_scale == job.min_scale &&
+       max_scale == job.max_scale)
+     { 
+       // FIXME: Workaround for jobs getting reqested multiple times in a row for some reason
+-      std::cout << "TileGeneratorThread: Job rejected: " << job.min_scale << "-" << job.max_scale << " " << job.entry.filename << std::endl;
++      std::cout << "TileGeneratorThread: Job rejected: " << job.min_scale << "-" << job.max_scale << " " << job.entry.get_filename() << std::endl;
+     }
+   else
+     {
+-      std::cout << "TileGeneratorThread: Processing: scale: " << job.min_scale << "-" << job.max_scale << " " << job.entry.filename << "..." << std::flush;
++      std::cout << "TileGeneratorThread: Processing: scale: " << job.min_scale << "-" << job.max_scale << " " << job.entry.get_filename() << "..." << std::flush;
+ 
+       min_scale = job.min_scale;
+       max_scale = job.max_scale;
+-      fileid    = job.entry.fileid;
++      fileid    = job.entry.get_fileid();
+ 
+       // Find scale at which the image fits on one tile
+-      int width  = job.entry.size.width;
+-      int height = job.entry.size.height;
++      int width  = job.entry.get_width();
++      int height = job.entry.get_height();
+       int scale  = job.min_scale;
+ 
+       int jpeg_scale = Math::pow2(scale);
+@@ -96,14 +96,14 @@
+         {
+           // The JPEG class can only scale down by factor 2,4,8, so we have to
+           // limit things (FIXME: is that true? if so, why?)
+-          surface = JPEG::load_from_file(job.entry.filename, 8);
++          surface = JPEG::load_from_file(job.entry.get_filename(), 8);
+       
+           surface = surface.scale(Size(width  / Math::pow2(scale),
+                                        height / Math::pow2(scale)));
+         }
+       else
+         {
+-          surface = JPEG::load_from_file(job.entry.filename, jpeg_scale);
++          surface = JPEG::load_from_file(job.entry.get_filename(), jpeg_scale);
+         }
+ 
+       do
+@@ -119,7 +119,7 @@
+                 SoftwareSurface croped_surface = surface.crop(Rect(Vector2i(x * 256, y * 256),
+                                                                    Size(256, 256)));
+ 
+-                job.callback(TileEntry(job.entry.fileid, scale, Vector2i(x, y), croped_surface));
++                job.callback(TileEntry(job.entry.get_fileid(), scale, Vector2i(x, y), croped_surface));
+               }
+ 
+           scale += 1;
+@@ -151,7 +151,7 @@
+           catch(std::exception& err)
+             {
+               // FIXME: We need a better way to communicate errors back
+-              std::cout << "\nError: TileGeneratorThread: Loading failure: " << job.entry.filename << std::endl;
++              std::cout << "\nError: TileGeneratorThread: Loading failure: " << job.entry.get_filename() << std::endl;
+               job.callback(TileEntry());
+             }
+           working = false;
+
+Modified: trunk/griv/src/workspace.cpp
+===================================================================
+--- trunk/griv/src/workspace.cpp	2008-08-31 20:54:43 UTC (rev 2379)
++++ trunk/griv/src/workspace.cpp	2008-09-01 23:20:37 UTC (rev 2380)
+@@ -32,8 +32,8 @@
+ {
+   Image image(file_entry);
+   images.push_back(image);
+-  image.set_scale(Math::min(1000.0f / file_entry.size.width,
+-                            1000.0f / file_entry.size.height));
++  image.set_scale(Math::min(1000.0f / file_entry.get_width(),
++                            1000.0f / file_entry.get_height()));
+ 
+   image.set_pos(next_pos * 1024.0f);
+ 
+
+
+
+From grumbel at mail.berlios.de  Tue Sep  2 03:18:22 2008
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Tue, 2 Sep 2008 03:18:22 +0200
+Subject: [Windstille-commit] r2381 - trunk/griv/src
+Message-ID: <200809020118.m821IMsF024159@sheep.berlios.de>
+
+Author: grumbel
+Date: 2008-09-02 03:18:20 +0200 (Tue, 02 Sep 2008)
+New Revision: 2381
+
+Modified:
+   trunk/griv/src/galapix.cpp
+   trunk/griv/src/image.cpp
+   trunk/griv/src/image.hpp
+   trunk/griv/src/viewer.cpp
+   trunk/griv/src/workspace.cpp
+   trunk/griv/src/workspace.hpp
+Log:
+Pressing space prints the images currently displayed
+
+Modified: trunk/griv/src/galapix.cpp
+===================================================================
+--- trunk/griv/src/galapix.cpp	2008-09-01 23:20:37 UTC (rev 2380)
++++ trunk/griv/src/galapix.cpp	2008-09-02 01:18:20 UTC (rev 2381)
+@@ -354,7 +354,7 @@
+         Filesystem::generate_jpeg_file_list(*i, filenames);
+ 
+       std::sort(filenames.begin(), filenames.end());
+-      std::cout << "done" << std::endl;
++      std::cout << filenames.size() << " files found." << std::endl;
+ 
+       if (strcmp(argv[1], "view") == 0)
+         {
+
+Modified: trunk/griv/src/image.cpp
+===================================================================
+--- trunk/griv/src/image.cpp	2008-09-01 23:20:37 UTC (rev 2380)
++++ trunk/griv/src/image.cpp	2008-09-02 01:18:20 UTC (rev 2381)
+@@ -345,6 +345,13 @@
+   std::cout << "    Job Size:   " << impl->jobs.size() << std::endl;
+ }
+ 
++bool
++Image::overlaps(const Rectf& cliprect) const
++{
++  Rectf image_rect(impl->pos, Sizef(impl->file_entry.get_size() * impl->scale)); // in world coordinates
++  return cliprect.is_overlapped(image_rect);
++}
++
+ void
+ Image::draw(const Rectf& cliprect, float fscale)
+ {
+
+Modified: trunk/griv/src/image.hpp
+===================================================================
+--- trunk/griv/src/image.hpp	2008-09-01 23:20:37 UTC (rev 2380)
++++ trunk/griv/src/image.hpp	2008-09-02 01:18:20 UTC (rev 2381)
+@@ -87,6 +87,8 @@
+ 
+   std::string get_filename() const;
+ 
++  bool overlaps(const Rectf& cliprect) const;
++
+   operator bool() const { return impl.get(); }
+ 
+   /** Syncronized function to require data from other threads */
+
+Modified: trunk/griv/src/viewer.cpp
+===================================================================
+--- trunk/griv/src/viewer.cpp	2008-09-01 23:20:37 UTC (rev 2380)
++++ trunk/griv/src/viewer.cpp	2008-09-02 01:18:20 UTC (rev 2381)
+@@ -142,6 +142,13 @@
+               state.rotate(-90.0f);
+               break;
+ 
++            case SDLK_SPACE:
++              {
++                Rectf cliprect = state.screen2world(Rect(0, 0, Framebuffer::get_width(), Framebuffer::get_height()));
++                workspace.print_images(cliprect);
++              }
++              break;
++
+             case SDLK_UP:
+               state.set_angle(0.0f);
+               break;
+
+Modified: trunk/griv/src/workspace.cpp
+===================================================================
+--- trunk/griv/src/workspace.cpp	2008-09-01 23:20:37 UTC (rev 2380)
++++ trunk/griv/src/workspace.cpp	2008-09-02 01:18:20 UTC (rev 2381)
+@@ -153,5 +153,19 @@
+     }
+   std::cout << "-------------------------------------------------------" << std::endl;
+ }
++
++void
++Workspace::print_images(const Rectf& rect)
++{
++  std::cout << ",-- Visible images --------------------------------------" << std::endl;
++  for(Images::iterator i = images.begin(); i != images.end(); ++i)
++    {
++      if (i->overlaps(rect))
++        {
++          std::cout << "| " << i->get_filename() << std::endl;
++        }
++    }
++  std::cout << "'--------------------------------------------------------" << std::endl;
++}
+ 
+ /* EOF */
+
+Modified: trunk/griv/src/workspace.hpp
+===================================================================
+--- trunk/griv/src/workspace.hpp	2008-09-01 23:20:37 UTC (rev 2380)
++++ trunk/griv/src/workspace.hpp	2008-09-02 01:18:20 UTC (rev 2381)
+@@ -44,6 +44,8 @@
+   void clear_cache();
+   void cache_cleanup();
+   void print_info();
++  void print_images(const Rectf& rect);
++
+ private:
+   Workspace (const Workspace&);
+   Workspace& operator= (const Workspace&);
+
+
+
+From grumbel at mail.berlios.de  Tue Sep  2 20:01:30 2008
+From: grumbel at mail.berlios.de (grumbel at BerliOS)
+Date: Tue, 2 Sep 2008 20:01:30 +0200
+Subject: [Windstille-commit] r2382 - branches trunk
+Message-ID: <200809021801.m82I1UXt026879@sheep.berlios.de>
+
+Author: grumbel
+Date: 2008-09-02 20:01:30 +0200 (Tue, 02 Sep 2008)
+New Revision: 2382
+
+Removed:
+   branches/griv-sdl/
+   trunk/griv-old/
+   trunk/griv/
+Log:
+Moved griv/galapix to its own SVN repository
+
+
+
+

@@ -1,0 +1,555 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2634 - in trunk/windstille/src: engine	scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2634%20-%20in%20trunk/windstille/src%3A%20engine%0A%09scripting&In-Reply-To=%3C200903110217.n2B2HKpl013412%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001630.html">
+   <LINK REL="Next"  HREF="001632.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2634 - in trunk/windstille/src: engine	scripting</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2634%20-%20in%20trunk/windstille/src%3A%20engine%0A%09scripting&In-Reply-To=%3C200903110217.n2B2HKpl013412%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2634 - in trunk/windstille/src: engine	scripting">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Wed Mar 11 03:17:20 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001630.html">[Windstille-commit] r2633 - in trunk/windstille/src: . engine	scripting
+</A></li>
+        <LI>Next message: <A HREF="001632.html">[Windstille-commit] r2635 - trunk/windstille/data/sectors/apartment
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1631">[ date ]</a>
+              <a href="thread.html#1631">[ thread ]</a>
+              <a href="subject.html#1631">[ subject ]</a>
+              <a href="author.html#1631">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-11 03:17:19 +0100 (Wed, 11 Mar 2009)
+New Revision: 2634
+
+Modified:
+   trunk/windstille/src/engine/script_manager.cpp
+   trunk/windstille/src/engine/script_manager.hpp
+   trunk/windstille/src/engine/sector.cpp
+   trunk/windstille/src/engine/squirrel_thread.cpp
+   trunk/windstille/src/engine/squirrel_thread.hpp
+   trunk/windstille/src/scripting/interface.cpp
+   trunk/windstille/src/scripting/util.cpp
+Log:
+Cleaned up SquirrelThread and fixed some bugs
+
+Modified: trunk/windstille/src/engine/script_manager.cpp
+===================================================================
+--- trunk/windstille/src/engine/script_manager.cpp	2009-03-11 00:08:11 UTC (rev 2633)
++++ trunk/windstille/src/engine/script_manager.cpp	2009-03-11 02:17:19 UTC (rev 2634)
+@@ -29,7 +29,7 @@
+ #include &lt;sqstdmath.h&gt;
+ #include &lt;sqstdstring.h&gt;
+ 
+-#include &quot;squirrel_vm.hpp&quot;
++#include &quot;squirrel_thread.hpp&quot;
+ #include &quot;app/console.hpp&quot;
+ #include &quot;scripting/wrapper.hpp&quot;
+ #include &quot;scripting/util.hpp&quot;
+@@ -161,7 +161,7 @@
+       // Look if the VM is associated with the source file
+       for(SquirrelThreads::iterator i = squirrel_vms.begin(); i != squirrel_vms.end(); ++i)
+         {
+-          if ((*i)-&gt;get_name() == filename)
++          if ((*i)-&gt;get_filename() == filename)
+             {
+               it = i;
+               break;
+@@ -183,7 +183,7 @@
+         }
+       else
+         { // Add VM to the list of VMs
+-          squirrel_vms.push_back(boost::shared_ptr&lt;SquirrelThread&gt;(new SquirrelThread(in, filename, vm)));     
++          squirrel_vms.push_back(boost::shared_ptr&lt;SquirrelThread&gt;(new SquirrelThread(vm, in, filename)));     
+           squirrel_vms.back()-&gt;call(&quot;init&quot;);
+           squirrel_vms.back()-&gt;call(&quot;run&quot;);
+           return squirrel_vms.back();
+@@ -201,11 +201,11 @@
+ }
+ 
+ boost::shared_ptr&lt;SquirrelThread&gt;
+-ScriptManager::get_vm(HSQUIRRELVM v) const
++ScriptManager::get_thread(HSQUIRRELVM v) const
+ {
+   for(SquirrelThreads::const_iterator i = squirrel_vms.begin(); i != squirrel_vms.end(); ++i) 
+     {
+-      if ((*i)-&gt;get_vm() == v)
++      if ((*i)-&gt;get_thread() == v)
+         return *i;
+     }
+ 
+
+Modified: trunk/windstille/src/engine/script_manager.hpp
+===================================================================
+--- trunk/windstille/src/engine/script_manager.hpp	2009-03-11 00:08:11 UTC (rev 2633)
++++ trunk/windstille/src/engine/script_manager.hpp	2009-03-11 02:17:19 UTC (rev 2634)
+@@ -87,7 +87,7 @@
+ 
+   HSQUIRRELVM get_vm() const { return vm; }
+ 
+-  boost::shared_ptr&lt;SquirrelThread&gt; get_vm(HSQUIRRELVM v) const;
++  boost::shared_ptr&lt;SquirrelThread&gt; get_thread(HSQUIRRELVM v) const;
+ 
+   void fire_wakeup_event(WakeupEvent event);
+   void fire_wakeup_event(WakeupData  event);
+
+Modified: trunk/windstille/src/engine/sector.cpp
+===================================================================
+--- trunk/windstille/src/engine/sector.cpp	2009-03-11 00:08:11 UTC (rev 2633)
++++ trunk/windstille/src/engine/sector.cpp	2009-03-11 02:17:19 UTC (rev 2634)
+@@ -47,7 +47,7 @@
+ #include &quot;objects/scriptable_object.hpp&quot;
+ #include &quot;navigation/navigation_graph.hpp&quot;
+ #include &quot;scripting/squirrel_error.hpp&quot;
+-#include &quot;squirrel_vm.hpp&quot;
++#include &quot;squirrel_thread.hpp&quot;
+ 
+ #include &quot;sector.hpp&quot;
+ 
+
+Modified: trunk/windstille/src/engine/squirrel_thread.cpp
+===================================================================
+--- trunk/windstille/src/engine/squirrel_thread.cpp	2009-03-11 00:08:11 UTC (rev 2633)
++++ trunk/windstille/src/engine/squirrel_thread.cpp	2009-03-11 02:17:19 UTC (rev 2634)
+@@ -18,7 +18,7 @@
+ 
+ #include &quot;scripting/util.hpp&quot;
+ #include &quot;scripting/squirrel_error.hpp&quot;
+-#include &quot;squirrel_vm.hpp&quot;
++#include &quot;squirrel_thread.hpp&quot;
+ 
+ using Scripting::SquirrelError;
+ 
+@@ -34,69 +34,97 @@
+     return c;
+ }
+ 
+-SquirrelThread::SquirrelThread(std::istream&amp; in, const std::string&amp; arg_name, HSQUIRRELVM parent_vm)
+-  : name(arg_name),
+-    parent_vm(parent_vm),
+-    waiting_for_events(ScriptManager::NO_EVENT),
+-    wakeup_time(0)
++void
++SquirrelThread::create_thread()
+ {
+-  vm = sq_newthread(parent_vm, 1024);
++  assert(!thread);
+ 
+-  if (vm == 0)
++  thread = sq_newthread(parent_vm, 1024);  // create thread and store it on the stack
++
++  if (thread == 0)
+     {
+-      throw SquirrelError(vm, name, &quot;Couldn't create new VM&quot;);
++      throw SquirrelError(thread, filename, &quot;Couldn't create new THREAD&quot;);
+     }
+   else
+-    {
+-      // retrieve reference to thread from stack and increase refcounter
++    { // Create a HSQOBJECT to hold a reference to the thread
+ 
+-      // Init the object
+-      sq_resetobject(&amp;vm_obj);
++      sq_resetobject(&amp;thread_obj); // init the object
+ 
+-      // store thread created by sq_newthread into vm_obj
+-      if(sq_getstackobj(parent_vm, -1, &amp;vm_obj) &lt; 0)
++      // store thread created by sq_newthread into thread_obj
++      if (sq_getstackobj(parent_vm, -1, &amp;thread_obj) &lt; 0)
+         {
+-          throw SquirrelError(parent_vm, name, &quot;Couldn't get coroutine vm from stack&quot;);
++          throw SquirrelError(parent_vm, filename, &quot;Couldn't get coroutine thread from stack&quot;);
+         }
+       else
+         {
+-          // Add reference and remove object from stack
+-          sq_addref(parent_vm, &amp;vm_obj);
+-          sq_pop(parent_vm, 1);
++          sq_addref(parent_vm, &amp;thread_obj); // add reference
++          sq_pop(parent_vm, 1); // remove the thread from the stack
+         }
+-      
+-      HSQOBJECT env;
+-      sq_resetobject(&amp;env);
++    }
++}
+ 
+-      sq_newtable(vm);
+-      if(sq_getstackobj(vm, -1, &amp;env) &lt; 0) throw SquirrelError(parent_vm, name, &quot;Couldn't get table from stack&quot;);
+-      sq_addref(vm, &amp;env); // FIXME: needs to be freed
++SquirrelThread::SquirrelThread(HSQUIRRELVM parent_vm, std::istream&amp; in, const std::string&amp; filename)
++  : filename(filename),
++    parent_vm(parent_vm),
++    thread(0),
++    oldtop(-1),
++    waiting_for_events(ScriptManager::NO_EVENT),
++    wakeup_time(0)
++{
++  create_thread();
+ 
+-      // Create a completly empty environment and set delegate it to the roottable
+-      sq_pushobject(vm, env); // table
+-      sq_pushroottable(vm);   // table, root
+-      sq_setdelegate(vm, -2); // table.set_delegate(root)
+-      sq_pop(vm, 1);          //
++  { // create a local environment for the thread
++    HSQOBJECT env;
++    sq_resetobject(&amp;env);
+ 
+-      sq_pushobject(vm, env);
+-      sq_setroottable(vm);
++    sq_newtable(thread);
+ 
+-      // FIXME: Belongs in run(), but there we don't have the 'in' anymore
+-      // Compile the script and push it on the stack
+-      if(sq_compile(vm, squirrel_read_char, &amp;in, name.c_str(), true) &lt; 0)
+-        throw SquirrelError(vm, name, &quot;Couldn't parse script&quot;);
++    // store the object in env
++    if(sq_getstackobj(thread, -1, &amp;env) &lt; 0) 
++      {
++        throw SquirrelError(parent_vm, filename, &quot;couldn't get table from stack&quot;);
++      }
++    else
++      {
++        {
++          sq_addref(thread, &amp;env); 
++          sq_pop(thread, 1); // remove env from stack
++    
++          // set old roottable as delegate on env
++          sq_pushobject(thread, env); // push env
++          sq_pushroottable(thread);   // [env, root]
++          sq_setdelegate(thread, -2); // env.set_delegate(root)
++          sq_pop(thread, 1);          // pop env
+ 
+-      sq_pushroottable(vm);
++          // set env as new roottable
++          sq_pushobject(thread, env);
++          sq_setroottable(thread);
+ 
+-      // Start the script that was previously compiled
+-      if (SQ_FAILED(sq_call(vm, 1, false, true)))
+-        throw SquirrelError(vm, name, &quot;SquirrelThread::run(): Couldn't start script&quot;);
++          sq_release(thread, &amp;env);
++        }
++      }
++  }
++
++  // compile the script and push it on the stack
++  if(sq_compile(thread, squirrel_read_char, &amp;in, filename.c_str(), SQTrue) &lt; 0)
++    throw SquirrelError(thread, filename, &quot;Couldn't parse script&quot;);
++
++  // start the script that was previously compiled
++  sq_pushroottable(thread);
++  if (SQ_FAILED(sq_call(thread, 1, SQFalse, SQTrue)))
++    {
++      sq_pop(thread, 1); // pop the compiled closure
++      throw SquirrelError(thread, filename, &quot;SquirrelThread::run(): Couldn't start script&quot;);
+     }
++  else
++    {
++      sq_pop(thread, 1); // pop the compiled closure
++    }
+ }
+ 
+ SquirrelThread::~SquirrelThread()
+ {
+-  sq_release(vm, &amp;vm_obj);  
++  sq_release(parent_vm, &amp;thread_obj);
+ }
+ 
+ void
+@@ -145,24 +173,36 @@
+ void
+ SquirrelThread::update()
+ {
+-  int vm_state = sq_getvmstate(vm);
++  int thread_state = sq_getvmstate(thread);
+     
+-  switch(vm_state)
++  switch(thread_state)
+     {
+       case SQ_VMSTATE_SUSPENDED:
+-        if (wakeup_time &gt; 0 &amp;&amp; 
+-            game_time &gt;= wakeup_time) 
++        if (wakeup_time &gt; 0 &amp;&amp; game_time &gt;= wakeup_time)
+           {
+             waiting_for_events = ScriptManager::WakeupData(ScriptManager::NO_EVENT);
+ 
+             try 
+               {
++                std::cout &lt;&lt; &quot;Before: WakeUp: &quot; &lt;&lt; std::endl;
++                Scripting::print_squirrel_stack(thread);
++
+                 // Try to return a value
+-                sq_pushinteger(vm, 45); 
+-                if (sq_wakeupvm(vm, SQTrue, SQTrue, SQTrue) &lt; 0)
++                if (sq_wakeupvm(thread, SQFalse, SQFalse, SQTrue) &lt; 0)
+                   {
+-                    throw SquirrelError(vm, name, &quot;Couldn't resume script&quot;);
++                    throw SquirrelError(thread, filename, &quot;Couldn't resume script&quot;);
+                   }
++                else
++                  {
++                    if(sq_getvmstate(thread) == SQ_VMSTATE_IDLE) 
++                      { // Cleanup stack
++                        std::cout &lt;&lt; &quot;XXXXXXXX Cleanup stack&quot; &lt;&lt; std::endl;
++                        sq_settop(thread, oldtop);
++                      }
++                  }
++               
++                std::cout &lt;&lt; &quot;After: WakeUp: &quot; &lt;&lt; std::endl;
++                Scripting::print_squirrel_stack(thread);
+               }
+             catch(std::exception&amp; e) 
+               {
+@@ -185,46 +225,65 @@
+ bool
+ SquirrelThread::is_suspended() const
+ {
+-  int vm_state = sq_getvmstate(vm);
+-  return vm_state == SQ_VMSTATE_SUSPENDED;
++  int thread_state = sq_getvmstate(thread);
++  return thread_state == SQ_VMSTATE_SUSPENDED;
+ }
+ 
+ bool
+ SquirrelThread::is_idle() const
+ {
+-  int vm_state = sq_getvmstate(vm);
+-  return vm_state == SQ_VMSTATE_IDLE;
++  int thread_state = sq_getvmstate(thread);
++  return thread_state == SQ_VMSTATE_IDLE;
+ }
+ 
+ void
+ SquirrelThread::call(const std::string&amp; function)
+ {
+-  sq_pushroottable(vm);
++  if (0)
++    { // Debug stuff that prints the current roottable and its delegate
++      sq_pushroottable(thread);
++      std::cout &lt;&lt; &quot;.------------------------------------------&quot; &lt;&lt; std::endl;
++      std::cout &lt;&lt; &quot;################\nRootTable:\n{{{&quot; &lt;&lt; Scripting::squirrel2string(thread, -1) &lt;&lt; &quot;\n}}}&quot; &lt;&lt; std::endl;
++      sq_getdelegate(thread, -1);
++      std::cout &lt;&lt; &quot;################\nDelegate:\n{{{&quot; &lt;&lt; Scripting::squirrel2string(thread, -1) &lt;&lt; &quot;\n}}}&quot; &lt;&lt; std::endl;
++      sq_pop(thread, 2);
++      std::cout &lt;&lt; &quot;'------------------------------------------&quot; &lt;&lt; std::endl;
++    }
+ 
+-  //std::cout &lt;&lt; &quot;################\nRootTable:\n{{{&quot; &lt;&lt; Scripting::squirrel2string(vm, -1) &lt;&lt; &quot;\n}}}&quot; &lt;&lt; std::endl;
+-  sq_getdelegate(vm, -1);
+-  //std::cout &lt;&lt; &quot;################\nDelegate:\n{{{&quot; &lt;&lt; Scripting::squirrel2string(vm, -1) &lt;&lt; &quot;\n}}}&quot; &lt;&lt; std::endl;
+-  sq_pop(vm, 1);
++  std::cout &lt;&lt; &quot;SquirrelThread::call(\&quot;&quot; &lt;&lt; function &lt;&lt; &quot;\&quot;)&quot; &lt;&lt; std::endl;
+ 
++  oldtop = sq_gettop(thread);
++
+   // Lookup the function in the roottable and put it on the stack
+-  sq_pushstring(vm, function.c_str(), -1);
+-  if (SQ_SUCCEEDED(sq_get(vm, -2)))
++  sq_pushroottable(thread);
++  sq_pushstring(thread, function.c_str(), -1);
++  if (SQ_SUCCEEDED(sq_get(thread, -2)))
+     {
+-      // Call the function
+-      sq_pushroottable(vm); // 'this' (function environment object)
+-      if (SQ_FAILED(sq_call(vm, 1, false, true)))
++      sq_pushroottable(thread);
++
++      if (SQ_FAILED(sq_call(thread, 1, SQFalse, SQTrue)))
+         {
+-          // FIXME: doesn't this mess up the stack?
+-          throw SquirrelError(vm, name, &quot;SquirrelThread: couldn't call '&quot; + function + &quot;'&quot;);
++          sq_settop(thread, oldtop);
++          throw SquirrelError(thread, filename, &quot;SquirrelThread: couldn't call '&quot; + function + &quot;'&quot;);
+         }
+-
+-      // Cleanup
+-      sq_pop(vm, 2); //pops the roottable and the function
++      else
++        {
++          if(sq_getvmstate(thread) != SQ_VMSTATE_SUSPENDED) 
++            {
++              sq_settop(thread, oldtop);
++            }
++        }
+     }
+   else
+     {
+-      sq_pop(vm, 1); //pops the roottable
++      sq_settop(thread, oldtop);
++
++      if (1)
++        std::cout &lt;&lt; filename &lt;&lt; &quot;: Function '&quot; &lt;&lt; function &lt;&lt; &quot;' not found in roottable&quot; &lt;&lt; std::endl;
+     }
++
++  std::cout &lt;&lt; &quot;Call: &quot; &lt;&lt; function &lt;&lt; std::endl;
++  Scripting::print_squirrel_stack(thread);
+ }
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/engine/squirrel_thread.hpp
+===================================================================
+--- trunk/windstille/src/engine/squirrel_thread.hpp	2009-03-11 00:08:11 UTC (rev 2633)
++++ trunk/windstille/src/engine/squirrel_thread.hpp	2009-03-11 02:17:19 UTC (rev 2634)
+@@ -27,16 +27,20 @@
+ class SquirrelThread
+ {
+ private:
+-  std::string name;
++  std::string filename;
+   HSQUIRRELVM parent_vm;
+-  HSQUIRRELVM vm;
+-  HSQOBJECT   vm_obj;
++  HSQUIRRELVM thread;
++  HSQOBJECT   thread_obj;
++
++  SQInteger oldtop;
+     
+   ScriptManager::WakeupData  waiting_for_events;
+   float       wakeup_time;
+ 
++  void create_thread();
++
+ public:
+-  SquirrelThread(std::istream&amp; in, const std::string&amp; arg_name, HSQUIRRELVM parent_vm);
++  SquirrelThread(HSQUIRRELVM parent_vm, std::istream&amp; in, const std::string&amp; arg_name);
+   ~SquirrelThread();
+ 
+   void set_wakeup_event(const ScriptManager::WakeupData&amp;  event, float timeout = -1);
+@@ -51,9 +55,13 @@
+   bool is_suspended() const;
+   bool is_idle() const;
+ 
+-  std::string get_name() const { return name; }
+-  HSQUIRRELVM get_vm() const { return vm; }
++  std::string get_filename() const { return filename; }
++  HSQUIRRELVM get_thread() const { return thread; }
+   void call(const std::string&amp; function);
++
++private:
++  SquirrelThread(const SquirrelThread&amp;);
++  SquirrelThread&amp; operator=(const SquirrelThread&amp;);
+ };
+ 
+ #endif
+
+Modified: trunk/windstille/src/scripting/interface.cpp
+===================================================================
+--- trunk/windstille/src/scripting/interface.cpp	2009-03-11 00:08:11 UTC (rev 2633)
++++ trunk/windstille/src/scripting/interface.cpp	2009-03-11 02:17:19 UTC (rev 2634)
+@@ -126,7 +126,7 @@
+ 
+ void wait(HSQUIRRELVM vm, float time)
+ {
+-  boost::shared_ptr&lt;SquirrelThread&gt; ptr = ScriptManager::current()-&gt;get_vm(vm);
++  boost::shared_ptr&lt;SquirrelThread&gt; ptr = ScriptManager::current()-&gt;get_thread(vm);
+ 
+   if (ptr.get())
+     {
+@@ -136,7 +136,7 @@
+ 
+ void wait_for_dialog(HSQUIRRELVM vm)
+ {
+-  boost::shared_ptr&lt;SquirrelThread&gt; ptr = ScriptManager::current()-&gt;get_vm(vm);
++  boost::shared_ptr&lt;SquirrelThread&gt; ptr = ScriptManager::current()-&gt;get_thread(vm);
+ 
+   if (ptr.get())
+     {
+@@ -146,7 +146,7 @@
+ 
+ void wait_for_camera(HSQUIRRELVM vm)
+ {
+-  boost::shared_ptr&lt;SquirrelThread&gt; ptr = ScriptManager::current()-&gt;get_vm(vm);
++  boost::shared_ptr&lt;SquirrelThread&gt; ptr = ScriptManager::current()-&gt;get_thread(vm);
+ 
+   if (ptr.get())
+     {
+@@ -156,7 +156,7 @@
+ 
+ void wait_for_fade(HSQUIRRELVM vm)
+ {
+-  boost::shared_ptr&lt;SquirrelThread&gt; ptr = ScriptManager::current()-&gt;get_vm(vm);
++  boost::shared_ptr&lt;SquirrelThread&gt; ptr = ScriptManager::current()-&gt;get_thread(vm);
+ 
+   if (ptr.get())
+     {
+@@ -254,7 +254,7 @@
+ 
+ void wait_for_conversation(HSQUIRRELVM vm)
+ {
+-  boost::shared_ptr&lt;SquirrelThread&gt; ptr = ScriptManager::current()-&gt;get_vm(vm);
++  boost::shared_ptr&lt;SquirrelThread&gt; ptr = ScriptManager::current()-&gt;get_thread(vm);
+ 
+   if (ptr.get())
+     {
+
+Modified: trunk/windstille/src/scripting/util.cpp
+===================================================================
+--- trunk/windstille/src/scripting/util.cpp	2009-03-11 00:08:11 UTC (rev 2633)
++++ trunk/windstille/src/scripting/util.cpp	2009-03-11 02:17:19 UTC (rev 2634)
+@@ -223,10 +223,10 @@
+ 
+ void print_squirrel_stack(HSQUIRRELVM v)
+ {
+-    printf(&quot;--------------------------------------------------------------\n&quot;);
++    printf(&quot;,-------------------------------------------------------------\n&quot;);
+     int count = sq_gettop(v);
+     for(int i = 1; i &lt;= count; ++i) {
+-        printf(&quot;%d: &quot;,i);
++        printf(&quot;| %d: &quot;,i);
+         switch(sq_gettype(v, i))
+         {
+             case OT_NULL:
+@@ -286,7 +286,7 @@
+         }
+         printf(&quot;\n&quot;);
+     }
+-    printf(&quot;--------------------------------------------------------------\n&quot;);
++    printf(&quot;'-------------------------------------------------------------\n&quot;);
+ }
+ 
+ void load_squirrel_table(HSQUIRRELVM v, int table_idx, const lisp::Lisp* lisp)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001630.html">[Windstille-commit] r2633 - in trunk/windstille/src: . engine	scripting
+</A></li>
+	<LI>Next message: <A HREF="001632.html">[Windstille-commit] r2635 - trunk/windstille/data/sectors/apartment
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1631">[ date ]</a>
+              <a href="thread.html#1631">[ thread ]</a>
+              <a href="subject.html#1631">[ subject ]</a>
+              <a href="author.html#1631">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

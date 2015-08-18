@@ -1,0 +1,484 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1550 - trunk/griv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2007-November/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1550%20-%20trunk/griv&In-Reply-To=%3C200711151806.lAFI6lVo031818%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001199.html">
+   <LINK REL="Next"  HREF="001201.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1550 - trunk/griv</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1550%20-%20trunk/griv&In-Reply-To=%3C200711151806.lAFI6lVo031818%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1550 - trunk/griv">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Nov 15 19:06:47 CET 2007</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001199.html">[Windstille-commit] r1549 - trunk/griv
+</A></li>
+        <LI>Next message: <A HREF="001201.html">[Windstille-commit] r1551 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1200">[ date ]</a>
+              <a href="thread.html#1200">[ thread ]</a>
+              <a href="subject.html#1200">[ subject ]</a>
+              <a href="author.html#1200">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2007-11-15 19:06:46 +0100 (Thu, 15 Nov 2007)
+New Revision: 1550
+
+Modified:
+   trunk/griv/SConstruct
+   trunk/griv/TODO
+   trunk/griv/get_thumbnails.py
+   trunk/griv/griv.cpp
+   trunk/griv/griv.hpp
+   trunk/griv/image.cpp
+   trunk/griv/image.hpp
+   trunk/griv/loader.cpp
+   trunk/griv/workspace.cpp
+   trunk/griv/workspace.hpp
+Log:
+- added smooth movement and some more stuff
+
+Modified: trunk/griv/SConstruct
+===================================================================
+--- trunk/griv/SConstruct	2007-11-15 18:05:52 UTC (rev 1549)
++++ trunk/griv/SConstruct	2007-11-15 18:06:46 UTC (rev 1550)
+@@ -1,14 +1,17 @@
+ # -*- python -*-
+ 
+-env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O0&quot;, &quot;-g&quot;], LIBS=['SDL_image', 'mhash', 'GL', 'GLU'])
+-env.ParseConfig(&quot;sdl-config --libs --cflags&quot;)
++griv_env = Environment(CCFLAGS=[&quot;-Wall&quot;, &quot;-Werror&quot;, &quot;-O0&quot;, &quot;-g&quot;], LIBS=['SDL_image', 'mhash', 'GL', 'GLU'])
++griv_env.ParseConfig(&quot;sdl-config --libs --cflags&quot;)
+ 
+-env.Program('griv', ['griv.cpp',
+-                     'loader.cpp',
+-                     'image.cpp',
+-                     'filesystem.cpp',
+-                     'display.cpp', 
+-                     'texture.cpp', 
+-                     'workspace.cpp'])
++griv_env.Program('griv', ['griv.cpp',
++                          'loader.cpp',
++                          'image.cpp',
++                          'filesystem.cpp',
++                          'display.cpp', 
++                          'texture.cpp', 
++                          'workspace.cpp'])
+ 
++thumbget_env = Environment(CCFLAGS=['-Wall', '-Werror', '-O0', '-g'], LIBS=['epeg'])
++thumbget_env.Program('thumbget', ['thumbget.cpp'])
++
+ # EOF #
+
+Modified: trunk/griv/TODO
+===================================================================
+--- trunk/griv/TODO	2007-11-15 18:05:52 UTC (rev 1549)
++++ trunk/griv/TODO	2007-11-15 18:06:46 UTC (rev 1550)
+@@ -1,3 +1,41 @@
++1920x1080: (64x64) 30x17=510, (32x32) 60x34=2040, (16x16) 120x68=8160, (4x4) 480x270=129600
++~100MB for fullscreen 16x16 Thumbs
++4096 images on 1024x1024 texture at 16x16
++~32 textures for 129600 thumbs
++
++Ideas:
++======
++- store 16x16 thumbnails in a single 1024x1024 jpeg image (easy to use as texture)
++- store filenames in a simple linear list, stuff them into a map/hash on load
++- maybe do the same for 32x32, but that needs benchmarking first
++
++Problems:
++=========
++- initial load is very slow
++- initial thumbnailing is *extremly* slow
++- (!!!!) Fix color format issues
++
++4096 pictures packed in a single JPEG:
++
++  400   /tmp/out-16.jpg
++ 1161   /tmp/out-32.jpg
++ 3704   /tmp/out-64.jpg
++11776   /tmp/out-128.jpg
++37485   /tmp/out-256.jpg
++
++/tmp/out-16.jpg  JPEG   1024x1024 DirectClass  397kb 
++/tmp/out-32.jpg  JPEG   2048x2048 DirectClass  1.1mb
++/tmp/out-64.jpg  JPEG   4096x4096 DirectClass  3.6mb &lt;- use this as pack format, to slow it seems
++/tmp/out-128.jpg JPEG   8192x8192 DirectClass 11.5mb
++/tmp/out-256.jpg JPEG 16384x16384 DirectClass 36.6mb
++
++$ time ./thumbget /tmp/out-64.jpg 128 128 64 64 /tmp/test.jpg
++/tmp/out-64.jpg 128, 128 - 64x64
++
++real    0m1.022s
++user    0m0.876s
++sys     0m0.128s
++
+ Short Term:
+ ===========
+ - add broken-image image or kick them out of the Workspace
+
+Modified: trunk/griv/get_thumbnails.py
+===================================================================
+--- trunk/griv/get_thumbnails.py	2007-11-15 18:05:52 UTC (rev 1549)
++++ trunk/griv/get_thumbnails.py	2007-11-15 18:06:46 UTC (rev 1550)
+@@ -21,7 +21,12 @@
+ 
+ def main(args):
+     for pathname in args:
+-        process_file(pathname)
++        print pathname
++        if os.path.isdir(pathname): 
++            for i in [os.path.join(pathname, name) for name in os.listdir(pathname)]:
++                main(i)
++        else:
++            process_file(pathname)
+ 
+ res = int(sys.argv[1])
+ main(sys.argv[2:])
+
+Modified: trunk/griv/griv.cpp
+===================================================================
+--- trunk/griv/griv.cpp	2007-11-15 18:05:52 UTC (rev 1549)
++++ trunk/griv/griv.cpp	2007-11-15 18:06:46 UTC (rev 1550)
+@@ -67,21 +67,45 @@
+                 x_offset = 0;
+                 y_offset = 0;
+               }
+-            else if (event.key.keysym.sym == SDLK_1)
++            else if (event.key.keysym.sym == SDLK_9)
+               {
+                 workspace-&gt;layout(4,3);
+                 force_redraw = true;
+               }
+-            else if (event.key.keysym.sym == SDLK_2)
++            else if (event.key.keysym.sym == SDLK_8)
+               {
+                 workspace-&gt;layout(8,3);
+                 force_redraw = true;
+               }
+-            else if (event.key.keysym.sym == SDLK_3)
++            else if (event.key.keysym.sym == SDLK_7)
+               {
+                 workspace-&gt;layout(16,3);
+                 force_redraw = true;
+               }
++            else if (event.key.keysym.sym == SDLK_1)
++              {
++                workspace-&gt;set_zoom(4.0f);
++              }
++            else if (event.key.keysym.sym == SDLK_2)
++              {
++                workspace-&gt;set_zoom(8.0f);
++              }
++            else if (event.key.keysym.sym == SDLK_3)
++              {
++                workspace-&gt;set_zoom(16.0f);
++              }
++            else if (event.key.keysym.sym == SDLK_4)
++              {
++                workspace-&gt;set_zoom(32.0f);
++              }
++            else if (event.key.keysym.sym == SDLK_5)
++              {
++                workspace-&gt;set_zoom(64.0f);
++              }
++            else if (event.key.keysym.sym == SDLK_6)
++              {
++                workspace-&gt;set_zoom(128.0f);
++              }
+             else if (event.key.keysym.sym == SDLK_b)
+               {
+                 std::cout &lt;&lt; x_offset &lt;&lt; &quot;, &quot; &lt;&lt; y_offset &lt;&lt; std::endl;
+@@ -191,8 +215,6 @@
+   Uint32 ticks = SDL_GetTicks();
+   while(true)
+     {
+-      force_redraw = true;
+-
+       Uint32 cticks = SDL_GetTicks();
+       int delta = cticks - ticks;
+       if (delta &gt; 0)
+@@ -203,7 +225,8 @@
+           if (workspace-&gt;res != old_res ||
+               old_x_offset != x_offset ||
+               old_y_offset != y_offset ||
+-              (force_redraw &amp;&amp; (next_redraw &lt; SDL_GetTicks() || loader.empty())))
++              (force_redraw &amp;&amp; (next_redraw &lt; SDL_GetTicks() || loader.empty())) ||
++              workspace-&gt;reorganize)
+             {
+               force_redraw = false;
+ 
+
+Modified: trunk/griv/griv.hpp
+===================================================================
+--- trunk/griv/griv.hpp	2007-11-15 18:05:52 UTC (rev 1549)
++++ trunk/griv/griv.hpp	2007-11-15 18:06:46 UTC (rev 1550)
+@@ -50,6 +50,7 @@
+   bool zoom_out_pressed;
+   int  mouse_x;
+   int  mouse_y;
++
+ public:
+   Griv();
+   ~Griv();
+
+Modified: trunk/griv/image.cpp
+===================================================================
+--- trunk/griv/image.cpp	2007-11-15 18:05:52 UTC (rev 1549)
++++ trunk/griv/image.cpp	2007-11-15 18:06:46 UTC (rev 1550)
+@@ -60,7 +60,9 @@
+     want_res(0),
+     image_requested(false),
+     x_pos(0),
+-    y_pos(0)
++    y_pos(0),
++    last_x_pos(0),
++    last_y_pos(0)
+ {
+   mutex = SDL_CreateMutex();
+ }
+@@ -71,7 +73,7 @@
+ }
+ 
+ void
+-Image::receive(SDL_Surface* new_surface)
++Image::receive(SDL_Surface* new_surface, int r)
+ { 
+   SDL_LockMutex(mutex);
+   if (new_surface)
+@@ -87,7 +89,7 @@
+           surface = new_surface;
+         }
+       
+-      res = std::max(surface-&gt;w, surface-&gt;h);
++      res = r;
+ 
+       force_redraw = true;
+     }
+@@ -198,17 +200,25 @@
+ {
+   target_x_pos = x;
+   target_y_pos = y;
++  last_x_pos = x_pos;
++  last_y_pos = y_pos;
+ }
+ 
+ void
+-Image::update(float delta)
++Image::update(float alpha)
+ {
+-  delta *= 16.0f;
+-  if (delta &gt; 1.0f)
+-    delta = 1.0f;
+-
+-  x_pos = (1.0f - delta) * x_pos + delta * target_x_pos;
+-  y_pos = (1.0f - delta) * y_pos + delta * target_y_pos;
++  if (alpha == 1.0f)
++    {
++      x_pos = target_x_pos; 
++      y_pos = target_y_pos;
++      last_x_pos = target_x_pos; 
++      last_y_pos = target_y_pos; 
++    }
++  else
++    {
++      x_pos = (alpha) * target_x_pos + (1.0f - alpha) * last_x_pos;
++      y_pos = (alpha) * target_y_pos + (1.0f - alpha) * last_y_pos;
++    }
+ }
+ 
+ /* EOF */
+
+Modified: trunk/griv/image.hpp
+===================================================================
+--- trunk/griv/image.hpp	2007-11-15 18:05:52 UTC (rev 1549)
++++ trunk/griv/image.hpp	2007-11-15 18:06:46 UTC (rev 1550)
+@@ -84,6 +84,9 @@
+   float x_pos;
+   float y_pos;
+ 
++  float last_x_pos;
++  float last_y_pos;
++
+   float target_x_pos;
+   float target_y_pos;
+ 
+@@ -91,7 +94,7 @@
+   Image(const std::string&amp; url);
+   ~Image();
+ 
+-  void receive(SDL_Surface* new_surface);
++  void receive(SDL_Surface* new_surface, int r);
+   void draw(float x_offset, float y_offset, float res);
+   void update(float delta);
+ 
+
+Modified: trunk/griv/loader.cpp
+===================================================================
+--- trunk/griv/loader.cpp	2007-11-15 18:05:52 UTC (rev 1549)
++++ trunk/griv/loader.cpp	2007-11-15 18:06:46 UTC (rev 1550)
+@@ -97,15 +97,18 @@
+           SDL_Surface* img = IMG_Load(out.str().c_str());
+           if (img)
+             {
+-              job.image-&gt;receive(img);
++              job.image-&gt;receive(img, res);
+             }
+           else
+             {
+               // No thumbnail, assuming we need the original
+-              if (res &gt; 1024)
+-                {
++              if (0)
++                { // FIXME: Wonky, gets super slow for some reason
+                   img = IMG_Load(job.image-&gt;url.substr(7).c_str()); // cut <A HREF="file://">file://</A> part
+-                  job.image-&gt;receive(img);
++                  std::cout &lt;&lt; &quot;Loading: &quot; &lt;&lt; res &lt;&lt; &quot; &quot; &lt;&lt; img &lt;&lt; &quot; &quot; 
++                            &lt;&lt; img-&gt;w &lt;&lt; &quot;x&quot; &lt;&lt; img-&gt;h &lt;&lt; &quot; &quot;
++                            &lt;&lt; job.image-&gt;url.substr(7) &lt;&lt; std::endl;
++                  job.image-&gt;receive(img, res);
+                 }
+             }
+         }
+@@ -118,7 +121,7 @@
+ {
+   SDL_LockMutex(mutex);
+   for(Jobs::iterator i = jobs.begin(); i != jobs.end(); ++i)
+-      (*i).image-&gt;receive(0);
++    (*i).image-&gt;receive(0, 0);
+ 
+   jobs.clear();
+   SDL_UnlockMutex(mutex);
+
+Modified: trunk/griv/workspace.cpp
+===================================================================
+--- trunk/griv/workspace.cpp	2007-11-15 18:05:52 UTC (rev 1549)
++++ trunk/griv/workspace.cpp	2007-11-15 18:06:46 UTC (rev 1550)
+@@ -43,21 +43,40 @@
+ void
+ Workspace::draw()
+ {
++  glPushMatrix();
++  glRotatef(0.0f, 0.0f, 1.0f, 45.0f);
++
+   for(int i = 0; i &lt; int(images.size()); ++i)
+     {
+       images[i]-&gt;draw(x_offset + Framebuffer::get_width()/2,
+                       y_offset + Framebuffer::get_height()/2,
+                       res);
+     }
++  glPopMatrix();
+ }
+ 
+ void
+ Workspace::update(float delta)
+ {
+-  for(int i = 0; i &lt; int(images.size()); ++i)
++  if (reorganize)
+     {
+-      images[i]-&gt;update(delta);
+-    }  
++      float alpha = (SDL_GetTicks() - reorganize_start) / 500.0f;
++
++      if (alpha &lt; 0)
++        alpha = 0;
++      else if (alpha &gt; 1.0f)
++        {
++          alpha = 1.0f;
++          reorganize = false;
++        }
++
++      //std::cout &lt;&lt; alpha &lt;&lt; std::endl;
++
++      for(int i = 0; i &lt; int(images.size()); ++i)
++        {
++          images[i]-&gt;update(alpha);
++        }
++    }
+ }
+ 
+ void
+@@ -70,6 +89,9 @@
+       images[i]-&gt;set_pos((i % w) * 1.15f,
+                          (i / w) * 1.15f);
+     }
++
++  reorganize = true;
++  reorganize_start = SDL_GetTicks();
+ }
+ 
+ void
+@@ -132,4 +154,10 @@
+   y_offset /= zoom;
+ }
+ 
++void
++Workspace::set_zoom(float zoom)
++{
++  res = zoom;
++}
++
+ /* EOF */
+
+Modified: trunk/griv/workspace.hpp
+===================================================================
+--- trunk/griv/workspace.hpp	2007-11-15 18:05:52 UTC (rev 1549)
++++ trunk/griv/workspace.hpp	2007-11-15 18:06:46 UTC (rev 1550)
+@@ -36,6 +36,8 @@
+ public:
+   std::vector&lt;Image*&gt; images;
+   float res;
++  bool   reorganize;
++  Uint32 reorganize_start;
+   
+ public:
+   Workspace();
+@@ -46,6 +48,8 @@
+ 
+   void zoom_in(int mouse_x, int mouse_y, float zoom);
+   void zoom_out(int mouse_x, int mouse_y, float zoom);
++  
++  void set_zoom(float zoom);
+ 
+   int size() { return images.size(); }
+   void layout(int w, int h);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001199.html">[Windstille-commit] r1549 - trunk/griv
+</A></li>
+	<LI>Next message: <A HREF="001201.html">[Windstille-commit] r1551 - trunk/griv
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1200">[ date ]</a>
+              <a href="thread.html#1200">[ thread ]</a>
+              <a href="subject.html#1200">[ subject ]</a>
+              <a href="author.html#1200">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

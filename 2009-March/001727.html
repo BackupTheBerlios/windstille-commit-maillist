@@ -1,0 +1,303 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2730 - in trunk/windstille/src: . editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2730%20-%20in%20trunk/windstille/src%3A%20.%20editor&In-Reply-To=%3C200903221445.n2MEjZoG015171%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001726.html">
+   <LINK REL="Next"  HREF="001728.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2730 - in trunk/windstille/src: . editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2730%20-%20in%20trunk/windstille/src%3A%20.%20editor&In-Reply-To=%3C200903221445.n2MEjZoG015171%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2730 - in trunk/windstille/src: . editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Mar 22 15:45:35 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001726.html">[Windstille-commit] r2729 - trunk/windstille/src/display
+</A></li>
+        <LI>Next message: <A HREF="001728.html">[Windstille-commit] r2731 - in trunk/windstille: . src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1727">[ date ]</a>
+              <a href="thread.html#1727">[ thread ]</a>
+              <a href="subject.html#1727">[ subject ]</a>
+              <a href="author.html#1727">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-22 15:45:35 +0100 (Sun, 22 Mar 2009)
+New Revision: 2730
+
+Modified:
+   trunk/windstille/src/SConscript
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+   trunk/windstille/src/editor/windstille_widget.hpp
+Log:
+Moved level data into SectorModel, drag&amp;drop now works with zoom and scroll
+
+Modified: trunk/windstille/src/SConscript
+===================================================================
+--- trunk/windstille/src/SConscript	2009-03-22 14:27:17 UTC (rev 2729)
++++ trunk/windstille/src/SConscript	2009-03-22 14:45:35 UTC (rev 2730)
+@@ -240,6 +240,7 @@
+         'editor/windstille_widget.cpp',
+         'editor/minimap_widget.cpp',
+         'editor/scroll_tool.cpp',
++        'editor/sector_model.cpp',
+         'editor/zoom_tool.cpp',
+         'editor/select_tool.cpp',
+         'editor/editor_window.cpp'
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-03-22 14:27:17 UTC (rev 2729)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-03-22 14:45:35 UTC (rev 2730)
+@@ -16,6 +16,9 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
++#include &lt;gdkmm/pixbuf.h&gt;
++#include &quot;display/scene_context.hpp&quot;
++#include &quot;display/surface.hpp&quot;
+ #include &quot;sector_model.hpp&quot;
+ 
+ class ObjectTreeColumns : public Gtk::TreeModel::ColumnRecord
+@@ -34,7 +37,26 @@
+ 
+ SectorModel::SectorModel()
+ {
+-  objects = Gtk::TreeStore::create(columns);
++  ObjectTreeColumns columns;
++  objects_tree = Gtk::TreeStore::create(columns);
+ }
++
++void
++SectorModel::add(const Vector2f&amp; obj)
++{
++  objects.push_back(obj);
++}
++
++void
++SectorModel::draw(SceneContext&amp; sc)
++{
++  Surface surface(&quot;images/hedgehog.png&quot;);
++
++  for(std::vector&lt;Vector2f&gt;::iterator i = objects.begin(); i != objects.end(); ++i)
++    {
++      sc.color().draw(surface, i-&gt;x, i-&gt;y);
++      sc.control().fill_rect(Rectf(*i - Vector2f(8, 8), Sizef(16, 16)), Color(1,0,0));
++    }
++}
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-03-22 14:27:17 UTC (rev 2729)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-03-22 14:45:35 UTC (rev 2730)
+@@ -19,20 +19,29 @@
+ #ifndef HEADER_SECTOR_MODEL_HPP
+ #define HEADER_SECTOR_MODEL_HPP
+ 
+-/** */
++#include &lt;gtkmm/treestore.h&gt;
++#include &lt;vector&gt;
++#include &quot;math/vector2f.hpp&quot;
++
++class SceneContext;
++
+ class SectorModel
+ {
+ private:
+-  Glib::RefPtr&lt;Gtk::TreeStore&gt; objects;
++  Glib::RefPtr&lt;Gtk::TreeStore&gt; objects_tree;
++  std::vector&lt;Vector2f&gt; objects;
+ 
+ public:
+   SectorModel();
+ 
++  void add(const Vector2f&amp; obj);
++  void draw(SceneContext&amp; sc);
++
+ private:
+   SectorModel(const SectorModel&amp;);
+   SectorModel&amp; operator=(const SectorModel&amp;);
+ };
+-
++
+ #endif
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-03-22 14:27:17 UTC (rev 2729)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-03-22 14:45:35 UTC (rev 2730)
+@@ -26,15 +26,18 @@
+ #include &quot;display/surface_manager.hpp&quot;
+ #include &quot;display/opengl_state.hpp&quot;
+ #include &quot;display/surface.hpp&quot;
+-#include &quot;windstille_widget.hpp&quot;
+ #include &quot;editor_window.hpp&quot;
+ #include &quot;scroll_tool.hpp&quot;
++#include &quot;sector_model.hpp&quot;
+ 
++#include &quot;windstille_widget.hpp&quot;
++
+ bool lib_init = false;
+ 
+ WindstilleWidget::WindstilleWidget(const Glib::RefPtr&lt;const Gdk::GL::Config&gt;&amp;  glconfig,
+                                    const Glib::RefPtr&lt;const Gdk::GL::Context&gt;&amp; share_list)
+-  : active_tool(0),
++  : sector_model(new SectorModel()),
++    active_tool(0),
+     scroll_tool(new ScrollTool())
+ {
+   set_gl_capability(glconfig, share_list);
+@@ -161,25 +164,8 @@
+     }
+   else
+     {
+-      //std::cout &lt;&lt; &quot;Draw&quot; &lt;&lt; std::endl;
+-      if (sc.get())
+-        {
+-          state.push(*sc);
++      draw();
+ 
+-          Surface surface(&quot;images/hedgehog.png&quot;);
+-          for(std::vector&lt;Vector2f&gt;::iterator i = objects.begin(); i != objects.end(); ++i)
+-            {
+-              sc-&gt;color().draw(surface, i-&gt;x+50, i-&gt;y+50);
+-            }
+-
+-          if (active_tool)
+-            active_tool-&gt;draw(*sc);
+-
+-          sc-&gt;render();
+-
+-          state.pop(*sc);
+-        }
+-
+       // Swap buffers.
+       if (glwindow-&gt;is_double_buffered())
+         glwindow-&gt;swap_buffers();
+@@ -192,6 +178,25 @@
+     }
+ }
+ 
++void
++WindstilleWidget::draw()
++{
++  //std::cout &lt;&lt; &quot;Draw&quot; &lt;&lt; std::endl;
++  if (sc.get())
++    {
++      state.push(*sc);
++
++      sector_model-&gt;draw(*sc);
++
++      if (active_tool)
++        active_tool-&gt;draw(*sc);
++
++      sc-&gt;render();
++
++      state.pop(*sc);
++    }
++}
++
+ bool
+ WindstilleWidget::scroll(GdkEventScroll* event)
+ {
+@@ -313,7 +318,7 @@
+   std::cout &lt;&lt; &quot;WindstilleWidget: on_drag_data_received: &quot;
+             &lt;&lt; x &lt;&lt; &quot;, &quot; &lt;&lt; y &lt;&lt; &quot;: &quot; &lt;&lt; data.get_data_type() &lt;&lt; &quot; &quot; &lt;&lt; data.get_data_as_string() &lt;&lt; std::endl;
+ 
+-  objects.push_back(Vector2f(x, y));
++  sector_model-&gt;add(state.screen_to_world(Vector2f(x, y)));
+ }
+ 
+ void
+@@ -343,4 +348,10 @@
+   queue_draw();
+ }
+ 
++SectorModel*
++WindstilleWidget::get_sector_model()
++{
++  return sector_model.get();
++}
++
+ /* EOF */
+
+Modified: trunk/windstille/src/editor/windstille_widget.hpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.hpp	2009-03-22 14:27:17 UTC (rev 2729)
++++ trunk/windstille/src/editor/windstille_widget.hpp	2009-03-22 14:45:35 UTC (rev 2730)
+@@ -35,6 +35,7 @@
+ 
+ class Tool;
+ class ScrollTool;
++class SectorModel;
+ 
+ /** OpenGL drawing area into which the Windstille game will be
+     embedded */
+@@ -43,8 +44,9 @@
+     public Gtk::GL::Widget&lt;WindstilleWidget&gt;
+ {
+ private:
++  std::auto_ptr&lt;SectorModel&gt; sector_model;
++
+   GraphicContextState   state;
+-  std::vector&lt;Vector2f&gt; objects;
+   std::auto_ptr&lt;SceneContext&gt; sc;
+   Tool* active_tool;
+   std::auto_ptr&lt;ScrollTool&gt; scroll_tool;
+@@ -78,7 +80,11 @@
+   void on_zoom_in();
+   void on_zoom_out();
+   void on_zoom_100();
++  
++  void draw();
+ 
++  SectorModel* get_sector_model();
++
+ private:
+   WindstilleWidget (const WindstilleWidget&amp;);
+   WindstilleWidget&amp; operator= (const WindstilleWidget&amp;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001726.html">[Windstille-commit] r2729 - trunk/windstille/src/display
+</A></li>
+	<LI>Next message: <A HREF="001728.html">[Windstille-commit] r2731 - in trunk/windstille: . src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1727">[ date ]</a>
+              <a href="thread.html#1727">[ thread ]</a>
+              <a href="subject.html#1727">[ subject ]</a>
+              <a href="author.html#1727">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

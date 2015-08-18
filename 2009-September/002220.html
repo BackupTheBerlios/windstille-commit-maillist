@@ -1,0 +1,264 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r3223 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3223%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909110425.n8B4PtEj017214%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002219.html">
+   <LINK REL="Next"  HREF="002221.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r3223 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r3223%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200909110425.n8B4PtEj017214%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r3223 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Fri Sep 11 06:25:55 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002219.html">[Windstille-commit] r3222 - trunk/windstille
+</A></li>
+        <LI>Next message: <A HREF="002221.html">[Windstille-commit] r3224 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2220">[ date ]</a>
+              <a href="thread.html#2220">[ thread ]</a>
+              <a href="subject.html#2220">[ subject ]</a>
+              <a href="author.html#2220">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-09-11 06:25:54 +0200 (Fri, 11 Sep 2009)
+New Revision: 3223
+
+Modified:
+   trunk/windstille/src/editor/document.cpp
+   trunk/windstille/src/editor/navgraph_insert_tool.cpp
+   trunk/windstille/src/editor/navigation_graph_model.cpp
+   trunk/windstille/src/editor/navigation_graph_model.hpp
+   trunk/windstille/src/editor/sector_model.cpp
+Log:
+More tweaks to the NavigationGraph
+
+Modified: trunk/windstille/src/editor/document.cpp
+===================================================================
+--- trunk/windstille/src/editor/document.cpp	2009-09-10 23:34:46 UTC (rev 3222)
++++ trunk/windstille/src/editor/document.cpp	2009-09-11 04:25:54 UTC (rev 3223)
+@@ -27,6 +27,7 @@
+ #include &quot;editor/object_model.hpp&quot;
+ #include &quot;editor/decal_object_model.hpp&quot;
+ #include &quot;editor/navgraph_edge_object_model.hpp&quot;
++#include &quot;editor/navgraph_node_object_model.hpp&quot;
+ 
+ #include &quot;editor/functor_command.hpp&quot;
+ #include &quot;editor/group_command.hpp&quot;
+@@ -80,6 +81,7 @@
+ void
+ Document::undo_group_end()
+ {
++  assert(m_group_command);
+   CommandHandle tmp = m_group_command;
+   m_group_command.reset();
+   execute(tmp);
+@@ -141,7 +143,15 @@
+ void
+ Document::navgraph_node_remove(boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; node)
+ {
++  const std::vector&lt;boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; &gt;&amp; edges = m_sector_model-&gt;get_nav_graph().find_edges(node);
++
++  undo_group_begin();
++  for(std::vector&lt;boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; &gt;::const_iterator i = edges.begin(); i != edges.end(); ++i)
++  {
++    execute(CommandHandle(new ObjectRemoveCommand(*m_sector_model, *i)));
++  }
+   execute(CommandHandle(new NavGraphNodeRemoveCommand(*m_sector_model, node)));
++  undo_group_end();
+ }
+ 
+ void
+@@ -156,7 +166,10 @@
+ void
+ Document::navgraph_edge_remove(boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; edge)
+ {
++  undo_group_begin();
+   execute(CommandHandle(new NavGraphEdgeRemoveCommand(*m_sector_model, edge)));
++  execute(CommandHandle(new ObjectRemoveCommand(*m_sector_model, edge)));
++  undo_group_end();
+ }
+ 
+ void
+@@ -168,7 +181,18 @@
+ void
+ Document::object_remove(ObjectModelHandle object)
+ {
+-  execute(CommandHandle(new ObjectRemoveCommand(*m_sector_model, object)));
++  if (boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; node = boost::dynamic_pointer_cast&lt;NavGraphNodeObjectModel&gt;(object))
++  {
++    navgraph_node_remove(node);
++  }
++  else if (boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; edge = boost::dynamic_pointer_cast&lt;NavGraphEdgeObjectModel&gt;(object))
++  {
++    navgraph_edge_remove(edge);
++  }
++  else
++  {
++    execute(CommandHandle(new ObjectRemoveCommand(*m_sector_model, object)));
++  }
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/editor/navgraph_insert_tool.cpp
+===================================================================
+--- trunk/windstille/src/editor/navgraph_insert_tool.cpp	2009-09-10 23:34:46 UTC (rev 3222)
++++ trunk/windstille/src/editor/navgraph_insert_tool.cpp	2009-09-11 04:25:54 UTC (rev 3223)
+@@ -61,7 +61,6 @@
+       }
+       else
+       { // connect last node with newly created node
+-        std::cout &lt;&lt; &quot;Node Group&quot; &lt;&lt; std::endl;
+         boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; node_obj(new NavGraphNodeObjectModel(mouse_pos));
+         
+         wst.get_document().undo_group_begin();
+
+Modified: trunk/windstille/src/editor/navigation_graph_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/navigation_graph_model.cpp	2009-09-10 23:34:46 UTC (rev 3222)
++++ trunk/windstille/src/editor/navigation_graph_model.cpp	2009-09-11 04:25:54 UTC (rev 3223)
+@@ -23,8 +23,9 @@
+ #include &quot;math/line.hpp&quot;
+ #include &quot;navigation/navigation_graph.hpp&quot;
+ 
+-NavigationGraphModel::NavigationGraphModel()
+-  : m_nodes(),
++NavigationGraphModel::NavigationGraphModel(SectorModel&amp; sector)
++  : m_sector(sector),
++    m_nodes(),
+     m_edges()   
+ {
+ }
+@@ -81,14 +82,14 @@
+ void
+ NavigationGraphModel::remove_node(boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; node)
+ {
+-  m_nodes.erase(std::remove(m_nodes.begin(), m_nodes.end(), node));
+-  m_edges.erase(std::remove_if(m_edges.begin(), m_edges.end(), EdgeHasNode(node)));
++  m_nodes.erase(std::remove(m_nodes.begin(), m_nodes.end(), node), m_nodes.end());
++  m_edges.erase(std::remove_if(m_edges.begin(), m_edges.end(), EdgeHasNode(node)), m_edges.end());
+ }
+ 
+ void
+ NavigationGraphModel::remove_edge(boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; edge)
+ {
+-  m_edges.erase(std::remove(m_edges.begin(), m_edges.end(), edge));
++  m_edges.erase(std::remove(m_edges.begin(), m_edges.end(), edge), m_edges.end());
+ }
+ 
+ boost::shared_ptr&lt;NavGraphNodeObjectModel&gt;
+@@ -130,6 +131,22 @@
+   return edge;
+ }
+ 
++std::vector&lt;boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; &gt;
++NavigationGraphModel::find_edges(boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; node) const
++{
++  std::vector&lt;boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; &gt; edges;
++  
++  for(Edges::const_iterator i = m_edges.begin(); i != m_edges.end(); ++i)
++  {
++    if ((*i)-&gt;get_lhs() == node || (*i)-&gt;get_rhs() == node)
++    {
++      edges.push_back(*i);
++    }
++  }
++
++  return edges;
++}
++
+ boost::shared_ptr&lt;NavGraphNodeObjectModel&gt;
+ NavigationGraphModel::get_object_at(const Vector2f&amp; pos, const SelectMask&amp; select_mask) const
+ {
+
+Modified: trunk/windstille/src/editor/navigation_graph_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/navigation_graph_model.hpp	2009-09-10 23:34:46 UTC (rev 3222)
++++ trunk/windstille/src/editor/navigation_graph_model.hpp	2009-09-11 04:25:54 UTC (rev 3223)
+@@ -38,11 +38,12 @@
+   typedef std::vector&lt;boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; &gt; Edges;
+ 
+ private:
++  SectorModel&amp; m_sector;
+   Nodes m_nodes;
+   Edges m_edges;
+ 
+ public:
+-  NavigationGraphModel();
++  NavigationGraphModel(SectorModel&amp; sector);
+   ~NavigationGraphModel();
+ 
+   const Nodes&amp; get_nodes() const { return m_nodes; }
+@@ -60,6 +61,8 @@
+   boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; find_closest_node(const Vector2f&amp; pos, float radius) const;
+   boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; find_closest_edge(const Vector2f&amp; pos, float radius) const;
+ 
++  std::vector&lt;boost::shared_ptr&lt;NavGraphEdgeObjectModel&gt; &gt; find_edges(boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; node) const;
++
+   boost::shared_ptr&lt;NavGraphNodeObjectModel&gt; get_object_at(const Vector2f&amp; pos, const SelectMask&amp; layers) const;
+   SelectionHandle   get_selection(const Rectf&amp; rect, const SelectMask&amp; layers) const;
+ 
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-09-10 23:34:46 UTC (rev 3222)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-09-11 04:25:54 UTC (rev 3223)
+@@ -40,7 +40,7 @@
+ 
+ 
+ SectorModel::SectorModel(const std::string&amp; filename)
+-  : nav_graph(new NavigationGraphModel()),
++  : nav_graph(new NavigationGraphModel(*this)),
+     scene_graph(new SceneGraph()),
+     layer_tree(Gtk::ListStore::create(LayerManagerColumns::instance())),
+     ambient_color()
+@@ -50,7 +50,7 @@
+ }
+ 
+ SectorModel::SectorModel()
+-  : nav_graph(new NavigationGraphModel),
++  : nav_graph(new NavigationGraphModel(*this)),
+     scene_graph(new SceneGraph()),
+     layer_tree(Gtk::ListStore::create(LayerManagerColumns::instance())),
+     ambient_color()
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002219.html">[Windstille-commit] r3222 - trunk/windstille
+</A></li>
+	<LI>Next message: <A HREF="002221.html">[Windstille-commit] r3224 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2220">[ date ]</a>
+              <a href="thread.html#2220">[ thread ]</a>
+              <a href="subject.html#2220">[ subject ]</a>
+              <a href="author.html#2220">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

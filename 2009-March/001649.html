@@ -1,0 +1,202 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2652 - in trunk/windstille/src: engine	scripting
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2652%20-%20in%20trunk/windstille/src%3A%20engine%0A%09scripting&In-Reply-To=%3C200903121227.n2CCRIm0017746%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001648.html">
+   <LINK REL="Next"  HREF="001650.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2652 - in trunk/windstille/src: engine	scripting</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2652%20-%20in%20trunk/windstille/src%3A%20engine%0A%09scripting&In-Reply-To=%3C200903121227.n2CCRIm0017746%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2652 - in trunk/windstille/src: engine	scripting">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Thu Mar 12 13:27:18 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001648.html">[Windstille-commit] r2651 - in trunk/windstille:	data/sectors/apartment src/engine src/scripting
+</A></li>
+        <LI>Next message: <A HREF="001650.html">[Windstille-commit] r2653 - trunk/windstille
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1649">[ date ]</a>
+              <a href="thread.html#1649">[ thread ]</a>
+              <a href="subject.html#1649">[ subject ]</a>
+              <a href="author.html#1649">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-12 13:27:16 +0100 (Thu, 12 Mar 2009)
+New Revision: 2652
+
+Modified:
+   trunk/windstille/src/engine/script_manager.cpp
+   trunk/windstille/src/engine/script_manager.hpp
+   trunk/windstille/src/engine/squirrel_thread.cpp
+   trunk/windstille/src/engine/squirrel_thread.hpp
+   trunk/windstille/src/scripting/interface.cpp
+Log:
+Parent spawn_function()'s to their spawning VM, not to the root VM
+
+Modified: trunk/windstille/src/engine/script_manager.cpp
+===================================================================
+--- trunk/windstille/src/engine/script_manager.cpp	2009-03-12 12:04:01 UTC (rev 2651)
++++ trunk/windstille/src/engine/script_manager.cpp	2009-03-12 12:27:16 UTC (rev 2652)
+@@ -132,10 +132,10 @@
+ }
+ 
+ boost::shared_ptr&lt;SquirrelThread&gt;
+-ScriptManager::create_script()
++ScriptManager::create_script(HSQUIRRELVM parent_vm, bool isolated)
+ {
+   // Add VM to the list of VMs
+-  squirrel_vms.push_back(boost::shared_ptr&lt;SquirrelThread&gt;(new SquirrelThread(vm)));
++  squirrel_vms.push_back(boost::shared_ptr&lt;SquirrelThread&gt;(new SquirrelThread(parent_vm, isolated)));
+   return squirrel_vms.back();
+ }
+ 
+@@ -201,7 +201,7 @@
+         }
+       else
+         { // Add VM to the list of VMs
+-          squirrel_vms.push_back(boost::shared_ptr&lt;SquirrelThread&gt;(new SquirrelThread(vm)));
++          squirrel_vms.push_back(boost::shared_ptr&lt;SquirrelThread&gt;(new SquirrelThread(vm, true)));
+           squirrel_vms.back()-&gt;load(in, filename);
+           squirrel_vms.back()-&gt;call(&quot;init&quot;);
+           squirrel_vms.back()-&gt;call(&quot;run&quot;);
+
+Modified: trunk/windstille/src/engine/script_manager.hpp
+===================================================================
+--- trunk/windstille/src/engine/script_manager.hpp	2009-03-12 12:04:01 UTC (rev 2651)
++++ trunk/windstille/src/engine/script_manager.hpp	2009-03-12 12:27:16 UTC (rev 2652)
+@@ -84,7 +84,7 @@
+ 
+   /** Load script from \a filename and runs it */
+   boost::shared_ptr&lt;SquirrelThread&gt; run_script_file(const std::string&amp; filename, bool global = false);
+-  boost::shared_ptr&lt;SquirrelThread&gt; create_script();
++  boost::shared_ptr&lt;SquirrelThread&gt; create_script(HSQUIRRELVM parent_vm, bool isolated);
+ 
+   HSQUIRRELVM get_vm() const { return vm; }
+ 
+
+Modified: trunk/windstille/src/engine/squirrel_thread.cpp
+===================================================================
+--- trunk/windstille/src/engine/squirrel_thread.cpp	2009-03-12 12:04:01 UTC (rev 2651)
++++ trunk/windstille/src/engine/squirrel_thread.cpp	2009-03-12 12:27:16 UTC (rev 2652)
+@@ -63,9 +63,9 @@
+     }
+ }
+ 
+-SquirrelThread::SquirrelThread(HSQUIRRELVM parent_vm, bool isolated)
++SquirrelThread::SquirrelThread(HSQUIRRELVM parent_vm, bool isolated_)
+   : parent_vm(parent_vm),
+-    isolated(isolated),
++    isolated(isolated_),
+     thread(0),
+     filename(&quot;&lt;unset&gt;&quot;),
+     oldtop(-1),
+@@ -74,6 +74,7 @@
+ {
+   create_thread();
+ 
++  std::cout &lt;&lt; &quot;SquirrelThread: isolated = &quot; &lt;&lt; isolated &lt;&lt; std::endl;
+   if (isolated)
+     { // create a local environment for the thread
+       HSQOBJECT env;
+@@ -88,22 +89,20 @@
+         }
+       else
+         {
+-          {
+-            sq_addref(thread, &amp;env); 
+-            sq_pop(thread, 1); // remove env from stack
++          sq_addref(thread, &amp;env); 
++          sq_pop(thread, 1); // remove env from stack
+     
+-            // set old roottable as delegate on env
+-            sq_pushobject(thread, env); // push env
+-            sq_pushroottable(thread);   // [env, root]
+-            sq_setdelegate(thread, -2); // env.set_delegate(root)
+-            sq_pop(thread, 1);          // pop env
++          // set old roottable as delegate on env
++          sq_pushobject(thread, env); // push env
++          sq_pushroottable(thread);   // [env, root]
++          sq_setdelegate(thread, -2); // env.set_delegate(root)
++          sq_pop(thread, 1);          // pop env
+ 
+-            // set env as new roottable
+-            sq_pushobject(thread, env);
+-            sq_setroottable(thread);
++          // set env as new roottable
++          sq_pushobject(thread, env);
++          sq_setroottable(thread);
+ 
+-            sq_release(thread, &amp;env);
+-          }
++          sq_release(thread, &amp;env);
+         }
+     }
+ }
+
+Modified: trunk/windstille/src/engine/squirrel_thread.hpp
+===================================================================
+--- trunk/windstille/src/engine/squirrel_thread.hpp	2009-03-12 12:04:01 UTC (rev 2651)
++++ trunk/windstille/src/engine/squirrel_thread.hpp	2009-03-12 12:27:16 UTC (rev 2652)
+@@ -42,7 +42,7 @@
+   void create_thread();
+ 
+ public:
+-  SquirrelThread(HSQUIRRELVM parent_vm, bool isolated = true);
++  SquirrelThread(HSQUIRRELVM parent_vm, bool isolated);
+   ~SquirrelThread();
+ 
+   /** Load a script into the new thread */
+
+Modified: trunk/windstille/src/scripting/interface.cpp
+===================================================================
+--- trunk/windstille/src/scripting/interface.cpp	2009-03-12 12:04:01 UTC (rev 2651)
++++ trunk/windstille/src/scripting/interface.cpp	2009-03-12 12:27:16 UTC (rev 2652)
+@@ -369,7 +369,7 @@
+ 
+ SQInteger spawn_function(HSQUIRRELVM v) __custom
+ {
+-  boost::shared_ptr&lt;SquirrelThread&gt; thread = ScriptManager::current()-&gt;create_script();
++  boost::shared_ptr&lt;SquirrelThread&gt; thread = ScriptManager::current()-&gt;create_script(v, false);
+   thread-&gt;load(v, -1);
+   sq_pop(v, 1);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001648.html">[Windstille-commit] r2651 - in trunk/windstille:	data/sectors/apartment src/engine src/scripting
+</A></li>
+	<LI>Next message: <A HREF="001650.html">[Windstille-commit] r2653 - trunk/windstille
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1649">[ date ]</a>
+              <a href="thread.html#1649">[ thread ]</a>
+              <a href="subject.html#1649">[ subject ]</a>
+              <a href="author.html#1649">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

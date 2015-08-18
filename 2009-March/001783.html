@@ -1,0 +1,497 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2786 - trunk/windstille/src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2786%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200903272343.n2RNhG6k000946%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001782.html">
+   <LINK REL="Next"  HREF="001784.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2786 - trunk/windstille/src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2786%20-%20trunk/windstille/src/editor&In-Reply-To=%3C200903272343.n2RNhG6k000946%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2786 - trunk/windstille/src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sat Mar 28 00:43:16 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001782.html">[Windstille-commit] r2785 - trunk/windstille/src/editor
+</A></li>
+        <LI>Next message: <A HREF="001784.html">[Windstille-commit] r2787 - trunk/windstille/data/images/decal
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1783">[ date ]</a>
+              <a href="thread.html#1783">[ thread ]</a>
+              <a href="subject.html#1783">[ subject ]</a>
+              <a href="author.html#1783">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-28 00:43:15 +0100 (Sat, 28 Mar 2009)
+New Revision: 2786
+
+Modified:
+   trunk/windstille/src/editor/editor_window.cpp
+   trunk/windstille/src/editor/editor_window.hpp
+   trunk/windstille/src/editor/hard_layer.cpp
+   trunk/windstille/src/editor/hard_layer.hpp
+   trunk/windstille/src/editor/object_tree.cpp
+   trunk/windstille/src/editor/sector_model.cpp
+   trunk/windstille/src/editor/sector_model.hpp
+   trunk/windstille/src/editor/windstille_widget.cpp
+Log:
+Layer stuff now somewhat working
+
+Modified: trunk/windstille/src/editor/editor_window.cpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.cpp	2009-03-27 18:39:36 UTC (rev 2785)
++++ trunk/windstille/src/editor/editor_window.cpp	2009-03-27 23:43:15 UTC (rev 2786)
+@@ -696,7 +696,6 @@
+       std::cout &lt;&lt; &quot;Deleting layer: &quot; &lt;&lt; wst &lt;&lt; std::endl;
+       Gtk::TreeModel::Path path;
+       Gtk::TreeViewColumn* focus_column;
+-
+       object_tree.get_treeview().get_cursor(path, focus_column);
+ 
+       wst-&gt;get_sector_model()-&gt;delete_layer(path);
+@@ -728,9 +727,13 @@
+     {
+       if (WindstilleWidget* wst = get_windstille_widget())
+         {
++          Gtk::TreeModel::Path path;
++          Gtk::TreeViewColumn* focus_column;
++          object_tree.get_treeview().get_cursor(path, focus_column);
++
+           for(Selection::reverse_iterator i = clipboard-&gt;rbegin(); i != clipboard-&gt;rend(); ++i)
+             {
+-              wst-&gt;get_sector_model()-&gt;add(*i);
++              wst-&gt;get_sector_model()-&gt;add(*i, path);
+             }
+ 
+           wst-&gt;set_selection(clipboard);
+
+Modified: trunk/windstille/src/editor/editor_window.hpp
+===================================================================
+--- trunk/windstille/src/editor/editor_window.hpp	2009-03-27 18:39:36 UTC (rev 2785)
++++ trunk/windstille/src/editor/editor_window.hpp	2009-03-27 23:43:15 UTC (rev 2786)
+@@ -130,6 +130,8 @@
+   void on_delete_layer();
+ 
+   Tool* get_current_tool() const;
++
++  ObjectTree&amp; get_object_tree() { return object_tree; }
+   WindstilleWidget* get_windstille_widget();
+   
+   void load_file(const std::string&amp; filename);
+
+Modified: trunk/windstille/src/editor/hard_layer.cpp
+===================================================================
+--- trunk/windstille/src/editor/hard_layer.cpp	2009-03-27 18:39:36 UTC (rev 2785)
++++ trunk/windstille/src/editor/hard_layer.cpp	2009-03-27 23:43:15 UTC (rev 2786)
+@@ -26,14 +26,6 @@
+ {
+ }
+ 
+-HardLayerHandle
+-HardLayer::add_layer()
+-{
+-  HardLayerHandle layer(new HardLayer());
+-  child_layers.push_back(layer);
+-  return layer;
+-}
+-
+ void
+ HardLayer::add(const ObjectModelHandle&amp; object)
+ {
+
+Modified: trunk/windstille/src/editor/hard_layer.hpp
+===================================================================
+--- trunk/windstille/src/editor/hard_layer.hpp	2009-03-27 18:39:36 UTC (rev 2785)
++++ trunk/windstille/src/editor/hard_layer.hpp	2009-03-27 23:43:15 UTC (rev 2786)
+@@ -34,17 +34,13 @@
+ {
+ private:
+   typedef std::list&lt;ObjectModelHandle&gt; Objects;
+-  typedef std::list&lt;HardLayerHandle&gt;   HardLayers;
+ 
+   Objects objects;
+-  HardLayers child_layers;
+ 
+ public:
+   HardLayer();
+   ~HardLayer();
+ 
+-  HardLayerHandle add_layer();
+-
+   void add(const ObjectModelHandle&amp; object);
+   void remove(const ObjectModelHandle&amp; object);
+ 
+
+Modified: trunk/windstille/src/editor/object_tree.cpp
+===================================================================
+--- trunk/windstille/src/editor/object_tree.cpp	2009-03-27 18:39:36 UTC (rev 2785)
++++ trunk/windstille/src/editor/object_tree.cpp	2009-03-27 23:43:15 UTC (rev 2786)
+@@ -31,17 +31,11 @@
+   : editor(editor_),
+     label(&quot;Layer Manager&quot;, Gtk::ALIGN_LEFT)
+ {
+-  //treeview.set_headers_clickable();
++  treeview.set_headers_clickable();
+   treeview.set_headers_visible(false);
+   treeview.set_enable_tree_lines();
+   treeview.set_reorderable();
+ 
+-  treeview.append_column(&quot;Type&quot;, ObjectTreeColumns::instance().type_icon);
+-  treeview.append_column_editable(&quot;Name&quot;, ObjectTreeColumns::instance().name);
+-  treeview.append_column_editable(&quot;Visible&quot;, ObjectTreeColumns::instance().visible);
+-
+-  treeview.expand_all();
+-
+   ui_manager   = Gtk::UIManager::create();
+   action_group = Gtk::ActionGroup::create();
+   
+@@ -86,6 +80,15 @@
+   if (model)
+     {
+       treeview.set_model(model-&gt;get_layer_tree());
++
++      // Recreate all the columns, since if we don't do that, we lose
++      // editability for some reason
++      treeview.remove_all_columns();
++      treeview.append_column(&quot;Type&quot;, ObjectTreeColumns::instance().type_icon);
++      treeview.append_column_editable(&quot;Name&quot;, ObjectTreeColumns::instance().name);
++      treeview.append_column_editable(&quot;Visible&quot;, ObjectTreeColumns::instance().visible);
++      treeview.append_column_editable(&quot;Visible&quot;, ObjectTreeColumns::instance().locked);
++
+       treeview.expand_all();
+       treeview.set_cursor(Gtk::TreeModel::Path(&quot;0&quot;));
+     }
+
+Modified: trunk/windstille/src/editor/sector_model.cpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.cpp	2009-03-27 18:39:36 UTC (rev 2785)
++++ trunk/windstille/src/editor/sector_model.cpp	2009-03-27 23:43:15 UTC (rev 2786)
+@@ -22,6 +22,8 @@
+ #include &lt;iostream&gt;
+ #include &lt;gdkmm/pixbuf.h&gt;
+ 
++#include &quot;editor_window.hpp&quot;
++#include &quot;windstille_widget.hpp&quot;
+ #include &quot;util/file_reader.hpp&quot;
+ #include &quot;display/scene_context.hpp&quot;
+ #include &quot;display/surface.hpp&quot;
+@@ -57,7 +59,7 @@
+   (*it)[ObjectTreeColumns::instance().type_icon] = Gdk::Pixbuf::create_from_file(&quot;data/editor/type.png&quot;);
+   (*it)[ObjectTreeColumns::instance().name]      = name;
+   (*it)[ObjectTreeColumns::instance().visible]   = true; 
+-  (*it)[ObjectTreeColumns::instance().layer]     = root_layer-&gt;add_layer(); 
++  (*it)[ObjectTreeColumns::instance().layer]     = HardLayerHandle(new HardLayer());
+ }
+ 
+ void
+@@ -67,39 +69,146 @@
+ }
+ 
+ void
+-SectorModel::add(const ObjectModelHandle&amp; object)  
++SectorModel::add(const ObjectModelHandle&amp; object, const Gtk::TreeModel::Path&amp; path)
+ {
+-  root_layer-&gt;add(object);
++  Gtk::TreeStore::iterator it = layer_tree-&gt;get_iter(path);
++  ((HardLayerHandle)(*it)[ObjectTreeColumns::instance().layer])-&gt;add(object);
+ }
+ 
++struct RemoveObjectFunctor
++{
++  const ObjectModelHandle&amp; object;
++
++  RemoveObjectFunctor(const ObjectModelHandle&amp; object_)
++    : object(object_)
++  {}
++
++  bool remove(const Gtk::TreeModel::iterator&amp; it)
++  {
++    ((HardLayerHandle)((*it)[ObjectTreeColumns::instance().layer]))-&gt;remove(object);
++    return false; // continue tree traversal
++  }
++};
++
+ void
+ SectorModel::remove(const ObjectModelHandle&amp; object)
+ {
+-  root_layer-&gt;remove(object);
++  RemoveObjectFunctor func(object);
++  layer_tree-&gt;foreach_iter(sigc::mem_fun(func, &amp;RemoveObjectFunctor::remove));
+ }
+ 
++struct DrawLayerFunctor
++{
++  SceneContext&amp; sc;
++  const Layers&amp;       layers;
++
++  DrawLayerFunctor(SceneContext&amp; sc_, const Layers&amp; layers_)
++    : sc(sc_), layers(layers_)
++  {}
++
++  bool draw(const Gtk::TreeModel::iterator&amp; it) 
++  {
++    if ((*it)[ObjectTreeColumns::instance().visible])
++      {      
++        ((HardLayerHandle)((*it)[ObjectTreeColumns::instance().layer]))-&gt;draw(sc, layers);
++      }
++
++    return false;
++  }
++};
++
+ void
+ SectorModel::draw(SceneContext&amp; sc, const Layers&amp; layers)
+ {
+-  root_layer-&gt;draw(sc, layers);
++  DrawLayerFunctor func(sc, layers);
++  layer_tree-&gt;foreach_iter(sigc::mem_fun(func, &amp;DrawLayerFunctor::draw));
+ }
+ 
++struct LayerUpdateFunctor
++{
++  float&amp; delta;
++  
++  LayerUpdateFunctor(float&amp; delta_)
++    : delta(delta_)
++  {}
++
++  bool update(const Gtk::TreeModel::iterator&amp; it)
++  {
++    if ((*it)[ObjectTreeColumns::instance().visible])
++      {      
++        ((HardLayerHandle)((*it)[ObjectTreeColumns::instance().layer]))-&gt;update(delta);
++      }
++    return false;    
++  }
++};
++
+ void
+ SectorModel::update(float delta)
+ {
+-  root_layer-&gt;update(delta);
++  LayerUpdateFunctor func(delta);
++  layer_tree-&gt;foreach_iter(sigc::mem_fun(func, &amp;LayerUpdateFunctor::update));
+ }
+ 
++struct LayerGetObjectAt
++{
++  const Vector2f&amp; pos;
++  const Layers&amp;   layers;
++  ObjectModelHandle object;
++
++  LayerGetObjectAt(const Vector2f&amp; pos_, const Layers&amp; layers_)
++    : pos(pos_),
++      layers(layers_)
++  {}
++
++  bool get_object_at(const Gtk::TreeModel::iterator&amp; it)
++  {
++    if ((*it)[ObjectTreeColumns::instance().visible])
++      {
++        object = ((HardLayerHandle)((*it)[ObjectTreeColumns::instance().layer]))-&gt;get_object_at(pos, layers);
++        if (object.get())
++          return true;
++      }
++    return false;
++  }
++};
++
+ ObjectModelHandle
+ SectorModel::get_object_at(const Vector2f&amp; pos, const Layers&amp; layers) const
+ {
+-  return root_layer-&gt;get_object_at(pos, layers);
++  LayerGetObjectAt func(pos, layers);
++  layer_tree-&gt;foreach_iter(sigc::mem_fun(func, &amp;LayerGetObjectAt::get_object_at));
++  return func.object;
+ }
+ 
++struct LayerGetSelection
++{
++  const Rectf&amp; rect;
++  const Layers&amp; layers;
++  SelectionHandle selection;
++
++  LayerGetSelection(const Rectf&amp; rect_, const Layers&amp; layers_)
++    : rect(rect_),
++      layers(layers_),
++      selection(Selection::create())
++  {}
++
++  bool get_selection(const Gtk::TreeModel::iterator&amp; it)
++  {
++    if ((*it)[ObjectTreeColumns::instance().visible])
++      {
++        SelectionHandle new_sel = ((HardLayerHandle)((*it)[ObjectTreeColumns::instance().layer]))-&gt;get_selection(rect, layers);
++        selection-&gt;add(new_sel-&gt;begin(), new_sel-&gt;end());
++      }
++    return false;
++  }
++};
++
+ SelectionHandle
+ SectorModel::get_selection(const Rectf&amp; rect, const Layers&amp; layers) const
+ {
+-  return root_layer-&gt;get_selection(rect, layers);
++  LayerGetSelection func(rect, layers);
++  layer_tree-&gt;foreach_iter(sigc::mem_fun(func, &amp;LayerGetSelection::get_selection));
++  return func.selection;
+ }
+ 
+ void
+@@ -161,7 +270,7 @@
+                   std::vector&lt;FileReader&gt; objects_sections = objects_reader.get_sections();
+                   for(std::vector&lt;FileReader&gt;::iterator j = objects_sections.begin(); j != objects_sections.end(); ++j)
+                     {
+-                      add(ObjectModelFactory::create(*j));
++                      //FIXME: add(ObjectModelFactory::create(*j));
+                     }
+                 }
+             }
+@@ -211,12 +320,20 @@
+ SectorModel::on_row_changed(const Gtk::TreeModel::Path&amp; path, const Gtk::TreeModel::iterator&amp; iter)
+ {
+   std::cout &lt;&lt; &quot;ObjectTree:on_row_changed&quot; &lt;&lt; std::endl;
++  if (WindstilleWidget* wst = EditorWindow::current()-&gt;get_windstille_widget())
++    {
++      wst-&gt;queue_draw();
++    }
+ }
+ 
+ void
+ SectorModel::on_row_deleted(const Gtk::TreeModel::Path&amp; path)
+ {
+   std::cout &lt;&lt; &quot;ObjectTree:on_row_deleted&quot; &lt;&lt; std::endl;
++  if (WindstilleWidget* wst = EditorWindow::current()-&gt;get_windstille_widget())
++    {
++      wst-&gt;queue_draw();
++    }
+ }
+ 
+ void
+
+Modified: trunk/windstille/src/editor/sector_model.hpp
+===================================================================
+--- trunk/windstille/src/editor/sector_model.hpp	2009-03-27 18:39:36 UTC (rev 2785)
++++ trunk/windstille/src/editor/sector_model.hpp	2009-03-27 23:43:15 UTC (rev 2786)
+@@ -48,6 +48,7 @@
+   Gtk::TreeModelColumn&lt;Glib::RefPtr&lt;Gdk::Pixbuf&gt; &gt; type_icon;
+   Gtk::TreeModelColumn&lt;Glib::ustring&gt;              name;
+   Gtk::TreeModelColumn&lt;bool&gt;                       visible;
++  Gtk::TreeModelColumn&lt;bool&gt;                       locked;
+   Gtk::TreeModelColumn&lt;HardLayerHandle&gt;            layer;
+ 
+ private:
+@@ -55,6 +56,7 @@
+     add(type_icon); 
+     add(name); 
+     add(visible); 
++    add(locked);
+     add(layer);
+   }
+ };
+@@ -72,12 +74,14 @@
+   SectorModel();
+ 
+   void draw(SceneContext&amp; sc, const Layers&amp; layers);
++
+   void update(float delta);
++  void update(float delta, const Gtk::TreeRow&amp; row);
+ 
+   void add_layer(const std::string&amp; name, const Gtk::TreeModel::Path&amp; path);
+   void delete_layer(Gtk::TreeModel::Path&amp; path);
+ 
+-  void add(const ObjectModelHandle&amp; object);
++  void add(const ObjectModelHandle&amp; object, const Gtk::TreeModel::Path&amp; path);
+   void remove(const ObjectModelHandle&amp; object);
+ 
+   // void select_objects(const Rectf&amp; rect, bool replace_old_selection = true) const;
+
+Modified: trunk/windstille/src/editor/windstille_widget.cpp
+===================================================================
+--- trunk/windstille/src/editor/windstille_widget.cpp	2009-03-27 18:39:36 UTC (rev 2785)
++++ trunk/windstille/src/editor/windstille_widget.cpp	2009-03-27 23:43:15 UTC (rev 2786)
+@@ -318,6 +318,10 @@
+ void
+ WindstilleWidget::selection_duplicate()
+ {
++  Gtk::TreeModel::Path path;
++  Gtk::TreeViewColumn* focus_column;
++  EditorWindow::current()-&gt;get_object_tree().get_treeview().get_cursor(path, focus_column);
++
+   SelectionHandle new_selection = Selection::create();
+   for(Selection::iterator i = selection-&gt;begin(); i != selection-&gt;end(); ++i)
+     {
+@@ -326,7 +330,7 @@
+       // Move clone a litte to make it more obvious that something happened
+       obj-&gt;set_rel_pos(obj-&gt;get_rel_pos() + Vector2f(32.0f, 32.0f));
+ 
+-      sector_model-&gt;add(obj);
++      sector_model-&gt;add(obj, path);
+       new_selection-&gt;add(obj);
+     }
+   selection = new_selection;
+@@ -482,11 +486,6 @@
+   std::cout &lt;&lt; &quot;WindstilleWidget: on_drag_data_received: &quot;
+             &lt;&lt; x &lt;&lt; &quot;, &quot; &lt;&lt; y &lt;&lt; &quot;: &quot; &lt;&lt; data.get_data_type() &lt;&lt; &quot; &quot; &lt;&lt; data.get_data_as_string() &lt;&lt; std::endl;
+   
+-  if (0)
+-    sector_model-&gt;add(ObjectModelHandle(new SpriteObjectModel(&quot;SpriteObjectModel&quot;, state.screen_to_world(Vector2f(x, y)),
+-                                                              &quot;images/hedgehog_die.sprite&quot;)));
+-  //&quot;images/explosion.sprite&quot;)));
+-
+   ObjectModelHandle object = DecalObjectModel::create(data.get_data_as_string(),
+                                                       state.screen_to_world(Vector2f(x, y)),
+                                                       data.get_data_as_string().substr(5), 
+@@ -499,7 +498,12 @@
+   else
+     object-&gt;set_layers(layer_mask);
+ 
+-  sector_model-&gt;add(object);
++  Gtk::TreeModel::Path path;
++  Gtk::TreeViewColumn* focus_column;
++
++  EditorWindow::current()-&gt;get_object_tree().get_treeview().get_cursor(path, focus_column);
++
++  sector_model-&gt;add(object, path);
+ }
+ 
+ void
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001782.html">[Windstille-commit] r2785 - trunk/windstille/src/editor
+</A></li>
+	<LI>Next message: <A HREF="001784.html">[Windstille-commit] r2787 - trunk/windstille/data/images/decal
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1783">[ date ]</a>
+              <a href="thread.html#1783">[ thread ]</a>
+              <a href="subject.html#1783">[ subject ]</a>
+              <a href="author.html#1783">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

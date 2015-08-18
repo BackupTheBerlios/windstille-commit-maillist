@@ -1,0 +1,723 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r812 - in trunk/src: lisp particles
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2005-July/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r812%20-%20in%20trunk/src%3A%20lisp%20particles&In-Reply-To=%3C200507271613.j6RGDJf9015950%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000464.html">
+   <LINK REL="Next"  HREF="000466.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r812 - in trunk/src: lisp particles</H1>
+    <B>Ingo Ruhnke at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r812%20-%20in%20trunk/src%3A%20lisp%20particles&In-Reply-To=%3C200507271613.j6RGDJf9015950%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r812 - in trunk/src: lisp particles">grumbel at berlios.de
+       </A><BR>
+    <I>Wed Jul 27 18:13:19 CEST 2005</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000464.html">[Windstille-commit] r811 - trunk/src
+</A></li>
+        <LI>Next message: <A HREF="000466.html">[Windstille-commit] r813 - in trunk/src: . particles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#465">[ date ]</a>
+              <a href="thread.html#465">[ thread ]</a>
+              <a href="subject.html#465">[ subject ]</a>
+              <a href="author.html#465">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2005-07-27 18:13:18 +0200 (Wed, 27 Jul 2005)
+New Revision: 812
+
+Modified:
+   trunk/src/lisp/properties.cpp
+   trunk/src/particles/particle_system.cpp
+   trunk/src/particles/surface_drawer.cpp
+   trunk/src/particles/surface_drawer.hpp
+Log:
+- some more particle parsing fun
+- changed lisp::Properties so that it can handle the empty list
+
+Modified: trunk/src/lisp/properties.cpp
+===================================================================
+--- trunk/src/lisp/properties.cpp	2005-07-27 15:56:46 UTC (rev 811)
++++ trunk/src/lisp/properties.cpp	2005-07-27 16:13:18 UTC (rev 812)
+@@ -19,15 +19,14 @@
+           continue;
+         if(child-&gt;get_type() != Lisp::TYPE_LIST)
+           throw std::runtime_error(&quot;child of properties lisp is not a list&quot;);
+-        if(child-&gt;get_list_size() &lt;= 1)
+-          throw std::runtime_error(
+-                                   &quot;child of properties lisp needs at least 2 elements&quot;);
+-    
+-        const Lisp* name = child-&gt;get_list_elem(0);
+-        if(name-&gt;get_type() != Lisp::TYPE_SYMBOL)
+-          throw std::runtime_error(&quot;property has no string as name&quot;);
+-        properties.insert(std::make_pair(
+-                                         std::string(name-&gt;get_symbol()), ListEntry(child)));
++        if(child-&gt;get_list_size() &gt; 1)
++          {    
++            const Lisp* name = child-&gt;get_list_elem(0);
++            if(name-&gt;get_type() != Lisp::TYPE_SYMBOL)
++              throw std::runtime_error(&quot;property has no string as name&quot;);
++            properties.insert(std::make_pair(
++                                             std::string(name-&gt;get_symbol()), ListEntry(child)));
++          }
+       }
+     }
+ }
+
+Modified: trunk/src/particles/particle_system.cpp
+===================================================================
+--- trunk/src/particles/particle_system.cpp	2005-07-27 15:56:46 UTC (rev 811)
++++ trunk/src/particles/particle_system.cpp	2005-07-27 16:13:18 UTC (rev 812)
+@@ -27,354 +27,362 @@
+ #include &quot;lisp/property_iterator.hpp&quot;
+ #include &quot;windstille_getters.hpp&quot;
+ #include &quot;spark_drawer.hpp&quot;
++#include &quot;surface_drawer.hpp&quot;
+ #include &quot;randomizer.hpp&quot;
+ 
+ ParticleSystem::ParticleSystem(const lisp::Lisp* lisp)
+ {
+-  // Init some defaults
+-  randomizer = new PointRandomizer;
+-  drawer     = 0;
+-  x_pos      = 320.0f;
+-  y_pos      = 240.0f;
+-  z_pos      = 0;
+-  life_time  = 1.0f;
++	// Init some defaults
++	randomizer = new PointRandomizer;
++	drawer     = 0;
++	x_pos      = 320.0f;
++	y_pos      = 240.0f;
++	z_pos      = 0;
++	life_time  = 1.0f;
+ 
+-  gravity_x = 0.0f;
+-  gravity_y = -10.0f;
++	gravity_x = 0.0f;
++	gravity_y = -10.0f;
+ 
+-  cone_start = 0;
+-  cone_stop  = 2*M_PI;
++	cone_start = 0;
++	cone_stop  = 2*M_PI;
+ 
+-  size_start = 1.0f;
+-  size_stop  = 1.0f;
++	size_start = 1.0f;
++	size_stop  = 1.0f;
+ 
+-  speed_start = 100.0;
+-  speed_stop  = 200.0f;
++	speed_start = 100.0;
++	speed_stop  = 200.0f;
+ 
+-  color_start = Color(1.0f, 1.0f, 1.0f, 1.0f);
+-  color_stop  = Color(   0,    0,    0,    0);
++	color_start = Color(1.0f, 1.0f, 1.0f, 1.0f);
++	color_stop  = Color(   0,    0,    0,    0);
+ 
+-  set_count(70);
++	set_count(70);
+   
+-  // Set stuff from Lisp
+-  lisp::Properties props(lisp);
+-  float p_lifetime;
+-  if (props.get(&quot;lifetime&quot;, p_lifetime))
+-    set_lifetime(p_lifetime);
++	// Set stuff from Lisp
++	lisp::Properties props(lisp);
++	float p_lifetime;
++	if (props.get(&quot;lifetime&quot;, p_lifetime))
++		set_lifetime(p_lifetime);
+   
+-  int p_count;
+-  if (props.get(&quot;count&quot;, p_count))
+-    set_count(p_count);
++	int p_count;
++	if (props.get(&quot;count&quot;, p_count))
++		set_count(p_count);
+ 
+-  props.get(&quot;count&quot;, z_pos);
++	props.get(&quot;z-pos&quot;, z_pos);
+ 
+-  Vector p_gravity;
+-  if (props.get(&quot;gravity&quot;, p_gravity))
+-    set_gravity(p_gravity.x, p_gravity.y);
++	Vector p_gravity;
++	if (props.get(&quot;gravity&quot;, p_gravity))
++		set_gravity(p_gravity.x, p_gravity.y);
+ 
+-  float p_cycles;
+-  if (props.get(&quot;cycles&quot;,  p_cycles))
+-    set_cycles(p_cycles);
++	float p_cycles;
++	if (props.get(&quot;cycles&quot;,  p_cycles))
++		set_cycles(p_cycles);
+ 
+-  Vector p_spawn_point;
+-  if (props.get(&quot;spawn-point&quot;, p_spawn_point))
+-    set_spawn_point(p_spawn_point.x, p_spawn_point.y);
++	Vector p_spawn_point;
++	if (props.get(&quot;spawn-point&quot;, p_spawn_point))
++		set_spawn_point(p_spawn_point.x, p_spawn_point.y);
+ 
+-  Vector p_pos;
+-  if (props.get(&quot;pos&quot;, p_pos))
+-    set_pos(p_pos.x, p_pos.y);
++	Vector p_pos;
++	if (props.get(&quot;pos&quot;, p_pos))
++		set_pos(p_pos.x, p_pos.y);
+   
+-  Vector p_cone;
+-  if (props.get(&quot;cone&quot;, p_cone))
+-    set_cone(p_cone.x, p_cone.y);
++	Vector p_cone;
++	if (props.get(&quot;cone&quot;, p_cone))
++		set_cone(p_cone.x, p_cone.y);
+ 
+-  Vector p_size;
+-  if (props.get(&quot;size&quot;, p_size))
+-    set_size(p_size.x, p_size.y);
++	Vector p_size;
++	if (props.get(&quot;size&quot;, p_size))
++		set_size(p_size.x, p_size.y);
+ 
+-  Vector p_aspect;
+-  if (props.get(&quot;aspect&quot;, p_aspect))
+-    set_aspect(p_aspect.x, p_aspect.y);
++	Vector p_aspect;
++	if (props.get(&quot;aspect&quot;, p_aspect))
++		set_aspect(p_aspect.x, p_aspect.y);
+ 
+-  Color p_color;
+-  if (props.get(&quot;color&quot;, p_color))
+-    set_color(Color(p_color.r, p_color.g, p_color.b, p_color.a));
++	Color p_color;
++	if (props.get(&quot;color&quot;, p_color))
++		set_color(Color(p_color.r, p_color.g, p_color.b, p_color.a));
+ 
+-  Color p_fade_color;
+-  if (props.get(&quot;fade-color&quot;, p_fade_color))
+-    set_color(Color(p_fade_color.r, p_fade_color.g, p_fade_color.b, p_fade_color.a));
++	Color p_fade_color;
++	if (props.get(&quot;fade-color&quot;, p_fade_color))
++		set_color(Color(p_fade_color.r, p_fade_color.g, p_fade_color.b, p_fade_color.a));
+ 
+-  Vector p_speed;
+-  if (props.get(&quot;speed&quot;, p_speed))
+-    set_speed(p_speed.x, p_speed.y);
++	Vector p_speed;
++	if (props.get(&quot;speed&quot;, p_speed))
++		set_speed(p_speed.x, p_speed.y);
+ 
+-  {
+-    const lisp::Lisp* drawer_lisp = 0;
+-    if (props.get(&quot;drawer&quot;, drawer_lisp))
++	{
++		const lisp::Lisp* drawer_lisp = 0;
++		if (props.get(&quot;drawer&quot;, drawer_lisp))
+       {
+-        lisp::Properties drawer_props(drawer_lisp);
+-        lisp::PropertyIterator&lt;const lisp::Lisp*&gt; iter = drawer_props.get_iter();
+-        while(iter.next()) {
+-          if (iter.item() == &quot;surface-drawer&quot;) {
+-          
+-          } else if (iter.item() == &quot;spark-drawer&quot;) {
+-            set_drawer(new SparkDrawer(*iter));
+-          } else {
+-            std::cout &lt;&lt; &quot;Unknown item: &quot; &lt;&lt; iter.item() &lt;&lt; std::endl;
+-          }
+-        }
++			lisp::Properties drawer_props(drawer_lisp);
++			lisp::PropertyIterator&lt;const lisp::Lisp*&gt; iter = drawer_props.get_iter();
++			while(iter.next()) {
++				if (iter.item() == &quot;surface-drawer&quot;) 
++				{
++					set_drawer(new SurfaceDrawer(*iter));
++            } 
++				else if (iter.item() == &quot;spark-drawer&quot;) 
++            {
++					set_drawer(new SparkDrawer(*iter));
++            } 
++				else 
++            {
++					std::cout &lt;&lt; &quot;Unknown item: &quot; &lt;&lt; iter.item() &lt;&lt; std::endl;
++            }
++			}
+       }
+-  }
++	}
+ 
+-  const lisp::Lisp* distribution_lisp = 0;
+-  if (props.get(&quot;distribution&quot;, distribution_lisp))
+-    {
+-      lisp::Properties distribution_props(distribution_lisp);
+-      lisp::PropertyIterator&lt;const lisp::Lisp*&gt; iter = distribution_props.get_iter();
+-      if (iter.next()) {
+-        lisp::Properties prop(*iter);
++	{
++		const lisp::Lisp* distribution_lisp = 0;
++		if (props.get(&quot;distribution&quot;, distribution_lisp))
++		{
++			lisp::Properties distribution_props(distribution_lisp);
++			lisp::PropertyIterator&lt;const lisp::Lisp*&gt; iter = distribution_props.get_iter();
++			if (iter.next()) {
++				lisp::Properties prop(*iter);
+ 
+-        if (iter.item() == &quot;point-distribution&quot;) {
+-          set_point_distribution();
+-        } else if (iter.item() == &quot;line-distribution&quot;) {
+-          float x1, y1, x2, y2;
+-          prop.get(&quot;x1&quot;, x1);
+-          prop.get(&quot;y1&quot;, y1);
+-          prop.get(&quot;x2&quot;, x2);
+-          prop.get(&quot;y2&quot;, y2);
++				if (iter.item() == &quot;point-distribution&quot;) {
++					set_point_distribution();
++				} else if (iter.item() == &quot;line-distribution&quot;) {
++					float x1, y1, x2, y2;
++					prop.get(&quot;x1&quot;, x1);
++					prop.get(&quot;y1&quot;, y1);
++					prop.get(&quot;x2&quot;, x2);
++					prop.get(&quot;y2&quot;, y2);
+           
+-          set_line_distribution(x1, y1, x2, y2);
+-        } else {
+-          std::cout &lt;&lt; &quot;Unknown distribution: &quot; &lt;&lt; iter.item() &lt;&lt; std::endl;
+-        }
+-      }
+-    }
++					set_line_distribution(x1, y1, x2, y2);
++				} else {
++					std::cout &lt;&lt; &quot;Unknown distribution: &quot; &lt;&lt; iter.item() &lt;&lt; std::endl;
++				}
++			}
++		}
++	}
+ 
+-  //props.get(&quot;point-distribution&quot;,   ); // void
+-  //props.get(&quot;line-distribution&quot;,   ); // 2xvector2
+-  //props.get(&quot;circle&quot;, ); // float
+-  //props.get(&quot;rect-distribution&quot;, ); // vector2
+-  props.print_unused_warnings(&quot;ParticleSystem&quot;);
++	//props.get(&quot;point-distribution&quot;,   ); // void
++	//props.get(&quot;line-distribution&quot;,   ); // 2xvector2
++	//props.get(&quot;circle&quot;, ); // float
++	//props.get(&quot;rect-distribution&quot;, ); // vector2
++	props.print_unused_warnings(&quot;ParticleSystem&quot;);
+ }
+ 
+ ParticleSystem::ParticleSystem()
+ {
+-  randomizer = new PointRandomizer;
+-  drawer     = 0;
+-  x_pos      = 320.0f;
+-  y_pos      = 240.0f;
+-  z_pos      = 0;
+-  life_time  = 1.0f;
++	randomizer = new PointRandomizer;
++	drawer     = 0;
++	x_pos      = 320.0f;
++	y_pos      = 240.0f;
++	z_pos      = 0;
++	life_time  = 1.0f;
+ 
+-  gravity_x = 0.0f;
+-  gravity_y = -10.0f;
++	gravity_x = 0.0f;
++	gravity_y = -10.0f;
+ 
+-  cone_start = 0;
+-  cone_stop  = 2*M_PI;
++	cone_start = 0;
++	cone_stop  = 2*M_PI;
+ 
+-  size_start = 1.0f;
+-  size_stop  = 1.0f;
++	size_start = 1.0f;
++	size_stop  = 1.0f;
+ 
+-  speed_start = 100.0;
+-  speed_stop  = 200.0f;
++	speed_start = 100.0;
++	speed_stop  = 200.0f;
+ 
+-  color_start = Color(1.0f, 1.0f, 1.0f, 1.0f);
+-  color_stop  = Color(  0,   0,   0,   0);
++	color_start = Color(1.0f, 1.0f, 1.0f, 1.0f);
++	color_stop  = Color(  0,   0,   0,   0);
+ 
+-  set_count(70);
++	set_count(70);
+ }
+ 
+ ParticleSystem::~ParticleSystem()
+ {
+-  delete randomizer;
+-  delete drawer;
++	delete randomizer;
++	delete drawer;
+ }
+ 
+ void
+ ParticleSystem::set_drawer(Drawer* drawer_)
+ {
+-  delete drawer;
+-  drawer = drawer_;
++	delete drawer;
++	drawer = drawer_;
+ }
+   
+ void
+ ParticleSystem::draw(SceneContext&amp; sc)
+ {
+-  if (drawer)
+-    {
++	if (drawer)
++	{
+       drawer-&gt;draw(sc, *this);
+-    }
+-  else
+-    {
++	}
++	else
++	{
+       std::cout &lt;&lt; &quot;ParticleSystem: No drawer set&quot; &lt;&lt; std::endl;
+-    }
++	}
+ }
+ 
+ void
+ ParticleSystem::spawn(Particle&amp; particle)
+ {
+-  randomizer-&gt;set_pos(particle);
++	randomizer-&gt;set_pos(particle);
+ 
+-  particle.x   += spawn_x_pos;
+-  particle.y   += spawn_y_pos;
++	particle.x   += spawn_x_pos;
++	particle.y   += spawn_y_pos;
+ 
+-  float direction = rnd.drand(cone_start, cone_stop);
+-  float speed     = rnd.drand(speed_start, speed_stop);
+-  particle.v_x    = cos(direction) * speed;
+-  particle.v_y    = sin(direction) * speed;
++	float direction = rnd.drand(cone_start, cone_stop);
++	float speed     = rnd.drand(speed_start, speed_stop);
++	particle.v_x    = cos(direction) * speed;
++	particle.v_y    = sin(direction) * speed;
+ 
+-  particle.angle = rnd.drand(360);
++	particle.angle = rnd.drand(360);
+ 
+-  particle.t   = std::min(std::max(0.0f, particle.t - life_time), life_time);
++	particle.t   = std::min(std::max(0.0f, particle.t - life_time), life_time);
+ }
+ 
+ void
+ ParticleSystem::update(float delta)
+ {
+-  for(Particles::iterator i = particles.begin(); i != particles.end(); ++i)
+-    {
++	for(Particles::iterator i = particles.begin(); i != particles.end(); ++i)
++	{
+       if (i-&gt;t &gt; life_time)
+-        {
+-          spawn(*i);
+-        }
++		{
++			spawn(*i);
++		}
+       else
+-        {
+-          i-&gt;t += delta;
++		{
++			i-&gt;t += delta;
+           
+-          i-&gt;x += i-&gt;v_x * delta;
+-          i-&gt;y += i-&gt;v_y * delta;
++			i-&gt;x += i-&gt;v_x * delta;
++			i-&gt;y += i-&gt;v_y * delta;
+ 
+-          i-&gt;v_x += gravity_x;
+-          i-&gt;v_y += gravity_y;
+-        }
+-    }
++			i-&gt;v_x += gravity_x;
++			i-&gt;v_y += gravity_y;
++		}
++	}
+ }
+ 
+ void
+ ParticleSystem::set_count(int num)
+ {
+-  particles.resize(num);
++	particles.resize(num);
+ 
+-  for(Particles::iterator i = particles.begin(); i != particles.end(); ++i)
+-    {
++	for(Particles::iterator i = particles.begin(); i != particles.end(); ++i)
++	{
+       //i-&gt;t = -1.0f;
+       spawn(*i);
+       i-&gt;t = (life_time * (float(i - particles.begin())/particles.size()));
+-    }
++	}
+ }
+   
+ void
+ ParticleSystem::set_bunching(float factor)
+ {
+-  (void) factor; 
++	(void) factor; 
+ }
+ 
+ void
+ ParticleSystem::set_cycles(float num)
+ {
+-  (void) num;
++	(void) num;
+ }
+ 
+ void
+ ParticleSystem::set_pos(float x, float y)
+ {
+-  x_pos = x;
+-  y_pos = y;
++	x_pos = x;
++	y_pos = y;
+ }
+ 
+ void
+ ParticleSystem::set_spawn_point(float x, float y)
+ {
+-  spawn_x_pos = x;
+-  spawn_y_pos = y;
++	spawn_x_pos = x;
++	spawn_y_pos = y;
+ }
+ 
+ void
+ ParticleSystem::set_point_distribution()
+ {
+-  delete randomizer;
+-  randomizer = new PointRandomizer();
++	delete randomizer;
++	randomizer = new PointRandomizer();
+ }
+ 
+ void
+ ParticleSystem::set_line_distribution(float x1, float y1,
+                                       float x2, float y2)
+ {
+-  delete randomizer;
+-  randomizer = new LineRandomizer(x1, y1, x2, y2);
++	delete randomizer;
++	randomizer = new LineRandomizer(x1, y1, x2, y2);
+ }
+ 
+ void
+ ParticleSystem::set_circle_distribution(float radius)
+ {
+-  delete randomizer;
+-  randomizer = new CircleRandomizer(radius);
++	delete randomizer;
++	randomizer = new CircleRandomizer(radius);
+ }
+ 
+ void
+ ParticleSystem::set_rect_distribution(float width, float height)
+ {
+-  delete randomizer;
+-  randomizer = new RectRandomizer(width,  height);
++	delete randomizer;
++	randomizer = new RectRandomizer(width,  height);
+ }
+ 
+ void
+ ParticleSystem::set_cone(float start_angle, float stop_angle)
+ {
+-  cone_start = start_angle * M_PI/180.0f;
+-  cone_stop  = stop_angle  * M_PI/180.0f;
++	cone_start = start_angle * M_PI/180.0f;
++	cone_stop  = stop_angle  * M_PI/180.0f;
+ }
+ 
+ void
+ ParticleSystem::set_gravity(float arg_gravity_x, float arg_gravity_y)
+ {
+-  gravity_x = arg_gravity_x;
+-  gravity_y = arg_gravity_y;
++	gravity_x = arg_gravity_x;
++	gravity_y = arg_gravity_y;
+ }
+ 
+ void
+ ParticleSystem::set_lifetime(float time)
+ {
+-  life_time = time;
++	life_time = time;
+ }
+ 
+ void
+ ParticleSystem::set_size(float from, float to)
+ {
+-  size_start = from;
+-  size_stop  = to;
++	size_start = from;
++	size_stop  = to;
+ }
+ 
+ void
+ ParticleSystem::set_aspect(float from, float to)
+ {
+-  (void) from;
+-  (void) to;
++	(void) from;
++	(void) to;
+ }
+ 
+ void
+ ParticleSystem::set_color(const Color&amp; color)
+ {
+-  color_start = color;
++	color_start = color;
+ }
+ 
+ void
+ ParticleSystem::set_fade_color(const Color&amp; color)
+ {
+-  color_stop = color;
++	color_stop = color;
+ }
+ 
+ void
+ ParticleSystem::set_speed(float from, float to)
+ {
+-  speed_start = from;
+-  speed_stop  = to;
++	speed_start = from;
++	speed_stop  = to;
+ }
+ 
+ float
+ ParticleSystem::get_progress(float t)
+ {
+-  return std::max(0.0f, std::min(1.0f, t/life_time));
++	return std::max(0.0f, std::min(1.0f, t/life_time));
+ }
+ 
+ /* EOF */
+
+Modified: trunk/src/particles/surface_drawer.cpp
+===================================================================
+--- trunk/src/particles/surface_drawer.cpp	2005-07-27 15:56:46 UTC (rev 811)
++++ trunk/src/particles/surface_drawer.cpp	2005-07-27 16:13:18 UTC (rev 812)
+@@ -19,13 +19,52 @@
+ 
+ #include &quot;display/vertex_array_drawing_request.hpp&quot;
+ #include &quot;particle_system.hpp&quot;
++#include &quot;../console.hpp&quot; 
++#include &quot;lisp/properties.hpp&quot;
++#include &quot;glutil/surface_manager.hpp&quot;
+ #include &quot;surface_drawer.hpp&quot;
+ 
+-SurfaceDrawer::SurfaceDrawer(Surface surface)
+-  : surface(surface)
++SurfaceDrawer::SurfaceDrawer(Surface surface_)
++  :surface(surface_)
+ {
++  
+ }
+ 
++static GLenum string2blendfunc(const std::string&amp; str)
++{
++  if (str == &quot;src_alpha&quot;) {
++    return GL_SRC_ALPHA;
++  } else if (str == &quot;one_minus_src_alpha&quot;) {
++    return GL_ONE_MINUS_SRC_ALPHA;
++  } else if (str == &quot;one&quot;) {
++    return GL_ONE;
++  } else if (str == &quot;zero&quot;) {
++    return GL_ZERO;
++  }
++  // FIXME: Implement the rest blendfunc here
++  else {
++    console &lt;&lt; &quot;Unknown blendfunc: '&quot; &lt;&lt; str &lt;&lt; &quot;'&quot; &lt;&lt; std::endl;
++    return GL_ONE;
++  }
++}
++
++SurfaceDrawer::SurfaceDrawer(const lisp::Lisp* lisp)
++{
++  std::string blendfunc_src_str = &quot;src_alpha&quot;;
++  std::string blendfunc_dst_str = &quot;one_minus_src_alpha&quot;;
++  std::string surface_file;
++
++  lisp::Properties props(lisp);
++  props.get(&quot;image&quot;, surface_file);
++  props.get(&quot;blendfunc-src&quot;, blendfunc_src_str);
++  props.get(&quot;blendfunc-dst&quot;, blendfunc_dst_str);
++
++  surface = surface_manager-&gt;get(surface_file);
++
++  blendfunc_src  = string2blendfunc(blendfunc_src_str);
++  blendfunc_dest = string2blendfunc(blendfunc_dst_str);
++}
++
+ SurfaceDrawer::~SurfaceDrawer() 
+ {
+ }
+
+Modified: trunk/src/particles/surface_drawer.hpp
+===================================================================
+--- trunk/src/particles/surface_drawer.hpp	2005-07-27 15:56:46 UTC (rev 811)
++++ trunk/src/particles/surface_drawer.hpp	2005-07-27 16:13:18 UTC (rev 812)
+@@ -32,6 +32,7 @@
+   GLenum blendfunc_dest;
+   
+ public:
++  SurfaceDrawer(const lisp::Lisp* lisp);
+   SurfaceDrawer(Surface surface);
+   virtual ~SurfaceDrawer();
+   
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000464.html">[Windstille-commit] r811 - trunk/src
+</A></li>
+	<LI>Next message: <A HREF="000466.html">[Windstille-commit] r813 - in trunk/src: . particles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#465">[ date ]</a>
+              <a href="thread.html#465">[ thread ]</a>
+              <a href="subject.html#465">[ subject ]</a>
+              <a href="author.html#465">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

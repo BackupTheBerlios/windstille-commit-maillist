@@ -1,0 +1,271 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1221 - in trunk/src: . display particles
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-January/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1221%20-%20in%20trunk/src%3A%20.%20display%20particles&In-Reply-To=%3C200601131703.k0DH39JX001518%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000873.html">
+   <LINK REL="Next"  HREF="000875.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1221 - in trunk/src: . display particles</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1221%20-%20in%20trunk/src%3A%20.%20display%20particles&In-Reply-To=%3C200601131703.k0DH39JX001518%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1221 - in trunk/src: . display particles">grumbel at berlios.de
+       </A><BR>
+    <I>Fri Jan 13 18:03:09 CET 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000873.html">[Windstille-commit] r1220 - in trunk: data/images/particles data/particlesystems data/shader src/particles
+</A></li>
+        <LI>Next message: <A HREF="000875.html">[Windstille-commit] r1222 - in trunk/src: . display particles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#874">[ date ]</a>
+              <a href="thread.html#874">[ thread ]</a>
+              <a href="subject.html#874">[ subject ]</a>
+              <a href="author.html#874">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-01-13 18:03:08 +0100 (Fri, 13 Jan 2006)
+New Revision: 1221
+
+Modified:
+   trunk/src/SConscript
+   trunk/src/display/scene_context.cpp
+   trunk/src/particles/drawer.hpp
+   trunk/src/particles/particle_system.cpp
+   trunk/src/particles/spark_drawer.cpp
+   trunk/src/particles/spark_drawer.hpp
+   trunk/src/particles/surface_drawer.cpp
+   trunk/src/particles/surface_drawer.hpp
+Log:
+- some experiments with heat deformation
+
+Modified: trunk/src/SConscript
+===================================================================
+--- trunk/src/SConscript	2006-01-13 17:02:08 UTC (rev 1220)
++++ trunk/src/SConscript	2006-01-13 17:03:08 UTC (rev 1221)
+@@ -145,6 +145,7 @@
+ 'particle_viewer.cpp',
+ 'particles/particle_system.cpp',
+ 'particles/spark_drawer.cpp',
++'particles/deform_drawer.cpp',
+ 'particles/surface_drawer.cpp',
+ 'physfs/physfs_sdl.cpp',
+ 'physfs/physfs_stream.cpp',
+
+Modified: trunk/src/display/scene_context.cpp
+===================================================================
+--- trunk/src/display/scene_context.cpp	2006-01-13 17:02:08 UTC (rev 1220)
++++ trunk/src/display/scene_context.cpp	2006-01-13 17:03:08 UTC (rev 1221)
+@@ -44,6 +44,10 @@
+ #define LIGHTMAP_DIV 4
+ #define BLURMAP_DIV 1
+ 
++GLuint current_framebuffer;
++
++
++
+ class SceneContextImpl
+ {
+ public:
+@@ -255,6 +259,7 @@
+     {
+       // Render the lightmap to the lightmap_framebuffer
+       glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;lightmap_framebuffer.get_handle());
++      current_framebuffer = impl-&gt;lightmap_framebuffer.get_handle();
+ 
+       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+ 
+@@ -271,6 +276,7 @@
+     {
+       // Render the colormap to the screen_framebuffer
+       glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;screen_framebuffer.get_handle());
++      current_framebuffer = impl-&gt;screen_framebuffer.get_handle();
+       impl-&gt;color.render(*this);
+       glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+     }
+@@ -279,6 +285,7 @@
+   if (impl-&gt;render_mask &amp; LIGHTMAP)
+     { // Renders the lightmap to the screen
+       glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;screen_framebuffer.get_handle());
++      current_framebuffer = impl-&gt;screen_framebuffer.get_handle();
+       render_lightmap();
+       glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+     }
+@@ -286,6 +293,7 @@
+   if (impl-&gt;render_mask &amp; HIGHLIGHTMAP)
+     {
+       glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;screen_framebuffer.get_handle());
++      current_framebuffer = impl-&gt;screen_framebuffer.get_handle();
+       impl-&gt;highlight.render(*this);
+       glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+     }
+@@ -366,8 +374,10 @@
+   if (request-&gt;needs_prepare())
+     {
+       glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;tmp_framebuffer.get_handle());
++      current_framebuffer = impl-&gt;tmp_framebuffer.get_handle();
+       request-&gt;prepare(impl-&gt;screen_framebuffer.get_texture());
+       glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, impl-&gt;screen_framebuffer.get_handle());
++      current_framebuffer = impl-&gt;screen_framebuffer.get_handle();
+       request-&gt;draw(impl-&gt;tmp_framebuffer.get_texture());
+     }
+   else
+
+Modified: trunk/src/particles/drawer.hpp
+===================================================================
+--- trunk/src/particles/drawer.hpp	2006-01-13 17:02:08 UTC (rev 1220)
++++ trunk/src/particles/drawer.hpp	2006-01-13 17:03:08 UTC (rev 1221)
+@@ -29,6 +29,7 @@
+ class DrawingContext;
+ class ParticleSystem;
+ 
++// FIXME: Rename this to ParticleDrawer or move it into a &quot;namespace particles&quot;
+ class Drawer
+ {
+ public:
+
+Modified: trunk/src/particles/particle_system.cpp
+===================================================================
+--- trunk/src/particles/particle_system.cpp	2006-01-13 17:02:08 UTC (rev 1220)
++++ trunk/src/particles/particle_system.cpp	2006-01-13 17:03:08 UTC (rev 1221)
+@@ -32,7 +32,9 @@
+ #include &quot;lisp/properties.hpp&quot;
+ #include &quot;lisp/property_iterator.hpp&quot;
+ #include &quot;lisp_getters.hpp&quot;
++#include &quot;file_reader.hpp&quot;
+ #include &quot;spark_drawer.hpp&quot;
++#include &quot;deform_drawer.hpp&quot;
+ #include &quot;surface_drawer.hpp&quot;
+ #include &quot;randomizer.hpp&quot;
+ 
+@@ -140,12 +142,19 @@
+         while(iter.next()) {
+           if (iter.item() == &quot;surface-drawer&quot;) 
+             {
+-              set_drawer(new SurfaceDrawer(*iter));
++              lisp::Properties props(*iter);
++              set_drawer(new SurfaceDrawer(props));
+             } 
+           else if (iter.item() == &quot;spark-drawer&quot;) 
+             {
+-              set_drawer(new SparkDrawer(*iter));
++              lisp::Properties props(*iter);
++              set_drawer(new SparkDrawer(props));
+             } 
++          else if (iter.item() == &quot;deform-drawer&quot;)
++            {
++              lisp::Properties props(*iter);
++              set_drawer(new DeformDrawer(props));
++            }
+           else 
+             {
+               std::cout &lt;&lt; &quot;Unknown drawer: &quot; &lt;&lt; iter.item() &lt;&lt; std::endl;
+
+Modified: trunk/src/particles/spark_drawer.cpp
+===================================================================
+--- trunk/src/particles/spark_drawer.cpp	2006-01-13 17:02:08 UTC (rev 1220)
++++ trunk/src/particles/spark_drawer.cpp	2006-01-13 17:03:08 UTC (rev 1221)
+@@ -31,11 +31,10 @@
+ #include &quot;color.hpp&quot;
+ #include &quot;spark_drawer.hpp&quot;
+ 
+-SparkDrawer::SparkDrawer(const lisp::Lisp* lisp)
++SparkDrawer::SparkDrawer(FileReader&amp; props)
+ {
+   width = 1.0f;
+   color = Color(1.0f, 1.0f, 1.0f);
+-  lisp::Properties props(lisp);
+   props.get(&quot;color&quot;, color);
+   props.get(&quot;width&quot;, width);
+ }
+
+Modified: trunk/src/particles/spark_drawer.hpp
+===================================================================
+--- trunk/src/particles/spark_drawer.hpp	2006-01-13 17:02:08 UTC (rev 1220)
++++ trunk/src/particles/spark_drawer.hpp	2006-01-13 17:03:08 UTC (rev 1221)
+@@ -38,7 +38,7 @@
+   float width;
+ 
+ public:
+-  SparkDrawer(const lisp::Lisp* lisp);
++  SparkDrawer(FileReader&amp; props);
+   void draw(DrawingContext&amp; dc, ParticleSystem&amp; psys);
+ };
+ 
+
+Modified: trunk/src/particles/surface_drawer.cpp
+===================================================================
+--- trunk/src/particles/surface_drawer.cpp	2006-01-13 17:02:08 UTC (rev 1220)
++++ trunk/src/particles/surface_drawer.cpp	2006-01-13 17:03:08 UTC (rev 1221)
+@@ -58,13 +58,12 @@
+   }
+ }
+ 
+-SurfaceDrawer::SurfaceDrawer(const lisp::Lisp* lisp)
++SurfaceDrawer::SurfaceDrawer(FileReader&amp; props)
+ {
+   std::string blendfunc_src_str = &quot;src_alpha&quot;;
+   std::string blendfunc_dst_str = &quot;one_minus_src_alpha&quot;;
+   std::string surface_file;
+ 
+-  lisp::Properties props(lisp);
+   props.get(&quot;image&quot;, surface_file);
+   props.get(&quot;blendfunc-src&quot;, blendfunc_src_str);
+   props.get(&quot;blendfunc-dst&quot;, blendfunc_dst_str);
+
+Modified: trunk/src/particles/surface_drawer.hpp
+===================================================================
+--- trunk/src/particles/surface_drawer.hpp	2006-01-13 17:02:08 UTC (rev 1220)
++++ trunk/src/particles/surface_drawer.hpp	2006-01-13 17:03:08 UTC (rev 1221)
+@@ -38,12 +38,13 @@
+   GLenum blendfunc_dest;
+   
+ public:
+-  SurfaceDrawer(const lisp::Lisp* lisp);
++  SurfaceDrawer(FileReader&amp; props);
+   SurfaceDrawer(Surface surface);
+   virtual ~SurfaceDrawer();
+   
+   void set_texture(Surface surface);
+   void set_blendfuncs(GLenum blendfunc_src, GLenum blendfunc_dst);
++
+   void draw(DrawingContext&amp; sc, ParticleSystem&amp; psys);
+ };
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000873.html">[Windstille-commit] r1220 - in trunk: data/images/particles data/particlesystems data/shader src/particles
+</A></li>
+	<LI>Next message: <A HREF="000875.html">[Windstille-commit] r1222 - in trunk/src: . display particles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#874">[ date ]</a>
+              <a href="thread.html#874">[ thread ]</a>
+              <a href="subject.html#874">[ subject ]</a>
+              <a href="author.html#874">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

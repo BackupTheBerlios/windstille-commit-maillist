@@ -1,0 +1,302 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r1282 - in trunk/windstille-nds/windstille:	source tools
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2006-September/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1282%20-%20in%20trunk/windstille-nds/windstille%3A%0A%09source%20tools&In-Reply-To=%3C200609101625.k8AGPsGU009232%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000933.html">
+   <LINK REL="Next"  HREF="000935.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r1282 - in trunk/windstille-nds/windstille:	source tools</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r1282%20-%20in%20trunk/windstille-nds/windstille%3A%0A%09source%20tools&In-Reply-To=%3C200609101625.k8AGPsGU009232%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r1282 - in trunk/windstille-nds/windstille:	source tools">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Sun Sep 10 18:25:54 CEST 2006</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000933.html">[Windstille-commit] r1281 - in trunk/windstille-nds: sketches	windstille windstille/source windstille/tools
+</A></li>
+        <LI>Next message: <A HREF="000935.html">[Windstille-commit] r1283 - trunk/windstille-nds/windstille/tools
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#934">[ date ]</a>
+              <a href="thread.html#934">[ thread ]</a>
+              <a href="subject.html#934">[ subject ]</a>
+              <a href="author.html#934">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2006-09-10 18:25:54 +0200 (Sun, 10 Sep 2006)
+New Revision: 1282
+
+Modified:
+   trunk/windstille-nds/windstille/source/glyph.hpp
+   trunk/windstille-nds/windstille/source/main.cpp
+   trunk/windstille-nds/windstille/tools/SConstruct
+Log:
+- fixed/cleanedup font handling a bit
+
+Modified: trunk/windstille-nds/windstille/source/glyph.hpp
+===================================================================
+--- trunk/windstille-nds/windstille/source/glyph.hpp	2006-09-08 20:14:10 UTC (rev 1281)
++++ trunk/windstille-nds/windstille/source/glyph.hpp	2006-09-10 16:25:54 UTC (rev 1282)
+@@ -36,7 +36,7 @@
+   u8  width;
+   u8  height;
+ 
+-  u8* data;
++  const u8* data;
+ };
+ 
+ #endif
+
+Modified: trunk/windstille-nds/windstille/source/main.cpp
+===================================================================
+--- trunk/windstille-nds/windstille/source/main.cpp	2006-09-08 20:14:10 UTC (rev 1281)
++++ trunk/windstille-nds/windstille/source/main.cpp	2006-09-10 16:25:54 UTC (rev 1282)
+@@ -9,6 +9,7 @@
+ #include &lt;nds/arm9/sound.h&gt;             // sound functions
+ #include &lt;nds/arm9/video.h&gt;             // sound functions
+ 
++#include &quot;font.hpp&quot;
+ #include &quot;glyph.hpp&quot;
+ #include &quot;verdana10.hpp&quot;
+ 
+@@ -107,6 +108,8 @@
+ #include &quot;topscreen_img_bin.h&quot;
+ #include &quot;topscreen_pal_bin.h&quot;
+ 
++#include &quot;math.hpp&quot;
++
+ SpriteEntry sprites[128];
+ 
+ 
+@@ -127,6 +130,16 @@
+ 
+ enum SubscreenMode { DOOR_MINIGAME, PDA, DIALOG } subscreen_mode = PDA;
+ 
++inline int odd(int i)
++{
++  return (i &amp; 1);
++}
++
++inline int even(int i)
++{
++  return !(i &amp; 1);
++}
++
+ //turn off all the sprites
+ void initSprites(void)
+ {
+@@ -154,36 +167,59 @@
+   dmaCopy(sprites, OAM, 128 * sizeof(SpriteEntry));
+ }
+ 
+-void glyph_blit(Glyph&amp; glyph, int px, int py)
++void putpixel(int x, int y, u8 color)
+ {
++  if (color != 0) // ignore transcol
++    {
++      u16 px = ((u16*)BG_GFX_SUB)[y * 128 + x/2];
++
++      if (odd(x % 2))
++        { // odd
++          ((u16*)BG_GFX_SUB)[y * 128 + x/2] = (px &amp; 0xFF) | (color &lt;&lt; 8);
++        }
++      else
++        { // even
++          ((u16*)BG_GFX_SUB)[y * 128 + x/2] = (px &amp; 0xFF00) | color;
++        }
++    }
++}
++
++void glyph_blit(const Glyph&amp; glyph, int px, int py)
++{
+   px += glyph.x;
+   py += glyph.y;
+ 
+-  px /= 2;
+-
++  // Fast but correct
+   for(int y = 0; y &lt; glyph.height; ++y)
+-    for(int x = 0; x &lt; glyph.width/2; ++x)
++    for(int x = 0; x &lt; glyph.width; ++x)
+       {
+-        ((u16*)BG_GFX_SUB)[(py + y) * 128 + (px + x)] = ((u16*)glyph.data)[(y * glyph.width/2) + x];
++        putpixel(px + x, py + y, glyph.data[y*glyph.width + x]);
+       }
+ }
+ 
+-void print_hello_world()
+-{
+-  char chr2idx[256];;
+-
+-  for(int i = 0; i &lt; 256; ++i)
+-    chr2idx[i] = 0;
+-    
+-  for(int i = 0; i &lt; verdana10_glyphs_size; ++i)
+-    chr2idx[int(verdana10_glyphs[i].chr)] = i;
+-               
+-  char* str = &quot;# ; &gt;? = C D ,&lt;&quot;;
++void print(char* str)
++{               
+   int x = 10;
+   int y = 10;
++
+   for(unsigned int i = 0; i &lt; strlen(str); ++i)
+-    glyph_blit(verdana10_glyphs[int(chr2idx[int(int(str[i]))])], 
+-               x += verdana10_glyphs[int(chr2idx[int(str[i])])].width + 2, y);
++    {
++      if (str[i] == ' ')
++        {
++          x += 4;
++        }
++      else if (str[i] == '\n')
++        {
++          x = 10;
++          y += 12;
++        }
++      else
++        {
++          const Glyph&amp; glyph = verdana10_font.glyphs[int(str[i])];
++          glyph_blit(glyph, x, y);
++          x += glyph.width;
++        }
++    }
+ }
+ 
+ void titlescreen()
+@@ -194,8 +230,8 @@
+   vramSetMainBanks(VRAM_A_MAIN_BG_0x6000000, VRAM_B_LCD,
+                    VRAM_C_SUB_BG, VRAM_D_LCD); 
+ 
+-  BG3_CR     = BG_BMP8_256x256 | BG_WRAP_ON;
+-  SUB_BG3_CR = BG_BMP8_256x256 | BG_WRAP_ON;
++  BG3_CR     = BG_BMP8_256x256 | BG_WRAP_ON | BG_MOSAIC_ON;
++  SUB_BG3_CR = BG_BMP8_256x256 | BG_WRAP_ON | BG_MOSAIC_ON;
+ 
+   // these are rotation backgrounds so you must set the rotation attributes:
+   // these are fixed point numbers with the low 8 bits the fractional part
+@@ -226,9 +262,12 @@
+   for(int i = 0; i &lt; 256; ++i)
+     BG_PALETTE_SUB[i] = ((u16*)subtitlescreen_pal_bin)[i];
+ 
+-  print_hello_world();
++  print(&quot;Hello World, 'This is a\nreally hard test,\nbla bla\nblabla&quot;);
+   
+   int count = 0;
++
++  int mosaic_x = 0;
++  int mosaic_y = 0;
+   while(1) 
+     {
+       swiWaitForVBlank();
+@@ -243,6 +282,30 @@
+           if (count &gt; 0)
+             break;
+         }
++
++      if (pressed &amp; KEY_DOWN)
++        mosaic_y -= 1;
++      if (pressed &amp; KEY_UP)
++        mosaic_y += 1;
++
++      if (pressed &amp; KEY_LEFT)
++        mosaic_x -= 1;
++      if (pressed &amp; KEY_RIGHT)
++        mosaic_x += 1;
++
++      if (pressed &amp; KEY_X)
++        mosaic_y = mosaic_x -= 1;
++      if (pressed &amp; KEY_Y)
++        mosaic_y = mosaic_x += 1;
++
++      mosaic_x = Math::mid(0, mosaic_x, 15);
++      mosaic_y = Math::mid(0, mosaic_y, 15);
++ 
++      BG3_CX = (mosaic_x/2) &lt;&lt; 8;
++      BG3_CY = (mosaic_y/2) &lt;&lt; 8;
++
++      MOSAIC_CR = mosaic_x | (mosaic_y &lt;&lt; 4);
++      SUB_MOSAIC_CR = mosaic_x | (mosaic_y &lt;&lt; 4);
+     }
+ }
+ 
+@@ -668,9 +731,9 @@
+     SPRITE_PALETTE[i] = ((u16*)walk_frame00_pal_bin)[i];
+ 
+ 
+-  sprites[0].attribute[0] = ATTR0_SQUARE | ATTR0_COLOR_256 | px;
++  sprites[0].attribute[0] = ATTR0_SQUARE | ATTR0_TYPE_BLENDED | ATTR0_BMP | px;
+   sprites[0].attribute[1] = ATTR1_SIZE_64 | py  | ATTR1_FLIP_Y;
+-  sprites[0].attribute[2] = 0;
++  sprites[0].attribute[2] = ATTR2_ALPHA(3);
+ 
+   sprites[1].attribute[0] = ATTR0_SQUARE | ATTR0_COLOR_256 | (192-32-8) | ATTR0_DISABLED;
+   sprites[1].attribute[1] = ATTR1_SIZE_32 | (256-32-8);
+@@ -709,13 +772,13 @@
+       
+       if (subscreen_mode != DIALOG)
+         {
+-          sprites[0].attribute[0] = ATTR0_SQUARE | ATTR0_COLOR_256 | mod(103,512);
++          sprites[0].attribute[0] = ATTR0_SQUARE | ATTR0_TYPE_BLENDED | ATTR0_COLOR_256 | mod(103,512);
+           sprites[0].attribute[1] = ATTR1_SIZE_64 | mod(128-32,512) | (left ? 0: ATTR1_FLIP_X);
+-          sprites[0].attribute[2] = 0;
++          sprites[0].attribute[2] = ATTR2_ALPHA(3);
+ 
+-          sprites[2].attribute[0] = ATTR0_SQUARE | ATTR0_COLOR_256 | mod(90-6, 512);
++          sprites[2].attribute[0] = ATTR0_SQUARE | ATTR0_TYPE_BLENDED | ATTR0_COLOR_256 | mod(90-6, 512);
+           sprites[2].attribute[1] = ATTR1_SIZE_64 | mod((200+16+2 - px + 128-32 + door_pos/4),512);
+-          sprites[2].attribute[2] = 64*2+32;
++          sprites[2].attribute[2] = ATTR2_ALPHA(1) | 64*2+32;
+         }
+       else
+         {
+
+Modified: trunk/windstille-nds/windstille/tools/SConstruct
+===================================================================
+--- trunk/windstille-nds/windstille/tools/SConstruct	2006-09-08 20:14:10 UTC (rev 1281)
++++ trunk/windstille-nds/windstille/tools/SConstruct	2006-09-10 16:25:54 UTC (rev 1282)
+@@ -2,6 +2,6 @@
+ 
+ env = Environment()
+ env.ParseConfig(&quot;pkg-config --cflags --libs libpng&quot;)
+-env.Program('convert', ['main.cpp'])
++env.Program('convert', ['convert.cpp'], CXXFLAGS = ['-Wall', '-O2', '-g'])
+ 
+ # EOF #
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000933.html">[Windstille-commit] r1281 - in trunk/windstille-nds: sketches	windstille windstille/source windstille/tools
+</A></li>
+	<LI>Next message: <A HREF="000935.html">[Windstille-commit] r1283 - trunk/windstille-nds/windstille/tools
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#934">[ date ]</a>
+              <a href="thread.html#934">[ thread ]</a>
+              <a href="subject.html#934">[ subject ]</a>
+              <a href="author.html#934">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

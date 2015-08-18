@@ -1,0 +1,604 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2593 - trunk/windstille/src/sound
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2593%20-%20trunk/windstille/src/sound&In-Reply-To=%3C200903091334.n29DYN3G023400%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001589.html">
+   <LINK REL="Next"  HREF="001591.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2593 - trunk/windstille/src/sound</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2593%20-%20trunk/windstille/src/sound&In-Reply-To=%3C200903091334.n29DYN3G023400%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2593 - trunk/windstille/src/sound">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Mar  9 14:34:23 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001589.html">[Windstille-commit] r2592 - in trunk/windstille: data/controller	src/input
+</A></li>
+        <LI>Next message: <A HREF="001591.html">[Windstille-commit] r2594 - trunk/windstille/src/sound
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1590">[ date ]</a>
+              <a href="thread.html#1590">[ thread ]</a>
+              <a href="subject.html#1590">[ subject ]</a>
+              <a href="author.html#1590">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-09 14:34:22 +0100 (Mon, 09 Mar 2009)
+New Revision: 2593
+
+Modified:
+   trunk/windstille/src/sound/sound_manager.cpp
+   trunk/windstille/src/sound/sound_manager.hpp
+Log:
+Some cleanup
+
+Modified: trunk/windstille/src/sound/sound_manager.cpp
+===================================================================
+--- trunk/windstille/src/sound/sound_manager.cpp	2009-03-09 12:06:29 UTC (rev 2592)
++++ trunk/windstille/src/sound/sound_manager.cpp	2009-03-09 13:34:22 UTC (rev 2593)
+@@ -16,6 +16,7 @@
+ **  along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
+ */
+ 
++#include &lt;boost/scoped_array.hpp&gt;
+ #include &lt;assert.h&gt;
+ #include &lt;stdexcept&gt;
+ #include &lt;iostream&gt;
+@@ -31,8 +32,10 @@
+ SoundManager* SoundManager::current_ = 0;
+ 
+ SoundManager::SoundManager()
+-  : device(0), context(0), sound_enabled(false), music_source(0),
+-    next_music_source(0), music_enabled(true)
++  : device(0), 
++    context(0), 
++    sound_enabled(false), 
++    music_enabled(true)
+ {
+   assert(current_ == 0);
+   current_ = this; 
+@@ -40,7 +43,7 @@
+   try 
+     {
+       device = alcOpenDevice(0);
+-      if(device == 0) 
++      if (device == 0) 
+         {
+           print_openal_version();
+           throw std::runtime_error(&quot;Couldn't open audio device.&quot;);
+@@ -70,25 +73,30 @@
+ 
+ SoundManager::~SoundManager()
+ {
+-  delete music_source;
+-  delete next_music_source;
++  music_source.reset();
++  next_music_source.reset();
+ 
+-  for(SoundSources::iterator i = sources.begin(); i != sources.end(); ++i) {
+-    delete *i;
+-  }
++  for(SoundSources::iterator i = sources.begin(); i != sources.end(); ++i) 
++    {
++      delete *i;
++    }
+ 
+-  for(SoundBuffers::iterator i = buffers.begin(); i != buffers.end(); ++i) {
+-    ALuint buffer = i-&gt;second;
+-    alDeleteBuffers(1, &amp;buffer);
+-  }
++  for(SoundBuffers::iterator i = buffers.begin(); i != buffers.end(); ++i) 
++    {
++      ALuint buffer = i-&gt;second;
++      alDeleteBuffers(1, &amp;buffer);
++    }
+ 
+-  if(context != 0) {
+-    alcDestroyContext(context);
+-  }
+-  if(device != 0) {
+-    alcCloseDevice(device);
+-  }
++  if (context != 0) 
++    {
++      alcDestroyContext(context);
++    }
+ 
++  if (device != 0)
++    {
++      alcCloseDevice(device);
++    }
++
+   current_ = 0; 
+ }
+ 
+@@ -102,132 +110,173 @@
+   ALuint buffer;
+   alGenBuffers(1, &amp;buffer);
+   check_al_error(&quot;Couldn't create audio buffer: &quot;);
+-  char* samples = new char[file-&gt;size];
+-  try {
+-    file-&gt;read(samples, file-&gt;size);
+-    alBufferData(buffer, format, samples,
+-        static_cast&lt;ALsizei&gt; (file-&gt;size),
+-        static_cast&lt;ALsizei&gt; (file-&gt;rate));
+-    check_al_error(&quot;Couldn't fill audio buffer: &quot;);
+-  } catch(...) {
+-    delete[] samples;
+-    throw;
+-  }
+-  delete[] samples;
+ 
++  boost::scoped_array&lt;char&gt; samples(new char[file-&gt;size]);
++
++  try 
++    {
++      file-&gt;read(samples.get(), file-&gt;size);
++
++      alBufferData(buffer, format, samples.get(),
++                   static_cast&lt;ALsizei&gt; (file-&gt;size),
++                   static_cast&lt;ALsizei&gt; (file-&gt;rate));
++
++      check_al_error(&quot;Couldn't fill audio buffer: &quot;);
++    }
++  catch(...) 
++    {
++      throw;
++    }
++
+   return buffer;
+ }
+ 
+-SoundSource*
++std::auto_ptr&lt;SoundSource&gt;
+ SoundManager::create_sound_source(const std::string&amp; filename)
+ {
+-  if(!sound_enabled)
+-    return 0;
+-
+-  ALuint buffer;
++  if (!sound_enabled)
++    {
++      return std::auto_ptr&lt;SoundSource&gt;();
++    }
++  else
++    {
++      ALuint buffer;
+   
+-  // reuse an existing static sound buffer            
+-  SoundBuffers::iterator i = buffers.find(filename);
+-  if(i != buffers.end()) {
+-    buffer = i-&gt;second;
+-  } else {
+-    buffer = load_file_into_buffer(filename);
+-    buffers.insert(std::make_pair(filename, buffer));
+-  }
++      // reuse an existing static sound buffer            
++      SoundBuffers::iterator i = buffers.find(filename);
++      if (i != buffers.end()) 
++        {
++          buffer = i-&gt;second;
++        } 
++      else 
++        {
++          buffer = load_file_into_buffer(filename);
++          buffers.insert(std::make_pair(filename, buffer));
++        }
+   
+-  SoundSource* source = new SoundSource();
+-  alSourcei(source-&gt;source, AL_BUFFER, buffer);
+-  return source;  
++      std::auto_ptr&lt;SoundSource&gt; source(new SoundSource());
++
++      alSourcei(source-&gt;source, AL_BUFFER, buffer);
++
++      return source;
++    }
+ }
+ 
+ void
+ SoundManager::play(const std::string&amp; filename, const Vector2f&amp; pos)
+ {
+-  try {
+-    SoundSource* source = create_sound_source(filename);
+-    if(source == 0)
+-      return;
+-    if(pos == Vector2f(-1, -1)) {
+-      alSourcef(source-&gt;source, AL_ROLLOFF_FACTOR, 0);
+-    } else {
+-      source-&gt;set_position(pos);
++  try
++    {
++      std::auto_ptr&lt;SoundSource&gt; source = create_sound_source(filename);
++
++      if (source.get())
++        {
++          if (pos == Vector2f(-1, -1)) 
++            {
++              alSourcef(source-&gt;source, AL_ROLLOFF_FACTOR, 0);
++            } 
++          else
++            {
++              source-&gt;set_position(pos);
++            }
++
++          source-&gt;play();
++          sources.push_back(source.release());
++        }
++    } 
++  catch(std::exception&amp; e) 
++    {
++      std::cout &lt;&lt; &quot;Couldn't play sound &quot; &lt;&lt; filename &lt;&lt; &quot;: &quot; &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
+     }
+-    source-&gt;play();
+-    sources.push_back(source);
+-  } catch(std::exception&amp; e) {
+-    std::cout &lt;&lt; &quot;Couldn't play sound &quot; &lt;&lt; filename &lt;&lt; &quot;: &quot; &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
+-  }
+ }
+ 
+ void
+ SoundManager::enable_sound(bool enable)
+ {
+-  if(device == 0)
+-    return;
+-  sound_enabled = enable;
++  if (device)
++    {
++      sound_enabled = enable;
++    }
+ }
+ 
+ void
+ SoundManager::enable_music(bool enable)
+ {
+-  if(device == 0)
+-    return;
+-  music_enabled = enable;
+-  if(music_enabled) {
+-    play_music(current_music);
+-  } else {
+-    if(music_source) {
+-      delete music_source;
+-      music_source = 0;
++  if (device)
++    {
++      music_enabled = enable;
++
++      if (music_enabled) 
++        {
++          play_music(current_music);
++        } 
++      else 
++        {
++          if (music_source.get())
++            {
++              music_source.reset();
++            }
++        }
+     }
+-  }
+ }
+ 
+ void
+ SoundManager::stop_music(bool fade)
+ {
+-  if(fade) {
+-    if(music_source
+-        &amp;&amp; music_source-&gt;getFadeState() != StreamSoundSource::FadingOff)
+-      music_source-&gt;setFading(StreamSoundSource::FadingOff, .7f);
+-  } else {
+-    delete music_source;
+-    music_source = 0;
+-  }
++  if (fade) 
++    {
++      if (music_source.get() &amp;&amp;
++          music_source-&gt;getFadeState() != StreamSoundSource::FadingOff)
++        {
++          music_source-&gt;setFading(StreamSoundSource::FadingOff, .7f);
++        }
++    } 
++  else 
++    {
++      music_source.reset();
++    }
+ }
+ 
+ void
+ SoundManager::play_music(const std::string&amp; filename, bool fade)
+ {
+-  if(filename == current_music)
+-    return;
+-  current_music = filename;
+-  if(!music_enabled)
+-    return;
++  if (filename != current_music)
++    {
++      current_music = filename;
++      if (!music_enabled)
++        return;
+ 
+-  try {
+-    StreamSoundSource* newmusic 
+-      = new StreamSoundSource(SoundFile::load(filename));
++      try 
++        {
++          std::auto_ptr&lt;StreamSoundSource&gt; newmusic(new StreamSoundSource(SoundFile::load(filename)));
+ 
+-    alSourcef(newmusic-&gt;source, AL_ROLLOFF_FACTOR, 0);
++          alSourcef(newmusic-&gt;source, AL_ROLLOFF_FACTOR, 0);
+  
+-    if(fade) {
+-      if(music_source 
+-          &amp;&amp; music_source-&gt;getFadeState() != StreamSoundSource::FadingOff)
+-        music_source-&gt;setFading(StreamSoundSource::FadingOff, .7f);
+-      delete next_music_source;
+-      next_music_source = newmusic;
+-    } else {
+-      delete music_source;
+-      music_source = newmusic;
+-      music_source-&gt;play();
+-      delete next_music_source;
+-      next_music_source = 0;
++          if (fade) 
++            {
++              if (music_source.get() &amp;&amp;
++                  music_source-&gt;getFadeState() != StreamSoundSource::FadingOff)
++                {
++                  music_source-&gt;setFading(StreamSoundSource::FadingOff, .7f);
++                }
++
++              next_music_source = newmusic;
++            } 
++          else 
++            {
++              music_source = newmusic;
++
++              music_source-&gt;play();
++
++              next_music_source.reset();
++            }
++        }
++      catch(std::exception&amp; e) 
++        {
++          std::cerr &lt;&lt; &quot;Couldn't play music file '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot;
++                    &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
++        }
+     }
+-  } catch(std::exception&amp; e) {
+-    std::cerr &lt;&lt; &quot;Couldn't play music file '&quot; &lt;&lt; filename &lt;&lt; &quot;': &quot;
+-      &lt;&lt; e.what() &lt;&lt; &quot;\n&quot;;
+-  }
+ }
+ 
+ void
+@@ -269,58 +318,78 @@
+ void
+ SoundManager::update()
+ {
+-  if (!sound_enabled)
+-    return;
++  if (sound_enabled)
++    {
++      // check for finished sound sources
++      for(SoundSources::iterator i = sources.begin(); i != sources.end(); ) 
++        {
++          SoundSource* source = *i;
++          if (!source-&gt;playing()) 
++            {
++              delete source;
++              i = sources.erase(i);
++            } 
++          else 
++            {
++              ++i;
++            }
++        }
+ 
+-  // check for finished sound sources
+-  for(SoundSources::iterator i = sources.begin(); i != sources.end(); ) {
+-    SoundSource* source = *i;
+-    if(!source-&gt;playing()) {
+-      delete source;
+-      i = sources.erase(i);
+-    } else {
+-      ++i;
+-    }
+-  }
+-  // check streaming sounds
+-  if(music_source) {
+-    music_source-&gt;update();
+-  }
++      // check streaming sounds
++      if (music_source.get()) 
++        {
++          music_source-&gt;update();
++        }
+   
+-  if(next_music_source &amp;&amp; (!music_source || !music_source-&gt;playing())) {
+-    delete music_source;
+-    music_source = next_music_source;
+-    //music_source-&gt;setFading(StreamSoundSource::FadingOn, 1.0f);
+-    music_source-&gt;play();
+-    next_music_source = 0;
+-  }
++      if (next_music_source.get() &amp;&amp; (!music_source.get() || !music_source-&gt;playing())) 
++        {
++          music_source = next_music_source;
++          //music_source-&gt;setFading(StreamSoundSource::FadingOn, 1.0f);
++          music_source-&gt;play();
++        }
+   
+-  alcProcessContext(context);
+-  check_alc_error(&quot;Error while processing audio context: &quot;);
++      alcProcessContext(context);
++      check_alc_error(&quot;Error while processing audio context: &quot;);
++    }
+ }
+ 
+ ALenum
+ SoundManager::get_sample_format(SoundFile* file)
+ {
+-  if(file-&gt;channels == 2) {
+-    if(file-&gt;bits_per_sample == 16) {
+-      return AL_FORMAT_STEREO16;
+-    } else if(file-&gt;bits_per_sample == 8) {
+-      return AL_FORMAT_STEREO8;
+-    } else {
+-      throw std::runtime_error(&quot;Only 16 and 8 bit samples supported&quot;);
++  if (file-&gt;channels == 2) 
++    {
++      if (file-&gt;bits_per_sample == 16) 
++        {
++          return AL_FORMAT_STEREO16;
++        } 
++      else if (file-&gt;bits_per_sample == 8) 
++        {
++          return AL_FORMAT_STEREO8;
++        }
++      else 
++        {
++          throw std::runtime_error(&quot;Only 16 and 8 bit samples supported&quot;);
++        }
++    } 
++  else if (file-&gt;channels == 1) 
++    {
++      if (file-&gt;bits_per_sample == 16) 
++        {
++          return AL_FORMAT_MONO16;
++        }
++      else if (file-&gt;bits_per_sample == 8) 
++        {
++          return AL_FORMAT_MONO8;
++        }
++      else 
++        {
++          throw std::runtime_error(&quot;Only 16 and 8 bit samples supported&quot;);
++        }
+     }
+-  } else if(file-&gt;channels == 1) {
+-    if(file-&gt;bits_per_sample == 16) {
+-      return AL_FORMAT_MONO16;
+-    } else if(file-&gt;bits_per_sample == 8) {
+-      return AL_FORMAT_MONO8;
+-    } else {
+-      throw std::runtime_error(&quot;Only 16 and 8 bit samples supported&quot;);
++  else 
++    {
++      throw std::runtime_error(&quot;Only 1 and 2 channel samples supported&quot;);
+     }
+-  }
+-  
+-  throw std::runtime_error(&quot;Only 1 and 2 channel samples supported&quot;);
+ }
+ 
+ void
+@@ -336,22 +405,26 @@
+ SoundManager::check_alc_error(const char* message)
+ {
+   int err = alcGetError(device);
+-  if(err != ALC_NO_ERROR) {
+-    std::stringstream msg;
+-    msg &lt;&lt; message &lt;&lt; alcGetString(device, err);
+-    throw std::runtime_error(msg.str());
+-  }                
++
++  if (err != ALC_NO_ERROR) 
++    {
++      std::stringstream msg;
++      msg &lt;&lt; message &lt;&lt; alcGetString(device, err);
++      throw std::runtime_error(msg.str());
++    }                
+ }
+ 
+ void
+ SoundManager::check_al_error(const char* message)
+ {
+   int err = alGetError();
+-  if(err != AL_NO_ERROR) {
+-    std::stringstream msg;
+-    msg &lt;&lt; message &lt;&lt; alGetString(err);
+-    throw std::runtime_error(msg.str());
+-  }  
++
++  if (err != AL_NO_ERROR) 
++    {
++      std::stringstream msg;
++      msg &lt;&lt; message &lt;&lt; alGetString(err);
++      throw std::runtime_error(msg.str());
++    }  
+ }
+ 
+ /* EOF */
+
+Modified: trunk/windstille/src/sound/sound_manager.hpp
+===================================================================
+--- trunk/windstille/src/sound/sound_manager.hpp	2009-03-09 12:06:29 UTC (rev 2592)
++++ trunk/windstille/src/sound/sound_manager.hpp	2009-03-09 13:34:22 UTC (rev 2593)
+@@ -19,6 +19,7 @@
+ #ifndef HEADER_WINDSTILLE_SOUND_SOUND_MANAGER_HPP
+ #define HEADER_WINDSTILLE_SOUND_SOUND_MANAGER_HPP
+ 
++#include &lt;memory&gt;
+ #include &lt;string&gt;
+ #include &lt;vector&gt;
+ #include &lt;map&gt;
+@@ -72,7 +73,7 @@
+    * This function might throw exceptions. It returns 0 if no audio device is
+    * available.
+    */
+-  SoundSource* create_sound_source(const std::string&amp; filename);
++  std::auto_ptr&lt;SoundSource&gt; create_sound_source(const std::string&amp; filename);
+ 
+   static ALuint load_file_into_buffer(const std::string&amp; filename);
+   static ALenum get_sample_format(SoundFile* file);
+@@ -90,8 +91,8 @@
+   typedef std::vector&lt;SoundSource*&gt; SoundSources;
+   SoundSources sources;
+ 
+-  StreamSoundSource* music_source;
+-  StreamSoundSource* next_music_source;
++  std::auto_ptr&lt;StreamSoundSource&gt; music_source;
++  std::auto_ptr&lt;StreamSoundSource&gt; next_music_source;
+ 
+   bool music_enabled;
+   std::string current_music;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001589.html">[Windstille-commit] r2592 - in trunk/windstille: data/controller	src/input
+</A></li>
+	<LI>Next message: <A HREF="001591.html">[Windstille-commit] r2594 - trunk/windstille/src/sound
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1590">[ date ]</a>
+              <a href="thread.html#1590">[ thread ]</a>
+              <a href="subject.html#1590">[ subject ]</a>
+              <a href="author.html#1590">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>

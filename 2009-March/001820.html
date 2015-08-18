@@ -1,0 +1,238 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Windstille-commit] r2823 - in trunk/windstille: . src/editor
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/windstille-commit/2009-March/index.html" >
+   <LINK REL="made" HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2823%20-%20in%20trunk/windstille%3A%20.%20src/editor&In-Reply-To=%3C200903301754.n2UHscDC028179%40sheep.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001819.html">
+   <LINK REL="Next"  HREF="001821.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Windstille-commit] r2823 - in trunk/windstille: . src/editor</H1>
+    <B>grumbel at BerliOS</B> 
+    <A HREF="mailto:windstille-commit%40lists.berlios.de?Subject=Re%3A%20%5BWindstille-commit%5D%20r2823%20-%20in%20trunk/windstille%3A%20.%20src/editor&In-Reply-To=%3C200903301754.n2UHscDC028179%40sheep.berlios.de%3E"
+       TITLE="[Windstille-commit] r2823 - in trunk/windstille: . src/editor">grumbel at mail.berlios.de
+       </A><BR>
+    <I>Mon Mar 30 19:54:38 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001819.html">[Windstille-commit] r2822 - in trunk/windstille/data: images/decal	sectors/trainstation
+</A></li>
+        <LI>Next message: <A HREF="001821.html">[Windstille-commit] r2824 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1820">[ date ]</a>
+              <a href="thread.html#1820">[ thread ]</a>
+              <a href="subject.html#1820">[ subject ]</a>
+              <a href="author.html#1820">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: grumbel
+Date: 2009-03-30 19:54:36 +0200 (Mon, 30 Mar 2009)
+New Revision: 2823
+
+Modified:
+   trunk/windstille/TODO
+   trunk/windstille/src/editor/selection.cpp
+   trunk/windstille/src/editor/selection.hpp
+Log:
+Ignore objects on move whose parents are in the selection to avoid double-move issue
+
+Modified: trunk/windstille/TODO
+===================================================================
+--- trunk/windstille/TODO	2009-03-30 16:41:32 UTC (rev 2822)
++++ trunk/windstille/TODO	2009-03-30 17:54:36 UTC (rev 2823)
+@@ -203,10 +203,6 @@
+ * remove GameObject::get_world(), use Sector::current() instead
+   (difference might matter on sector change)
+ 
+-* raise/lower of multiple objects at once is a bit wonky, when objects
+-  reach the bottom/top they will change their relative order in the
+-  selection
+-
+ * move has_suffix, has_prefix and stuff into StringUtil class
+ 
+ * get rid of global debug
+@@ -506,26 +502,34 @@
+ Editor
+ ======
+ 
+-* QuadTree could be useful when levels get larger
+-
+-* make use of Statusbar
+-  - display mouse coordinates in WorldCo
+-  - display what Ctrl/Shift do for the current tool
+-
+ * reevaluate the current parent/child implementation, since its very
+   tricky currently to move a parent without affecting the child, which
+   might be useful in some situation (i.e. hold Ctrl pressed to move
+   only the parent, not the children). Other issues:
+ 
+-  - loading doesn't preserve parentship **IMPORTANT**
+   - parents could be handled like normal objects, but with the
+     SelectTool traversing all children and marking them before the
+-    move begings, Ctrl could be used to toggle this behaviour
++    move begings, Ctrl could be used to toggle this behaviour (sounds
++    a little weird, we also don't have a way to iterate children from
++    a parent)
++
+   - having classic groups of objects, where clicking one object moves
+     all in the group could be useful (like when each object is parent
+-    to each other object in the group)
+-  - parent refers to name, but name isn't guranteed unique, so loading/saving breaks
++    to each other object in the group), wouldn't allow an easy way to
++    edit objects in the Group, which however might be a good thing
+ 
++* raise/lower of multiple objects at once is a bit wonky, when objects
++  reach the bottom/top they will change their relative order in the
++  selection
++
++* set cursor in LayerManager when loading a level
++
++* QuadTree could be useful when levels get larger
++
++* make use of Statusbar
++  - display mouse coordinates in WorldCo
++  - display what Ctrl/Shift do for the current tool
++
+ * New Layer System:
+ 
+   - rename HardLayer to Layer and Layers to LayerMask/SelectionMask
+
+Modified: trunk/windstille/src/editor/selection.cpp
+===================================================================
+--- trunk/windstille/src/editor/selection.cpp	2009-03-30 16:41:32 UTC (rev 2822)
++++ trunk/windstille/src/editor/selection.cpp	2009-03-30 17:54:36 UTC (rev 2823)
+@@ -61,13 +61,43 @@
+   return it != objects.end();
+ }
+ 
++bool
++Selection::contains(ObjectModelHandle object) const
++{
++  return std::find(objects.begin(), objects.end(), object) != objects.end();
++}
++
++bool
++Selection::contains_parent(ObjectModelHandle object)
++{
++  ObjectModelHandle parent = object-&gt;get_parent();
++  while (parent)
++    {
++      if (contains(object))
++        return true;
++
++      parent = object-&gt;get_parent();
++    }
++
++  return false;
++}
++
+ void
+ Selection::on_move_start()
+ {
+   for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
+     {
+-      (*i)-&gt;on_move_start();
++      if (contains_parent(*i))
++        {
++          non_moveable_objects.insert(*i);
++        }
+     }
++
++  for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
++    {
++      if (non_moveable_objects.find(*i) == non_moveable_objects.end())
++        (*i)-&gt;on_move_start();
++    }
+ }
+ 
+ void
+@@ -75,7 +105,8 @@
+ {
+   for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
+     {
+-      (*i)-&gt;on_move_update(offset);
++      if (non_moveable_objects.find(*i) == non_moveable_objects.end())
++        (*i)-&gt;on_move_update(offset);
+     }
+ }
+ 
+@@ -84,8 +115,11 @@
+ {
+   for(Objects::iterator i = objects.begin(); i != objects.end(); ++i)
+     {
+-      (*i)-&gt;on_move_end(offset);
++      if (non_moveable_objects.find(*i) == non_moveable_objects.end())
++        (*i)-&gt;on_move_end(offset);
+     }
++
++  non_moveable_objects.clear();
+ }
+ 
+ SelectionHandle
+
+Modified: trunk/windstille/src/editor/selection.hpp
+===================================================================
+--- trunk/windstille/src/editor/selection.hpp	2009-03-30 16:41:32 UTC (rev 2822)
++++ trunk/windstille/src/editor/selection.hpp	2009-03-30 17:54:36 UTC (rev 2823)
+@@ -20,6 +20,7 @@
+ #define HEADER_WINDSTILLE_EDITOR_SELECTION_HPP
+ 
+ #include &lt;vector&gt;
++#include &lt;set&gt;
+ #include &lt;boost/shared_ptr.hpp&gt;
+ 
+ #include &quot;object_model.hpp&quot;
+@@ -33,6 +34,10 @@
+   typedef std::vector&lt;ObjectModelHandle&gt; Objects;
+   Objects objects;
+ 
++  std::set&lt;ObjectModelHandle&gt; non_moveable_objects;
++
++  bool contains_parent(ObjectModelHandle object);
++
+ public:
+   typedef Objects::iterator iterator;
+   typedef Objects::reverse_iterator reverse_iterator;
+@@ -65,6 +70,7 @@
+   bool empty() const;
+   void clear() { objects.clear(); }
+ 
++  bool contains(ObjectModelHandle object) const;
+   bool has_object(ObjectModelHandle object) const;
+ 
+   void on_move_start();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001819.html">[Windstille-commit] r2822 - in trunk/windstille/data: images/decal	sectors/trainstation
+</A></li>
+	<LI>Next message: <A HREF="001821.html">[Windstille-commit] r2824 - trunk/windstille/src/editor
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1820">[ date ]</a>
+              <a href="thread.html#1820">[ thread ]</a>
+              <a href="subject.html#1820">[ subject ]</a>
+              <a href="author.html#1820">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/windstille-commit">More information about the Windstille-commit
+mailing list</a><br>
+</body></html>
